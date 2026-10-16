@@ -1,14 +1,37 @@
-import { CURRENT_SAVE_VERSION, isSaveGameV1, type SaveEnvelope, type SaveGameV1 } from './schema';
+import { MAX_TIME_SCALE } from '../core/time';
+import { CURRENT_SAVE_VERSION, isSaveGame, isSaveGameV1, type SaveEnvelope, type SaveGame, type SaveGameV2 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
 export type Migration = (data: unknown) => unknown;
 export type MigrationTable = Readonly<Record<number, Migration>>;
 
+/** Camera pitch v1 saves did not record (the player controller's default). */
+export const V1_DEFAULT_PITCH = 0.25;
+
 /**
- * Forward migrations keyed by the version they migrate FROM.
- * Add `[1]: migrateV1ToV2` when `CURRENT_SAVE_VERSION` becomes 2, and so on.
+ * v1 -> v2: adds per-entity motion state (v1 bodies were saved without it, so
+ * they load at rest and awake, as before) and the camera pitch, and clamps the
+ * time scale to `MAX_TIME_SCALE`. Data that is
+ * not a valid v1 payload is passed through for the final validation to reject.
  */
-export const migrations: MigrationTable = {};
+export function migrateV1ToV2(data: unknown): unknown {
+  if (!isSaveGameV1(data)) return data;
+  const v2: SaveGameV2 = {
+    seed: data.seed,
+    rngState: data.rngState,
+    // v1 builds allowed any time scale >= 0; v2 caps it.
+    clock: { simTime: data.clock.simTime, timeScale: Math.min(data.clock.timeScale, MAX_TIME_SCALE) },
+    officer: { ...data.officer },
+    camera: { pitch: V1_DEFAULT_PITCH },
+    world: {
+      entities: data.world.entities.map((e) => ({ ...e, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, sleeping: false })),
+    },
+  };
+  return v2;
+}
+
+/** Forward migrations keyed by the version they migrate FROM. */
+export const migrations: MigrationTable = { 1: migrateV1ToV2 };
 
 export const MIGRATION_FAILURES = {
   missingStep: 'missing-step',
@@ -48,7 +71,7 @@ export class SaveMigrationError extends Error {
 export function migrateEnvelope(
   env: SaveEnvelope<unknown>,
   migrationsTable: MigrationTable = migrations,
-): SaveEnvelope<SaveGameV1> {
+): SaveEnvelope<SaveGame> {
   const fromVersion = env.version;
   const info = { slot: env.slot, fromVersion, atVersion: fromVersion };
 
@@ -84,7 +107,7 @@ export function migrateEnvelope(
     version += 1;
   }
 
-  if (!isSaveGameV1(data)) {
+  if (!isSaveGame(data)) {
     throw new SaveMigrationError(
       MIGRATION_FAILURES.invalidData,
       `Save '${env.slot}' does not match schema version ${CURRENT_SAVE_VERSION}`,

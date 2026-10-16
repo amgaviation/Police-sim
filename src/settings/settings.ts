@@ -9,7 +9,7 @@ import {
   type BindingMap,
   type SerializedBindings,
 } from '../input/bindings';
-import { readSettingsBlob, writeSettingsBlob } from '../save/saveManager';
+import { SettingsBlobStore } from '../save/saveManager';
 
 /** Bump when the persisted shape changes and add a step to `SETTINGS_MIGRATIONS`. */
 export const SETTINGS_VERSION = 1;
@@ -78,9 +78,14 @@ export type SettingsValue<P extends SettingsPath> = P extends `${infer S}.${infe
 
 // --- Field table --------------------------------------------------------------
 
-export interface NumberField {
-  readonly kind: 'number';
+interface FieldBase {
   readonly label: string;
+  /** False for settings that are stored but not consumed by anything yet; the menu hides them. */
+  readonly implemented?: boolean;
+}
+
+export interface NumberField extends FieldBase {
+  readonly kind: 'number';
   readonly min: number;
   readonly max: number;
   /** UI slider granularity; values are clamped, not snapped. */
@@ -93,28 +98,24 @@ export interface EnumOption {
   readonly label: string;
 }
 
-export interface EnumField {
+export interface EnumField extends FieldBase {
   readonly kind: 'enum';
-  readonly label: string;
   readonly options: readonly EnumOption[];
 }
 
-export interface BooleanField {
+export interface BooleanField extends FieldBase {
   readonly kind: 'boolean';
-  readonly label: string;
 }
 
-export interface TextField {
+export interface TextField extends FieldBase {
   readonly kind: 'text';
-  readonly label: string;
   /** When true an empty string is stored as null. */
   readonly nullable: boolean;
   readonly placeholder?: string;
 }
 
-export interface BindingsField {
+export interface BindingsField extends FieldBase {
   readonly kind: 'bindings';
-  readonly label: string;
 }
 
 export type SettingsField = NumberField | EnumField | BooleanField | TextField | BindingsField;
@@ -143,11 +144,18 @@ export const SETTINGS_FIELDS = {
     ],
   },
   'graphics.drawDistance': { kind: 'number', label: 'Draw distance', min: 200, max: 2000, step: 50, unit: 'm' },
-  'audio.master': { kind: 'number', label: 'Master volume', min: 0, max: 1, step: 0.01 },
-  'audio.sfx': { kind: 'number', label: 'Effects volume', min: 0, max: 1, step: 0.01 },
-  'audio.radio': { kind: 'number', label: 'Radio volume', min: 0, max: 1, step: 0.01 },
-  'audio.music': { kind: 'number', label: 'Music volume', min: 0, max: 1, step: 0.01 },
-  'audio.ttsVoice': { kind: 'text', label: 'Dispatch voice', nullable: true, placeholder: 'Browser default' },
+  // Audio arrives in a later phase; the values persist but nothing plays yet.
+  'audio.master': { kind: 'number', label: 'Master volume', min: 0, max: 1, step: 0.01, implemented: false },
+  'audio.sfx': { kind: 'number', label: 'Effects volume', min: 0, max: 1, step: 0.01, implemented: false },
+  'audio.radio': { kind: 'number', label: 'Radio volume', min: 0, max: 1, step: 0.01, implemented: false },
+  'audio.music': { kind: 'number', label: 'Music volume', min: 0, max: 1, step: 0.01, implemented: false },
+  'audio.ttsVoice': {
+    kind: 'text',
+    label: 'Dispatch voice',
+    nullable: true,
+    placeholder: 'Browser default',
+    implemented: false,
+  },
   'controls.mouseSensitivity': { kind: 'number', label: 'Mouse sensitivity', min: 0.1, max: 5, step: 0.05 },
   'controls.invertY': { kind: 'boolean', label: 'Invert look Y' },
   'controls.gamepadDeadzone': { kind: 'number', label: 'Gamepad deadzone', min: 0, max: 0.5, step: 0.01 },
@@ -156,6 +164,7 @@ export const SETTINGS_FIELDS = {
   'accessibility.colorblind': {
     kind: 'enum',
     label: 'Color vision',
+    implemented: false,
     options: [
       { value: 'none', label: 'Default' },
       { value: 'protanopia', label: 'Protanopia' },
@@ -164,8 +173,8 @@ export const SETTINGS_FIELDS = {
     ],
   },
   'accessibility.reducedFlash': { kind: 'boolean', label: 'Reduce flashing lights' },
-  'accessibility.subtitles': { kind: 'boolean', label: 'Subtitles' },
-  'accessibility.oneHanded': { kind: 'boolean', label: 'One-handed mode' },
+  'accessibility.subtitles': { kind: 'boolean', label: 'Subtitles', implemented: false },
+  'accessibility.oneHanded': { kind: 'boolean', label: 'One-handed mode', implemented: false },
 } as const satisfies Record<SettingsPath, SettingsField>;
 
 /** All setting paths in declaration order. */
@@ -182,6 +191,16 @@ export function settingsField(path: SettingsPath): SettingsField {
 /** Paths belonging to one section, in declaration order. */
 export function fieldsOfSection(section: SettingsSection): SettingsPath[] {
   return SETTINGS_PATHS.filter((p) => p.startsWith(`${section}.`));
+}
+
+/** True when something in the game consumes the setting (the menu only shows these). */
+export function isImplemented(path: SettingsPath): boolean {
+  return settingsField(path).implemented !== false;
+}
+
+/** Sections with at least one implemented setting, in menu order. */
+export function visibleSections(): SettingsSection[] {
+  return SETTINGS_SECTIONS.filter((section) => fieldsOfSection(section).some(isImplemented));
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
@@ -360,6 +379,8 @@ export type SettingsListener = (change: SettingsChange, settings: Readonly<Setti
 export interface SettingsStorage {
   read(): Promise<unknown>;
   write(value: unknown): Promise<void>;
+  /** Releases the backing connection, if any (called by `SettingsStore.dispose`). */
+  close?(): void;
 }
 
 export interface SettingsStoreOptions {
@@ -373,10 +394,7 @@ export interface SettingsStoreOptions {
 }
 
 function idbStorage(factory?: IDBFactory): SettingsStorage {
-  return {
-    read: () => readSettingsBlob(factory),
-    write: (value) => writeSettingsBlob(value, factory),
-  };
+  return new SettingsBlobStore(factory);
 }
 
 /**
@@ -392,6 +410,8 @@ export class SettingsStore {
   private readonly migrations: SettingsMigrationTable;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingSave: Promise<void> | null = null;
+  /** Version of a stored blob newer than this build; while set, nothing is written over it. */
+  private newerBlobVersion: number | null = null;
 
   constructor(options: SettingsStoreOptions = {}) {
     this.bus = options.bus ?? defaultBus;
@@ -454,18 +474,44 @@ export class SettingsStore {
     };
   }
 
-  /** Reads the blob, migrates and validates it, then notifies with path `'*'`. */
+  /**
+   * Reads the blob, migrates and validates it, then notifies with path `'*'`.
+   * Settings are best-effort: when storage cannot be read the defaults are used.
+   */
   async load(): Promise<void> {
-    const blob = await this.storage.read();
+    let blob: unknown;
+    try {
+      blob = await this.storage.read();
+    } catch (error) {
+      log.error('Settings could not be read; using defaults:', error);
+      blob = undefined;
+    }
+    const version = isRecord(blob) ? blob['version'] : undefined;
+    this.newerBlobVersion = typeof version === 'number' && version > SETTINGS_VERSION ? version : null;
+    if (this.newerBlobVersion !== null) {
+      log.warn(`Settings were saved by a newer version (${this.newerBlobVersion}); changes will not be saved over them`);
+    }
     this.state = parseSettings(blob, this.migrations);
     this.notify('*', this.get(), false);
   }
 
-  /** Writes the blob immediately (cancelling any pending autosave). */
+  /**
+   * Writes the blob immediately (cancelling any pending autosave). The write
+   * starts synchronously, so it can run inside a page-hide handler; the store
+   * commits writes in call order. Does nothing while the stored blob is from a
+   * newer version (see `load`), so its unknown fields are not lost.
+   */
   save(): Promise<void> {
     this.cancelTimer();
-    const run = (): Promise<void> => this.storage.write(this.toJSON());
-    const next: Promise<void> = (this.pendingSave ? this.pendingSave.then(run, run) : run()).finally(() => {
+    if (this.newerBlobVersion !== null) return Promise.resolve();
+    let write: Promise<void>;
+    try {
+      write = this.storage.write(this.toJSON());
+    } catch (error) {
+      write = Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+    const previous = this.pendingSave;
+    const next: Promise<void> = (previous ? Promise.allSettled([previous, write]).then(() => write) : write).finally(() => {
       if (this.pendingSave === next) this.pendingSave = null;
     });
     this.pendingSave = next;
@@ -495,10 +541,23 @@ export class SettingsStore {
     return serializeSettings(this.state);
   }
 
-  /** Cancels a pending autosave and drops listeners. */
+  /**
+   * Drops listeners, writes a change still waiting for its autosave, and
+   * closes the storage once the last write has finished.
+   */
   dispose(): void {
-    this.cancelTimer();
     this.listeners.clear();
+    const pending = this.saveTimer !== null ? this.save() : this.pendingSave;
+    const close = (): void => this.storage.close?.();
+    if (!pending) {
+      close();
+      return;
+    }
+    void pending
+      .catch((error: unknown) => {
+        log.error('Settings save on dispose failed:', error);
+      })
+      .finally(close);
   }
 
   private notify(path: SettingsPath | '*', value: unknown, schedule = true): void {

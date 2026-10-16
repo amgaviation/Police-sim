@@ -1,4 +1,4 @@
-import { ACTION_IDS, isActionId, type ActionId } from './actions';
+import { ACTION_IDS, actionKind, isActionId, isBipolar, type ActionId } from './actions';
 
 export type InputDevice = 'keyboard' | 'mouse' | 'gamepad';
 
@@ -64,6 +64,29 @@ const GAMEPAD_CODE = /^Gamepad(Button|Axis)\d+$/;
 
 function isDevice(value: unknown): value is InputDevice {
   return value === 'keyboard' || value === 'mouse' || value === 'gamepad';
+}
+
+/**
+ * Fits a captured binding to a slot of `action` whose sign is `sign` (-1 for
+ * slots such as "Steer left"). A captured gamepad axis records the way the
+ * stick was pushed: button and one-way axis actions keep that direction,
+ * while two-way axes (look, steer) take the slot's sign instead, so pushing a
+ * stick up into "Look vertical" does not invert it. Button actions are never
+ * negative.
+ */
+export function withBindingSign(captured: Binding, sign: number, action: ActionId): Binding {
+  if (captured.device === 'gamepad' && captured.code.startsWith('GamepadAxis')) {
+    if (!isBipolar(action)) return { ...captured };
+    const axis: Binding = { device: captured.device, code: captured.code };
+    return sign < 0 ? { ...axis, scale: -1 } : axis;
+  }
+  if (sign >= 0 || actionKind(action) === 'button') return { ...captured };
+  return { ...captured, scale: -Math.abs(captured.scale ?? 1) };
+}
+
+/** Sign of a binding's scale: -1 for negative slots, otherwise 1. */
+export function bindingSign(binding: Binding | undefined): -1 | 1 {
+  return binding !== undefined && (binding.scale ?? 1) < 0 ? -1 : 1;
 }
 
 /** True when `value` is a structurally valid binding for its device. */

@@ -1,3 +1,4 @@
+import { log } from '../core/log';
 import {
   isResponseEnvelope,
   type ProtocolMap,
@@ -138,27 +139,44 @@ export interface WorkerLike {
   terminate(): void;
 }
 
-/** Promise-based RPC over a dedicated Web Worker. */
+/**
+ * Promise-based RPC over a dedicated Web Worker.
+ *
+ * An `error` event before the worker has ever answered means its script failed
+ * to load or evaluate: the client is marked failed, pending calls reject, and
+ * later calls reject at once. An `error` from a worker that has answered is a
+ * runtime error in a live worker; it is logged and pending calls are left to be
+ * answered or time out. A `messageerror` carries no request id, so it is logged
+ * and the affected call times out.
+ */
 export class WorkerClient<M extends ProtocolMap> {
   private readonly core: RpcCore<M>;
   private readonly worker: WorkerLike;
   private terminated = false;
+  private failure: string | null = null;
+  private answered = false;
 
   constructor(worker: WorkerLike, options: RpcCoreOptions = {}) {
     this.worker = worker;
     this.core = createRpcCore<M>((message, transfer) => {
-      if (this.terminated) throw new RpcError('worker client is terminated', message.type, message.id);
+      if (this.terminated) {
+        const reason = this.failure ?? 'worker client is terminated';
+        throw new RpcError(reason, message.type, message.id);
+      }
       if (transfer && transfer.length > 0) worker.postMessage(message, transfer);
       else worker.postMessage(message);
     }, options);
     worker.addEventListener('message', (event: MessageEvent) => {
+      this.answered = true;
       this.core.handleMessage(event.data);
     });
     worker.addEventListener('error', (event: ErrorEvent) => {
-      this.core.rejectAll(`worker error: ${event.message || 'unknown'}`);
+      const reason = `worker error: ${event.message || 'unknown'}`;
+      if (this.answered) log.error(reason);
+      else this.fail(reason);
     });
     worker.addEventListener('messageerror', () => {
-      this.core.rejectAll('worker message could not be deserialized');
+      log.warn('A worker message could not be deserialized; its call will time out');
     });
   }
 
@@ -181,6 +199,19 @@ export class WorkerClient<M extends ProtocolMap> {
 
   get isTerminated(): boolean {
     return this.terminated;
+  }
+
+  /** True when the worker failed to start; every call rejects immediately. */
+  get isFailed(): boolean {
+    return this.failure !== null;
+  }
+
+  private fail(reason: string): void {
+    if (this.terminated) return;
+    this.failure = `worker unavailable (${reason})`;
+    this.terminated = true;
+    this.core.rejectAll(this.failure);
+    this.worker.terminate();
   }
 
   /** Stops the worker and rejects every pending call; idempotent. */

@@ -17,6 +17,11 @@ function showFatal(error: unknown): void {
   document.body.appendChild(box);
 }
 
+// Surface stray promise rejections in the in-game console instead of only in devtools.
+window.addEventListener('unhandledrejection', (event) => {
+  log.error('Unhandled rejection:', event.reason);
+});
+
 async function main(): Promise<void> {
   const app = await App.create();
   if (import.meta.env.DEV) window.patrol = app;

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { log } from '../../src/core/log';
 import { GameLoop, stepAccumulator, type FrameScheduler, type LoopHooks } from '../../src/core/loop';
+import { MAX_TIME_SCALE } from '../../src/core/time';
 
 const FIXED = 1 / 60;
 
@@ -126,10 +128,26 @@ describe('GameLoop', () => {
     const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60, maxFrameTime: 0.25, maxSubSteps: 5 });
     loop.start();
     scheduler.frame(0);
-    scheduler.frame(10_000); // 10 s stall
+    scheduler.frame(10_000); // 10 s gap (a background tab): too long to be a frame
     expect(h.fixed).toHaveBeenCalledTimes(5);
-    expect(loop.stats.frameMs).toBe(250);
+    expect(h.upd).toHaveBeenLastCalledWith(0.25, loop.stats.alpha);
+    expect(loop.stats.frameMs).toBe(0);
     expect(loop.stats.alpha).toBeLessThan(1);
+  });
+
+  it('reports the real length of a hitch while stepping at most maxFrameTime of simulation', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60, maxFrameTime: 0.25, maxSubSteps: 100 });
+    loop.start();
+    for (let i = 0; i < 60; i++) scheduler.frame(i * (1000 / 60));
+    const before = h.fixed.mock.calls.length;
+    const fps = loop.stats.fps;
+    scheduler.frame(59 * (1000 / 60) + 1200); // 1.2 s stall
+    expect(loop.stats.frameMs).toBeCloseTo(1200, 6);
+    expect(loop.stats.fps).toBeLessThan(fps);
+    expect(h.fixed.mock.calls.length - before).toBe(15); // 0.25 s of 1/60 s steps
+    expect(h.upd).toHaveBeenLastCalledWith(0.25, loop.stats.alpha);
   });
 
   it('skips fixedUpdate while paused but still updates and renders', () => {
@@ -150,6 +168,94 @@ describe('GameLoop', () => {
     loop.paused = false;
     scheduler.frame(217);
     expect(h.fixed).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the interpolation alpha while paused so the image does not jump back', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60 });
+    loop.start();
+    scheduler.frame(0);
+    scheduler.frame(1000 / 60 + 10);
+    const alpha = loop.stats.alpha;
+    expect(alpha).toBeGreaterThan(0.5);
+    loop.paused = true;
+    scheduler.frame(50);
+    scheduler.frame(400);
+    expect(h.ren).toHaveBeenLastCalledWith(alpha);
+    expect(loop.stats.alpha).toBe(alpha);
+    loop.paused = false;
+    scheduler.frame(401);
+    expect(loop.stats.alpha).toBeGreaterThan(alpha);
+  });
+
+  it('scales simulated time while keeping fixedDt steps (timeScale)', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60 });
+    loop.timeScale = 0.5;
+    loop.start();
+    scheduler.frame(0);
+    scheduler.frame(1000); // 1 s real = 0.5 s simulated, but only maxFrameTime (0.25 s) of real time counts
+    expect(h.fixed.mock.calls.every((c) => c[0] === loop.fixedDt)).toBe(true);
+    expect(h.fixed).toHaveBeenCalledTimes(5); // floor(0.25 * 0.5 * 60) = 7, capped at 5
+    loop.timeScale = 0;
+    scheduler.frame(1100);
+    expect(h.fixed).toHaveBeenCalledTimes(5);
+    expect(() => {
+      loop.timeScale = -1;
+    }).toThrow(RangeError);
+  });
+
+  it.each([0.25, 0.5, 1, 2, 3])('interpolated motion is monotonic at timeScale %s on a 144 Hz display', (scale) => {
+    // One entity moving +1 unit per fixed step; render shows prev + (cur - prev) * alpha.
+    let prev = 0;
+    let cur = 0;
+    const rendered: number[] = [];
+    const hooks: LoopHooks = {
+      fixedUpdate: () => {
+        prev = cur;
+        cur += 1;
+      },
+      update: () => undefined,
+      render: (alpha) => rendered.push(prev + (cur - prev) * alpha),
+    };
+    const scheduler = manualScheduler();
+    const loop = new GameLoop({ hooks, scheduler, simHz: 60 });
+    loop.timeScale = scale;
+    loop.start();
+    for (let i = 0; i < 400; i++) scheduler.frame((i * 1000) / 144);
+    // Skip the first frames: before the first step there is no previous state to interpolate from.
+    const settled = rendered.slice(30);
+    const deltas = settled.slice(1).map((v, i) => v - (settled[i] ?? 0));
+    const ideal = (60 / 144) * scale;
+    for (const d of deltas) {
+      expect(d).toBeGreaterThanOrEqual(-1e-9);
+      expect(Math.abs(d - ideal)).toBeLessThan(1e-6);
+    }
+  });
+
+  it('frameCap skips frames offered faster than the cap', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60 });
+    loop.frameCap = 30;
+    loop.start();
+    for (let i = 0; i < 60; i++) scheduler.frame((i * 1000) / 60); // 1 s of 60 Hz frames
+    expect(h.ren).toHaveBeenCalledTimes(30);
+    loop.frameCap = 0;
+    for (let i = 60; i < 120; i++) scheduler.frame((i * 1000) / 60);
+    expect(h.ren).toHaveBeenCalledTimes(90);
+  });
+
+  it('frameCap at the display rate tolerates timestamp jitter', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60 });
+    loop.frameCap = 60;
+    loop.start();
+    for (let i = 0; i < 120; i++) scheduler.frame((i * 1000) / 60 + (i % 2 === 0 ? 0.4 : -0.4));
+    expect(h.ren).toHaveBeenCalledTimes(120);
   });
 
   it('stops scheduling after stop() is called from inside a hook', () => {
@@ -175,6 +281,53 @@ describe('GameLoop', () => {
       expect(h.fixed.mock.calls.length).toBeGreaterThan(0);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('bounds the fixed steps per frame however large the time scale (spiral-of-death guard)', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60 });
+    expect(() => {
+      loop.timeScale = 1e6;
+    }).toThrow(RangeError);
+    expect(() => {
+      loop.timeScale = MAX_TIME_SCALE + 0.5;
+    }).toThrow(RangeError);
+    loop.timeScale = MAX_TIME_SCALE;
+    loop.start();
+    scheduler.frame(0);
+    scheduler.frame(250);
+    scheduler.frame(10_000); // a long stall is clamped to maxFrameTime
+    expect(loop.stats.stepsLastFrame).toBeLessThanOrEqual(loop.maxSubSteps * MAX_TIME_SCALE);
+    expect(h.fixed.mock.calls.length).toBeLessThanOrEqual(2 * loop.maxSubSteps * MAX_TIME_SCALE);
+  });
+
+  it('keeps running after a hook throws, and logs the error', () => {
+    const scheduler = manualScheduler();
+    const h = makeHooks();
+    let once = true;
+    h.fixed.mockImplementation(() => {
+      if (once) {
+        once = false;
+        throw new Error('boom');
+      }
+    });
+    const errors = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    try {
+      const loop = new GameLoop({ hooks: h.hooks, scheduler, simHz: 60 });
+      loop.start();
+      scheduler.frame(0);
+      scheduler.frame(20); // throws inside fixedUpdate
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(loop.isRunning).toBe(true);
+      expect(scheduler.pending()).toBe(1);
+      const rendered = h.ren.mock.calls.length;
+      scheduler.frame(40);
+      expect(h.ren.mock.calls.length).toBe(rendered + 1);
+      expect(h.fixed.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      errors.mockRestore();
     }
   });
 

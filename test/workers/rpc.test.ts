@@ -7,6 +7,7 @@ import {
   type ResponseEnvelope,
   type Rpc,
 } from '../../src/workers/protocol';
+import { log } from '../../src/core/log';
 import { createRpcCore, RpcError, WorkerClient, type WorkerLike } from '../../src/workers/workerClient';
 
 type TestMap = {
@@ -234,5 +235,51 @@ describe('WorkerClient', () => {
     const pending = client.call('slow', {});
     emit('error', { message: 'script crashed' } as ErrorEvent);
     await expect(pending).rejects.toThrow('worker error: script crashed');
+  });
+
+  it('an error before any answer marks the client failed: later calls reject at once', async () => {
+    vi.useFakeTimers();
+    try {
+      const { worker, emit, terminatedCount } = fakeWorker();
+      const client = new WorkerClient<TestMap>(worker);
+      emit('error', { message: 'failed to load module' } as ErrorEvent);
+      expect(client.isFailed).toBe(true);
+      expect(client.isTerminated).toBe(true);
+      expect(terminatedCount()).toBe(1);
+      let outcome: unknown = 'pending';
+      void client.call('slow', {}).then(
+        () => (outcome = 'resolved'),
+        (e: unknown) => (outcome = e),
+      );
+      await vi.advanceTimersByTimeAsync(0); // settles now, not after the 5 s timeout
+      expect(outcome).toBeInstanceOf(RpcError);
+      expect((outcome as RpcError).message).toContain('worker unavailable');
+      expect(client.pendingCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a runtime error in a live worker leaves pending calls to be answered', async () => {
+    const { worker, emit } = fakeWorker();
+    const client = new WorkerClient<TestMap>(worker);
+    await client.call('add', { a: 1, b: 2 });
+    const errors = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const warns = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    try {
+      const pending = client.call('slow', {});
+      const id = 2; // the earlier 'add' call used id 1
+      emit('error', { message: 'handler threw' } as ErrorEvent);
+      emit('messageerror', {} as MessageEvent);
+      expect(client.isFailed).toBe(false);
+      expect(client.pendingCount).toBe(1);
+      emit('message', { data: { id, ok: true, result: { done: true } } } as MessageEvent);
+      await expect(pending).resolves.toEqual({ done: true });
+      expect(errors).toHaveBeenCalledOnce();
+      expect(warns).toHaveBeenCalledOnce();
+    } finally {
+      errors.mockRestore();
+      warns.mockRestore();
+    }
   });
 });

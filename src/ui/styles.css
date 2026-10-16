@@ -42,6 +42,8 @@ canvas#game {
   user-select: none;
 }
 #ui[hidden] { display: none; }
+/* Console output stays selectable so errors and listings can be copied. */
+#debug-console { user-select: text; }
 
 .ui-hud { position: absolute; inset: 0; pointer-events: none; }
 .ui-hud > * { pointer-events: auto; }
@@ -147,7 +149,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 1.1em; height: 1.1e
   align-items: center;
 }
 .chip.capturing { border-color: var(--accent); color: var(--accent); animation: blink 1s step-end infinite; }
-.chip .x { color: var(--fg-dim); cursor: pointer; padding: 0 2px; }
+.chip .x { font: inherit; color: var(--fg-dim); background: none; border: none; cursor: pointer; padding: 0 2px; }
 .chip .x:hover { color: var(--danger); }
 @keyframes blink { 50% { opacity: 0.4; } }
 

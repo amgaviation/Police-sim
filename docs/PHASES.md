@@ -34,13 +34,14 @@ npm run smoke      # headless browser test + docs/screenshots/phase0.png
 1. Title screen shows; type a seed (e.g. `42`) and press **New game**. The same seed always produces the same pyramid and scatter.
 2. Click the canvas to lock the pointer. **WASD** moves the blue player box, **Shift** sprints, mouse turns the camera; walking into the pile pushes boxes.
 3. **F3** toggles the perf overlay; **`** (backquote) opens the console. Try `help`, `fps`, `entities`, `spawn box 20`, `timescale 0.25`, `pause`, `seed 7`, `settings set graphics.fov 100`, `worker ping`, `debugcam`.
-4. **Esc** opens the pause menu (simulation pauses, boxes freeze); **Resume** or Esc again continues. **Quick save** writes slot `quicksave`.
-5. From the pause menu open **Settings**: drag *Render scale*, *Field of view*, *Shadows* and *Text scale* and confirm they apply immediately; rebind a key under *Controls*; reload the page and confirm settings persisted.
-6. **Quit to title** → the `quicksave` (and `autosave` after 60 s in game) slots are listed under *Continue*; loading restores the box positions and the player's facing.
+4. **Esc** opens the pause menu (simulation pauses, boxes freeze in place); **Resume** or Esc again continues. While the pointer is locked, the first Esc releases it and opens the pause menu. **Quick save** writes slot `quicksave`. The console `pause` stays paused through opening and closing menus until `pause` is run again.
+5. From the pause menu open **Settings**: drag *Render scale*, *Field of view*, *Shadows*, *Frame cap*, *Draw distance*, *Gamepad deadzone* and *Text size* (also scales the console and perf overlay) and confirm they apply immediately; rebind a key or mouse button under *Controls*, then press Esc (closes Settings); reload the page and confirm settings persisted.
+6. **Quit to title** → the `quicksave` (and `autosave` after 60 s in game) slots are listed under *Continue*; loading restores the box positions and motion, the player's facing and the camera pitch. A damaged or newer-version save shows a message under the list instead of doing nothing.
 7. Resize the window: the canvas follows without stretching.
 
 ### Known limitations
-- Velocities are not persisted (schema v1 stores transforms only), so loaded boxes start at rest.
+- Saves (schema v2) restore every body's transform, velocity and sleep state exactly (loading runs one uncounted, gravity-free priming step to rebuild contact pairs, so a settled pile stays asleep and in place), but not Rapier's internal warm-start caches, so a pile that is being pushed at the moment of saving continues slightly differently after a load (a full Rapier snapshot would make it exact but costs ~0.5 MB per save). New games with the same seed and inputs replay exactly, including later sessions in the same page.
+- Audio, colour-vision, subtitle and one-handed settings are stored but hidden from the menu until the systems that use them exist.
 - The player is a box, not a character controller; there is no jumping, slopes or stairs.
 - Under software GL (SwiftShader) the frame rate is ~10 fps and the loop hits its 5-sub-step cap; on a real GPU it runs at the display rate.
 - The Rapier bundle (~4.3 MB) is imported statically; splitting it into a worker/dynamic import is Phase 1+ work.

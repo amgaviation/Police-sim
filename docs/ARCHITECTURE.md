@@ -15,18 +15,18 @@ Browser-based law-enforcement patrol simulator. Vite + TypeScript (strict), thre
 
 ```
 src/
-  main.ts                 bootstrap: creates App, mounts UI, starts loop
-  app.ts                  App composition root; owns systems, exposes `app` on window in dev
+  main.ts                 bootstrap: creates App, mounts UI, starts loop; exposes the App as `window.patrol` in dev builds
+  app.ts                  App composition root; owns systems; a fresh physics world per session
   core/
     loop.ts               fixed-timestep game loop (accumulator, maxSubSteps, interpolation alpha)
     events.ts             typed EventBus (on/off/once/emit), event map in core/event-map.ts
-    rng.ts                seeded PRNG (PCG32/xoshiro), named streams, fork(), serialize/restore state
+    rng.ts                seeded PRNG (xoshiro128**), named child streams via stream(name), serialize/restore state
     time.ts               GameClock (sim time, time scale, pause)
     log.ts                leveled logger that also feeds the debug console
   ecs/
     world.ts              bitECS world wrapper, entity lifecycle helpers
     components.ts         SoA component definitions (Transform, Velocity, ...)
-    systems.ts            system registration/order; each system = (world, dt) => void
+    systems.ts            system registration/order; a System is { name: string; run(world, dt): void }, registered with an order number (lower runs first)
   input/
     input.ts              InputManager: action map, keyboard/mouse/gamepad sources, rebinding
     bindings.ts           default bindings + serializable binding schema
@@ -48,9 +48,11 @@ src/
     settingsMenu.ts       settings menu bound to Settings
     mainMenu.ts           new game / continue / settings
   workers/
-    worker-protocol.ts    typed message protocol for worker RPC
+    protocol.ts           typed message protocol for worker RPC
     sim.worker.ts         placeholder AI/traffic worker (ping/pong) — proves worker pipeline
-tests/                    vitest unit tests (rng determinism, event bus, save migrations, loop accumulator)
+  game/
+    testScene.ts          Phase 0 demo session (player + box pile), save/load of a session
+test/                     vitest unit tests, one folder per src module (node environment, no DOM/WebGL)
 docs/
   ARCHITECTURE.md         this file
   ASSETS.md               third-party asset license tracking
@@ -67,7 +69,11 @@ interface LoopHooks {
   render(alpha: number): void;
 }
 ```
-Accumulator clamps to `maxFrameTime` (0.25 s) to avoid spiral-of-death; at most `maxSubSteps` (5) fixed steps per frame.
+Accumulator clamps to `maxFrameTime` (0.25 s) to avoid spiral-of-death; at most `maxSubSteps` (5) fixed steps per frame (scaled up with `timeScale`, which is bounded to `MAX_TIME_SCALE` = 8 by the loop, `GameClock`, the `timescale` command and save validation, so a frame never runs more than 40 steps). A hook that throws is logged and the loop keeps scheduling frames.
+`loop.timeScale` scales real time before it reaches the accumulator, so every fixed step is exactly `1 / SIM_HZ` of simulated time and the render `alpha` always interpolates the last two simulated states. `loop.paused` (owned by `App.refreshPause`: console pause or any open menu) skips fixed steps but keeps `alpha`. `loop.frameCap` limits frames per second.
+
+### Determinism across sessions
+Rapier does not return to a pristine state after bodies are removed, so `App` disposes the physics world and clears the ECS world before every new or loaded session (`createScenePhysics`). The session advances `world.time` and its `GameClock` once per fixed step; both are rewound when a session starts and restored from `clock.simTime` on load.
 
 ### Event bus
 ```ts
@@ -85,15 +91,15 @@ traffic.next() / nextInt(min,max) / pick(arr) / chance(p) / state() / restore(s)
 
 ### Save
 ```ts
-interface SaveEnvelope<T> { version: number; createdAt: number; updatedAt: number; data: T }
+interface SaveEnvelope<T> { version: number; createdAt: number; updatedAt: number; slot: string; data: T }
 ```
-`migrate(envelope)` applies `migrations[version]` until `CURRENT_SAVE_VERSION`. Tests assert every version from 1..current migrates.
+The object-store key is the slot; `list()` names rows by key and `load()` repairs a disagreeing `slot` field. `migrateEnvelope(envelope)` applies `migrations[version]` until `CURRENT_SAVE_VERSION` (2), then validates with `isSaveGame`; `save()` validates before writing so a save that would not load is never stored. v2 stores each body's transform, linear/angular velocity and sleep state plus the camera pitch (v1 saves migrate with bodies at rest). Tests assert every version from 1..current migrates.
 
 ### Input
 Actions are abstract (`'move.forward'`, `'vehicle.siren'`...). Bindings map device inputs → actions. Rebinding UI edits bindings and persists through Settings.
 
 ### Debug console commands (Phase 0)
-`help`, `clear`, `seed [n]`, `timescale <x>`, `save <slot>`, `load <slot>`, `perf`, `fps`, `spawn test`.
+`help`, `clear`, `echo`, `seed [n]`, `timescale [x]`, `pause`, `save [slot]`, `load [slot]`, `saves`, `perf`, `fps`, `spawn box [n]`, `entities`, `settings get <path> | set <path> <value> | list`, `worker ping`, `debugcam`.
 
 ## Workers
 Heavy AI/traffic/pathfinding run in Web Workers (Phase 1+). Protocol: `{ id, type, payload }` request/response with transferables where possible. Main thread never blocks on a worker.

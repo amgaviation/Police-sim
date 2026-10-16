@@ -28,7 +28,7 @@ export interface RawInputState {
   readonly gamepadAxes: readonly number[];
 }
 
-/** Resolved value of every action, clamped to -1..1. */
+/** Resolved value of every action: -1..1 for axis actions, 0..1 for button actions. */
 export type ActionState = Readonly<Record<ActionId, number>>;
 
 const EMPTY_MOUSE: Readonly<MouseDelta> = { x: 0, y: 0, wheel: 0 };
@@ -75,19 +75,27 @@ function codeIndex(code: string, prefix: string): number | undefined {
 /**
  * Pure mapping from device state to action values: every binding of an action
  * contributes `value * scale`, contributions are summed and clamped to -1..1.
+ * Button actions are one-sided (0..1): a stick half pushed the other way, as
+ * on "move back" while the stick is pushed forward, reads as released.
  */
 export function resolveActions(
   bindings: Readonly<BindingMap>,
   raw: RawInputState,
   deadzone: number = GAMEPAD_DEADZONE,
+  out: Record<ActionId, number> = {} as Record<ActionId, number>,
 ): ActionState {
-  const state = {} as Record<ActionId, number>;
+  const state = out;
   for (const id of ACTION_IDS) {
     let sum = 0;
     for (const binding of bindings[id]) sum += readBinding(binding, raw, deadzone);
-    state[id] = clamp(sum);
+    state[id] = actionKind(id) === 'button' ? Math.max(0, Math.min(1, sum)) : clamp(sum);
   }
   return state;
+}
+
+/** True for bindings that read pointer movement or the wheel (not mouse buttons). */
+export function isMouseMotionBinding(binding: Binding): boolean {
+  return binding.device === 'mouse' && (binding.code === 'MouseX' || binding.code === 'MouseY' || binding.code === 'MouseWheel');
 }
 
 function zeroState(): Record<ActionId, number> {
@@ -99,12 +107,18 @@ function zeroState(): Record<ActionId, number> {
 // Minimal structural views of DOM events so handlers are callable without a DOM.
 export interface KeyEventLike {
   readonly code: string;
+  /** Produced character (`KeyboardEvent.key`); one character for printable keys. */
+  readonly key?: string;
   readonly repeat?: boolean;
   readonly target?: unknown;
+  readonly ctrlKey?: boolean;
+  readonly metaKey?: boolean;
+  readonly altKey?: boolean;
   preventDefault?(): void;
 }
 export interface MouseButtonEventLike {
   readonly button: number;
+  readonly target?: unknown;
   preventDefault?(): void;
 }
 export interface MouseMoveEventLike {
@@ -119,6 +133,9 @@ export interface GamepadLike {
   readonly buttons: ReadonlyArray<{ readonly value: number; readonly pressed: boolean }>;
   readonly axes: readonly number[];
 }
+
+/** Called when pointer lock is released by the browser or the user (e.g. Escape). */
+export type PointerLockLostListener = () => void;
 
 /** Receives the next captured binding, or `null` when capture was cancelled (Escape). */
 export type CaptureCallback = (binding: Binding | null) => void;
@@ -145,6 +162,31 @@ function defaultGetGamepads(): ReadonlyArray<GamepadLike | null> {
   }
 }
 
+/**
+ * Keys that type a character into a text field. Backquote is exempt: it is the
+ * console's own toggle and must keep working inside the console input.
+ */
+function isPrintableKey(e: KeyEventLike): boolean {
+  return e.key !== undefined && e.key.length === 1 && e.code !== 'Backquote';
+}
+
+const MODIFIER_CODE = /^(Control|Alt|Meta|Shift)(Left|Right)$/;
+
+/** Ctrl, Cmd or Alt plus another key: a browser or OS shortcut, not game input. */
+function isShortcut(e: KeyEventLike): boolean {
+  return (e.ctrlKey === true || e.metaKey === true || e.altKey === true) && !MODIFIER_CODE.test(e.code);
+}
+
+/** Controls a rebinding click must reach (Back, tabs, other chips) unless marked `data-capture-target`. */
+const CAPTURE_EXEMPT = 'button, a, input, select, textarea, [role="tab"]';
+
+/** `target.closest(selector) !== null` for DOM-like targets; false otherwise. */
+function closestMatches(target: unknown, selector: string): boolean {
+  if (typeof target !== 'object' || target === null) return false;
+  const closest = (target as { closest?: unknown }).closest;
+  return typeof closest === 'function' && (closest as (s: string) => unknown).call(target, selector) !== null;
+}
+
 function isEditableTarget(target: unknown): boolean {
   if (typeof target !== 'object' || target === null) return false;
   const el = target as { tagName?: unknown; isContentEditable?: unknown };
@@ -163,7 +205,7 @@ type Listenable = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
  */
 export class InputManager {
   private readonly bus: EventBus<EventMap>;
-  private readonly deadzone: number;
+  private deadzoneValue: number;
   private readonly getGamepads: () => ReadonlyArray<GamepadLike | null>;
   private bindings: BindingMap;
 
@@ -172,11 +214,27 @@ export class InputManager {
   private readonly mouseButtons = new Set<number>();
   private readonly tappedMouseButtons = new Set<number>();
   private mouseAccum: MouseDelta = { x: 0, y: 0, wheel: 0 };
-  private frameMouse: Readonly<MouseDelta> = EMPTY_MOUSE;
+  private frameMouse: MouseDelta = { x: 0, y: 0, wheel: 0 };
+  private readonly frameLook = { x: 0, y: 0 };
   private gamepadButtons: number[] = [];
   private gamepadAxes: number[] = [];
+  private prevGamepadButtons: number[] = [];
+  private prevGamepadAxes: number[] = [];
+  private readonly heldKeys = new Set<string>();
+  private readonly heldButtons = new Set<number>();
+  /** Gamepad inputs just captured for rebinding; they read 0 until released. */
+  private readonly suppressedButtons = new Set<number>();
+  private readonly suppressedAxes = new Set<number>();
+  private raw: RawInputState = {
+    keys: this.keys,
+    mouseButtons: this.mouseButtons,
+    mouse: EMPTY_MOUSE,
+    gamepadButtons: [],
+    gamepadAxes: [],
+  };
 
   private state: Record<ActionId, number> = zeroState();
+  private nextState: Record<ActionId, number> = zeroState();
   private readonly down = new Set<ActionId>();
   private readonly pressed = new Set<ActionId>();
   private readonly released = new Set<ActionId>();
@@ -186,10 +244,13 @@ export class InputManager {
   private locked = false;
   private element: HTMLElement | null = null;
   private disposers: Array<() => void> = [];
+  private readonly pointerLockLost = new Set<PointerLockLostListener>();
+  /** Swallow the click that follows a mouse button captured for rebinding. */
+  private swallowClick = false;
 
   constructor(options: InputManagerOptions = {}) {
     this.bus = options.bus ?? defaultBus;
-    this.deadzone = options.deadzone ?? GAMEPAD_DEADZONE;
+    this.deadzoneValue = clampDeadzone(options.deadzone ?? GAMEPAD_DEADZONE);
     this.getGamepads = options.getGamepads ?? defaultGetGamepads;
     this.bindings = cloneBindings(options.bindings ?? DEFAULT_BINDINGS);
     this.pointerLockEnabled = options.pointerLock ?? false;
@@ -210,11 +271,17 @@ export class InputManager {
     this.listen(win, 'keyup', (e) => this.handleKeyUp(e as KeyboardEvent));
     this.listen(win, 'blur', () => this.handleBlur());
     this.listen(doc, 'pointerlockchange', () => {
-      this.locked = element !== null && doc.pointerLockElement === element;
-      if (!this.locked) this.clearMouse();
+      this.handlePointerLockChange(element !== null && doc.pointerLockElement === element);
     });
+    // Rebinding capture takes mouse buttons from anywhere (the menu covers the canvas),
+    // before any element sees them, and keeps the click from activating a control.
+    this.listen(win, 'mousedown', (e) => this.handleCaptureMouseDown(e as MouseEvent), { capture: true });
+    for (const type of ['click', 'auxclick', 'contextmenu']) {
+      this.listen(win, type, (e) => this.handleCaptureClick(e), { capture: true });
+    }
     this.listen(pointerTarget, 'mousedown', (e) => this.handleMouseDown(e as MouseEvent));
-    this.listen(pointerTarget, 'mouseup', (e) => this.handleMouseUp(e as MouseEvent));
+    // On the window: a button released over a menu or the console must not stay down.
+    this.listen(win, 'mouseup', (e) => this.handleMouseUp(e as MouseEvent));
     this.listen(pointerTarget, 'mousemove', (e) => this.handleMouseMove(e as MouseEvent));
     this.listen(pointerTarget, 'wheel', (e) => this.handleWheel(e as WheelEvent), { passive: true });
     this.listen(pointerTarget, 'contextmenu', (e) => e.preventDefault());
@@ -243,9 +310,14 @@ export class InputManager {
       this.deliverCapture(e.code === 'Escape' ? null : { device: 'keyboard', code: e.code });
       return;
     }
-    const uiKey = this.isBound('keyboard', e.code, UI_ACTIONS);
-    if (isEditableTarget(e.target) && !uiKey) return;
-    if (uiKey || this.isBound('keyboard', e.code)) e.preventDefault?.();
+    // Leave shortcuts (Ctrl+L, Cmd+S) to the browser; on macOS the key's keyup would never come.
+    if (isShortcut(e)) return;
+    const editable = isEditableTarget(e.target);
+    // In a text field, UI actions bound to printable keys must not swallow typing.
+    const uiKey = this.isBound('keyboard', e.code, UI_ACTIONS) && !(editable && isPrintableKey(e));
+    if (editable && !uiKey) return;
+    // Gameplay keys keep their default (scrolling, activating buttons) while a menu control has focus.
+    if (uiKey || (this.isBound('keyboard', e.code) && (this.locked || this.isGameTarget(e.target)))) e.preventDefault?.();
     if (e.repeat) return;
     this.keys.add(e.code);
     this.tappedKeys.add(e.code);
@@ -253,6 +325,57 @@ export class InputManager {
 
   handleKeyUp(e: KeyEventLike): void {
     this.keys.delete(e.code);
+    // macOS sends no keyup for keys released while Cmd was held.
+    if (e.code === 'MetaLeft' || e.code === 'MetaRight') this.keys.clear();
+  }
+
+  /**
+   * Window-level, capture-phase mousedown: delivers a pending rebinding capture.
+   * A primary click on another control (Back, a tab, another chip) cancels the
+   * capture and goes through; on the capturing chip or empty space it binds.
+   */
+  handleCaptureMouseDown(e: MouseButtonEventLike & { stopPropagation?(): void }): void {
+    this.swallowClick = false;
+    if (!this.capture) return;
+    if (e.button === 0 && closestMatches(e.target, CAPTURE_EXEMPT) && !closestMatches(e.target, '[data-capture-target]')) {
+      this.deliverCapture(null);
+      return;
+    }
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    this.swallowClick = true;
+    this.deliverCapture({ device: 'mouse', code: `MouseButton${e.button}` });
+  }
+
+  /** Swallows the click/auxclick/contextmenu produced by a captured mouse button. */
+  handleCaptureClick(e: { readonly type: string; preventDefault?(): void; stopPropagation?(): void }): void {
+    if (!this.swallowClick) return;
+    e.preventDefault?.();
+    e.stopPropagation?.();
+    if (e.type !== 'contextmenu') this.swallowClick = false;
+  }
+
+  /** Tracks pointer lock; notifies `onPointerLockLost` listeners when a held lock is released. */
+  handlePointerLockChange(locked: boolean): void {
+    if (locked && !this.pointerLockEnabled) {
+      // Granted after locking was turned off (a menu opened while it was pending).
+      this.element?.ownerDocument.exitPointerLock();
+      return;
+    }
+    const wasLocked = this.locked;
+    this.locked = locked;
+    if (locked) return;
+    this.clearMouse();
+    this.mouseButtons.clear();
+    if (wasLocked) for (const listener of [...this.pointerLockLost]) listener();
+  }
+
+  /** Subscribes to pointer-lock loss (the browser consumes the Escape that releases it). */
+  onPointerLockLost(listener: PointerLockLostListener): () => void {
+    this.pointerLockLost.add(listener);
+    return () => {
+      this.pointerLockLost.delete(listener);
+    };
   }
 
   handleMouseDown(e: MouseButtonEventLike): void {
@@ -261,7 +384,8 @@ export class InputManager {
       this.deliverCapture({ device: 'mouse', code: `MouseButton${e.button}` });
       return;
     }
-    if (this.pointerLockEnabled && !this.locked) this.requestPointerLock();
+    // The click that grabs the pointer does only that: it must not also fire its action.
+    if (this.pointerLockEnabled && !this.locked && this.requestPointerLock()) return;
     this.mouseButtons.add(e.button);
     this.tappedMouseButtons.add(e.button);
   }
@@ -296,20 +420,27 @@ export class InputManager {
   update(): void {
     this.pollGamepads();
 
-    const raw: RawInputState = {
-      keys: this.tappedKeys.size === 0 ? this.keys : new Set([...this.keys, ...this.tappedKeys]),
+    // Swap the accumulator with last frame's delta instead of allocating.
+    const frameMouse = this.mouseAccum;
+    this.mouseAccum = this.frameMouse;
+    this.mouseAccum.x = 0;
+    this.mouseAccum.y = 0;
+    this.mouseAccum.wheel = 0;
+    this.frameMouse = frameMouse;
+    this.frameLook.x = frameMouse.x;
+    this.frameLook.y = frameMouse.y;
+    this.raw = {
+      keys: this.tappedKeys.size === 0 ? this.keys : union(this.heldKeys, this.keys, this.tappedKeys),
       mouseButtons:
-        this.tappedMouseButtons.size === 0 ? this.mouseButtons : new Set([...this.mouseButtons, ...this.tappedMouseButtons]),
-      mouse: this.mouseAccum,
+        this.tappedMouseButtons.size === 0 ? this.mouseButtons : union(this.heldButtons, this.mouseButtons, this.tappedMouseButtons),
+      mouse: frameMouse,
       gamepadButtons: this.gamepadButtons,
       gamepadAxes: this.gamepadAxes,
     };
-    this.frameMouse = this.mouseAccum;
-    this.mouseAccum = { x: 0, y: 0, wheel: 0 };
     this.tappedKeys.clear();
     this.tappedMouseButtons.clear();
 
-    const state = resolveActions(this.bindings, raw, this.deadzone);
+    const state = resolveActions(this.bindings, this.raw, this.deadzoneValue, this.nextState);
     this.pressed.clear();
     this.released.clear();
     for (const id of ACTION_IDS) {
@@ -325,21 +456,40 @@ export class InputManager {
       }
       if (actionKind(id) === 'button') this.bus.emit('input:action', { action: id, value, pressed: isDown });
     }
+    this.nextState = this.state;
     this.state = state;
   }
 
   private pollGamepads(): void {
     const pad = this.getGamepads().find((p): p is GamepadLike => p !== null && p.connected);
+    // Double-buffered so polling does not allocate.
     const prevButtons = this.gamepadButtons;
     const prevAxes = this.gamepadAxes;
-    this.gamepadButtons = pad ? pad.buttons.map((b) => (b.value > 0 ? b.value : b.pressed ? 1 : 0)) : [];
-    this.gamepadAxes = pad ? [...pad.axes] : [];
+    this.gamepadButtons = this.prevGamepadButtons;
+    this.gamepadAxes = this.prevGamepadAxes;
+    this.prevGamepadButtons = prevButtons;
+    this.prevGamepadAxes = prevAxes;
+    this.gamepadButtons.length = pad ? pad.buttons.length : 0;
+    this.gamepadAxes.length = pad ? pad.axes.length : 0;
+    if (pad) {
+      pad.buttons.forEach((b, i) => {
+        this.gamepadButtons[i] = b.value > 0 ? b.value : b.pressed ? 1 : 0;
+      });
+      pad.axes.forEach((v, i) => {
+        this.gamepadAxes[i] = v;
+      });
+    }
+    suppressHeld(this.suppressedButtons, this.gamepadButtons);
+    suppressHeld(this.suppressedAxes, this.gamepadAxes);
     if (!this.capture) return;
 
     // Rebinding capture: first button or axis that crosses the threshold this poll.
     for (let i = 0; i < this.gamepadButtons.length; i++) {
       const value = this.gamepadButtons[i] ?? 0;
       if (value >= BUTTON_THRESHOLD && (prevButtons[i] ?? 0) < BUTTON_THRESHOLD) {
+        // Held through the rebind, it would fire the newly bound action this very frame.
+        this.suppressedButtons.add(i);
+        this.gamepadButtons[i] = 0;
         this.deliverCapture({ device: 'gamepad', code: `GamepadButton${i}` });
         return;
       }
@@ -347,6 +497,8 @@ export class InputManager {
     for (let i = 0; i < this.gamepadAxes.length; i++) {
       const value = this.gamepadAxes[i] ?? 0;
       if (Math.abs(value) >= BUTTON_THRESHOLD && Math.abs(prevAxes[i] ?? 0) < BUTTON_THRESHOLD) {
+        this.suppressedAxes.add(i);
+        this.gamepadAxes[i] = 0;
         this.deliverCapture({ device: 'gamepad', code: `GamepadAxis${i}`, scale: Math.sign(value) });
         return;
       }
@@ -374,9 +526,30 @@ export class InputManager {
     return this.state[action];
   }
 
-  /** Unclamped pointer movement in pixels since the previous `update()`. */
-  mouseDelta(): { x: number; y: number } {
-    return { x: this.frameMouse.x, y: this.frameMouse.y };
+  /**
+   * Like `axis` but without pointer-movement bindings (`MouseX`/`MouseY`/`MouseWheel`),
+   * for stick-style rate input when mouse look is applied separately via `mouseDelta()`.
+   */
+  stickAxis(action: ActionId): number {
+    let sum = 0;
+    for (const binding of this.bindings[action]) {
+      if (!isMouseMotionBinding(binding)) sum += readBinding(binding, this.raw, this.deadzoneValue);
+    }
+    return clamp(sum);
+  }
+
+  /** Unclamped pointer movement in pixels since the previous `update()` (valid until the next one). */
+  mouseDelta(): Readonly<{ x: number; y: number }> {
+    return this.frameLook;
+  }
+
+  /** Gamepad stick deadzone in [0, 0.95]. */
+  get deadzone(): number {
+    return this.deadzoneValue;
+  }
+
+  setDeadzone(deadzone: number): void {
+    this.deadzoneValue = clampDeadzone(deadzone);
   }
 
   /** Wheel notches since the previous `update()` (positive = scrolled down). */
@@ -441,7 +614,19 @@ export class InputManager {
 
   // --- Pointer lock -----------------------------------------------------------
 
+  /**
+   * Movement gathered under the other mode (a free cursor over the console, say)
+   * is dropped on a change, so it is never applied as a look jump.
+   */
   setPointerLockEnabled(enabled: boolean): void {
+    if (enabled !== this.pointerLockEnabled) {
+      this.clearMouse();
+      this.frameMouse.x = 0;
+      this.frameMouse.y = 0;
+      this.frameMouse.wheel = 0;
+      this.frameLook.x = 0;
+      this.frameLook.y = 0;
+    }
     this.pointerLockEnabled = enabled;
     if (!enabled && this.locked) this.element?.ownerDocument.exitPointerLock();
   }
@@ -450,14 +635,45 @@ export class InputManager {
     return this.locked;
   }
 
-  private requestPointerLock(): void {
+  /** The page itself rather than a focused control: body, document, window or the game canvas. */
+  private isGameTarget(target: unknown): boolean {
+    if (typeof target !== 'object' || target === null || target === this.element) return true;
+    const tag = (target as { tagName?: unknown }).tagName;
+    return tag === undefined || tag === 'BODY' || tag === 'HTML';
+  }
+
+  /** Asks for pointer lock; false when the element cannot lock the pointer. */
+  private requestPointerLock(): boolean {
     const el = this.element;
-    if (!el || typeof el.requestPointerLock !== 'function') return;
+    if (!el || typeof el.requestPointerLock !== 'function') return false;
     // Returns a promise in modern browsers, undefined in older ones; swallow rejections either way.
     void Promise.resolve(el.requestPointerLock()).catch(() => undefined);
+    return true;
   }
 
   private clearMouse(): void {
-    this.mouseAccum = { x: 0, y: 0, wheel: 0 };
+    this.mouseAccum.x = 0;
+    this.mouseAccum.y = 0;
+    this.mouseAccum.wheel = 0;
   }
+}
+
+function clampDeadzone(value: number): number {
+  return Number.isFinite(value) ? Math.min(0.95, Math.max(0, value)) : GAMEPAD_DEADZONE;
+}
+
+/** Zeroes suppressed inputs that are still held; forgets those that were released. */
+function suppressHeld(suppressed: Set<number>, values: number[]): void {
+  for (const i of suppressed) {
+    if (Math.abs(values[i] ?? 0) < BUTTON_THRESHOLD) suppressed.delete(i);
+    else values[i] = 0;
+  }
+}
+
+/** Fills `out` with the union of `a` and `b` (reused across frames). */
+function union<T>(out: Set<T>, a: ReadonlySet<T>, b: ReadonlySet<T>): Set<T> {
+  out.clear();
+  for (const v of a) out.add(v);
+  for (const v of b) out.add(v);
+  return out;
 }

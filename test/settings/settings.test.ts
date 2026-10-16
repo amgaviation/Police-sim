@@ -16,10 +16,12 @@ import {
   coerceSetting,
   fieldsOfSection,
   getSetting,
+  isImplemented,
   isSettingsPath,
   migrateSettings,
   parseSettings,
   serializeSettings,
+  visibleSections,
   type Settings,
   type SettingsChange,
   type SettingsStorage,
@@ -175,6 +177,17 @@ describe('migrateSettings', () => {
   });
 });
 
+describe('implemented settings', () => {
+  it('hides settings nothing consumes yet, and sections left empty by that', () => {
+    expect(isImplemented('graphics.frameCap')).toBe(true);
+    expect(isImplemented('graphics.drawDistance')).toBe(true);
+    expect(isImplemented('controls.gamepadDeadzone')).toBe(true);
+    expect(isImplemented('audio.master')).toBe(false);
+    expect(isImplemented('accessibility.colorblind')).toBe(false);
+    expect(visibleSections()).toEqual(['graphics', 'controls', 'accessibility']);
+  });
+});
+
 describe('SettingsStore', () => {
   let bus: EventBus<EventMap>;
   let events: EventMap['settings:changed'][];
@@ -279,6 +292,20 @@ describe('SettingsStore', () => {
     expect(store.get()).toEqual(DEFAULT_SETTINGS);
   });
 
+  it('load uses defaults (and still notifies) when storage cannot be read', async () => {
+    const failing = new SettingsStore({
+      bus,
+      storage: { read: () => Promise.reject(new Error('idb unavailable')), write: () => Promise.resolve() },
+      autosaveDelayMs: 0,
+    });
+    const seen: string[] = [];
+    failing.subscribe((c) => seen.push(c.path));
+    await expect(failing.load()).resolves.toBeUndefined();
+    expect(failing.get()).toEqual(DEFAULT_SETTINGS);
+    expect(seen).toEqual(['*']);
+    expect(log.entries().some((e) => e.level === 'error' && e.message.includes('idb unavailable'))).toBe(true);
+  });
+
   it('isolates listener errors', () => {
     store.subscribe(() => {
       throw new Error('boom');
@@ -307,9 +334,28 @@ describe('SettingsStore', () => {
     await debounced.flush();
     expect(storage.writes).toBe(2);
     debounced.set('graphics.fov', 105);
+    debounced.dispose(); // a change still waiting for its autosave is written, not dropped
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(storage.writes).toBe(3);
+    expect((storage.blob as Settings).graphics.fov).toBe(105);
     debounced.dispose();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(storage.writes).toBe(2);
+    expect(storage.writes).toBe(3);
+  });
+
+  it('dispose() writes a pending change and then closes the storage', async () => {
+    let written: unknown;
+    const close = vi.fn();
+    const s = new SettingsStore({
+      bus,
+      storage: { read: () => Promise.resolve(undefined), write: (v) => ((written = v), Promise.resolve()), close },
+    });
+    await s.load();
+    s.set('graphics.fov', 90);
+    s.dispose();
+    expect(close).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    expect((written as Settings).graphics.fov).toBe(90);
   });
 
   it('persists through the real settings blob in IndexedDB', async () => {
@@ -324,6 +370,50 @@ describe('SettingsStore', () => {
     await again.load();
     expect(again.get('accessibility.subtitles')).toBe(false);
     expect(again.get('graphics.frameCap')).toBe(30);
+  });
+
+  it('does not write over a blob saved by a newer version', async () => {
+    const newer = { version: SETTINGS_VERSION + 1, graphics: { fov: 90, antialias: 'taa' }, hud: { minimap: false } };
+    storage.blob = newer;
+    await store.load();
+    expect(store.get('graphics.fov')).toBe(90);
+    store.set('graphics.fov', 95);
+    await store.save();
+    store.reset();
+    await store.flush();
+    expect(storage.writes).toBe(0);
+    expect(storage.blob).toEqual(newer);
+    // A blob of this version (or none) is written normally again.
+    storage.blob = undefined;
+    await store.load();
+    store.set('graphics.fov', 80);
+    await store.save();
+    expect(storage.writes).toBe(1);
+  });
+
+  it('starts every write synchronously even while an earlier one is still committing', async () => {
+    const values: number[] = [];
+    let finishFirst = (): void => undefined;
+    const slow = new SettingsStore({
+      bus,
+      autosaveDelayMs: 0,
+      storage: {
+        read: () => Promise.resolve(undefined),
+        write: (v) => {
+          values.push((v as Settings).graphics.fov);
+          return values.length === 1 ? new Promise<void>((resolve) => (finishFirst = resolve)) : Promise.resolve();
+        },
+      },
+    });
+    slow.set('graphics.fov', 80);
+    const first = slow.save();
+    slow.set('graphics.fov', 81);
+    const second = slow.save();
+    expect(values).toEqual([80, 81]); // both started in this task, e.g. inside pagehide
+    expect(slow.hasPendingSave).toBe(true);
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(slow.hasPendingSave).toBe(false);
   });
 
   it('exposes the field table used by the UI', () => {

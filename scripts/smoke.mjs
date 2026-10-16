@@ -8,7 +8,7 @@
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
-/* global window -- functions passed to page.evaluate run in the browser */
+/* global window, document, getComputedStyle, MouseEvent, KeyboardEvent -- functions passed to page.evaluate run in the browser */
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -193,6 +193,47 @@ async function run() {
     });
     console.log('console commands:\n  ' + commands.join('\n  '));
     check(!commands.some((l) => l.startsWith('error:')), 'console commands ran without errors');
+
+    const fixes = await page.evaluate(async () => {
+      const app = window.patrol;
+      const out = {};
+      // Deadzone setting reaches the InputManager.
+      await app.console.execute('settings set controls.gamepadDeadzone 0.4');
+      out.deadzone = app.input.deadzone;
+      await app.console.execute('settings set controls.gamepadDeadzone 0.15');
+      // The console pause survives opening and closing a menu.
+      await app.console.execute('pause');
+      app.pauseMenu.open();
+      app.pauseMenu.close();
+      out.pausedAfterMenu = app.loop.paused;
+      await app.console.execute('pause');
+      out.runningAgain = !app.loop.paused;
+      // Text size scales the console.
+      await app.console.execute('settings set accessibility.textScale 1.6');
+      app.console.open();
+      out.consoleFont = getComputedStyle(document.querySelector('#debug-console input') ?? document.body).fontSize;
+      app.console.close();
+      await app.console.execute('settings set accessibility.textScale 1');
+      // Escape closes Settings even after a binding removal moved focus.
+      app.pauseMenu.open();
+      app.settingsMenu.open('controls');
+      const remove = document.querySelector('.bindings .x');
+      remove?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      out.focusAfterRemove = document.activeElement?.tagName ?? null;
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+      out.stackAfterEscape = app.ui.menuStack.map((m) => m.id);
+      app.settings.reset();
+      app.ui.closeAll();
+      return out;
+    });
+    console.log('fix checks:', JSON.stringify(fixes));
+    check(fixes.deadzone === 0.4, 'gamepad deadzone setting applied to input');
+    check(fixes.pausedAfterMenu && fixes.runningAgain, 'console pause survives a menu open/close');
+    check(fixes.consoleFont === '20.8px', `console font follows text size (${fixes.consoleFont})`);
+    check(
+      fixes.stackAfterEscape.length === 1 && fixes.stackAfterEscape[0] === 'pause',
+      `Escape closes Settings after removing a binding (stack ${fixes.stackAfterEscape.join(',')}, focus ${fixes.focusAfterRemove})`,
+    );
 
     await sleep(500);
     await mkdir(path.dirname(SCREENSHOT), { recursive: true });

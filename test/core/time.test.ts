@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GameClock } from '../../src/core/time';
+import { GameClock, MAX_TIME_SCALE } from '../../src/core/time';
 
 describe('GameClock', () => {
   it('starts at zero, unscaled and unpaused', () => {
@@ -41,7 +41,15 @@ describe('GameClock', () => {
     const clock = new GameClock();
     expect(() => clock.setTimeScale(-1)).toThrow(RangeError);
     expect(() => clock.setTimeScale(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+    expect(() => clock.setTimeScale(MAX_TIME_SCALE + 0.01)).toThrow(RangeError);
+    expect(() => clock.setTimeScale(1e6)).toThrow(RangeError);
     expect(clock.timeScale).toBe(1);
+    clock.setTimeScale(MAX_TIME_SCALE);
+    expect(clock.timeScale).toBe(MAX_TIME_SCALE);
+  });
+
+  it('fromJSON clamps an out-of-range time scale', () => {
+    expect(GameClock.fromJSON({ simTime: 0, timeScale: 1e6, paused: false }).timeScale).toBe(MAX_TIME_SCALE);
   });
 
   it('round-trips through toJSON/fromJSON', () => {
@@ -70,5 +78,13 @@ describe('GameClock', () => {
     expect(clock.timeScale).toBe(2);
     clock.reset(5);
     expect(clock.simTime).toBe(5);
+  });
+
+  it('addSimTime adds unscaled simulation seconds', () => {
+    const clock = new GameClock();
+    clock.setTimeScale(4);
+    clock.addSimTime(1 / 60);
+    clock.addSimTime(-1);
+    expect(clock.simTime).toBe(1 / 60);
   });
 });

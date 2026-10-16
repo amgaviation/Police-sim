@@ -8,17 +8,18 @@ import { DebugConsole } from './debug/console';
 import { PerfOverlay, type PerfSample } from './debug/perfOverlay';
 import { PrevTransform, Transform } from './ecs/components';
 import { SystemRegistry, copyPrevTransform, integrateVelocity, type System } from './ecs/systems';
-import { advanceTime, createGameWorld, entityCount, type GameWorld } from './ecs/world';
+import { clearWorld, createGameWorld, entityCount, type GameWorld } from './ecs/world';
 import { createCommands } from './game/commands';
 import { PauseMenu } from './game/pauseMenu';
 import { cameraPosition, type MoveInput } from './game/playerController';
-import { GameSession, loadGame, serializeGame, startNewGame } from './game/testScene';
+import { GameSession, createScenePhysics, loadGame, serializeGame, startNewGame } from './game/testScene';
 import { InputManager } from './input/input';
-import { PhysicsWorld } from './physics/physics';
+import { initRapier, type PhysicsWorld } from './physics/physics';
 import { MeshRegistry, interpolateTransform } from './render/meshSync';
 import { Renderer, createTestScene } from './render/renderer';
-import type { SaveGameV1 } from './save/schema';
-import { SaveManager } from './save/saveManager';
+import { MIGRATION_FAILURES, SaveMigrationError } from './save/migrations';
+import type { SaveGame } from './save/schema';
+import { SaveManager, SaveNotFoundError } from './save/saveManager';
 import { SettingsStore } from './settings/settings';
 import { MainMenu } from './ui/mainMenu';
 import { SettingsMenu } from './ui/settingsMenu';
@@ -30,8 +31,7 @@ import type { WorkerClient } from './workers/workerClient';
 export const SIM_HZ = 60;
 export const AUTOSAVE_INTERVAL_MS = 60_000;
 export const WORKER_PING_INTERVAL_MS = 2_000;
-/** Fixed steps allowed per loop step when the time scale is above 1. */
-const MAX_SIM_STEPS_PER_UPDATE = 4;
+const FIXED_DT = 1 / SIM_HZ;
 const QUICKSAVE_SLOT = 'quicksave';
 const DETERMINISM_SEED = 12345;
 const DETERMINISM_SAMPLES = 8;
@@ -52,7 +52,6 @@ export class App {
   /** Null when WebGL could not be created; the simulation still runs headless. */
   readonly renderer: Renderer | null;
   readonly scene: THREE.Scene;
-  readonly physics: PhysicsWorld;
   readonly world: GameWorld;
   readonly systems = new SystemRegistry();
   readonly meshes: MeshRegistry;
@@ -67,7 +66,10 @@ export class App {
   readonly worker: WorkerClient<WorkerRequestMap> | null;
 
   private sessionValue: GameSession | null = null;
-  private simAccumulator = 0;
+  /** Replaced for every session: Rapier does not return to a pristine state after bodies are removed. */
+  private physicsValue: PhysicsWorld;
+  /** Pause requested from the console; the loop is paused while this or a menu is up. */
+  private userPausedValue = false;
   private readonly moveInput: MoveInput = { forward: 0, strafe: 0, sprint: false };
   private readonly perfSample: PerfSample;
   private menuChangedSinceUpdate = false;
@@ -75,19 +77,23 @@ export class App {
   private readonly disposers: Array<() => void> = [];
   private disposed = false;
 
-  private constructor(settings: SettingsStore, physics: PhysicsWorld) {
+  private constructor(settings: SettingsStore) {
     this.settings = settings;
-    this.physics = physics;
+    this.physicsValue = createScenePhysics(FIXED_DT);
     this.world = createGameWorld();
 
     this.renderer = createRenderer(settings);
     this.scene = this.renderer?.scene ?? new THREE.Scene();
     createTestScene(this.scene);
     this.renderer?.setShadows(settings.get('graphics.shadows'));
-    this.physics.addGround(100, 0);
+    this.renderer?.setDrawDistance(settings.get('graphics.drawDistance'));
 
     this.meshes = new MeshRegistry(this.scene, { world: this.world });
-    this.input = new InputManager({ bus: this.bus, bindings: settings.get('controls.bindings') });
+    this.input = new InputManager({
+      bus: this.bus,
+      bindings: settings.get('controls.bindings'),
+      deadzone: settings.get('controls.gamepadDeadzone'),
+    });
 
     this.ui = new UIRoot();
     this.disposers.push(this.ui.bindSettings(settings));
@@ -99,9 +105,19 @@ export class App {
     this.settingsMenu = new SettingsMenu(this.ui, settings, this.input);
     this.mainMenu = new MainMenu(this.ui, {
       newGame: (seed) => this.newGame(seed),
-      continueGame: (slot) => void this.loadGame(slot),
+      continueGame: (slot) => {
+        this.loadGame(slot).catch((error: unknown) => {
+          log.error(`Load '${slot}' failed:`, error);
+          this.mainMenu.setStatus(describeLoadError(slot, error));
+        });
+      },
       openSettings: () => this.settingsMenu.open(),
-      deleteSave: (slot) => void this.deleteSave(slot),
+      deleteSave: (slot) => {
+        this.deleteSave(slot).catch((error: unknown) => {
+          log.error(`Delete '${slot}' failed:`, error);
+          this.mainMenu.setStatus(`Could not delete '${slot}'; see console`);
+        });
+      },
     });
     this.pauseMenu = new PauseMenu(this.ui, {
       resume: () => this.pauseMenu.close(),
@@ -116,26 +132,50 @@ export class App {
 
     this.perfSample = { fps: 0, frameMs: 0, simMs: 0, steps: 0, drawCalls: 0, triangles: 0, entities: 0, systemTimings: this.systems.timings };
     const hooks: LoopHooks = {
-      fixedUpdate: (dt, step) => this.fixedUpdate(dt, step),
+      fixedUpdate: (dt) => this.fixedUpdate(dt),
       update: (dt, alpha) => this.update(dt, alpha),
       render: (alpha) => this.render(alpha),
     };
     this.loop = new GameLoop({ hooks, simHz: SIM_HZ });
+    this.loop.frameCap = settings.get('graphics.frameCap');
 
     this.worker = createWorker();
     this.wireEvents();
   }
 
-  /** Loads settings, initialises Rapier and builds the app. */
+  /** Loads settings (defaults if storage is unavailable), initialises Rapier and builds the app. */
   static async create(): Promise<App> {
     const settings = new SettingsStore();
     await settings.load();
-    const physics = await PhysicsWorld.create({ x: 0, y: -9.81, z: 0 }, 1 / SIM_HZ);
-    return new App(settings, physics);
+    await initRapier();
+    return new App(settings);
   }
 
   get session(): GameSession | null {
     return this.sessionValue;
+  }
+
+  /** Physics world of the current session (a fresh one is created for every session). */
+  get physics(): PhysicsWorld {
+    return this.physicsValue;
+  }
+
+  /** Console-requested pause, independent of menus. */
+  get userPaused(): boolean {
+    return this.userPausedValue;
+  }
+
+  setUserPaused(paused: boolean): void {
+    this.userPausedValue = paused;
+    this.refreshPause();
+  }
+
+  /** Sets the running session's time scale (0 freezes the simulation). */
+  setTimeScale(scale: number): void {
+    const session = this.sessionValue;
+    if (!session) throw new Error('No game running');
+    session.clock.setTimeScale(scale);
+    this.loop.timeScale = scale;
   }
 
   get inGame(): boolean {
@@ -146,8 +186,7 @@ export class App {
   start(): void {
     const target = this.renderer?.canvas ?? window;
     this.input.attach(target);
-    this.loop.paused = true;
-    this.mainMenu.open();
+    this.mainMenu.open(); // pauses the loop through refreshPause
     void this.refreshSaveList();
     this.startWorkerPing();
     this.loop.start();
@@ -158,6 +197,7 @@ export class App {
   /** Replaces the running session with a fresh deterministic scene. */
   newGame(seed: number | string): GameSession {
     this.endSession();
+    this.resetSimulation();
     const session = startNewGame(this.context(), seed);
     this.beginSession(session);
     log.info(`New game, seed ${String(session.seed)}`);
@@ -165,7 +205,7 @@ export class App {
   }
 
   /** Serializes the running session (throws when none is running). */
-  serializeGame(): SaveGameV1 {
+  serializeGame(): SaveGame {
     if (!this.sessionValue) throw new Error('No game running');
     return serializeGame(this.sessionValue);
   }
@@ -174,11 +214,22 @@ export class App {
     await this.saves.save(slot, this.serializeGame());
   }
 
-  /** Loads `slot` and rebuilds the scene from it. */
+  /**
+   * Loads `slot` and rebuilds the scene from it. A save that cannot be read
+   * leaves the running session untouched; one that fails while rebuilding
+   * returns to the title screen. Either way the promise rejects.
+   */
   async loadGame(slot: string): Promise<GameSession> {
     const envelope = await this.saves.load(slot);
     this.endSession();
-    const session = loadGame(this.context(), envelope);
+    this.resetSimulation();
+    let session: GameSession;
+    try {
+      session = loadGame(this.context(), envelope);
+    } catch (error) {
+      this.quitToTitle();
+      throw error;
+    }
     this.beginSession(session);
     log.info(`Loaded '${slot}' (seed ${String(session.seed)}, ${String(session.entityCount)} entities)`);
     return session;
@@ -218,28 +269,23 @@ export class App {
     this.ui.dispose();
     this.meshes.dispose();
     this.renderer?.dispose();
-    this.physics.dispose();
+    this.physicsValue.dispose();
     this.saves.close();
     this.settings.dispose();
   }
 
   // --- loop hooks -------------------------------------------------------------
 
-  private fixedUpdate(dt: number, step: number): void {
-    this.bus.emit('loop:fixed', { dt, step });
+  /**
+   * Exactly one simulation step per loop step: the time scale is applied by
+   * the loop, so its interpolation alpha always matches Prev/Transform.
+   */
+  private fixedUpdate(dt: number): void {
     const session = this.sessionValue;
     if (!session) return;
-    this.simAccumulator += session.clock.advance(dt);
-    const fixedDt = this.physics.fixedDt;
-    let steps = 0;
-    while (this.simAccumulator + 1e-6 >= fixedDt && steps < MAX_SIM_STEPS_PER_UPDATE) {
-      this.simAccumulator -= fixedDt;
-      steps += 1;
-      advanceTime(this.world, fixedDt);
-      session.fixedUpdate(this.moveInput);
-      this.systems.runAll(this.world, fixedDt);
-    }
-    if (steps === MAX_SIM_STEPS_PER_UPDATE) this.simAccumulator = 0;
+    session.fixedUpdate(this.moveInput);
+    this.systems.runAll(this.world, dt);
+    this.bus.emit('loop:fixed', { dt, step: this.world.time.step });
   }
 
   private update(dt: number, alpha: number): void {
@@ -257,7 +303,8 @@ export class App {
       const invertY = this.settings.get('controls.invertY');
       const mouse = input.mouseDelta();
       session.controller.lookByMouse(mouse.x, mouse.y, sensitivity, invertY);
-      session.controller.lookByStick(input.axis('look.x'), input.axis('look.y'), dt, invertY);
+      // Mouse movement is applied above; the stick rate excludes it so it is not counted twice.
+      session.controller.lookByStick(input.stickAxis('look.x'), input.stickAxis('look.y'), dt, invertY);
       this.moveInput.forward = (input.isDown('move.forward') ? 1 : 0) - (input.isDown('move.back') ? 1 : 0);
       this.moveInput.strafe = (input.isDown('move.right') ? 1 : 0) - (input.isDown('move.left') ? 1 : 0);
       this.moveInput.sprint = input.isDown('move.sprint');
@@ -292,8 +339,12 @@ export class App {
       this.console.toggle();
       this.refreshPointerLock();
     }
-    // A menu that closed itself on this key press (e.g. Settings on Escape) must not re-toggle.
-    if (input.wasPressed('menu.toggle') && this.inGame && !this.menuChangedSinceUpdate) {
+    if (input.wasPressed('menu.toggle') && this.console.isOpen()) {
+      // Escape typed into the console closes the console, not the menu underneath.
+      this.console.close();
+      this.refreshPointerLock();
+    } else if (input.wasPressed('menu.toggle') && this.inGame && !this.menuChangedSinceUpdate) {
+      // A menu that closed itself on this key press (e.g. Settings on Escape) must not re-toggle.
       if (!this.ui.isMenuOpen()) this.pauseMenu.open();
       else if (this.ui.top === this.pauseMenu) this.pauseMenu.close();
     }
@@ -311,14 +362,22 @@ export class App {
   // --- sessions ---------------------------------------------------------------
 
   private context() {
-    return { world: this.world, physics: this.physics, meshes: this.meshes };
+    return { world: this.world, physics: this.physicsValue, meshes: this.meshes };
+  }
+
+  /** Fresh physics world and an emptied ECS world, so the same seed replays identically. */
+  private resetSimulation(): void {
+    this.physicsValue.dispose();
+    this.physicsValue = createScenePhysics(FIXED_DT);
+    clearWorld(this.world);
   }
 
   private beginSession(session: GameSession): void {
     this.sessionValue = session;
-    this.simAccumulator = 0;
+    this.loop.timeScale = session.clock.timeScale;
+    this.userPausedValue = false;
     this.ui.closeAll();
-    this.loop.paused = false;
+    this.refreshPause();
     this.refreshPointerLock();
     this.saves.startAutosave(AUTOSAVE_INTERVAL_MS, () => this.serializeGame());
   }
@@ -355,10 +414,24 @@ export class App {
     return {
       name: 'physics',
       run: () => {
-        this.physics.step();
-        this.physics.syncToEcs(Transform);
+        this.physicsValue.step();
+        this.physicsValue.syncToEcs(Transform);
       },
     };
+  }
+
+  /** Single owner of `loop.paused`: paused by the console command or while any menu is open. */
+  private refreshPause(): void {
+    const paused = this.userPausedValue || this.ui.isMenuOpen();
+    if (paused === this.loop.paused) return;
+    this.loop.paused = paused;
+    this.bus.emit('app:pause', { paused });
+  }
+
+  /** The browser swallows the Escape that releases pointer lock, so treat losing the lock as "pause". */
+  private onPointerLockLost(): void {
+    const playing = this.inGame && !this.ui.isMenuOpen() && !this.console.isOpen();
+    if (playing && !(this.renderer?.debugCameraEnabled ?? false)) this.pauseMenu.open();
   }
 
   // --- wiring -----------------------------------------------------------------
@@ -374,18 +447,37 @@ export class App {
           if (all || change.path === 'graphics.shadows') renderer.setShadows(settings.get('graphics.shadows'));
           if (all || change.path === 'graphics.fov') renderer.fov = settings.get('graphics.fov');
         }
+        if (renderer && (all || change.path === 'graphics.drawDistance')) {
+          renderer.setDrawDistance(settings.get('graphics.drawDistance'));
+        }
+        if (all || change.path === 'graphics.frameCap') this.loop.frameCap = settings.get('graphics.frameCap');
         if (all || change.path === 'controls.bindings') this.input.setBindings(settings.get('controls.bindings'));
+        if (all || change.path === 'controls.gamepadDeadzone') {
+          this.input.setDeadzone(settings.get('controls.gamepadDeadzone'));
+        }
       }),
-      this.ui.onMenuChange((stack) => {
+      this.ui.onMenuChange(() => {
         this.menuChangedSinceUpdate = true;
-        this.loop.paused = stack.length > 0;
+        this.refreshPause();
         this.refreshPointerLock();
       }),
+      this.input.onPointerLockLost(() => this.onPointerLockLost()),
       this.bus.on('save:completed', () => void this.refreshSaveList()),
     );
-    const onUnload = (): void => void this.settings.flush();
-    window.addEventListener('beforeunload', onUnload);
-    this.disposers.push(() => window.removeEventListener('beforeunload', onUnload));
+    // pagehide/hidden fire reliably on navigation and tab close (beforeunload does not on mobile),
+    // and the settings storage keeps its connection open so the write starts synchronously here.
+    const flushSettings = (): void => {
+      this.settings.flush().catch((error: unknown) => log.error('Settings flush failed:', error));
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'hidden') flushSettings();
+    };
+    window.addEventListener('pagehide', flushSettings);
+    document.addEventListener('visibilitychange', onVisibility);
+    this.disposers.push(() => {
+      window.removeEventListener('pagehide', flushSettings);
+      document.removeEventListener('visibilitychange', onVisibility);
+    });
   }
 
   private startWorkerPing(): void {
@@ -396,6 +488,14 @@ export class App {
       worker.call('ping', { t: performance.now() }).then(
         () => this.perf.setExtra('worker', `${worker.lastRoundTripMs.toFixed(2)} ms`),
         (error: unknown) => {
+          if (worker.isFailed) {
+            // A worker that never started will not recover: stop pinging it.
+            if (this.workerTimer !== null) clearInterval(this.workerTimer);
+            this.workerTimer = null;
+            this.perf.setExtra('worker', 'unavailable');
+            log.error('Simulation worker unavailable:', error);
+            return;
+          }
           this.perf.setExtra('worker', 'error');
           log.warn('Worker ping failed:', error);
         },
@@ -420,12 +520,23 @@ export class App {
   }
 }
 
+/** Player-facing reason a save could not be loaded. */
+function describeLoadError(slot: string, error: unknown): string {
+  if (error instanceof SaveNotFoundError) return `Save '${slot}' no longer exists`;
+  if (error instanceof SaveMigrationError) {
+    if (error.reason === MIGRATION_FAILURES.futureVersion) return `Save '${slot}' was made by a newer version of Patrol`;
+    return `Save '${slot}' is damaged and cannot be loaded`;
+  }
+  return `Could not load '${slot}'; see console`;
+}
+
 function createRenderer(settings: SettingsStore): Renderer | null {
   try {
     return new Renderer({
       renderScale: settings.get('graphics.renderScale'),
       fov: settings.get('graphics.fov'),
       shadows: settings.get('graphics.shadows'),
+      drawDistance: settings.get('graphics.drawDistance'),
     });
   } catch (error) {
     log.error('Renderer unavailable, continuing without rendering:', error);

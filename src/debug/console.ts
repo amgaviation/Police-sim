@@ -101,7 +101,8 @@ const ROOT_STYLE = [
   'flex-direction:column',
   'background:rgba(10,12,16,0.92)',
   'color:#e8e8e8',
-  'font:13px/1.4 ui-monospace, Menlo, Consolas, monospace',
+  // Scales with the accessibility text size (--text-scale on <html>).
+  'font:calc(13px * var(--text-scale, 1))/1.4 ui-monospace, Menlo, Consolas, monospace',
   'border-bottom:1px solid #444',
 ].join(';');
 
@@ -143,6 +144,8 @@ export class DebugConsole {
   private readonly unsubscribeLog: () => void;
   private readonly context: CommandContext;
   private opened = false;
+  /** Element that had focus before `open()`; focused again on `close()`. */
+  private returnFocus: HTMLElement | null = null;
 
   constructor(options: DebugConsoleOptions = {}) {
     this.maxLines = Math.max(1, options.maxLines ?? 1000);
@@ -201,18 +204,25 @@ export class DebugConsole {
   }
 
   open(): void {
+    const wasOpen = this.opened;
     this.opened = true;
     if (!this.view) return;
+    const active = this.view.root.ownerDocument.activeElement;
+    if (!wasOpen && active instanceof HTMLElement && !this.view.root.contains(active)) this.returnFocus = active;
     this.view.root.style.display = 'flex';
     this.view.input.focus();
     this.scrollToBottom();
   }
 
+  /** Hides the console and gives focus back to what had it before (e.g. a menu button). */
   close(): void {
     this.opened = false;
     if (!this.view) return;
     this.view.input.blur();
     this.view.root.style.display = 'none';
+    const target = this.returnFocus;
+    this.returnFocus = null;
+    if (target?.isConnected) target.focus();
   }
 
   /** Parses and runs one line; output and errors are printed, never thrown. */

@@ -23,6 +23,8 @@ export interface WorldTime {
 
 export interface GameWorldContext {
   time: WorldTime;
+  /** Live entities created through `spawn`; maintained so counting does not allocate. */
+  liveEntities: number;
 }
 
 export type GameWorld = World<GameWorldContext>;
@@ -35,7 +37,7 @@ export const NULL_ENTITY: EntityId = 0;
 
 /** Creates an empty world with a zeroed clock. */
 export function createGameWorld(): GameWorld {
-  return createWorld<GameWorldContext>({ time: { dt: 0, elapsed: 0, step: 0 } });
+  return createWorld<GameWorldContext>({ time: { dt: 0, elapsed: 0, step: 0 }, liveEntities: 0 });
 }
 
 /**
@@ -50,6 +52,7 @@ export function spawn(world: GameWorld, ...components: Component[]): EntityId {
   }
   resetComponentSlot(eid);
   for (const component of components) addComponent(world, eid, component);
+  world.liveEntities += 1;
   return eid;
 }
 
@@ -58,17 +61,19 @@ export function despawn(world: GameWorld, eid: EntityId): void {
   if (!entityExists(world, eid)) return;
   removeEntity(world, eid);
   resetComponentSlot(eid);
+  world.liveEntities -= 1;
 }
 
-/** Number of live entities. */
+/** Number of live entities (constant time; entities must be created with `spawn`). */
 export function entityCount(world: GameWorld): number {
-  return getAllEntities(world).length;
+  return world.liveEntities;
 }
 
 /** Removes every entity and resets the clock; the world object itself stays valid. */
 export function clearWorld(world: GameWorld): void {
   for (const eid of getAllEntities(world)) resetComponentSlot(eid);
   resetWorld(world);
+  world.liveEntities = 0;
   world.time.dt = 0;
   world.time.elapsed = 0;
   world.time.step = 0;

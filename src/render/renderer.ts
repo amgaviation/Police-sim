@@ -6,6 +6,10 @@ export type ShadowQuality = (typeof SHADOW_QUALITIES)[number];
 
 const SHADOW_MAP_SIZE: Record<Exclude<ShadowQuality, 'off'>, number> = { low: 1024, high: 2048 };
 const MAX_PIXEL_RATIO = 2;
+export const DEFAULT_DRAW_DISTANCE = 800;
+/** Fog end and start as fractions of the draw distance (320 m / 60 m at the default 800 m). */
+const FOG_FAR_FRACTION = 0.4;
+const FOG_NEAR_FRACTION = 0.075;
 
 export interface RendererOptions {
   /** Target canvas; defaults to `canvas#game`. */
@@ -16,6 +20,8 @@ export interface RendererOptions {
   fov?: number;
   shadows?: ShadowQuality;
   antialias?: boolean;
+  /** Camera far plane in metres; fog scales with it. Default 800. */
+  drawDistance?: number;
 }
 
 /** Counters from `renderer.info` for the frame most recently rendered. */
@@ -36,9 +42,16 @@ export interface TestScene {
 
 type TypedMesh = THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>;
 type ShadowLight = THREE.DirectionalLight | THREE.SpotLight | THREE.PointLight;
+/** Anything that owns a geometry and material(s): meshes, lines, line segments, points, sprites. */
+type Drawable = THREE.Object3D & { geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] };
 
 function isMesh(object: THREE.Object3D): object is TypedMesh {
   return (object as Partial<TypedMesh>).isMesh === true;
+}
+
+function isDrawable(object: THREE.Object3D): object is Drawable {
+  const candidate = object as Partial<Drawable>;
+  return candidate.geometry instanceof THREE.BufferGeometry && candidate.material !== undefined;
 }
 
 function isShadowLight(object: THREE.Object3D): object is ShadowLight {
@@ -47,7 +60,7 @@ function isShadowLight(object: THREE.Object3D): object is ShadowLight {
   );
 }
 
-function materialsOf(mesh: TypedMesh): THREE.Material[] {
+function materialsOf(mesh: TypedMesh | Drawable): THREE.Material[] {
   return Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 }
 
@@ -78,7 +91,15 @@ export class Renderer {
   private width = 1;
   private height = 1;
   private fixedSize: { width: number; height: number } | null = null;
-  private readonly onWindowResize = (): void => this.resize();
+  private drawDistanceValue = DEFAULT_DRAW_DISTANCE;
+  /** Keeps a fixed size from `resize(w, h)`; only an explicit `resize()` clears it. */
+  private readonly onWindowResize = (): void => this.refreshSize();
+  /** Fires when the device pixel ratio changes (e.g. the window moved to another monitor). */
+  private dprQuery: MediaQueryList | null = null;
+  private readonly onDprChange = (): void => {
+    this.watchPixelRatio();
+    this.applySize();
+  };
   private disposed = false;
 
   constructor(options: RendererOptions = {}) {
@@ -101,8 +122,10 @@ export class Renderer {
     this.debugControls.enabled = false;
 
     this.setShadows(options.shadows ?? 'low');
+    this.setDrawDistance(options.drawDistance ?? DEFAULT_DRAW_DISTANCE);
 
     window.addEventListener('resize', this.onWindowResize);
+    this.watchPixelRatio();
     this.resize();
   }
 
@@ -146,6 +169,30 @@ export class Renderer {
     });
   }
 
+  get drawDistance(): number {
+    return this.drawDistanceValue;
+  }
+
+  /** Sets the camera far plane (metres) and scales the scene fog with it. */
+  setDrawDistance(metres: number): void {
+    if (!Number.isFinite(metres) || metres <= 0) return;
+    this.drawDistanceValue = metres;
+    for (const camera of [this.camera, this.debugCamera]) {
+      camera.far = metres;
+      camera.updateProjectionMatrix();
+    }
+    this.applyFog();
+  }
+
+  /** Re-applies the draw distance to `scene.fog` (call after replacing the fog). */
+  applyFog(): void {
+    const fog = this.scene.fog;
+    if (fog instanceof THREE.Fog) {
+      fog.far = this.drawDistanceValue * FOG_FAR_FRACTION;
+      fog.near = this.drawDistanceValue * FOG_NEAR_FRACTION;
+    }
+  }
+
   get debugCameraEnabled(): boolean {
     return this.debugEnabled;
   }
@@ -182,6 +229,11 @@ export class Renderer {
   resize(width?: number, height?: number): void {
     if (width !== undefined && height !== undefined) this.fixedSize = { width, height };
     else if (width === undefined && height === undefined) this.fixedSize = null;
+    this.refreshSize();
+  }
+
+  /** Recomputes the size from the fixed size, or the window when none is set. */
+  private refreshSize(): void {
     const size = this.fixedSize ?? { width: window.innerWidth, height: window.innerHeight };
     this.width = Math.max(1, Math.floor(size.width));
     this.height = Math.max(1, Math.floor(size.height));
@@ -207,14 +259,31 @@ export class Renderer {
     return this.statsSnapshot;
   }
 
-  /** Releases GPU resources, listeners and controls; the instance is unusable afterwards. */
+  /**
+   * Releases GPU resources (geometries, materials, textures, shadow maps), listeners and
+   * controls, then the WebGL context itself; the instance is unusable afterwards.
+   */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     window.removeEventListener('resize', this.onWindowResize);
+    this.dprQuery?.removeEventListener('change', this.onDprChange);
+    this.dprQuery = null;
     this.debugControls.dispose();
     disposeObject(this.scene);
+    if (this.scene.background instanceof THREE.Texture) this.scene.background.dispose();
+    this.scene.background = null;
     this.gl.dispose();
+    this.gl.forceContextLoss();
+  }
+
+  /** (Re)arms a media query that matches only the current device pixel ratio. */
+  private watchPixelRatio(): void {
+    this.dprQuery?.removeEventListener('change', this.onDprChange);
+    this.dprQuery = null;
+    if (typeof window.matchMedia !== 'function') return;
+    this.dprQuery = window.matchMedia(`(resolution: ${String(window.devicePixelRatio)}dppx)`);
+    this.dprQuery.addEventListener('change', this.onDprChange);
   }
 
   private applySize(): void {
@@ -234,10 +303,17 @@ function clampScale(scale: number): number {
   return Math.min(2, scale);
 }
 
-/** Disposes every geometry, material and texture under `root` (does not remove it). */
+/**
+ * Disposes every geometry, material and texture under `root` (meshes, lines,
+ * points, sprites) and the shadow maps of its lights; does not remove anything.
+ */
 export function disposeObject(root: THREE.Object3D): void {
   root.traverse((object) => {
-    if (!isMesh(object)) return;
+    if (isShadowLight(object)) object.shadow.dispose();
+    // Releases the instanceMatrix/instanceColor GPU buffers (three frees them only on this event).
+    if (object instanceof THREE.InstancedMesh || object instanceof THREE.BatchedMesh) object.dispose();
+    if (object instanceof THREE.SkinnedMesh) object.skeleton.dispose();
+    if (!isDrawable(object)) return;
     object.geometry.dispose();
     for (const material of materialsOf(object)) {
       for (const value of Object.values(material)) {

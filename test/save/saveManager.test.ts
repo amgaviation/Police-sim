@@ -1,20 +1,25 @@
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore as FakeObjectStore } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventMap } from '../../src/core/event-map';
 import { EventBus } from '../../src/core/events';
 import { log } from '../../src/core/log';
-import { STORES, dbGet, dbPut, openPatrolDb } from '../../src/save/db';
-import { SaveMigrationError, type MigrationTable } from '../../src/save/migrations';
-import { SaveManager, SaveNotFoundError, readSettingsBlob, writeSettingsBlob } from '../../src/save/saveManager';
-import { CURRENT_SAVE_VERSION, type SaveEnvelope, type SaveGameV1 } from '../../src/save/schema';
+import { DB_NAME, DB_VERSION, STORES, dbEntries, dbGet, dbPut, dbUpdate, openDb, openPatrolDb } from '../../src/save/db';
+import { MIGRATION_FAILURES, SaveMigrationError, migrations, type MigrationTable } from '../../src/save/migrations';
+import { SaveManager, SaveNotFoundError, SettingsBlobStore, readSettingsBlob, writeSettingsBlob } from '../../src/save/saveManager';
+import { CURRENT_SAVE_VERSION, type SaveEnvelope, type SaveGame } from '../../src/save/schema';
 
-function makeSaveGame(overrides: Partial<SaveGameV1> = {}): SaveGameV1 {
+function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
   return {
     seed: 42,
     rngState: { seed: 42, s: [1, 2, 3, 4] },
     clock: { simTime: 12.5, timeScale: 1 },
     officer: { name: 'A. Vance', badge: '4471' },
-    world: { entities: [{ kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1 }] },
+    camera: { pitch: 0.3 },
+    world: {
+      entities: [
+        { kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1, vx: 1, vy: 0, vz: 0, wx: 0, wy: 0.5, wz: 0, sleeping: false },
+      ],
+    },
     ...overrides,
   };
 }
@@ -126,9 +131,12 @@ describe('SaveManager', () => {
 
   it('migrates an old envelope on load and writes the upgraded copy back', async () => {
     const table: MigrationTable = {
+      ...migrations,
       0: (data) => {
+        // v0 -> v1 (the real v1 -> v2 step then runs from the shipped table).
         const legacy = data as { seed: number; officer: string };
-        return makeSaveGame({ seed: legacy.seed, officer: { name: legacy.officer, badge: '0' } });
+        const { camera: _camera, ...v1 } = makeSaveGame({ seed: legacy.seed, officer: { name: legacy.officer, badge: '0' } });
+        return { ...v1, world: { entities: [] } };
       },
     };
     const migrating = new SaveManager({ factory, bus, now: () => clock, migrationsTable: table });
@@ -150,6 +158,137 @@ describe('SaveManager', () => {
     const stored = await getRaw(factory, 'old');
     expect(stored).toEqual(env);
     migrating.close();
+  });
+
+  it('migrates a stored v1 save to the current version', async () => {
+    const v1 = {
+      version: 1,
+      createdAt: 5,
+      updatedAt: 6,
+      slot: 'v1',
+      data: {
+        seed: 3,
+        rngState: { seed: 3, s: [5, 6, 7, 8] },
+        clock: { simTime: 2, timeScale: 1 },
+        officer: { name: 'Old', badge: '1' },
+        world: { entities: [{ kind: 5, x: 1, y: 2, z: 3, qx: 0, qy: 0, qz: 0, qw: 1 }] },
+      },
+    };
+    await putRaw(factory, 'v1', v1);
+    const env = await manager.load('v1');
+    expect(env.version).toBe(CURRENT_SAVE_VERSION);
+    expect(env.data.world.entities[0]).toMatchObject({ x: 1, vx: 0, wz: 0, sleeping: false });
+    expect(await getRaw(factory, 'v1')).toEqual(env);
+  });
+
+  it('does not let a migration write-back overwrite a save made in between', async () => {
+    const v1 = {
+      version: 1,
+      createdAt: 5,
+      updatedAt: 6,
+      slot: 'a',
+      data: {
+        seed: 3,
+        rngState: { seed: 3, s: [5, 6, 7, 8] },
+        clock: { simTime: 2, timeScale: 1 },
+        officer: { name: 'OLD', badge: '1' },
+        world: { entities: [] },
+      },
+    };
+    await putRaw(factory, 'a', v1);
+    const newer = makeSaveGame({ officer: { name: 'NEW', badge: '2' } });
+    const [loaded] = await Promise.all([manager.load('a'), manager.save('a', newer)]);
+    expect(loaded.data.officer.name).toBe('OLD');
+    expect((await manager.load('a')).data.officer.name).toBe('NEW');
+  });
+
+  it('still loads a migrated save when writing it back fails', async () => {
+    const v1 = {
+      version: 1,
+      createdAt: 5,
+      updatedAt: 6,
+      slot: 'a',
+      data: {
+        seed: 3,
+        rngState: { seed: 3, s: [5, 6, 7, 8] },
+        clock: { simTime: 2, timeScale: 1 },
+        officer: { name: 'Old', badge: '1' },
+        world: { entities: [] },
+      },
+    };
+    await putRaw(factory, 'a', v1);
+    const put = vi.spyOn(FakeObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    try {
+      const env = await manager.load('a');
+      expect(env.version).toBe(CURRENT_SAVE_VERSION);
+      expect(env.data.officer.name).toBe('Old');
+      expect(log.entries().some((e) => e.level === 'warn' && e.message.includes('QuotaExceededError'))).toBe(true);
+    } finally {
+      put.mockRestore();
+    }
+    expect(await getRaw(factory, 'a')).toEqual(v1);
+  });
+
+  it('rejects a save whose time scale is out of range', async () => {
+    await expect(manager.save('a', makeSaveGame({ clock: { simTime: 0, timeScale: 1e6 } }))).rejects.toBeInstanceOf(SaveMigrationError);
+    await putRaw(factory, 'a', { version: CURRENT_SAVE_VERSION, createdAt: 1, updatedAt: 1, slot: 'a', data: makeSaveGame({ clock: { simTime: 0, timeScale: 1e6 } }) });
+    await expect(manager.load('a')).rejects.toBeInstanceOf(SaveMigrationError);
+  });
+
+  it('reopens after the browser force-closes its connection', async () => {
+    const open = vi.spyOn(factory, 'open');
+    await manager.save('a', makeSaveGame());
+    const request = open.mock.results[0]?.value as IDBOpenDBRequest;
+    const db = request.result;
+    // A forced close (cleared site data): the connection is unusable and only 'close' fires.
+    db.close();
+    db.onclose?.call(db, new Event('close'));
+    expect((await manager.list()).map((r) => r.slot)).toEqual(['a']);
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses to write a save that would not load, keeping the previous one', async () => {
+    const good = makeSaveGame({ seed: 7 });
+    await manager.save('autosave', good);
+    const bad = makeSaveGame({ clock: { simTime: NaN, timeScale: 1 } });
+    const error: unknown = await manager.save('autosave', bad).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SaveMigrationError);
+    expect((error as SaveMigrationError).reason).toBe(MIGRATION_FAILURES.invalidData);
+    await expect(manager.save('autosave', makeSaveGame({ seed: NaN }))).rejects.toBeInstanceOf(SaveMigrationError);
+    expect((await manager.load('autosave')).data).toEqual(good);
+  });
+
+  it('keeps the first createdAt when two saves to one slot overlap', async () => {
+    const first = manager.save('s', makeSaveGame({ seed: 1 }));
+    clock = 5_000;
+    const second = manager.save('s', makeSaveGame({ seed: 2 }));
+    await Promise.all([first, second]);
+    const env = await manager.load('s');
+    expect(env.createdAt).toBe(1_000);
+    expect(env.updatedAt).toBe(5_000);
+    expect(env.data.seed).toBe(2);
+  });
+
+  it('lists rows by their store key and repairs a mismatched slot field on load', async () => {
+    const env: SaveEnvelope<SaveGame> = { version: CURRENT_SAVE_VERSION, createdAt: 1, updatedAt: 1, slot: 'other', data: makeSaveGame() };
+    await putRaw(factory, 'real', env);
+    const [row] = await manager.list();
+    expect(row?.slot).toBe('real');
+    const loaded = await manager.load('real');
+    expect(loaded.slot).toBe('real');
+    expect(await getRaw(factory, 'real')).toEqual({ ...env, slot: 'real' });
+  });
+
+  it('drops its connection when a newer database version is opened elsewhere', async () => {
+    await manager.save('a', makeSaveGame());
+    // Would wait forever if the manager's connection stayed open.
+    const upgraded = await openDb(DB_NAME, DB_VERSION + 1, () => undefined, factory);
+    upgraded.close();
+    // The manager reopens instead of reusing a closed connection: this build is now too old for the database.
+    const error: unknown = await manager.list().catch((e: unknown) => e);
+    expect((error as DOMException).name).toBe('VersionError');
   });
 
   it('rejects a corrupt envelope', async () => {
@@ -248,5 +387,84 @@ describe('settings blob', () => {
     expect(await readSettingsBlob(factory)).toEqual(blob);
     await writeSettingsBlob({ replaced: true }, factory);
     expect(await readSettingsBlob(factory)).toEqual({ replaced: true });
+  });
+});
+
+describe('openDb', () => {
+  it('closes a connection when a newer version is requested and reports it', async () => {
+    const factory = new IDBFactory();
+    const onVersionChange = vi.fn();
+    const v1 = await openPatrolDb(factory, onVersionChange);
+    const v2 = await openDb(DB_NAME, DB_VERSION + 1, () => undefined, factory);
+    expect(v2.version).toBe(DB_VERSION + 1);
+    expect(onVersionChange).toHaveBeenCalledTimes(1);
+    expect(() => v1.transaction(STORES.saves)).toThrow();
+    v2.close();
+  });
+
+  it('waits (instead of failing) while an older connection blocks the upgrade', async () => {
+    const factory = new IDBFactory();
+    log.clear();
+    log.setConsoleMirror(false);
+    // A raw connection without a versionchange handler, like an old build's tab.
+    const raw = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = factory.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => request.result.createObjectStore(STORES.saves);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(new Error('open failed'));
+    });
+    let settled = false;
+    const pending = openDb(DB_NAME, DB_VERSION + 1, () => undefined, factory).finally(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
+    expect(log.entries().some((e) => e.level === 'warn' && e.message.includes('waiting'))).toBe(true);
+    raw.close();
+    const db = await pending;
+    expect(db.version).toBe(DB_VERSION + 1);
+    db.close();
+  });
+});
+
+describe('transaction errors', () => {
+  it('reject with the failing request\'s DOMException, not a generic error', async () => {
+    const factory = new IDBFactory();
+    const db = await openDb('constraint', 1, (d) => d.createObjectStore(STORES.saves).createIndex('u', 'u', { unique: true }), factory);
+    await dbPut(db, STORES.saves, 'a', { u: 1 });
+    const name = (p: Promise<unknown>): Promise<string> => p.then(() => 'resolved', (e: unknown) => (e as { name: string }).name);
+    expect(await name(dbPut(db, STORES.saves, 'b', { u: 1 }))).toBe('ConstraintError');
+    expect(await name(dbUpdate(db, STORES.saves, 'b', () => ({ u: 1 })))).toBe('ConstraintError');
+    expect(await dbEntries(db, STORES.saves)).toEqual([{ key: 'a', value: { u: 1 } }]);
+    db.close();
+  });
+});
+
+describe('SettingsBlobStore', () => {
+  it('close() while the connection is still opening does not leave it open', async () => {
+    const factory = new IDBFactory();
+    const store = new SettingsBlobStore(factory);
+    const read = store.read();
+    store.close();
+    await expect(read).resolves.toBeUndefined();
+    expect((store as unknown as { db: IDBDatabase | null }).db).toBeNull();
+    // Nothing holds the database open: an upgrade elsewhere is not blocked.
+    const blocked = vi.fn();
+    const upgraded = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = factory.open(DB_NAME, DB_VERSION + 1);
+      request.onblocked = blocked;
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(new Error('open failed'));
+    });
+    expect(blocked).not.toHaveBeenCalled();
+    upgraded.close();
+  });
+
+  it('reopens after close() for later reads and writes', async () => {
+    const store = new SettingsBlobStore(new IDBFactory());
+    await store.write({ a: 1 });
+    store.close();
+    await expect(store.read()).resolves.toEqual({ a: 1 });
+    store.close();
   });
 });

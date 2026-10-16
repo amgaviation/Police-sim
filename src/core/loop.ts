@@ -1,3 +1,6 @@
+import { log } from './log';
+import { MAX_TIME_SCALE } from './time';
+
 export interface LoopHooks {
   /** Deterministic simulation step at `simHz`; `step` counts from 1. */
   fixedUpdate(dtSeconds: number, step: number): void;
@@ -17,7 +20,7 @@ export interface GameLoopOptions {
   simHz?: number;
   /** Longest real frame (seconds) fed to the accumulator. Default 0.25. */
   maxFrameTime?: number;
-  /** Most fixed steps run in one frame. Default 5. */
+  /** Most fixed steps run in one frame at time scale 1 (scaled with timeScale, up to MAX_TIME_SCALE). Default 5. */
   maxSubSteps?: number;
   /** Frame source; defaults to requestAnimationFrame, else setTimeout. */
   scheduler?: FrameScheduler;
@@ -63,8 +66,12 @@ export function stepAccumulator(
   return { steps, acc: total };
 }
 
+/** Frame intervals longer than this (s) are left out of the stats. */
+const STATS_MAX_FRAME_S = 5;
 const FPS_SMOOTHING = 0.1;
 const FALLBACK_FRAME_MS = 16;
+/** Frames this close to their frame-cap due time still run (absorbs rAF jitter). */
+const FRAME_CAP_SLACK_MS = 1;
 
 function now(): number {
   return performance.now();
@@ -93,8 +100,13 @@ function defaultScheduler(): FrameScheduler {
  * fixed steps are skipped but `update` and `render` keep running.
  */
 export class GameLoop {
-  /** When true, no fixedUpdate runs; the accumulator is held at zero. */
+  /**
+   * When true, no fixedUpdate runs. The accumulator is left untouched, so the
+   * paused frames render the same interpolated pose as the last running frame.
+   */
   paused = false;
+  /** Frames per second the scheduler runs at most; 0 = every frame it offers. */
+  frameCap = 0;
 
   readonly fixedDt: number;
   readonly maxFrameTime: number;
@@ -108,6 +120,9 @@ export class GameLoop {
   private lastTimeMs: number | null = null;
   private acc = 0;
   private stepCount = 0;
+  private scale = 1;
+  private nextFrameDueMs: number | null = null;
+  private lastError: string | null = null;
 
   constructor(options: GameLoopOptions) {
     const simHz = options.simHz ?? 60;
@@ -128,10 +143,28 @@ export class GameLoop {
     return this.stepCount;
   }
 
+  /**
+   * Simulation seconds per real second (0 freezes, 2 runs twice as fast).
+   * Each fixed step still advances exactly `fixedDt`, so the interpolation
+   * alpha stays consistent with the pair of states the steps produced.
+   * Must be in [0, MAX_TIME_SCALE] so the per-frame work stays bounded.
+   */
+  get timeScale(): number {
+    return this.scale;
+  }
+
+  set timeScale(scale: number) {
+    if (!Number.isFinite(scale) || scale < 0 || scale > MAX_TIME_SCALE) {
+      throw new RangeError(`GameLoop: timeScale must be in [0, ${MAX_TIME_SCALE}], got ${scale}`);
+    }
+    this.scale = scale;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
     this.lastTimeMs = null;
+    this.nextFrameDueMs = null;
     this.schedule();
   }
 
@@ -146,16 +179,17 @@ export class GameLoop {
    * callable directly for headless/manual stepping.
    */
   tick(timeMs: number): void {
-    const frameDt =
-      this.lastTimeMs === null ? 0 : Math.min(Math.max(0, (timeMs - this.lastTimeMs) / 1000), this.maxFrameTime);
+    // The real interval feeds the stats (so hitches show); the capped one drives the sim.
+    const rawDt = this.lastTimeMs === null ? 0 : Math.max(0, (timeMs - this.lastTimeMs) / 1000);
+    const frameDt = Math.min(rawDt, this.maxFrameTime);
     this.lastTimeMs = timeMs;
 
     let steps = 0;
     let simMs = 0;
-    if (this.paused) {
-      this.acc = 0;
-    } else {
-      const result = stepAccumulator(this.acc, frameDt, this.fixedDt, this.maxSubSteps);
+    if (!this.paused) {
+      const scaledCap = Math.ceil(this.maxSubSteps * Math.min(this.scale, MAX_TIME_SCALE));
+      const maxSteps = Math.max(this.maxSubSteps, scaledCap);
+      const result = stepAccumulator(this.acc, frameDt * this.scale, this.fixedDt, maxSteps);
       steps = result.steps;
       this.acc = result.acc;
       const simStart = now();
@@ -171,12 +205,13 @@ export class GameLoop {
     this.hooks.render(alpha);
 
     const stats = this.stats;
-    stats.frameMs = frameDt * 1000;
     stats.simMs = simMs;
     stats.stepsLastFrame = steps;
     stats.alpha = alpha;
-    if (frameDt > 0) {
-      const instant = 1 / frameDt;
+    // A gap this long is a background tab (no frames), not a slow frame.
+    if (rawDt > 0 && rawDt <= STATS_MAX_FRAME_S) {
+      stats.frameMs = rawDt * 1000;
+      const instant = 1 / rawDt;
       stats.fps = stats.fps === 0 ? instant : stats.fps + (instant - stats.fps) * FPS_SMOOTHING;
     }
   }
@@ -185,8 +220,32 @@ export class GameLoop {
     this.cancelFrame = this.scheduler.request((t) => {
       this.cancelFrame = null;
       if (!this.running) return;
-      this.tick(t);
-      if (this.running) this.schedule();
+      try {
+        if (this.frameDue(t)) this.tick(t);
+        this.lastError = null;
+      } catch (error) {
+        // A throwing hook must not kill the loop; log once per run of identical errors.
+        const message = String(error);
+        if (message !== this.lastError) log.error('Game loop frame failed:', error);
+        this.lastError = message;
+      } finally {
+        if (this.running) this.schedule();
+      }
     });
+  }
+
+  /** Applies `frameCap`: true when a frame offered at `timeMs` should run. */
+  private frameDue(timeMs: number): boolean {
+    if (!(this.frameCap > 0)) {
+      this.nextFrameDueMs = null;
+      return true;
+    }
+    const interval = 1000 / this.frameCap;
+    const due = this.nextFrameDueMs;
+    if (due !== null && timeMs < due - FRAME_CAP_SLACK_MS) return false;
+    // Keep a steady cadence; resynchronise after a long stall.
+    const base = due !== null && timeMs - due < interval ? due : timeMs;
+    this.nextFrameDueMs = base + interval;
+    return true;
   }
 }

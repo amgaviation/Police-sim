@@ -49,11 +49,19 @@ const DEFAULT_DT = 1 / 60;
 const GROUND_HALF_THICKNESS = 0.5;
 
 let initPromise: Promise<void> | undefined;
+let rapierReady = false;
 
 /** Loads the Rapier WASM module once; later calls share the same promise. */
 export function initRapier(): Promise<void> {
-  initPromise ??= RAPIER.init();
+  initPromise ??= RAPIER.init().then(() => {
+    rapierReady = true;
+  });
   return initPromise;
+}
+
+/** True once `initRapier()` has resolved. */
+export function isRapierReady(): boolean {
+  return rapierReady;
 }
 
 /**
@@ -84,8 +92,14 @@ export class PhysicsWorld {
 
   /** Initialises Rapier (once) and creates a world with the given gravity and step size. */
   static async create(gravity: Vec3 = DEFAULT_GRAVITY, fixedDt = DEFAULT_DT): Promise<PhysicsWorld> {
-    if (!(fixedDt > 0)) throw new RangeError('fixedDt must be positive');
     await initRapier();
+    return PhysicsWorld.createSync(gravity, fixedDt);
+  }
+
+  /** Synchronous `create` for when `initRapier()` has already resolved; throws otherwise. */
+  static createSync(gravity: Vec3 = DEFAULT_GRAVITY, fixedDt = DEFAULT_DT): PhysicsWorld {
+    if (!(fixedDt > 0)) throw new RangeError('fixedDt must be positive');
+    if (!rapierReady) throw new Error('Rapier is not initialised; await initRapier() first');
     return new PhysicsWorld({ ...gravity }, fixedDt);
   }
 

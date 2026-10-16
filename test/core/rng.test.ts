@@ -50,6 +50,15 @@ describe('createRng', () => {
     expect(() => rng.nextInt(6, 3)).toThrow(RangeError);
   });
 
+  it('nextInt() covers a full 2^32 range and rejects wider ones instead of skipping values', () => {
+    const rng = createRng(1);
+    const parity = new Set(Array.from({ length: 200 }, () => rng.nextInt(0, 2 ** 32 - 1) % 2));
+    expect(parity).toEqual(new Set([0, 1]));
+    expect(() => rng.nextInt(0, 2 ** 32)).toThrow(RangeError);
+    expect(() => rng.nextInt(0, 2 ** 33)).toThrow(RangeError);
+    expect(() => rng.nextInt(-Infinity, 0)).toThrow(RangeError);
+  });
+
   it('nextFloat() and chance() behave at the edges', () => {
     const rng = createRng(5);
     for (let i = 0; i < 1_000; i++) {
@@ -150,5 +159,63 @@ describe('createRng', () => {
     expect([clone.next(), clone.next(), clone.next()]).toEqual(expected);
 
     expect(() => rng.restore({ seed: 1, s: [1, 2, 3, -1] })).toThrow(TypeError);
+    expect(() => rng.restore({ seed: -1, s: [1, 2, 3, 4] })).toThrow(TypeError);
+  });
+
+  it('restore() adopts the source seed so state() and stream() match it', () => {
+    const a = createRng(1);
+    const b = createRng(2);
+    b.next();
+    a.restore(b.state());
+    const c = rngFromState(b.state());
+
+    expect(a.seed).toBe(2);
+    expect(a.state()).toEqual(b.state());
+    expect(a.stream('x').next()).toBe(c.stream('x').next());
+    expect(a.stream('t').next()).toBe(b.stream('t').next());
+    expect(a.next()).toBe(c.next());
+  });
+});
+
+// Golden vectors: saves (rngState) and "same seed = same shift" depend on these exact
+// bit patterns. If one of these fails, the algorithm changed and existing seeds/saves break.
+describe('golden output', () => {
+  it('createRng(1)', () => {
+    expect(sequence(1, 8)).toEqual([
+      0.09156953264027834, 0.5061978038866073, 0.8881928145419806, 0.4872551844455302, 0.43427017657086253,
+      0.5073778254445642, 0.7467797840945423, 0.6655121848452836,
+    ]);
+  });
+
+  it("createRng('shift-7') and string seed normalisation", () => {
+    expect(createRng('shift-7').seed).toBe(582618059);
+    expect(sequence('shift-7', 8)).toEqual([
+      0.15927545493468642, 0.1925366958603263, 0.2717778719961643, 0.5438652988523245, 0.9354053284041584,
+      0.9892370263114572, 0.5233939816243947, 0.6478774058632553,
+    ]);
+  });
+
+  it("createRng(1).stream('traffic')", () => {
+    const traffic = createRng(1).stream('traffic');
+    expect(Array.from({ length: 8 }, () => traffic.next())).toEqual([
+      0.38288290402852, 0.8726099075283855, 0.5601536200847477, 0.663011641940102, 0.5074542060028762,
+      0.1005136223975569, 0.036104566184803843, 0.16296827956102788,
+    ]);
+  });
+
+  it('hashString (FNV-1a)', () => {
+    expect(hashString('')).toBe(2166136261);
+    expect(hashString('traffic')).toBe(830603974);
+    expect(hashString('patrol')).toBe(3166911771);
+  });
+
+  it('nextInt and state()', () => {
+    const ints = createRng(7);
+    expect(Array.from({ length: 8 }, () => ints.nextInt(0, 99))).toEqual([4, 16, 92, 95, 39, 63, 30, 10]);
+    const rng = createRng(1);
+    rng.next();
+    rng.next();
+    rng.next();
+    expect(rng.state()).toEqual({ seed: 1, s: [3176546024, 1145687936, 1558142411, 554221436] });
   });
 });

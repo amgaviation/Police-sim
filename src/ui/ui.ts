@@ -75,10 +75,15 @@ export class UIRoot {
   private readonly menus: HTMLElement;
   private readonly stack: Menu[] = [];
   private readonly listeners = new Set<MenuStackListener>();
+  // Keys go to the top menu whatever has focus (a rebuilt or removed control
+  // leaves focus on <body>), except keys typed into the HUD (debug console).
   // Propagation is left intact so the InputManager (window listener) still
   // sees keys, e.g. during binding capture; only the default is suppressed.
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (this.top?.onKeyDown?.(event)) event.preventDefault();
+    const top = this.top;
+    if (!top) return;
+    if (event.target instanceof Node && this.hud.contains(event.target)) return;
+    if (top.onKeyDown?.(event)) event.preventDefault();
   };
 
   constructor(root?: HTMLElement) {
@@ -88,7 +93,7 @@ export class UIRoot {
     this.hud = el('div', { class: 'ui-hud' });
     this.menus = el('div', { class: 'ui-menus' });
     this.root.append(this.hud, this.menus);
-    this.menus.addEventListener('keydown', this.onKeyDown);
+    this.root.ownerDocument.addEventListener('keydown', this.onKeyDown);
   }
 
   get top(): Menu | undefined {
@@ -191,7 +196,7 @@ export class UIRoot {
 
   dispose(): void {
     this.closeAll();
-    this.menus.removeEventListener('keydown', this.onKeyDown);
+    this.root.ownerDocument.removeEventListener('keydown', this.onKeyDown);
     this.hud.remove();
     this.menus.remove();
     this.listeners.clear();
@@ -224,6 +229,9 @@ export class UIRoot {
 
 function focusFirst(element: HTMLElement): void {
   if (element.contains(document.activeElement)) return;
-  const target = element.querySelector<HTMLElement>('[autofocus], button, input, select, [tabindex]');
+  // querySelector returns the first match in document order, so [autofocus] needs its own query.
+  const target =
+    element.querySelector<HTMLElement>('[autofocus]') ??
+    element.querySelector<HTMLElement>('button, input, select, [tabindex]:not([tabindex="-1"])');
   target?.focus();
 }

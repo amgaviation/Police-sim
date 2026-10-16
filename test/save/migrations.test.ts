@@ -2,19 +2,41 @@ import { describe, expect, it } from 'vitest';
 import {
   MIGRATION_FAILURES,
   SaveMigrationError,
+  V1_DEFAULT_PITCH,
   migrateEnvelope,
+  migrateV1ToV2,
   migrations,
   type MigrationTable,
 } from '../../src/save/migrations';
-import { CURRENT_SAVE_VERSION, isSaveGameV1, type SaveEnvelope, type SaveGameV1 } from '../../src/save/schema';
+import {
+  CURRENT_SAVE_VERSION,
+  isSaveGame,
+  isSaveGameV1,
+  type SaveEnvelope,
+  type SaveGame,
+  type SaveGameV1,
+} from '../../src/save/schema';
 
-function makeSaveGame(overrides: Partial<SaveGameV1> = {}): SaveGameV1 {
+function makeSaveGameV1(overrides: Partial<SaveGameV1> = {}): SaveGameV1 {
   return {
     seed: 42,
     rngState: { seed: 42, s: [1, 2, 3, 4] },
     clock: { simTime: 12.5, timeScale: 1 },
     officer: { name: 'A. Vance', badge: '4471' },
     world: { entities: [{ kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1 }] },
+    ...overrides,
+  };
+}
+
+function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  return {
+    ...makeSaveGameV1(),
+    camera: { pitch: 0.4 },
+    world: {
+      entities: [
+        { kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: -1, vz: 0, wx: 0, wy: 0, wz: 2, sleeping: false },
+      ],
+    },
     ...overrides,
   };
 }
@@ -29,6 +51,7 @@ interface LegacyV0 {
 }
 
 const legacyFixture: MigrationTable = {
+  ...migrations,
   0: (data) => {
     const v0 = data as LegacyV0;
     const [name, badge] = v0.officer.split('#');
@@ -47,9 +70,39 @@ function envelope<T>(version: number, data: T): SaveEnvelope<T> {
 }
 
 describe('migrateEnvelope', () => {
-  it('ships with an empty table at the current version', () => {
-    expect(CURRENT_SAVE_VERSION).toBe(1);
-    expect(Object.keys(migrations)).toHaveLength(0);
+  it('ships a step for every version below the current one', () => {
+    expect(CURRENT_SAVE_VERSION).toBe(2);
+    for (let v = 1; v < CURRENT_SAVE_VERSION; v++) expect(migrations[v]).toBeTypeOf('function');
+  });
+
+  it('migrates v1 saves: bodies at rest and awake, default camera pitch', () => {
+    const out = migrateEnvelope(envelope<unknown>(1, makeSaveGameV1()));
+    expect(out.version).toBe(2);
+    expect(out.data.camera).toEqual({ pitch: V1_DEFAULT_PITCH });
+    expect(out.data.world.entities).toEqual([
+      { kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, sleeping: false },
+    ]);
+    expect(isSaveGame(out.data)).toBe(true);
+  });
+
+  it('migrates a v1 save made above the v2 time-scale cap by clamping it', () => {
+    const v1 = makeSaveGameV1({ clock: { simTime: 12, timeScale: 10 } });
+    expect(isSaveGameV1(v1)).toBe(true);
+    const out = migrateEnvelope(envelope<unknown>(1, v1));
+    expect(out.data.clock).toEqual({ simTime: 12, timeScale: 8 });
+    expect(isSaveGame(out.data)).toBe(true);
+    expect(isSaveGameV1(makeSaveGameV1({ clock: { simTime: 12, timeScale: -1 } }))).toBe(false);
+  });
+
+  it('migrateV1ToV2 passes invalid data through for validation to reject', () => {
+    expect(migrateV1ToV2({ seed: 1 })).toEqual({ seed: 1 });
+    let caught: unknown;
+    try {
+      migrateEnvelope(envelope<unknown>(1, { seed: 1 }));
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as SaveMigrationError).reason).toBe(MIGRATION_FAILURES.invalidData);
   });
 
   it('returns a current-version envelope untouched', () => {
@@ -72,7 +125,7 @@ describe('migrateEnvelope', () => {
     expect(out.createdAt).toBe(1000);
     expect(out.data.officer).toEqual({ name: 'B. Okafor', badge: '1203' });
     expect(out.data.clock).toEqual({ simTime: 3, timeScale: 1 });
-    expect(isSaveGameV1(out.data)).toBe(true);
+    expect(isSaveGame(out.data)).toBe(true);
   });
 
   it('throws a typed error when a migration step is missing', () => {
@@ -109,7 +162,7 @@ describe('migrateEnvelope', () => {
   });
 
   it('rejects data that fails validation after migration', () => {
-    const table: MigrationTable = { 0: () => ({ seed: 'not-a-number' }) };
+    const table: MigrationTable = { ...migrations, 0: () => ({ seed: 'not-a-number' }) };
     let caught: unknown;
     try {
       migrateEnvelope(envelope<unknown>(0, {}), table);
@@ -137,20 +190,36 @@ describe('migrateEnvelope', () => {
   });
 });
 
-describe('isSaveGameV1', () => {
+describe('isSaveGame', () => {
   it('accepts a well-formed payload', () => {
-    expect(isSaveGameV1(makeSaveGame())).toBe(true);
-    expect(isSaveGameV1(makeSaveGame({ world: { entities: [] } }))).toBe(true);
+    expect(isSaveGame(makeSaveGame())).toBe(true);
+    expect(isSaveGame(makeSaveGame({ world: { entities: [] } }))).toBe(true);
+    expect(isSaveGameV1(makeSaveGameV1())).toBe(true);
   });
 
   it('rejects malformed payloads', () => {
-    expect(isSaveGameV1(null)).toBe(false);
-    expect(isSaveGameV1('x')).toBe(false);
-    expect(isSaveGameV1({ ...makeSaveGame(), seed: NaN })).toBe(false);
-    expect(isSaveGameV1({ ...makeSaveGame(), officer: { name: 'x' } })).toBe(false);
-    expect(isSaveGameV1({ ...makeSaveGame(), clock: { simTime: 1 } })).toBe(false);
+    expect(isSaveGame(null)).toBe(false);
+    expect(isSaveGame('x')).toBe(false);
+    expect(isSaveGame(makeSaveGameV1())).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), seed: NaN })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), officer: { name: 'x' } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), clock: { simTime: 1 } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), camera: { pitch: Infinity } })).toBe(false);
     expect(
-      isSaveGameV1({ ...makeSaveGame(), world: { entities: [{ kind: 1, x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0 }] } }),
+      isSaveGame({ ...makeSaveGame(), world: { entities: [{ kind: 1, x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0 }] } }),
     ).toBe(false);
+    const entity = makeSaveGame().world.entities[0];
+    expect(isSaveGame({ ...makeSaveGame(), world: { entities: [{ ...entity, sleeping: 'no' }] } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), world: { entities: [{ ...entity, vx: NaN }] } })).toBe(false);
+  });
+
+  it('rejects values the loader cannot restore (non-uint32 RNG state, negative time scale)', () => {
+    expect(isSaveGame({ ...makeSaveGame(), rngState: { seed: 42, s: [1.5, 2, 3, 4] } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), rngState: { seed: 42, s: [-1, 2, 3, 4] } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), rngState: { seed: 42, s: [2 ** 32, 2, 3, 4] } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), rngState: { seed: -3, s: [1, 2, 3, 4] } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), clock: { simTime: 1, timeScale: -1 } })).toBe(false);
+    expect(isSaveGame({ ...makeSaveGame(), clock: { simTime: 1, timeScale: 0 } })).toBe(true);
+    expect(isSaveGame({ ...makeSaveGame(), rngState: { seed: 0xffffffff, s: [0, 0, 0, 0xffffffff] } })).toBe(true);
   });
 });

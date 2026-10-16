@@ -1,5 +1,6 @@
 import type { App } from '../app';
 import { normalizeSeed } from '../core/rng';
+import { MAX_TIME_SCALE } from '../core/time';
 import type { Command } from '../debug/console';
 import { entityCount } from '../ecs/world';
 import { SETTINGS_PATHS, isSettingsPath } from '../settings/settings';
@@ -40,20 +41,25 @@ export function createCommands(app: App): Command[] {
     },
     {
       name: 'timescale',
-      description: 'Get or set the simulation time scale',
+      description: `Get or set the simulation time scale (0 to ${MAX_TIME_SCALE})`,
       usage: '[x]',
       run(args) {
         const session = requireSession(app);
-        if (args[0] !== undefined) session.clock.setTimeScale(Number(args[0]));
+        if (args[0] !== undefined) {
+          const scale = Number(args[0]);
+          if (!Number.isFinite(scale)) throw new Error(`timescale: not a number: ${args[0]}`);
+          app.setTimeScale(Math.min(Math.max(scale, 0), MAX_TIME_SCALE));
+        }
         return `timescale ${String(session.clock.timeScale)}`;
       },
     },
     {
       name: 'pause',
-      description: 'Toggle the fixed-step simulation',
+      description: 'Toggle the fixed-step simulation (stays paused through menus until toggled again)',
       run() {
-        app.loop.paused = !app.loop.paused;
-        return app.loop.paused ? 'paused' : 'running';
+        app.setUserPaused(!app.userPaused);
+        if (app.userPaused) return 'paused';
+        return app.loop.paused ? 'unpaused (a menu is still open)' : 'running';
       },
     },
     {
@@ -112,8 +118,9 @@ export function createCommands(app: App): Command[] {
         if (args[0] !== 'box') throw new Error('Usage: spawn box [n]');
         const n = args[1] === undefined ? 1 : Number(args[1]);
         if (!Number.isInteger(n) || n < 1 || n > 1000) throw new RangeError('n must be an integer in 1..1000');
-        session.spawnRandomBoxes(n);
-        return `Spawned ${String(n)} box${n === 1 ? '' : 'es'}`;
+        const spawned = session.spawnRandomBoxes(n).length;
+        const text = `Spawned ${String(spawned)} box${spawned === 1 ? '' : 'es'}`;
+        return spawned < n ? `${text} (box pool full)` : text;
       },
     },
     {

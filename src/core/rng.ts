@@ -15,7 +15,10 @@ export interface Rng {
   readonly seed: number;
   /** Uniform float in [0, 1). */
   next(): number;
-  /** Uniform integer in [min, maxInclusive]. */
+  /**
+   * Uniform integer in [min, maxInclusive]. The range may hold at most 2^32
+   * integers (one 32-bit draw); a wider range throws a RangeError.
+   */
   nextInt(min: number, maxInclusive: number): number;
   /** Uniform float in [min, max). */
   nextFloat(min: number, max: number): number;
@@ -34,6 +37,7 @@ export interface Rng {
    */
   stream(name: string): Rng;
   state(): RngState;
+  /** Adopts `state` entirely, including its root seed (so `stream()` matches the source). */
   restore(state: RngState): void;
 }
 
@@ -77,15 +81,19 @@ function isUint32(value: unknown): value is number {
 }
 
 class Xoshiro128 implements Rng {
-  readonly seed: number;
+  private rootSeed: number;
   private s0 = 0;
   private s1 = 0;
   private s2 = 0;
   private s3 = 0;
 
   constructor(seed: number) {
-    this.seed = seed;
+    this.rootSeed = seed;
     this.reseed(seed);
+  }
+
+  get seed(): number {
+    return this.rootSeed;
   }
 
   private reseed(seed: number): void {
@@ -118,7 +126,9 @@ class Xoshiro128 implements Rng {
     const lo = Math.ceil(min);
     const hi = Math.floor(maxInclusive);
     if (!(hi >= lo)) throw new RangeError(`nextInt: empty range [${min}, ${maxInclusive}]`);
-    return lo + Math.floor(this.next() * (hi - lo + 1));
+    const span = hi - lo + 1;
+    if (!(span <= TWO_POW_32)) throw new RangeError(`nextInt: range [${min}, ${maxInclusive}] is wider than 2^32`);
+    return lo + Math.floor(this.next() * span);
   }
 
   nextFloat(min: number, max: number): number {
@@ -165,9 +175,11 @@ class Xoshiro128 implements Rng {
 
   restore(state: RngState): void {
     const s = state.s;
-    if (!isUint32(s[0]) || !isUint32(s[1]) || !isUint32(s[2]) || !isUint32(s[3])) {
+    if (!isUint32(state.seed) || !isUint32(s[0]) || !isUint32(s[1]) || !isUint32(s[2]) || !isUint32(s[3])) {
       throw new TypeError('restore: invalid RngState');
     }
+    // The root seed is part of the state: stream() derives children from it.
+    this.rootSeed = state.seed;
     this.s0 = s[0];
     this.s1 = s[1];
     this.s2 = s[2];
@@ -183,7 +195,8 @@ export function createRng(seed: number | string): Rng {
 
 /** Rebuilds a generator from a serialized state. */
 export function rngFromState(state: RngState): Rng {
-  const rng = new Xoshiro128(normalizeSeed(state.seed));
-  rng.restore(state);
+  const seed = normalizeSeed(state.seed);
+  const rng = new Xoshiro128(seed);
+  rng.restore({ seed, s: state.s });
   return rng;
 }

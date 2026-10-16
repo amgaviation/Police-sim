@@ -44,7 +44,8 @@ const PANEL_STYLE = [
   'min-width:220px',
   'background:rgba(0,0,0,0.65)',
   'color:#d6f0d6',
-  'font:12px/1.35 ui-monospace, Menlo, Consolas, monospace',
+  // Scales with the accessibility text size (--text-scale on <html>).
+  'font:calc(12px * var(--text-scale, 1))/1.35 ui-monospace, Menlo, Consolas, monospace',
   'white-space:pre',
   'pointer-events:none',
   'border-radius:4px',

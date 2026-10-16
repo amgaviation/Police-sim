@@ -1,3 +1,9 @@
+/**
+ * Largest supported time scale. The game loop runs up to `maxSubSteps * timeScale`
+ * fixed steps per frame, so an unbounded scale would defeat its spiral-of-death guard.
+ */
+export const MAX_TIME_SCALE = 8;
+
 /** Serialized form of a GameClock. */
 export interface GameClockState {
   readonly simTime: number;
@@ -36,9 +42,15 @@ export class GameClock {
     return scaled;
   }
 
+  /** Adds `simDt` simulation seconds unscaled (the caller already applied the time scale, e.g. one fixed step). */
+  addSimTime(simDt: number): void {
+    if (simDt > 0) this._simTime += simDt;
+  }
+
+  /** Throws a RangeError unless `scale` is in [0, MAX_TIME_SCALE]. */
   setTimeScale(scale: number): void {
-    if (!Number.isFinite(scale) || scale < 0) {
-      throw new RangeError(`setTimeScale: scale must be a finite number >= 0, got ${scale}`);
+    if (!Number.isFinite(scale) || scale < 0 || scale > MAX_TIME_SCALE) {
+      throw new RangeError(`setTimeScale: scale must be in [0, ${MAX_TIME_SCALE}], got ${scale}`);
     }
     this._timeScale = scale;
   }
@@ -63,7 +75,7 @@ export class GameClock {
   /** Overwrites this clock from a serialized state. */
   fromJSON(state: GameClockState): this {
     this._simTime = Number.isFinite(state.simTime) ? state.simTime : 0;
-    this.setTimeScale(Number.isFinite(state.timeScale) ? state.timeScale : 1);
+    this.setTimeScale(Number.isFinite(state.timeScale) ? Math.min(Math.max(state.timeScale, 0), MAX_TIME_SCALE) : 1);
     this._paused = state.paused === true;
     return this;
   }

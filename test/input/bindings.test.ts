@@ -3,13 +3,16 @@ import { ACTION_IDS } from '../../src/input/actions';
 import {
   BINDINGS_SCHEMA_VERSION,
   DEFAULT_BINDINGS,
+  bindingSign,
   bindingsEqual,
   cloneBindings,
   isBinding,
   parseBindings,
   serializeBindings,
+  withBindingSign,
   type Binding,
 } from '../../src/input/bindings';
+import { resolveActions } from '../../src/input/input';
 
 describe('DEFAULT_BINDINGS', () => {
   it('binds every action to at least one valid binding', () => {
@@ -117,3 +120,55 @@ describe('bindingsEqual', () => {
     expect(bindingsEqual({ device: 'keyboard', code: 'KeyW' }, { device: 'mouse', code: 'MouseX' })).toBe(false);
   });
 });
+
+describe('withBindingSign / bindingSign', () => {
+  it('keeps a negative slot negative when a key replaces it (Steer left stays left)', () => {
+    const old = DEFAULT_BINDINGS['vehicle.steer'][0];
+    expect(old).toEqual({ device: 'keyboard', code: 'KeyA', scale: -1 });
+    const sign = bindingSign(old);
+    expect(sign).toBe(-1);
+    expect(withBindingSign({ device: 'keyboard', code: 'KeyJ' }, sign, 'vehicle.steer')).toEqual({
+      device: 'keyboard',
+      code: 'KeyJ',
+      scale: -1,
+    });
+    expect(withBindingSign({ device: 'gamepad', code: 'GamepadButton4' }, sign, 'vehicle.steer')).toEqual({
+      device: 'gamepad',
+      code: 'GamepadButton4',
+      scale: -1,
+    });
+  });
+
+  it('leaves positive slots as captured', () => {
+    expect(bindingSign(undefined)).toBe(1);
+    expect(bindingSign({ device: 'keyboard', code: 'KeyD' })).toBe(1);
+    expect(withBindingSign({ device: 'keyboard', code: 'KeyK' }, 1, 'vehicle.steer')).toEqual({ device: 'keyboard', code: 'KeyK' });
+  });
+
+  it('gives a stick captured for a two-way axis the slot sign, not the push direction', () => {
+    const up = { device: 'gamepad', code: 'GamepadAxis3', scale: -1 } as const;
+    // Pushing the stick up into the default (positive) Look vertical slot must not invert look.
+    expect(withBindingSign(up, bindingSign(DEFAULT_BINDINGS['look.y'][1]), 'look.y')).toEqual({ device: 'gamepad', code: 'GamepadAxis3' });
+    // Pushing left into a negative slot inverts it, whichever way the stick went.
+    const left = { device: 'gamepad', code: 'GamepadAxis2', scale: -1 } as const;
+    expect(withBindingSign(left, -1, 'look.x')).toEqual({ device: 'gamepad', code: 'GamepadAxis2', scale: -1 });
+    expect(withBindingSign({ ...left, scale: 1 }, -1, 'vehicle.steer')).toEqual({ device: 'gamepad', code: 'GamepadAxis2', scale: -1 });
+  });
+
+  it('keeps the push direction of a stick captured for a button or one-way axis', () => {
+    const down = { device: 'gamepad', code: 'GamepadAxis1', scale: -1 } as const;
+    expect(withBindingSign(down, 1, 'move.forward')).toEqual(down);
+    expect(withBindingSign(down, -1, 'vehicle.accelerate')).toEqual(down);
+  });
+
+  it('never makes a button action negative when a key replaces a negative pad-axis slot', () => {
+    const slot = DEFAULT_BINDINGS['move.forward'][2];
+    expect(bindingSign(slot)).toBe(-1);
+    const map = cloneBindings(DEFAULT_BINDINGS);
+    map['move.forward'][2] = withBindingSign({ device: 'keyboard', code: 'KeyI' }, bindingSign(slot), 'move.forward');
+    expect(map['move.forward'][2]).toEqual({ device: 'keyboard', code: 'KeyI' });
+    const raw = { keys: new Set(['KeyW', 'KeyI']), mouseButtons: new Set<number>(), mouse: { x: 0, y: 0, wheel: 0 }, gamepadButtons: [], gamepadAxes: [] };
+    expect(resolveActions(map, raw)['move.forward']).toBe(1);
+  });
+});
+

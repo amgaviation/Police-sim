@@ -91,6 +91,16 @@ export class MeshRegistry {
     return this.boxCountValue;
   }
 
+  /** Size of the shared box pool. */
+  get boxCapacity(): number {
+    return this.poolSize;
+  }
+
+  /** Box instances still available before `addBox` throws. */
+  get freeBoxSlots(): number {
+    return this.poolSize - this.boxCountValue;
+  }
+
   /** Number of entities with a per-entity object. */
   get objectCount(): number {
     return this.objects.size;

@@ -108,7 +108,7 @@ describe('resolveActions', () => {
     expect(idle['move.forward']).toBe(0);
     const pushed = resolveActions(DEFAULT_BINDINGS, raw({ gamepadAxes: [0, -1] }));
     expect(pushed['move.forward']).toBe(1);
-    expect(pushed['move.back']).toBe(-1);
+    expect(pushed['move.back']).toBe(0); // button actions are one-sided
     const custom = resolveActions(DEFAULT_BINDINGS, raw({ gamepadAxes: [0, -0.4] }), 0.5);
     expect(custom['move.forward']).toBe(0);
   });

@@ -29,6 +29,7 @@ export class MainMenu implements Menu {
   private readonly callbacks: MainMenuCallbacks;
   private readonly seedInput: HTMLInputElement;
   private readonly saveList: HTMLElement;
+  private readonly status: HTMLElement;
   private saves: readonly SaveSummary[] = [];
 
   constructor(ui: UIRoot, callbacks: MainMenuCallbacks) {
@@ -45,6 +46,7 @@ export class MainMenu implements Menu {
       },
     });
     this.saveList = el('div', { class: 'save-list' });
+    this.status = el('p', { class: 'hint', role: 'status' });
     this.element = el(
       'div',
       { class: 'panel main-menu', role: 'dialog', 'aria-label': 'Main menu' },
@@ -61,6 +63,7 @@ export class MainMenu implements Menu {
       el('p', { class: 'hint' }, 'Same seed, same shift. Leave blank for a random one.'),
       el('h2', null, 'Continue'),
       this.saveList,
+      this.status,
       el('div', { class: 'row end' }, el('button', { onclick: () => this.callbacks.openSettings() }, 'Settings')),
     );
     this.renderSaves();
@@ -72,6 +75,11 @@ export class MainMenu implements Menu {
     this.renderSaves();
   }
 
+  /** Short status line under the save list (e.g. why a save could not be loaded). */
+  setStatus(text: string): void {
+    this.status.textContent = text;
+  }
+
   get seed(): string {
     return this.seedInput.value;
   }
@@ -81,6 +89,7 @@ export class MainMenu implements Menu {
   }
 
   open(): void {
+    this.setStatus('');
     this.ui.push(this);
   }
 
