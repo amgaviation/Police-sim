@@ -3,8 +3,10 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Patrol — browser-based hyper-realistic police patrol simulator",
-  "engines": { "node": ">=22.13.0" },
+  "description": "Patrol \u2014 browser-based hyper-realistic police patrol simulator",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && vite build",
@@ -13,7 +15,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",

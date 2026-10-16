@@ -1,0 +1,54 @@
+import { el, type Menu, type UIRoot } from '../ui/ui';
+
+export interface PauseMenuCallbacks {
+  resume(): void;
+  quickSave(): void;
+  openSettings(): void;
+  quitToTitle(): void;
+}
+
+/** In-game pause screen. Escape is swallowed here; the app toggles it through the `menu.toggle` action. */
+export class PauseMenu implements Menu {
+  readonly id = 'pause';
+  readonly element: HTMLElement;
+  private readonly ui: UIRoot;
+  private readonly status: HTMLElement;
+
+  constructor(ui: UIRoot, callbacks: PauseMenuCallbacks) {
+    this.ui = ui;
+    this.status = el('p', { class: 'hint' });
+    this.element = el(
+      'div',
+      { class: 'panel pause-menu', role: 'dialog', 'aria-label': 'Paused' },
+      el('h1', null, 'Paused'),
+      el(
+        'div',
+        { class: 'stack' },
+        el('button', { class: 'primary', autofocus: true, onclick: () => callbacks.resume() }, 'Resume'),
+        el('button', { onclick: () => callbacks.quickSave() }, 'Quick save'),
+        el('button', { onclick: () => callbacks.openSettings() }, 'Settings'),
+        el('button', { class: 'danger', onclick: () => callbacks.quitToTitle() }, 'Quit to title'),
+      ),
+      this.status,
+      el('p', { class: 'hint' }, 'WASD move · Shift sprint · mouse look · F3 perf · ` console · Esc resume'),
+    );
+  }
+
+  /** Short status line under the buttons (e.g. "Saved to quicksave"). */
+  setStatus(text: string): void {
+    this.status.textContent = text;
+  }
+
+  open(): void {
+    this.setStatus('');
+    this.ui.push(this);
+  }
+
+  close(): void {
+    this.ui.pop(this);
+  }
+
+  onKeyDown(event: KeyboardEvent): boolean {
+    return event.key === 'Escape';
+  }
+}
