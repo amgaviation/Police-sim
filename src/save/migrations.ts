@@ -1,5 +1,15 @@
 import { MAX_TIME_SCALE } from '../core/time';
-import { CURRENT_SAVE_VERSION, isSaveGame, isSaveGameV1, type SaveEnvelope, type SaveGame, type SaveGameV2 } from './schema';
+import { CAMERA_MODE } from '../player/cameraRig';
+import {
+  CURRENT_SAVE_VERSION,
+  isSaveGame,
+  isSaveGameV1,
+  isSaveGameV2,
+  type SaveEnvelope,
+  type SaveGame,
+  type SaveGameV2,
+  type SaveGameV3,
+} from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
 export type Migration = (data: unknown) => unknown;
@@ -30,8 +40,27 @@ export function migrateV1ToV2(data: unknown): unknown {
   return v2;
 }
 
+/**
+ * v2 -> v3: the Phase 0 demo save becomes a city session. Everything is kept
+ * (the officer and debug boxes stay where they were) and the new state gets
+ * defaults: on foot, chase camera, no saved vehicles (loading re-parks the two
+ * station patrol cars), fresh traffic and the session's own time and weather.
+ */
+export function migrateV2ToV3(data: unknown): unknown {
+  if (!isSaveGameV2(data)) return data;
+  const v3: SaveGameV3 = {
+    ...data,
+    camera: { pitch: data.camera.pitch, mode: CAMERA_MODE.chase },
+    player: { mode: 'onFoot', vehicle: -1 },
+    vehicles: [],
+    traffic: null,
+    environment: { timeOffset: 0, override: null },
+  };
+  return v3;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
-export const migrations: MigrationTable = { 1: migrateV1ToV2 };
+export const migrations: MigrationTable = { 1: migrateV1ToV2, 2: migrateV2ToV3 };
 
 export const MIGRATION_FAILURES = {
   missingStep: 'missing-step',

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "hatchback",
+  "name": "Hatchback",
+  "role": "civilian",
+  "trafficWeight": 3,
+  "body": { "style": "hatchback", "length": 4.05, "width": 1.72, "height": 1.2, "groundClearance": 0.29, "wheelbase": 2.5, "track": 1.48, "cabin": { "start": 0.32, "end": 0.95, "height": 0.48, "inset": 0.08 } },
+  "colors": [{ "hex": "#d8d9db", "weight": 2 }, { "hex": "#c4482c", "weight": 1 }, { "hex": "#2f6d4a", "weight": 1 }, { "hex": "#14161a", "weight": 2 }, { "hex": "#e8d27a", "weight": 1 }, { "hex": "#4f7fb3", "weight": 1 }],
+  "lightbar": false,
+  "mass": 1150,
+  "comHeight": 0.5,
+  "engine": { "maxForce": 4000, "maxPowerKw": 85, "maxSpeedKmh": 180, "reverseMaxSpeedKmh": 25, "idleRpm": 800, "redlineRpm": 6500, "gearRatios": [3.7, 2.1, 1.4, 1.05, 0.83], "finalDrive": 4.2 },
+  "drive": "fwd",
+  "steering": { "maxAngleDeg": 37, "highSpeedFactor": 0.45, "rateDegPerS": 160 },
+  "suspension": { "restLength": 0.28, "stiffness": 30, "compression": 2.3, "relaxation": 3, "maxTravel": 0.2, "maxForce": 17000 },
+  "tires": { "radius": 0.31, "width": 0.19, "frictionSlip": 0.95, "sideStiffness": 1, "loadSensitivity": 0.15 },
+  "brakes": { "maxForce": 12300, "frontBias": 0.68, "abs": true, "handbrakeForce": 8500, "heatPerKJ": 0.26, "coolingPerS": 0.002, "airflowCooling": 0.0003, "fadeStartC": 330, "fadeEndC": 600, "minEfficiency": 0.45 },
+  "fuel": { "capacityL": 42, "idleLph": 0.55, "litersPerKWh": 0.27 },
+  "damage": { "minImpactSpeed": 2, "zoneStrength": 10.5, "engineFrontShare": 0.7, "tireBurstSpeed": 8.5, "stallBelow": 0.3, "stallChancePerS": 0.05, "failBelow": 0.05 },
+  "traffic": { "maxAccel": 1.9, "comfortDecel": 2.3, "maxDecel": 6.5 }
+}

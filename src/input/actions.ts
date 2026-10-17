@@ -31,6 +31,9 @@ export const ACTIONS = {
   'vehicle.siren': { kind: 'button', label: 'Siren' },
   'vehicle.lights': { kind: 'button', label: 'Emergency lights' },
   'camera.toggle': { kind: 'button', label: 'Toggle camera' },
+  'vehicle.handbrake': { kind: 'button', label: 'Handbrake' },
+  'vehicle.headlights': { kind: 'button', label: 'Headlights' },
+  'map.toggle': { kind: 'button', label: 'Map zoom' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

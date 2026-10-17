@@ -1,8 +1,14 @@
 import type { RngState } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
+import { isEnvironmentSave, type EnvironmentSave } from '../environment/environment';
+import { CAMERA_MODE } from '../player/cameraRig';
+import type { PlayerModeName } from '../player/events';
+import { isTrafficSnapshot, type TrafficSnapshot } from '../traffic/trafficSystem';
+import type { SerializedVehicle } from '../vehicles/drivableVehicle';
+import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 2;
+export const CURRENT_SAVE_VERSION = 3;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -58,8 +64,34 @@ export interface SaveGameV2 {
   world: { entities: SerializedEntity[] };
 }
 
+/** A drivable vehicle in a v3 save: its own state plus the look colour and its RNG stream. */
+export interface SavedVehicle extends SerializedVehicle {
+  /** Body colour 0xRRGGBB (`VehicleLook.color`). */
+  color: number;
+  /** State of the vehicle's `'vehicle:<slot>'` stream, so random stalls continue identically. */
+  rng: RngState;
+}
+
+/** v3 (Phase 1): the city session. The city itself is rebuilt from `seed`. */
+export interface SaveGameV3 {
+  seed: number;
+  rngState: RngState;
+  clock: { simTime: number; timeScale: number };
+  officer: { name: string; badge: string };
+  /** On-foot camera pitch and the `CAMERA_MODE` id used while driving. */
+  camera: { pitch: number; mode: number };
+  /** The officer (its seat pose while driving) and debug boxes, as in v2. */
+  world: { entities: SerializedEntity[] };
+  /** `vehicle` indexes `vehicles` while driving, -1 on foot. */
+  player: { mode: PlayerModeName; vehicle: number };
+  vehicles: SavedVehicle[];
+  /** Ambient traffic; null populates afresh around the player. */
+  traffic: TrafficSnapshot | null;
+  environment: EnvironmentSave;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV2;
+export type SaveGame = SaveGameV3;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -67,6 +99,10 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 
 function isFiniteNumber(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
+}
+
+function inRange(x: unknown, min: number, max: number): boolean {
+  return isFiniteNumber(x) && x >= min && x <= max;
 }
 
 function isUint32(x: unknown): x is number {
@@ -82,8 +118,18 @@ function hasFiniteFields(x: Record<string, unknown>, keys: readonly string[]): b
   return keys.every((key) => isFiniteNumber(x[key]));
 }
 
+function isTuple(x: unknown, length: number, item: (v: unknown) => boolean): boolean {
+  return Array.isArray(x) && x.length === length && x.every(item);
+}
+
+const isBoolean = (x: unknown): x is boolean => typeof x === 'boolean';
+const isUnit = (x: unknown): boolean => inRange(x, 0, 1);
+
 const TRANSFORM_KEYS = ['kind', 'x', 'y', 'z', 'qx', 'qy', 'qz', 'qw'] as const;
 const MOTION_KEYS = ['vx', 'vy', 'vz', 'wx', 'wy', 'wz'] as const;
+const VEHICLE_POSE_KEYS = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw', 'vx', 'vy', 'vz', 'wx', 'wy', 'wz'] as const;
+const VEHICLE_FLAG_KEYS = ['engineFailed', 'headlights', 'lightbar', 'reversing'] as const;
+const VEHICLE_CAMERA_MODES: readonly number[] = [CAMERA_MODE.chase, CAMERA_MODE.hood, CAMERA_MODE.cockpit];
 
 export function isSerializedEntityV1(x: unknown): x is SerializedEntityV1 {
   return isRecord(x) && hasFiniteFields(x, TRANSFORM_KEYS);
@@ -91,6 +137,39 @@ export function isSerializedEntityV1(x: unknown): x is SerializedEntityV1 {
 
 export function isSerializedEntity(x: unknown): x is SerializedEntity {
   return isRecord(x) && hasFiniteFields(x, TRANSFORM_KEYS) && hasFiniteFields(x, MOTION_KEYS) && typeof x['sleeping'] === 'boolean';
+}
+
+/** The optional `sim` block of a serialized vehicle (steering, gearbox, stall timer, ABS phase, wheel loads). */
+function isVehicleSimState(x: unknown): boolean {
+  return (
+    isRecord(x) &&
+    hasFiniteFields(x, ['steerAngle', 'absTime']) &&
+    Number.isInteger(x['gear']) &&
+    (x['gear'] as number) >= 1 &&
+    inRange(x['stallS'], 0, Number.MAX_VALUE) &&
+    isTuple(x['wheelLoad'], 4, isFiniteNumber)
+  );
+}
+
+/** Structural check of one saved vehicle, including that its model still ships. */
+export function isSavedVehicle(x: unknown): x is SavedVehicle {
+  if (!isRecord(x)) return false;
+  const modelId = x['modelId'];
+  return (
+    typeof modelId === 'string' &&
+    VEHICLE_MODELS.some((m) => m.id === modelId) &&
+    hasFiniteFields(x, VEHICLE_POSE_KEYS) &&
+    inRange(x['fuelL'], 0, Number.MAX_VALUE) &&
+    isUnit(x['engineHealth']) &&
+    isTuple(x['brakeTempC'], 2, isFiniteNumber) &&
+    isTuple(x['zones'], 4, isUnit) &&
+    isTuple(x['tireFlat'], 4, isBoolean) &&
+    VEHICLE_FLAG_KEYS.every((key) => isBoolean(x[key])) &&
+    (x['sim'] === undefined || isVehicleSimState(x['sim'])) &&
+    Number.isInteger(x['color']) &&
+    inRange(x['color'], 0, 0xffffff) &&
+    isRngState(x['rng'])
+  );
 }
 
 /**
@@ -134,8 +213,24 @@ export function isSaveGameV2(x: unknown): x is SaveGameV2 {
   return entities !== null && entities.every(isSerializedEntity);
 }
 
+/** Structural check for the v3 payload, nested vehicle, traffic and environment state included. */
+export function isSaveGameV3(x: unknown): x is SaveGameV3 {
+  if (!isSaveGameV2(x)) return false;
+  const v3 = x as unknown as Record<string, unknown>;
+  const camera = v3['camera'] as Record<string, unknown>;
+  if (!VEHICLE_CAMERA_MODES.includes(camera['mode'] as number)) return false;
+  const vehicles = v3['vehicles'];
+  if (!Array.isArray(vehicles) || !vehicles.every(isSavedVehicle)) return false;
+  const player = v3['player'];
+  if (!isRecord(player) || !Number.isInteger(player['vehicle'])) return false;
+  const index = player['vehicle'] as number;
+  const playerValid =
+    player['mode'] === 'onFoot' ? index === -1 : player['mode'] === 'driving' && index >= 0 && index < vehicles.length;
+  return playerValid && (v3['traffic'] === null || isTrafficSnapshot(v3['traffic'])) && isEnvironmentSave(v3['environment']);
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV2;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV3;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

@@ -40,6 +40,17 @@ export interface TestScene {
   sun: THREE.DirectionalLight;
 }
 
+/**
+ * Replaces the plain `gl.render(scene, camera)` call of `Renderer.render()`, e.g. to draw
+ * into a render target and composite it with a full-screen shader. The pass owns its GPU
+ * resources; the renderer never disposes it. Sizes are in CSS pixels.
+ */
+export interface PostProcess {
+  render(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void;
+  setSize(width: number, height: number, pixelRatio: number): void;
+  dispose(): void;
+}
+
 type TypedMesh = THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>;
 type ShadowLight = THREE.DirectionalLight | THREE.SpotLight | THREE.PointLight;
 /** Anything that owns a geometry and material(s): meshes, lines, line segments, points, sprites. */
@@ -92,6 +103,7 @@ export class Renderer {
   private height = 1;
   private fixedSize: { width: number; height: number } | null = null;
   private drawDistanceValue = DEFAULT_DRAW_DISTANCE;
+  private postProcess: PostProcess | null = null;
   /** Keeps a fixed size from `resize(w, h)`; only an explicit `resize()` clears it. */
   private readonly onWindowResize = (): void => this.refreshSize();
   /** Fires when the device pixel ratio changes (e.g. the window moved to another monitor). */
@@ -111,6 +123,8 @@ export class Renderer {
     });
     this.gl.shadowMap.type = THREE.PCFShadowMap;
     this.gl.toneMapping = THREE.ACESFilmicToneMapping;
+    // Reset once per render() instead of per gl.render(), so multi-pass frames count every pass.
+    this.gl.info.autoReset = false;
     this.scale = clampScale(options.renderScale ?? 1);
 
     this.camera = new THREE.PerspectiveCamera(options.fov ?? 60, 1, 0.1, 1000);
@@ -240,11 +254,23 @@ export class Renderer {
     this.applySize();
   }
 
-  /** Draws the scene with the active camera and snapshots `stats`. */
+  /**
+   * Installs (or with `null` removes) a pass that draws the frame instead of the plain
+   * scene render. The renderer forwards sizes to it but never disposes it.
+   */
+  setPostProcess(pass: PostProcess | null): void {
+    if (pass === this.postProcess) return;
+    this.postProcess = pass;
+    if (pass) pass.setSize(this.width, this.height, this.gl.getPixelRatio());
+  }
+
+  /** Draws the scene with the active camera (through the post process if any) and snapshots `stats`. */
   render(): void {
     if (this.disposed) return;
     if (this.debugEnabled) this.debugControls.update();
-    this.gl.render(this.scene, this.activeCamera);
+    this.gl.info.reset();
+    if (this.postProcess) this.postProcess.render(this.gl, this.scene, this.activeCamera);
+    else this.gl.render(this.scene, this.activeCamera);
     const info = this.gl.info;
     const s = this.statsSnapshot;
     s.drawCalls = info.render.calls;
@@ -266,6 +292,7 @@ export class Renderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.postProcess = null;
     window.removeEventListener('resize', this.onWindowResize);
     this.dprQuery?.removeEventListener('change', this.onDprChange);
     this.dprQuery = null;
@@ -290,6 +317,7 @@ export class Renderer {
     const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio;
     this.gl.setPixelRatio(Math.min(dpr, MAX_PIXEL_RATIO) * this.scale);
     this.gl.setSize(this.width, this.height, true);
+    this.postProcess?.setSize(this.width, this.height, this.gl.getPixelRatio());
     const aspect = this.width / this.height;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();

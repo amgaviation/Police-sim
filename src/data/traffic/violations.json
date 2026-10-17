@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "vehicleFlags": {
+    "expiredRegistration": 0.05,
+    "noInsurance": 0.03,
+    "stolen": 0.004,
+    "headlightOut": 0.02,
+    "taillightOut": 0.02,
+    "brakeLightOut": 0.015
+  },
+  "behaviors": {
+    "speeding": { "share": 0.12, "speedFactor": [1.12, 1.45] },
+    "tailgating": { "share": 0.06, "headwayS": [0.35, 0.7] },
+    "redLight": { "share": 0.03, "lateRedS": 2.5 },
+    "rollingStop": { "share": 0.08 },
+    "dui": {
+      "share": 0.004,
+      "hourMultiplier": [6, 6, 7, 5, 3, 1, 0.3, 0.2, 0.2, 0.2, 0.2, 0.3, 0.4, 0.4, 0.4, 0.5, 0.6, 0.8, 1, 1.5, 2.5, 3.5, 4.5, 5.5],
+      "weaveAmplitude": [0.4, 1.1],
+      "weavePeriodS": [4, 9],
+      "speedJitter": 0.15
+    }
+  },
+  "observeRadius": 150
+}

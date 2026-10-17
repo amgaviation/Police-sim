@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "types": {
+    "downtown": {
+      "subdivisions": 4, "jitter": 0.1, "oneWayPairs": true, "removeLocalFraction": 0,
+      "ground": "concrete", "sidewalk": true, "trafficDensity": 1.4,
+      "buildings": { "lotFrontage": [18, 40], "lotDepth": [20, 45], "setback": 0, "coverage": 0.95,
+                     "height": [18, 110], "centerBoost": 1.6, "roof": "flat", "palette": ["#8a8f99", "#a39d8f", "#6f7782", "#b7b2a6", "#5d6470", "#9aa3ad"] },
+      "props": { "streetlightSpacing": 32, "treesPer1000m2": 0.05, "hydrantSpacing": 90, "benchSpacing": 120 }
+    },
+    "suburbs": {
+      "subdivisions": 4, "jitter": 0.12, "oneWayPairs": false, "removeLocalFraction": 0.15,
+      "ground": "grass", "sidewalk": true, "trafficDensity": 0.8,
+      "buildings": { "lotFrontage": [16, 24], "lotDepth": [24, 34], "setback": 7, "coverage": 0.5,
+                     "height": [4, 8], "centerBoost": 1, "roof": "mixed", "palette": ["#d8cfc0", "#c9b8a0", "#e6e1d6", "#b9c2c9", "#c7a98f", "#d6d0a8"] },
+      "props": { "streetlightSpacing": 45, "treesPer1000m2": 0.6, "hydrantSpacing": 120, "benchSpacing": 0 }
+    },
+    "industrial": {
+      "subdivisions": 2, "jitter": 0.1, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "concrete", "sidewalk": false, "trafficDensity": 0.7,
+      "buildings": { "lotFrontage": [40, 80], "lotDepth": [40, 70], "setback": 8, "coverage": 0.8,
+                     "height": [8, 16], "centerBoost": 1, "roof": "flat", "palette": ["#8c8f8a", "#a7a49a", "#6e7470", "#9b8d7a"] },
+      "props": { "streetlightSpacing": 50, "treesPer1000m2": 0.02, "hydrantSpacing": 150, "benchSpacing": 0 }
+    },
+    "highway": {
+      "subdivisions": 2, "jitter": 0.08, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "concrete", "sidewalk": true, "trafficDensity": 1.2,
+      "buildings": { "lotFrontage": [30, 60], "lotDepth": [30, 50], "setback": 15, "coverage": 0.6,
+                     "height": [5, 12], "centerBoost": 1, "roof": "flat", "palette": ["#c4b9a8", "#a9b3ba", "#d2c7b0", "#9d9488"] },
+      "props": { "streetlightSpacing": 40, "treesPer1000m2": 0.05, "hydrantSpacing": 150, "benchSpacing": 0 }
+    },
+    "rural": {
+      "subdivisions": 2, "jitter": 0.2, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "grass", "sidewalk": false, "trafficDensity": 0.25,
+      "buildings": { "lotFrontage": [60, 120], "lotDepth": [40, 80], "setback": 20, "coverage": 0.3,
+                     "height": [5, 9], "centerBoost": 1, "roof": "pitched", "palette": ["#b8452f", "#d9d2c3", "#8f6a4a", "#c8c0a8"] },
+      "props": { "streetlightSpacing": 0, "treesPer1000m2": 0.15, "hydrantSpacing": 0, "benchSpacing": 0 }
+    },
+    "campus": {
+      "subdivisions": 2, "jitter": 0.05, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "grass", "sidewalk": true, "trafficDensity": 0.8,
+      "buildings": { "lotFrontage": [40, 70], "lotDepth": [30, 50], "setback": 10, "coverage": 0.7,
+                     "height": [10, 24], "centerBoost": 1, "roof": "mixed", "palette": ["#a8573f", "#c2a98a", "#9e8f7c", "#b5aa98"] },
+      "props": { "streetlightSpacing": 35, "treesPer1000m2": 0.4, "hydrantSpacing": 100, "benchSpacing": 60 }
+    },
+    "hospital": {
+      "subdivisions": 2, "jitter": 0.05, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "concrete", "sidewalk": true, "trafficDensity": 1.0,
+      "buildings": { "lotFrontage": [40, 70], "lotDepth": [30, 50], "setback": 8, "coverage": 0.8,
+                     "height": [10, 30], "centerBoost": 1, "roof": "flat", "palette": ["#e3e3de", "#cfd6db", "#d9d3c7"] },
+      "props": { "streetlightSpacing": 35, "treesPer1000m2": 0.2, "hydrantSpacing": 100, "benchSpacing": 80 }
+    },
+    "airport": {
+      "subdivisions": 2, "jitter": 0, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "grass", "sidewalk": false, "trafficDensity": 0.5,
+      "buildings": { "lotFrontage": [60, 120], "lotDepth": [40, 80], "setback": 20, "coverage": 0.7,
+                     "height": [10, 18], "centerBoost": 1, "roof": "flat", "palette": ["#c9ccd0", "#a9b0b8", "#dadcd8"] },
+      "props": { "streetlightSpacing": 60, "treesPer1000m2": 0, "hydrantSpacing": 0, "benchSpacing": 0 }
+    },
+    "harbor": {
+      "subdivisions": 2, "jitter": 0.05, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "concrete", "sidewalk": false, "trafficDensity": 0.6,
+      "buildings": { "lotFrontage": [50, 90], "lotDepth": [30, 60], "setback": 10, "coverage": 0.8,
+                     "height": [8, 14], "centerBoost": 1, "roof": "flat", "palette": ["#7d8a92", "#9a9184", "#6c757b"] },
+      "props": { "streetlightSpacing": 50, "treesPer1000m2": 0, "hydrantSpacing": 150, "benchSpacing": 0 }
+    },
+    "park": {
+      "subdivisions": 1, "jitter": 0, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "grass", "sidewalk": true, "trafficDensity": 0.4,
+      "buildings": { "lotFrontage": [20, 40], "lotDepth": [20, 40], "setback": 10, "coverage": 0.2,
+                     "height": [3, 5], "centerBoost": 1, "roof": "pitched", "palette": ["#a58b6c"] },
+      "props": { "streetlightSpacing": 40, "treesPer1000m2": 1.0, "hydrantSpacing": 150, "benchSpacing": 80 }
+    },
+    "water": {
+      "subdivisions": 0, "jitter": 0, "oneWayPairs": false, "removeLocalFraction": 0,
+      "ground": "sand", "sidewalk": false, "trafficDensity": 0,
+      "buildings": { "lotFrontage": [0, 0], "lotDepth": [0, 0], "setback": 0, "coverage": 0,
+                     "height": [0, 0], "centerBoost": 1, "roof": "flat", "palette": ["#3d5a6b"] },
+      "props": { "streetlightSpacing": 0, "treesPer1000m2": 0, "hydrantSpacing": 0, "benchSpacing": 0 }
+    }
+  }
+}

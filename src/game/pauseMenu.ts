@@ -30,7 +30,9 @@ export class PauseMenu implements Menu {
         el('button', { class: 'danger', onclick: () => callbacks.quitToTitle() }, 'Quit to title'),
       ),
       this.status,
-      el('p', { class: 'hint' }, 'WASD move · Shift sprint · mouse look · F3 perf · ` console · Esc resume'),
+      el('p', { class: 'hint' }, 'On foot: WASD move · Shift sprint · mouse look · E enter a car or refuel at a pump'),
+      el('p', { class: 'hint' }, 'Driving: W/S throttle and brake (hold S to reverse) · A/D steer · Space handbrake · E get out'),
+      el('p', { class: 'hint' }, 'V camera · H headlights · L light bar · M map zoom · F3 perf · ` console · Esc resume'),
     );
   }
 

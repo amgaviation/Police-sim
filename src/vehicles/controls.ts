@@ -1,0 +1,53 @@
+/** Raw driver input from the player module: pedals 0..1, steer -1 (left) .. +1 (right). */
+export interface DriverInput {
+  accelerate: number;
+  brake: number;
+  steer: number;
+  handbrake: boolean;
+}
+
+/** What the vehicle applies: `throttle` drives along the selected direction (backwards when `reverse`). */
+export interface DriverControls {
+  throttle: number;
+  brake: number;
+  steer: number;
+  handbrake: boolean;
+  reverse: boolean;
+}
+
+/** Below this forward speed (m/s) the car counts as stopped for selecting reverse. */
+export const STOPPED_SPEED = 0.5;
+
+function clamp01(v: number): number {
+  return v > 1 ? 1 : v > 0 ? v : 0;
+}
+
+/**
+ * Automatic forward/reverse selection. Holding the brake while stopped engages reverse and the brake
+ * pedal then works as reverse throttle; pressing accelerate while still rolling backwards brakes first,
+ * and switches back to forward once stopped. `forwardSpeed` is signed (+ = forwards).
+ */
+export function mapDriverInput(
+  input: DriverInput,
+  forwardSpeed: number,
+  reversing: boolean,
+  out: DriverControls,
+): DriverControls {
+  const accelerate = clamp01(input.accelerate);
+  const brake = clamp01(input.brake);
+  out.steer = input.steer > 1 ? 1 : input.steer < -1 ? -1 : input.steer || 0;
+  out.handbrake = input.handbrake;
+  let reverse = reversing;
+  if (reverse && accelerate > 0 && forwardSpeed > -STOPPED_SPEED) reverse = false;
+  else if (!reverse && brake > 0 && accelerate === 0 && forwardSpeed < STOPPED_SPEED) reverse = true;
+  out.reverse = reverse;
+  if (reverse) {
+    // Brake pedal is the reverse throttle; accelerate (while still rolling back) brakes.
+    out.throttle = accelerate > 0 ? 0 : brake;
+    out.brake = accelerate;
+  } else {
+    out.throttle = accelerate;
+    out.brake = brake;
+  }
+  return out;
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "classes": {
+    "highway":   { "lanes": 2, "laneWidth": 3.65, "median": 4, "shoulder": 2.5, "sidewalk": 0,   "speedMph": 55, "surface": "asphalt", "signalWeight": 4 },
+    "arterial":  { "lanes": 2, "laneWidth": 3.5,  "median": 0, "shoulder": 0.5, "sidewalk": 2.5, "speedMph": 40, "surface": "asphalt", "signalWeight": 3 },
+    "collector": { "lanes": 1, "laneWidth": 3.5,  "median": 0, "shoulder": 0.5, "sidewalk": 2.5, "speedMph": 35, "surface": "asphalt", "signalWeight": 2 },
+    "local":     { "lanes": 1, "laneWidth": 3.25, "median": 0, "shoulder": 0.5, "sidewalk": 2,   "speedMph": 25, "surface": "asphalt", "signalWeight": 1 },
+    "county":    { "lanes": 1, "laneWidth": 3.4,  "median": 0, "shoulder": 1.5, "sidewalk": 0,   "speedMph": 50, "surface": "asphalt", "signalWeight": 2 },
+    "gravel":    { "lanes": 1, "laneWidth": 3.0,  "median": 0, "shoulder": 0.5, "sidewalk": 0,   "speedMph": 35, "surface": "gravel",  "signalWeight": 1 },
+    "service":   { "lanes": 1, "laneWidth": 3.0,  "median": 0, "shoulder": 0,   "sidewalk": 0,   "speedMph": 15, "surface": "asphalt", "signalWeight": 1 }
+  },
+  "districtSpeedMph": { "downtown": { "arterial": 35, "collector": 30 }, "campus": { "local": 20 }, "rural": { "county": 55 } },
+  "signals": { "yellow": 4, "allRed": 1.5, "minGreen": 15, "cycle": { "highway": 100, "arterial": 80, "collector": 60, "local": 50 } }
+}

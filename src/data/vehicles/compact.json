@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "compact",
+  "name": "Compact",
+  "role": "civilian",
+  "trafficWeight": 3,
+  "body": { "style": "sedan", "length": 4.3, "width": 1.75, "height": 1.1, "groundClearance": 0.3, "wheelbase": 2.6, "track": 1.5, "cabin": { "start": 0.3, "end": 0.78, "height": 0.45, "inset": 0.09 } },
+  "colors": [{ "hex": "#b3b8bf", "weight": 3 }, { "hex": "#f0f0ec", "weight": 2 }, { "hex": "#9c1f24", "weight": 1 }, { "hex": "#2b4c7e", "weight": 1 }, { "hex": "#3a3d42", "weight": 2 }],
+  "lightbar": false,
+  "mass": 1250,
+  "comHeight": 0.5,
+  "engine": { "maxForce": 4200, "maxPowerKw": 95, "maxSpeedKmh": 185, "reverseMaxSpeedKmh": 25, "idleRpm": 800, "redlineRpm": 6500, "gearRatios": [3.6, 2, 1.4, 1.05, 0.85], "finalDrive": 4.1 },
+  "drive": "fwd",
+  "steering": { "maxAngleDeg": 36, "highSpeedFactor": 0.45, "rateDegPerS": 150 },
+  "suspension": { "restLength": 0.28, "stiffness": 30, "compression": 2.3, "relaxation": 3, "maxTravel": 0.2, "maxForce": 18000 },
+  "tires": { "radius": 0.31, "width": 0.2, "frictionSlip": 0.95, "sideStiffness": 1, "loadSensitivity": 0.15 },
+  "brakes": { "maxForce": 13400, "frontBias": 0.68, "abs": true, "handbrakeForce": 9500, "heatPerKJ": 0.25, "coolingPerS": 0.002, "airflowCooling": 0.0003, "fadeStartC": 330, "fadeEndC": 600, "minEfficiency": 0.45 },
+  "fuel": { "capacityL": 45, "idleLph": 0.6, "litersPerKWh": 0.27 },
+  "damage": { "minImpactSpeed": 2, "zoneStrength": 11, "engineFrontShare": 0.7, "tireBurstSpeed": 8.5, "stallBelow": 0.3, "stallChancePerS": 0.05, "failBelow": 0.05 },
+  "traffic": { "maxAccel": 1.8, "comfortDecel": 2.3, "maxDecel": 6.5 }
+}

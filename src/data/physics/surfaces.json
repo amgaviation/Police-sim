@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "surfaces": {
+    "asphalt":  { "grip": 1.0,  "rolling": 0.012, "wet": 0.72, "snow": 0.35 },
+    "concrete": { "grip": 0.95, "rolling": 0.011, "wet": 0.7,  "snow": 0.35 },
+    "gravel":   { "grip": 0.62, "rolling": 0.03,  "wet": 0.9,  "snow": 0.55 },
+    "dirt":     { "grip": 0.6,  "rolling": 0.04,  "wet": 0.65, "snow": 0.5 },
+    "grass":    { "grip": 0.5,  "rolling": 0.06,  "wet": 0.75, "snow": 0.6 },
+    "sand":     { "grip": 0.45, "rolling": 0.12,  "wet": 1.05, "snow": 0.7 }
+  }
+}

@@ -112,6 +112,11 @@ export class PhysicsWorld {
     return this.bodies.size;
   }
 
+  /** True after `dispose()`; owners of raw Rapier objects skip their own cleanup then. */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
   /** Advances the simulation by exactly `fixedDt` and dispatches collision events. */
   step(): void {
     this.assertLive();
@@ -160,6 +165,21 @@ export class PhysicsWorld {
   /** Adds a sphere body for `eid`. */
   addSphere(eid: EntityId, position: Vec3, radius: number, options: BodyOptions = {}): RigidBody {
     return this.addBody(eid, position, RAPIER.ColliderDesc.ball(radius), options);
+  }
+
+  /**
+   * Tracks a body created directly on `raw` (e.g. a vehicle chassis) under `eid`, together with
+   * every collider attached to it, so `syncToEcs`, `getBody`, `removeBody` and collision events
+   * see it like a body added through this wrapper. Throws if `eid` already has a body.
+   */
+  registerBody(eid: EntityId, body: RigidBody): void {
+    this.assertLive();
+    if (this.bodies.has(eid)) throw new Error(`Entity ${String(eid)} already has a physics body`);
+    this.bodies.set(eid, body);
+    this.eidByBody.set(body.handle, eid);
+    for (let i = 0; i < body.numColliders(); i++) {
+      this.eidByCollider.set(body.collider(i).handle, eid);
+    }
   }
 
   /** Removes the body (and its colliders) tracked for `eid`; no-op if untracked. */

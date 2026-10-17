@@ -7,22 +7,7 @@ import { DB_NAME, DB_VERSION, STORES, dbEntries, dbGet, dbPut, dbUpdate, openDb,
 import { MIGRATION_FAILURES, SaveMigrationError, migrations, type MigrationTable } from '../../src/save/migrations';
 import { SaveManager, SaveNotFoundError, SettingsBlobStore, readSettingsBlob, writeSettingsBlob } from '../../src/save/saveManager';
 import { CURRENT_SAVE_VERSION, type SaveEnvelope, type SaveGame } from '../../src/save/schema';
-
-function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
-  return {
-    seed: 42,
-    rngState: { seed: 42, s: [1, 2, 3, 4] },
-    clock: { simTime: 12.5, timeScale: 1 },
-    officer: { name: 'A. Vance', badge: '4471' },
-    camera: { pitch: 0.3 },
-    world: {
-      entities: [
-        { kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1, vx: 1, vy: 0, vz: 0, wx: 0, wy: 0.5, wz: 0, sleeping: false },
-      ],
-    },
-    ...overrides,
-  };
-}
+import { makeSaveGame } from './fixtures';
 
 /** Writes a raw record straight into the saves store, bypassing SaveManager. */
 async function putRaw(factory: IDBFactory, slot: string, value: unknown): Promise<void> {

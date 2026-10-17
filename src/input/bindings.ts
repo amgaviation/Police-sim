@@ -57,6 +57,9 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'vehicle.siren': [key('KeyQ'), pad('GamepadButton3')],
   'vehicle.lights': [key('KeyL'), pad('GamepadButton2')],
   'camera.toggle': [key('KeyV'), pad('GamepadButton8')],
+  'vehicle.handbrake': [key('Space'), pad('GamepadButton1')],
+  'vehicle.headlights': [key('KeyH'), pad('GamepadButton12')],
+  'map.toggle': [key('KeyM'), pad('GamepadButton13')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

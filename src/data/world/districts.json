@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "cellSize": 512,
+  "legend": {
+    "D": "downtown", "S": "suburbs", "I": "industrial", "H": "highway", "R": "rural", "C": "campus",
+    "M": "hospital", "A": "airport", "P": "harbor", "K": "park", "W": "water"
+  },
+  "rows": [
+    "RRRRRRRRRRRRRR",
+    "RRRRRRRRRRAAAR",
+    "RRRSSSSSRRAAAR",
+    "RRSSSSSSSSIIRR",
+    "RRSSSKSSSSIIRR",
+    "RRSSCCDDDSIIRR",
+    "RRSSCCDDDMSSRR",
+    "HHHHHHHHHHHHHH",
+    "RRSSSKSSSSIIPW",
+    "RRSSSSSSSIIPPW",
+    "RRRSSSSSIIIPWW",
+    "RRRRSSSSSIPPWW",
+    "RRRRRSSSRRPWWW",
+    "RRRRRRRRRRWWWW"
+  ],
+  "highways": [ { "name": "State Highway 9", "axis": "x", "coord": 256, "from": -3584, "to": 3584 } ]
+}

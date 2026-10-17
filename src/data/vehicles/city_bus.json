@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "city_bus",
+  "name": "City Bus",
+  "role": "commercial",
+  "trafficWeight": 0.3,
+  "body": { "style": "bus", "length": 12, "width": 2.55, "height": 2.85, "groundClearance": 0.3, "wheelbase": 6, "track": 2.1, "cabin": { "start": 0.02, "end": 0.98, "height": 1, "inset": 0.04 } },
+  "colors": [{ "hex": "#e9e6dc", "weight": 2 }, { "hex": "#2f6f9f", "weight": 1 }, { "hex": "#e0a21b", "weight": 1 }, { "hex": "#3c7d4a", "weight": 1 }],
+  "lightbar": false,
+  "mass": 12500,
+  "comHeight": 1.2,
+  "engine": { "maxForce": 30000, "maxPowerKw": 220, "maxSpeedKmh": 100, "reverseMaxSpeedKmh": 15, "idleRpm": 600, "redlineRpm": 2600, "gearRatios": [3.5, 2, 1.4, 1, 0.75], "finalDrive": 5.2 },
+  "drive": "rwd",
+  "steering": { "maxAngleDeg": 40, "highSpeedFactor": 0.5, "rateDegPerS": 90 },
+  "suspension": { "restLength": 0.34, "stiffness": 22, "compression": 2.6, "relaxation": 3.4, "maxTravel": 0.2, "maxForce": 90000 },
+  "tires": { "radius": 0.5, "width": 0.3, "frictionSlip": 0.85, "sideStiffness": 1, "loadSensitivity": 0.12 },
+  "brakes": { "maxForce": 120000, "frontBias": 0.5, "abs": true, "handbrakeForce": 90000, "heatPerKJ": 0.04, "coolingPerS": 0.002, "airflowCooling": 0.0003, "fadeStartC": 320, "fadeEndC": 600, "minEfficiency": 0.4 },
+  "fuel": { "capacityL": 300, "idleLph": 2.2, "litersPerKWh": 0.25 },
+  "damage": { "minImpactSpeed": 2.5, "zoneStrength": 28, "engineFrontShare": 0.3, "tireBurstSpeed": 12, "stallBelow": 0.3, "stallChancePerS": 0.03, "failBelow": 0.05 },
+  "traffic": { "maxAccel": 0.9, "comfortDecel": 1.5, "maxDecel": 4.5 }
+}

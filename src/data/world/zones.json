@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "schoolZone": { "limitMph": 20, "windows": [[7.0, 8.5], [14.25, 16.0]], "weekdaysOnly": true, "radius": 150, "schoolsPerSuburbCell": 0.35 },
+  "construction": { "edgeFraction": 0.02, "limitReductionMph": 10, "minLimitMph": 20, "classes": ["arterial", "collector", "local"] }
+}

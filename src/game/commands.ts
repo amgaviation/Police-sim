@@ -29,14 +29,14 @@ export function createCommands(app: App): Command[] {
   return [
     {
       name: 'seed',
-      description: 'Restart the demo scene with a seed (random when omitted)',
+      description: 'Start a new shift in the city of a seed (random when omitted)',
       usage: '[seed]',
       run(args) {
         const raw = args[0];
         const seed = raw === undefined ? Math.floor(Math.random() * 0xffffffff) : parseSeed(raw);
         app.bus.emit('rng:reseed', { seed: normalizeSeed(seed) });
         app.newGame(seed);
-        return `Started scene with seed ${String(normalizeSeed(seed))}`;
+        return `Started a new shift with seed ${String(normalizeSeed(seed))}`;
       },
     },
     {
@@ -111,7 +111,7 @@ export function createCommands(app: App): Command[] {
     },
     {
       name: 'spawn',
-      description: 'Spawn demo entities, e.g. "spawn box 10"',
+      description: 'Drop debug boxes over the officer, e.g. "spawn box 10"',
       usage: 'box [n]',
       run(args) {
         const session = requireSession(app);

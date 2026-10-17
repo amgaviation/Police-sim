@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "id": "sedan",
+  "name": "Sedan",
+  "role": "civilian",
+  "trafficWeight": 4,
+  "body": { "style": "sedan", "length": 4.85, "width": 1.84, "height": 1.12, "groundClearance": 0.3, "wheelbase": 2.8, "track": 1.58, "cabin": { "start": 0.3, "end": 0.76, "height": 0.45, "inset": 0.1 } },
+  "colors": [{ "hex": "#c9cdd2", "weight": 3 }, { "hex": "#1e2024", "weight": 3 }, { "hex": "#f4f4f0", "weight": 2 }, { "hex": "#5a6068", "weight": 2 }, { "hex": "#1f3a5f", "weight": 1 }, { "hex": "#6b1a1d", "weight": 1 }],
+  "lightbar": false,
+  "mass": 1550,
+  "comHeight": 0.52,
+  "engine": { "maxForce": 5500, "maxPowerKw": 140, "maxSpeedKmh": 205, "reverseMaxSpeedKmh": 28, "idleRpm": 750, "redlineRpm": 6300, "gearRatios": [3.4, 2, 1.4, 1.05, 0.85, 0.7], "finalDrive": 3.6 },
+  "drive": "fwd",
+  "steering": { "maxAngleDeg": 35, "highSpeedFactor": 0.42, "rateDegPerS": 140 },
+  "suspension": { "restLength": 0.3, "stiffness": 28, "compression": 2.4, "relaxation": 3.1, "maxTravel": 0.21, "maxForce": 22000 },
+  "tires": { "radius": 0.33, "width": 0.22, "frictionSlip": 0.97, "sideStiffness": 1, "loadSensitivity": 0.15 },
+  "brakes": { "maxForce": 17000, "frontBias": 0.66, "abs": true, "handbrakeForce": 11500, "heatPerKJ": 0.22, "coolingPerS": 0.002, "airflowCooling": 0.0003, "fadeStartC": 340, "fadeEndC": 620, "minEfficiency": 0.45 },
+  "fuel": { "capacityL": 60, "idleLph": 0.7, "litersPerKWh": 0.28 },
+  "damage": { "minImpactSpeed": 2, "zoneStrength": 12, "engineFrontShare": 0.7, "tireBurstSpeed": 9, "stallBelow": 0.3, "stallChancePerS": 0.05, "failBelow": 0.05 },
+  "traffic": { "maxAccel": 2, "comfortDecel": 2.5, "maxDecel": 7 }
+}

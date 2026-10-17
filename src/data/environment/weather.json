@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "kinds": {
+    "clear":  { "cloudCover": 0.1, "fogDensity": 0,      "precip": 0, "temperatureC": 22, "windSpeed": 2,  "heatHaze": 0 },
+    "cloudy": { "cloudCover": 0.8, "fogDensity": 0.0004, "precip": 0, "temperatureC": 16, "windSpeed": 4,  "heatHaze": 0 },
+    "rain":   { "cloudCover": 1,   "fogDensity": 0.0015, "precip": 1, "temperatureC": 12, "windSpeed": 6,  "heatHaze": 0 },
+    "storm":  { "cloudCover": 1,   "fogDensity": 0.0025, "precip": 1, "temperatureC": 11, "windSpeed": 14, "heatHaze": 0 },
+    "fog":    { "cloudCover": 0.6, "fogDensity": 0.012,  "precip": 0, "temperatureC": 9,  "windSpeed": 1,  "heatHaze": 0 },
+    "snow":   { "cloudCover": 1,   "fogDensity": 0.002,  "precip": 1, "temperatureC": -3, "windSpeed": 5,  "heatHaze": 0 },
+    "heat":   { "cloudCover": 0,   "fogDensity": 0.0003, "precip": 0, "temperatureC": 36, "windSpeed": 1,  "heatHaze": 1 }
+  },
+  "transitions": {
+    "clear":  { "clear": 0.40, "cloudy": 0.32, "rain": 0.05, "storm": 0,    "fog": 0.08, "snow": 0,    "heat": 0.15 },
+    "cloudy": { "clear": 0.25, "cloudy": 0.25, "rain": 0.30, "storm": 0.07, "fog": 0.05, "snow": 0.08, "heat": 0 },
+    "rain":   { "clear": 0.15, "cloudy": 0.40, "rain": 0.25, "storm": 0.15, "fog": 0.05, "snow": 0,    "heat": 0 },
+    "storm":  { "clear": 0.15, "cloudy": 0.35, "rain": 0.50, "storm": 0,    "fog": 0,    "snow": 0,    "heat": 0 },
+    "fog":    { "clear": 0.45, "cloudy": 0.40, "rain": 0.15, "storm": 0,    "fog": 0,    "snow": 0,    "heat": 0 },
+    "snow":   { "clear": 0.15, "cloudy": 0.50, "rain": 0,    "storm": 0,    "fog": 0,    "snow": 0.35, "heat": 0 },
+    "heat":   { "clear": 0.45, "cloudy": 0.08, "rain": 0,    "storm": 0.12, "fog": 0,    "snow": 0,    "heat": 0.35 }
+  },
+  "segmentHours": [2, 8],
+  "intensity": [0.6, 1],
+  "blendMinutes": 20,
+  "wetRampMinutes": 15,
+  "dryMinutes": 120,
+  "snowRampMinutes": 60,
+  "meltMinutes": 360
+}
