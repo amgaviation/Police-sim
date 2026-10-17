@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "types": [
+    {
+      "id": "trafficHazard", "label": "Traffic hazard", "codeKey": "hazard", "category": "traffic",
+      "generated": true, "weight": 1.2,
+      "priority": { "2": 0.25, "3": 0.6, "4": 0.15 },
+      "location": "road",
+      "districts": { "highway": 2, "rural": 1.3, "water": 0 },
+      "units": [1, 1], "onSceneS": [90, 240],
+      "callers": { "citizen": 0.8, "anonymous": 0.2 },
+      "narratives": [
+        "RP reports {hazard} in the roadway near {cross}.",
+        "{hazard} blocking the {dir} lane on {street}.",
+        "Caller advises {hazard} on {street} at {near}, vehicles swerving."
+      ],
+      "fill": { "hazard": ["a mattress", "a large tire", "a fallen tree branch", "scattered debris", "a stalled vehicle"] },
+      "dispositions": ["handled", "goneOnArrival", "unfounded"]
+    },
+    {
+      "id": "suspiciousVehicle", "label": "Suspicious vehicle", "codeKey": "suspiciousVehicle", "category": "suspicious",
+      "generated": true, "weight": 1.0,
+      "priority": { "3": 0.7, "4": 0.3 },
+      "location": "road",
+      "districts": { "suburbs": 1.3, "industrial": 1.2, "highway": 0.2, "water": 0 },
+      "units": [1, 1], "onSceneS": [120, 300],
+      "callers": { "citizen": 0.7, "anonymous": 0.3 },
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, with {activity} near {near}.",
+        "{vehicle}, plate {plate}, {behaviour} on {street}. RP {caller}.",
+        "Unknown {vehicle} plate {plate} {behaviour} in the {near} area."
+      ],
+      "fill": {
+        "activity": ["occupants sitting inside for over an hour", "the engine running and the lights off", "someone looking into parked cars"],
+        "behaviour": ["slowly circling the block", "parked with the doors open", "following a pedestrian"]
+      },
+      "dispositions": ["handled", "goneOnArrival", "unfounded", "reportTaken"]
+    },
+    {
+      "id": "noiseComplaint", "label": "Noise complaint", "codeKey": null, "category": "disturbance",
+      "generated": true, "weight": 1.0,
+      "priority": { "3": 0.3, "4": 0.7 },
+      "location": "block",
+      "districts": { "downtown": 1.3, "suburbs": 1.2, "campus": 1.6, "industrial": 0.3, "airport": 0.2, "highway": 0, "water": 0 },
+      "units": [1, 1], "onSceneS": [120, 300],
+      "callers": { "citizen": 0.6, "anonymous": 0.4 },
+      "narratives": [
+        "RP reports {noise} at {address}.",
+        "Ongoing {noise} in the {near} area, RP requests a drive-by.",
+        "{caller} reports {noise} coming from a residence on {street}."
+      ],
+      "fill": { "noise": ["a loud party", "loud music", "people shouting in the street", "a barking dog", "a car alarm going off"] },
+      "dispositions": ["handled", "warningIssued", "goneOnArrival", "unfounded"]
+    },
+    {
+      "id": "welfareCheck", "label": "Welfare check", "codeKey": null, "category": "welfare",
+      "generated": true, "weight": 0.7,
+      "priority": { "2": 0.3, "3": 0.6, "4": 0.1 },
+      "location": "block",
+      "districts": { "suburbs": 1.2, "downtown": 1.1, "highway": 0.3, "water": 0 },
+      "units": [1, 1], "onSceneS": [150, 360],
+      "callers": { "citizen": 0.9, "anonymous": 0.1 },
+      "narratives": [
+        "{caller} requests a welfare check on {subject} at {address}.",
+        "RP has not heard from {subject} in {days}; residence at {address}.",
+        "Welfare check requested for {subject} near {near}, not answering the phone."
+      ],
+      "fill": {
+        "subject": ["an elderly neighbor", "a relative", "a coworker", "a friend"],
+        "days": ["two days", "several days", "a week"]
+      },
+      "dispositions": ["handled", "referred", "unfounded"]
+    },
+    {
+      "id": "minorCollision", "label": "Minor collision", "codeKey": "collision", "category": "traffic",
+      "generated": true, "weight": 1.1,
+      "priority": { "2": 0.2, "3": 0.7, "4": 0.1 },
+      "location": "intersection",
+      "districts": { "downtown": 1.4, "highway": 1.5, "park": 0.3, "water": 0 },
+      "units": [1, 2], "onSceneS": [180, 420],
+      "callers": { "citizen": 0.85, "anonymous": 0.15 },
+      "narratives": [
+        "Two-vehicle collision at {near}, {injury}.",
+        "RP involved in a minor collision at {near}, vehicles {blocking}.",
+        "Fender bender on {street} at {cross}, {injury}."
+      ],
+      "fill": {
+        "injury": ["no injuries reported", "one party complaining of neck pain", "no injuries, both drivers on scene"],
+        "blocking": ["blocking a lane", "moved to the shoulder", "still in the intersection"]
+      },
+      "dispositions": ["reportTaken", "citationIssued", "handled"]
+    },
+    {
+      "id": "alarm", "label": "Alarm", "codeKey": "alarm", "category": "alarm",
+      "generated": true, "weight": 0.9,
+      "priority": { "2": 0.3, "3": 0.7 },
+      "location": "block",
+      "districts": { "downtown": 1.5, "industrial": 1.6, "campus": 1.2, "suburbs": 0.8, "rural": 0.3, "highway": 0, "water": 0 },
+      "units": [1, 2], "onSceneS": [90, 240],
+      "callers": { "alarm": 1 },
+      "narratives": [
+        "Alarm monitoring center reports a {zone} alarm at {address}, {keyholder}.",
+        "{zone} alarm activation at {address}, no response from the premises.",
+        "Audible {zone} alarm at a business near {near}, {keyholder}."
+      ],
+      "fill": {
+        "zone": ["front door", "rear door", "motion sensor", "glass break", "panic"],
+        "keyholder": ["keyholder en route", "keyholder not available", "keyholder ETA 20 minutes"]
+      },
+      "dispositions": ["unfounded", "handled", "reportTaken"]
+    },
+    {
+      "id": "suspiciousPerson", "label": "Suspicious person", "codeKey": null, "category": "suspicious",
+      "generated": true, "weight": 0.9,
+      "priority": { "2": 0.2, "3": 0.6, "4": 0.2 },
+      "location": "block",
+      "districts": { "downtown": 1.3, "suburbs": 1.1, "park": 1.4, "campus": 1.2, "highway": 0.2, "water": 0 },
+      "units": [1, 1], "onSceneS": [120, 300],
+      "callers": { "citizen": 0.6, "anonymous": 0.3, "business": 0.1 },
+      "narratives": [
+        "RP reports a {subject} {activity} near {near}.",
+        "{subject} {activity} at {address}, RP {caller} will remain on the line.",
+        "Business reports a {subject} {activity} in the {district} area off {street}."
+      ],
+      "fill": {
+        "subject": ["male in a dark hoodie", "female with a large backpack", "person in a gray jacket"],
+        "activity": ["checking car door handles", "looking into windows", "walking between houses", "loitering by the entrance"]
+      },
+      "dispositions": ["handled", "goneOnArrival", "unfounded", "referred"]
+    },
+    {
+      "id": "parkingComplaint", "label": "Parking complaint", "codeKey": null, "category": "traffic",
+      "generated": true, "weight": 0.8,
+      "priority": { "4": 1 },
+      "location": "road",
+      "districts": { "downtown": 1.5, "suburbs": 1.1, "campus": 1.3, "rural": 0.3, "highway": 0, "water": 0 },
+      "units": [1, 1], "onSceneS": [60, 180],
+      "callers": { "citizen": 0.7, "business": 0.3 },
+      "narratives": [
+        "{vehicle}, plate {plate}, {problem} at {address}.",
+        "RP reports a vehicle {problem} on {street} near {cross}, plate {plate}."
+      ],
+      "fill": { "problem": ["blocking a driveway", "parked in a fire lane", "parked on the sidewalk", "abandoned for several days"] },
+      "dispositions": ["citationIssued", "warningIssued", "goneOnArrival", "handled"]
+    },
+    {
+      "id": "trafficStop", "label": "Traffic stop", "codeKey": "trafficStop", "category": "traffic",
+      "generated": false, "weight": 0,
+      "priority": { "4": 1 },
+      "location": "road",
+      "districts": {},
+      "units": [1, 1], "onSceneS": [300, 600],
+      "callers": { "officer": 1 },
+      "narratives": [
+        "Traffic stop on a {vehicle}, plate {plate}, at {near}.",
+        "Unit initiated traffic stop, plate {plate}, {address}."
+      ],
+      "fill": {},
+      "dispositions": ["citationIssued", "warningIssued", "arrestMade", "handled"]
+    },
+    {
+      "id": "officerAssist", "label": "Officer needs assistance", "codeKey": "assist", "category": "assault",
+      "generated": false, "weight": 0,
+      "priority": { "1": 0.5, "2": 0.5 },
+      "location": "road",
+      "districts": {},
+      "units": [1, 2], "onSceneS": [120, 300],
+      "callers": { "officer": 1 },
+      "narratives": [
+        "{caller} requests assistance at {near}.",
+        "Officer requesting backup at {address}."
+      ],
+      "fill": {},
+      "dispositions": ["handled", "arrestMade", "cancelled"]
+    },
+    {
+      "id": "officerEmergency", "label": "Officer emergency", "codeKey": "emergency", "category": "assault",
+      "generated": false, "weight": 0,
+      "priority": { "1": 1 },
+      "location": "road",
+      "districts": {},
+      "units": [2, 3], "onSceneS": [180, 420],
+      "callers": { "officer": 1 },
+      "narratives": [
+        "EMERGENCY BUTTON ACTIVATED by {caller} at {near}.",
+        "{caller} emergency traffic at {address}, all units respond."
+      ],
+      "fill": {},
+      "dispositions": ["handled", "arrestMade", "cancelled"]
+    },
+    {
+      "id": "officerWelfare", "label": "Officer welfare check", "codeKey": null, "category": "welfare",
+      "generated": false, "weight": 0,
+      "priority": { "1": 1 },
+      "location": "road",
+      "districts": {},
+      "units": [2, 2], "onSceneS": [120, 300],
+      "callers": { "officer": 1 },
+      "narratives": [
+        "{caller} failed to answer status checks, last known location {near}.",
+        "No response from {caller} after repeated status checks; last AVL {address}."
+      ],
+      "fill": {},
+      "dispositions": ["handled", "cancelled"]
+    }
+  ]
+}

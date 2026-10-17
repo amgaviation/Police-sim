@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "codes": {
+    "ack": { "code": "10-4", "plain": "copy" },
+    "repeat": { "code": "10-9", "plain": "say again" },
+    "available": { "code": "10-8", "plain": "in service" },
+    "outOfService": { "code": "10-7", "plain": "out of service" },
+    "busy": { "code": "10-6", "plain": "busy" },
+    "enRoute": { "code": "10-76", "plain": "en route" },
+    "onScene": { "code": "10-23", "plain": "on scene" },
+    "transporting": { "code": "10-15", "plain": "transporting" },
+    "location": { "code": "10-20", "plain": "location" },
+    "registration": { "code": "10-28", "plain": "registration check" },
+    "wants": { "code": "10-29", "plain": "wants check" },
+    "emergency": { "code": "10-33", "plain": "emergency traffic" },
+    "assist": { "code": "10-78", "plain": "need assistance" },
+    "trafficStop": { "code": "10-38", "plain": "traffic stop" },
+    "allOk": { "code": "Code 4", "plain": "all OK" },
+    "hazard": { "code": "10-49", "plain": "traffic hazard" },
+    "collision": { "code": "10-50", "plain": "collision" },
+    "suspiciousVehicle": { "code": "10-37", "plain": "suspicious vehicle" },
+    "alarm": { "code": "10-90", "plain": "alarm call" }
+  },
+  "statusKeys": {
+    "available": "available",
+    "enRoute": "enRoute",
+    "onScene": "onScene",
+    "busy": "busy",
+    "outOfService": "outOfService",
+    "transporting": "transporting"
+  }
+}

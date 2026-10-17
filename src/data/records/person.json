@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "population": 100000,
+  "ageRange": [16, 90],
+  "physical": {
+    "heightCm": { "M": [160, 196], "F": [150, 183] },
+    "weightKg": { "M": [58, 125], "F": [45, 105] },
+    "eyes": ["brown", "blue", "green", "hazel", "gray"],
+    "hair": ["black", "brown", "blond", "red", "gray", "bald"]
+  },
+  "risk": { "exponent": 3 },
+  "license": { "none": 0.06, "suspended": 0.04, "revoked": 0.01, "expired": 0.03, "classes": { "C": 0.9, "A": 0.04, "B": 0.03, "M": 0.03 } },
+  "warrants": {
+    "rate": 0.03,
+    "max": 3,
+    "courts": ["Municipal Court", "County Court"],
+    "kinds": [
+      { "kind": "bench", "label": "Failure to appear", "weight": 5, "bail": [250, 2500] },
+      { "kind": "bench", "label": "Failure to pay fine", "weight": 3, "bail": [150, 1500] },
+      { "kind": "bench", "label": "Probation violation", "weight": 2, "bail": [1000, 10000] },
+      { "kind": "arrest", "label": "Burglary", "weight": 1, "bail": [5000, 25000] },
+      { "kind": "arrest", "label": "Aggravated assault", "weight": 1, "bail": [10000, 50000] },
+      { "kind": "arrest", "label": "Grand theft", "weight": 1, "bail": [5000, 20000] },
+      { "kind": "arrest", "label": "Possession of a controlled substance", "weight": 1, "bail": [2500, 15000] },
+      { "kind": "arrest", "label": "Domestic battery", "weight": 1, "bail": [5000, 25000] }
+    ]
+  },
+  "supervision": { "probation": 0.03, "parole": 0.01, "conditions": ["Search waiver", "No alcohol", "Curfew 22:00", "No contact with victim"] },
+  "gang": { "rate": 0.012, "names": ["Copperline Crew", "Quarry Lane Set", "Bluegill Boys", "Ashgrove Collective"], "associateShare": 0.6 },
+  "mentalHealth": { "rate": 0.02, "notes": ["Prior crisis contact - approach calmly", "Known to be suicidal - use caution"] },
+  "officerSafety": { "rate": 0.012, "notes": ["Known to carry weapons", "Prior assault on officer", "Flight risk"] },
+  "firearms": { "rate": 0.14, "max": 3, "types": ["Handgun 9mm", "Handgun .40", "Revolver .38", "Rifle .223", "Shotgun 12 ga"] },
+  "protectiveOrders": { "rate": 0.008, "conditions": ["No contact", "Stay 100 yards away", "Surrender firearms"] },
+  "priors": {
+    "mean": 0.7,
+    "max": 6,
+    "kinds": [
+      { "kind": "trafficStop", "label": "Traffic stop", "weight": 6, "summaries": ["Traffic stop - verbal warning", "Traffic stop - no action", "Traffic stop - equipment warning"] },
+      { "kind": "fieldInterview", "label": "Field interview", "weight": 2, "summaries": ["Field interview - suspicious person call", "Field interview - area check"] },
+      { "kind": "arrest", "label": "Arrest", "weight": 1, "summaries": ["Arrest - booked", "Arrest - cited and released"] },
+      { "kind": "citation", "label": "Citation", "weight": 4, "summaries": ["Citation - speeding", "Citation - failure to stop", "Citation - expired registration"] }
+    ]
+  },
+  "phonePrefix": "555"
+}

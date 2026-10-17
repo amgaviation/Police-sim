@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "statutes": [
+    { "id": "TR-301", "title": "Speeding", "category": "traffic", "class": "infraction", "fine": 150, "citeable": true, "bookable": false, "speed": true },
+    { "id": "TR-302", "title": "Failure to obey red signal", "category": "traffic", "class": "infraction", "fine": 238, "citeable": true, "bookable": false },
+    { "id": "TR-303", "title": "Failure to stop at stop sign", "category": "traffic", "class": "infraction", "fine": 238, "citeable": true, "bookable": false },
+    { "id": "TR-310", "title": "Following too closely", "category": "traffic", "class": "infraction", "fine": 180, "citeable": true, "bookable": false },
+    { "id": "TR-320", "title": "Expired registration", "category": "traffic", "class": "infraction", "fine": 120, "citeable": true, "bookable": false },
+    { "id": "TR-321", "title": "No proof of insurance", "category": "traffic", "class": "infraction", "fine": 300, "citeable": true, "bookable": false },
+    { "id": "TR-325", "title": "Defective lamps", "category": "traffic", "class": "infraction", "fine": 25, "citeable": true, "bookable": false },
+    { "id": "TR-330", "title": "Driving with suspended license", "category": "traffic", "class": "misdemeanor", "fine": 300, "citeable": true, "bookable": true },
+    { "id": "TR-331", "title": "Driving without a valid license", "category": "traffic", "class": "misdemeanor", "fine": 250, "citeable": true, "bookable": false },
+    { "id": "TR-350", "title": "Unsafe lane use", "category": "traffic", "class": "infraction", "fine": 200, "citeable": true, "bookable": false },
+    { "id": "TR-360", "title": "Driving under the influence", "category": "traffic", "class": "misdemeanor", "fine": 1000, "citeable": false, "bookable": true },
+    { "id": "TR-370", "title": "Reckless driving", "category": "traffic", "class": "misdemeanor", "fine": 500, "citeable": true, "bookable": true },
+    { "id": "PC-210", "title": "Stolen vehicle", "category": "criminal", "class": "felony", "fine": 0, "citeable": false, "bookable": true },
+    { "id": "PC-211", "title": "False or cloned plates", "category": "criminal", "class": "misdemeanor", "fine": 500, "citeable": true, "bookable": true },
+    { "id": "PC-220", "title": "Outstanding warrant", "category": "criminal", "class": "warrant", "fine": 0, "citeable": false, "bookable": true },
+    { "id": "PC-230", "title": "Obstructing an officer", "category": "criminal", "class": "misdemeanor", "fine": 0, "citeable": false, "bookable": true },
+    { "id": "PC-240", "title": "Possession of stolen property", "category": "criminal", "class": "felony", "fine": 0, "citeable": false, "bookable": true },
+    { "id": "PC-250", "title": "Petty theft", "category": "criminal", "class": "misdemeanor", "fine": 400, "citeable": true, "bookable": true }
+  ],
+  "violationMap": { "speeding": "TR-301", "redLight": "TR-302", "rollingStop": "TR-303", "tailgating": "TR-310", "weaving": "TR-350" },
+  "plateMap": { "expired": "TR-320", "uninsured": "TR-321", "cloned": "PC-211", "stolen": "PC-210" }
+}

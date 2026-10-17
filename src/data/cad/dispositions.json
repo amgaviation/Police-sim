@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "dispositions": [
+    { "id": "handled", "label": "Handled" },
+    { "id": "reportTaken", "label": "Report taken" },
+    { "id": "citationIssued", "label": "Citation issued" },
+    { "id": "warningIssued", "label": "Warning issued" },
+    { "id": "arrestMade", "label": "Arrest made" },
+    { "id": "goneOnArrival", "label": "Gone on arrival" },
+    { "id": "unfounded", "label": "Unfounded" },
+    { "id": "referred", "label": "Referred to another agency" },
+    { "id": "cancelled", "label": "Cancelled" }
+  ]
+}

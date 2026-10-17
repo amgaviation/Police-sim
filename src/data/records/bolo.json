@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "perDay": [3, 6],
+  "vehicleShare": 0.6,
+  "vehicleReasons": ["Stolen vehicle - attempt to locate", "Wanted in connection with a robbery", "Hit-and-run suspect vehicle", "Occupants armed - use caution"],
+  "personReasons": ["Wanted: failure to appear", "Missing person - endangered", "Wanted for questioning", "Wanted: assault suspect"]
+}
