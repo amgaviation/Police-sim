@@ -1,4 +1,4 @@
-import RAPIER, { type RigidBody } from '@dimforge/rapier3d-compat';
+import RAPIER, { type Collider, type KinematicCharacterController, type RigidBody } from '@dimforge/rapier3d-compat';
 import type { EntityId } from 'bitecs';
 import type { EventMap } from '../core/event-map';
 import { EventBus } from '../core/events';
@@ -13,17 +13,18 @@ import { CAMERA_MODE, type VehicleCameraModeId } from '../player/cameraRig';
 import type { DriverInput } from '../player/driverInput';
 import { EXIT_MAX_SPEED, PLAYER_MODE, PLAYER_MODE_NAMES, PlayerModeMachine, exitPoint, findEnterable } from '../player/mode';
 import type { MeshRegistry } from '../render/meshSync';
-import type { SaveEnvelope, SaveGame, SavedVehicle, SerializedEntity } from '../save/schema';
+import type { SaveEnvelope, SaveGame, SavedVehicle, SavedViolations, SerializedEntity } from '../save/schema';
 import type { TrafficViolationEvent, TrafficViolationKind } from '../traffic/events';
 import { vehicleRecord } from '../traffic/registry';
-import { TRAFFIC_STATE, TrafficSystem, type TrafficFocus } from '../traffic/trafficSystem';
+import { DENSITY } from '../traffic/data';
+import { MAX_PARKED_OBSTACLES, TRAFFIC_STATE, TrafficSystem, type TrafficFocus, type TrafficParked } from '../traffic/trafficSystem';
 import { VehicleLook, attachDrivable, attachVehicleLook } from '../vehicles/components';
 import { mapDriverInput, type DriverControls } from '../vehicles/controls';
 import { DrivableVehicle, type VehicleEnvironment, type VehiclePose } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS, pickModelColor, restHeight, vehicleModel, type VehicleModel } from '../vehicles/model';
 import type { City } from '../world/city';
 import { WorldColliders } from '../world/colliders';
-import { MPH, WORLD_HALF_SIZE } from '../world/constants';
+import { MPH, WORLD_HALF_SIZE, WORLD_WALL } from '../world/constants';
 import { LANDMARKS } from '../world/data';
 import { generateCity } from '../world/generate';
 import { stationLayout } from '../world/stationLayout';
@@ -55,9 +56,9 @@ export interface SessionSystem {
 }
 
 /** Outcome of `GameSession.interact()`. */
-export type InteractResult = 'none' | 'entered' | 'exited' | 'refuelled' | 'exitBlocked' | 'tooFast';
+export type InteractResult = 'none' | 'entered' | 'exited' | 'refuelled' | 'repaired' | 'exitBlocked' | 'tooFast';
 /** What `interact` would do right now (HUD prompt). */
-export type InteractHint = 'enter' | 'exit' | 'refuel' | null;
+export type InteractHint = 'enter' | 'exit' | 'refuel' | 'repair' | null;
 
 /** One ambient traffic car for the `traffic list` command. */
 export interface TrafficCarRow {
@@ -95,7 +96,7 @@ export const GRAVITY: Vec3 = { x: 0, y: -9.81, z: 0 };
 export const GROUND_HALF_SIZE = WORLD_HALF_SIZE + 64;
 export const PLAYER_SIZE: Vec3 = { x: 0.8, y: 1.8, z: 0.8 };
 export const PLAYER_COLOR = 0x1f3b6f;
-/** Within this distance (m) of a fuel pump the officer can refuel the last-driven vehicle ... */
+/** Within this distance (m) of a fuel pump the officer can refuel the last-driven vehicle (and repair it at the station's) ... */
 export const REFUEL_PUMP_DISTANCE = 4;
 /** ... when that vehicle is within this distance (m) of the pump. */
 export const REFUEL_VEHICLE_DISTANCE = 8;
@@ -113,6 +114,13 @@ const EXIT_CLEARANCE_HALF = { x: 0.4, y: 0.8, z: 0.4 };
 const EXIT_CLEARANCE_Y = 0.95;
 /** Officer radius as a traffic obstacle (m). */
 const OFFICER_RADIUS = 0.5;
+/** Gap the officer's character controller keeps from a vehicle (m). */
+const OFFICER_SKIN = 0.02;
+/**
+ * The officer's movement is blocked by the static world (buildings, poles, trunks, walls; not the ground
+ * slab) and the drivable vehicles; traffic proxies are kinematic and debug boxes get pushed (`blocksOfficer`).
+ */
+const OFFICER_FILTER = RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC | RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
 /** Driver's seat in the vehicle frame, as fractions of the body width and length (matches the cockpit eye). */
 const SEAT_X = -0.22;
 const SEAT_Z = -0.05;
@@ -142,6 +150,13 @@ export function headingOf(qx: number, qy: number, qz: number, qw: number): numbe
 export function createScenePhysics(fixedDt: number): PhysicsWorld {
   const physics = PhysicsWorld.createSync(GRAVITY, fixedDt);
   physics.addGround(GROUND_HALF_SIZE, 0);
+  // World boundary: a wall on each side just outside the perimeter roads (chunkLayout draws them).
+  const c = WORLD_HALF_SIZE + WORLD_WALL.offset;
+  const half = WORLD_HALF_SIZE + WORLD_WALL.offset + WORLD_WALL.halfThickness;
+  const h = WORLD_WALL.height / 2;
+  for (const [x, z, hx, hz] of [[c, 0, WORLD_WALL.halfThickness, half], [-c, 0, WORLD_WALL.halfThickness, half], [0, c, half, WORLD_WALL.halfThickness], [0, -c, half, WORLD_WALL.halfThickness]] as const) {
+    physics.raw.createCollider(RAPIER.ColliderDesc.cuboid(hx, h, hz).setTranslation(x, h, z));
+  }
   return physics;
 }
 
@@ -183,13 +198,32 @@ export class GameSession {
   private autoHeadlights: boolean;
   private readonly controls: DriverControls = { throttle: 0, brake: 0, steer: 0, handbrake: true, reverse: false };
   private readonly vehicleEnv: VehicleEnvironment;
-  private readonly focus: TrafficFocus = { x: 0, z: 0, obstacle: false, ox: 0, oz: 0, ovx: 0, ovz: 0, oRadius: OFFICER_RADIUS };
+  private readonly parked: TrafficParked[] = Array.from({ length: MAX_PARKED_OBSTACLES }, () => ({
+    x: 0, z: 0, hx: 0, hz: -1, halfLength: 1, halfWidth: 1,
+  }));
+  /** Sort key of each `parked` entry: squared distance to the focus, -1 for the car the officer left. */
+  private readonly parkedKey = new Float64Array(MAX_PARKED_OBSTACLES);
+  private readonly focus: TrafficFocus = {
+    x: 0, z: 0, obstacle: false, ox: 0, oz: 0, ovx: 0, ovz: 0, oRadius: OFFICER_RADIUS, oHalfWidth: OFFICER_RADIUS,
+    parked: this.parked, parkedCount: 0,
+  };
   private readonly candidates: MutableCandidate[] = [];
   private readonly candidate: MutableCandidate = { eid: 0, x: 0, z: 0, yaw: 0, halfWidth: 1, halfLength: 1, speed: 0 };
-  /** Fuel pump positions (x, z pairs): the station pump and four per fuel station. */
+  /** Fuel pump positions (x, z pairs): the station's pump first, then four per fuel station. */
   private readonly pumps: Float64Array;
+  /** How many leading `pumps` entries are the station's (where a car is also repaired). */
+  private readonly stationPumps: number;
   private readonly exitShape = new RAPIER.Cuboid(EXIT_CLEARANCE_HALF.x, EXIT_CLEARANCE_HALF.y, EXIT_CLEARANCE_HALF.z);
   private readonly violationLog = new Map<number, Partial<Record<TrafficViolationKind, number>>>();
+  /**
+   * Moves the officer's kinematic body: it stops at a vehicle instead of shoving it at walking speed
+   * (a kinematic body has infinite mass, so every touch was a crash), and at buildings, poles and the
+   * world walls (Rapier never stops a kinematic body at fixed colliders). Debug boxes are still pushed.
+   */
+  private readonly mover: KinematicCharacterController;
+  private readonly blocksOfficer: (collider: Collider) => boolean;
+  /** The officer body's collider (null while driving); kept so the fixed step does not allocate a wrapper. */
+  private officerCollider: Collider | null = null;
   private readonly unsubscribe: () => void;
   private disposed = false;
 
@@ -224,8 +258,18 @@ export class GameSession {
     });
     const city = this.city;
     this.vehicleEnv = { surfaceAt: (x, z) => city.surfaceAt(x, z), wetness: 0, snowCover: 0, ambientC: 20 };
-    this.pumps = fuelPumps(city);
+    const pumps = fuelPumps(city);
+    this.pumps = pumps.xz;
+    this.stationPumps = pumps.station;
     this.unsubscribe = this.bus.on('traffic:violation', (e) => this.logViolation(e));
+    this.mover = ctx.physics.raw.createCharacterController(OFFICER_SKIN);
+    this.mover.disableSnapToGround();
+    this.mover.setApplyImpulsesToDynamicBodies(false);
+    this.blocksOfficer = (collider) => {
+      const eid = ctx.physics.eidOfCollider(collider.handle);
+      if (eid === undefined) return !ctx.physics.isGround(collider.handle);
+      return EntityKind.kind[eid] === KIND.Vehicle;
+    };
     this.systems = [
       { order: -900, system: { name: 'environment', run: () => this.env.update(this.clock.simTime) } },
       { order: -800, system: { name: 'colliders', run: () => this.updateColliders() } },
@@ -273,9 +317,10 @@ export class GameSession {
     return this.vehicleOf(this.lastVehicleEid);
   }
 
-  /** Boxes that can still be spawned before the render pool is full. */
+  /** Boxes that can still be spawned before the render pool is full; a slot stays free for the officer while driving. */
   get boxCapacityLeft(): number {
-    return this.ctx.meshes.freeBoxSlots;
+    const reserved = this.playerEid !== 0 && !this.ctx.meshes.has(this.playerEid) ? 1 : 0;
+    return Math.max(0, this.ctx.meshes.freeBoxSlots - reserved);
   }
 
   /** The officer's simulated position (the seat while driving). */
@@ -297,9 +342,15 @@ export class GameSession {
   spawnPlayer(position: Vec3, yaw = 0, motion?: BodyMotion): EntityId {
     this.assertLive();
     if (this.playerEid !== 0) throw new Error('Player already spawned');
-    const eid = this.spawnBody(KIND.Player, yawQuaternion(yaw, { x: 0, y: 0, z: 0, w: 1 }), motion, (id) => {
-      this.addOfficerBody(id, position);
-    });
+    let eid: EntityId;
+    try {
+      eid = this.spawnBody(KIND.Player, yawQuaternion(yaw, { x: 0, y: 0, z: 0, w: 1 }), motion, (id) => {
+        this.addOfficerBody(id, position);
+      });
+    } catch (error) {
+      this.officerCollider = null;
+      throw error;
+    }
     this.controller.yaw = yaw;
     this.playerEid = eid;
     return eid;
@@ -311,7 +362,7 @@ export class GameSession {
    */
   spawnBox(position: Vec3, rotation?: Quat, motion?: BodyMotion): EntityId {
     this.assertLive();
-    if (this.ctx.meshes.freeBoxSlots === 0) {
+    if (this.boxCapacityLeft === 0) {
       throw new RangeError(`Box pool is full (${String(this.ctx.meshes.boxCapacity)} instances)`);
     }
     const eid = this.spawnBody(KIND.Prop, rotation, motion, (id) => {
@@ -351,6 +402,17 @@ export class GameSession {
     return this.addVehicle(model, color, rng, (eid) => DrivableVehicle.create(this.ctx.physics, eid, model, pose, rng));
   }
 
+  /** @internal After a load: the vehicle the officer drove last (`vehicles` index, -1 for none). */
+  restoreLastVehicle(index: number): void {
+    this.lastVehicleEid = this.vehicleList[index]?.eid ?? 0;
+  }
+
+  /** @internal After a load: the violations observed so far (traffic only reports each once per edge). */
+  restoreViolations(saved: SavedViolations): void {
+    this.violationLog.clear();
+    for (const [vehicleId, counts] of saved) this.violationLog.set(vehicleId, { ...counts });
+  }
+
   /** `car spawn`: a vehicle of `model` parked ahead of the officer (or of the driven car). */
   spawnVehicleNearPlayer(model: VehicleModel): DrivableVehicle {
     const driven = this.drivenVehicle;
@@ -383,38 +445,55 @@ export class GameSession {
     advanceTime(this.ctx.world, dt);
     this.clock.addSimTime(dt);
     const body = this.ctx.physics.getBody(this.playerEid);
-    if (!body) return;
+    const collider = this.officerCollider;
+    if (!body || !collider) return;
     const yaw = this.controller.yaw;
-    body.setLinvel(moveVelocity(input, yaw, scratchVel), true);
+    const v = moveVelocity(input, yaw, scratchVel);
+    scratchVec.x = v.x * dt;
+    scratchVec.y = 0;
+    scratchVec.z = v.z * dt;
+    this.mover.computeColliderMovement(collider, scratchVec, OFFICER_FILTER, undefined, this.blocksOfficer);
+    const m = this.mover.computedMovement(scratchVec);
+    v.x = m.x / dt;
+    v.z = m.z / dt;
+    body.setLinvel(v, true);
     body.setRotation(yawQuaternion(yaw, scratchQuat), true);
   }
 
   /** What `interact` would do now; cheap enough for the HUD. */
   interactHint(): InteractHint {
     const driven = this.drivenVehicle;
-    if (driven) return Math.abs(driven.telemetry.speed) <= EXIT_MAX_SPEED ? 'exit' : null;
-    if (this.enterableVehicle()) return 'enter';
-    return this.refuelTarget() ? 'refuel' : null;
+    if (driven) return driven.telemetry.groundSpeed <= EXIT_MAX_SPEED ? 'exit' : null;
+    const service = this.pumpService();
+    if (service) return service;
+    return this.enterableVehicle() ? 'enter' : null;
   }
 
-  /** The `interact` action: get in at a driver door, get out, or refuel at a pump. */
+  /**
+   * The `interact` action: get out, refuel at a pump or repair and refuel at the station's pump
+   * (first, since the driver door is often beside the pump), or get in at a driver door.
+   */
   interact(): InteractResult {
     this.assertLive();
     if (this.driving) return this.exitVehicle();
+    const service = this.pumpService();
+    const target = this.lastVehicle;
+    if (service && target) {
+      if (service === 'repair') target.repair();
+      target.refuel();
+      return service === 'repair' ? 'repaired' : 'refuelled';
+    }
     const vehicle = this.enterableVehicle();
     if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
-    const target = this.refuelTarget();
-    if (!target) return 'none';
-    target.refuel();
-    return 'refuelled';
+    return 'none';
   }
 
   /** Seats the officer in `vehicle` (no distance check: scripts, loads); false unless on foot. */
   enterVehicle(vehicle: DrivableVehicle): boolean {
     if (!this.vehicleList.includes(vehicle) || !this.modes.enter(vehicle.eid)) return false;
-    this.ctx.physics.removeBody(this.playerEid);
-    this.ctx.meshes.remove(this.playerEid);
+    this.removeOfficerBody();
     this.lastVehicleEid = vehicle.eid;
+    vehicle.engineOn = true;
     this.headlightOverride = null;
     this.clearDriverInput();
     this.syncSeat();
@@ -426,15 +505,21 @@ export class GameSession {
   exitVehicle(): InteractResult {
     const vehicle = this.drivenVehicle;
     if (!vehicle) return 'none';
-    const speed = vehicle.telemetry.speed;
-    if (!(Math.abs(speed) <= EXIT_MAX_SPEED)) return 'tooFast';
+    // Horizontal speed in any direction: a car sliding sideways reads ~0 forward speed.
+    const speed = vehicle.telemetry.groundSpeed;
+    if (!(speed <= EXIT_MAX_SPEED)) return 'tooFast';
     const c = this.candidateOf(vehicle, this.candidate);
     const body = this.ctx.physics.getBody(vehicle.eid);
     for (const side of [-1, 1] as const) {
       const p = exitPoint(c, side, scratchPoint);
       if (!this.isClear(p.x, p.z, c.yaw, body)) continue;
-      if (!this.modes.exit(speed)) return 'tooFast';
+      // Body and mesh first: if that throws, the officer is still in the car (mode unchanged).
       this.addOfficerBody(this.playerEid, { x: p.x, y: PLAYER_SIZE.y / 2, z: p.z });
+      if (!this.modes.exit(speed)) {
+        this.removeOfficerBody();
+        return 'tooFast';
+      }
+      vehicle.engineOn = false;
       this.controller.yaw = c.yaw;
       this.clearDriverInput();
       this.writeInitialTransform(this.playerEid);
@@ -482,7 +567,7 @@ export class GameSession {
       copyTransformSlot(Transform, PrevTransform, this.playerEid);
     }
     this.colliders.prime(x, z);
-    this.traffic.clear();
+    this.traffic.clear(true);
     this.updateFocus();
     this.traffic.populate(this.focus, this.env.time);
   }
@@ -528,13 +613,18 @@ export class GameSession {
       officer: { ...this.officer },
       camera: { pitch: this.controller.pitch, mode: this.cameraMode },
       world: { entities },
-      player: { mode: PLAYER_MODE_NAMES[this.modes.mode] ?? 'onFoot', vehicle: this.driving ? driven : -1 },
+      player: {
+        mode: PLAYER_MODE_NAMES[this.modes.mode] ?? 'onFoot',
+        vehicle: this.driving ? driven : -1,
+        lastVehicle: this.vehicleList.indexOf(this.lastVehicle as DrivableVehicle),
+      },
       vehicles: this.vehicleList.map((v, i) => ({
         ...v.serialize(),
         color: VehicleLook.color[v.eid] ?? 0,
         rng: (this.vehicleRngs[i] as Rng).state(),
       })),
       traffic: this.traffic.snapshot(),
+      violations: [...this.violationLog].map(([id, counts]) => [id, { ...counts }]),
       environment: this.env.serialize(),
     };
   }
@@ -545,6 +635,7 @@ export class GameSession {
     this.disposed = true;
     this.unsubscribe();
     this.traffic.dispose();
+    if (!this.ctx.physics.isDisposed) this.ctx.physics.raw.removeCharacterController(this.mover);
     for (const vehicle of this.vehicleList) {
       vehicle.dispose();
       despawn(this.ctx.world, vehicle.eid);
@@ -556,6 +647,7 @@ export class GameSession {
     for (const eid of all) this.removeEntity(eid);
     this.boxEids.length = 0;
     this.playerEid = 0;
+    this.officerCollider = null;
   }
 
   // --- loading (module functions below) ----------------------------------------------
@@ -566,6 +658,16 @@ export class GameSession {
     const model = vehicleModel(saved.modelId);
     const rng = rngFromState(saved.rng);
     return this.addVehicle(model, saved.color, rng, (eid) => DrivableVehicle.restore(this.ctx.physics, eid, saved, rng));
+  }
+
+  /**
+   * @internal After a load: saved headlights of the driven vehicle that differ from the
+   * automatic state were switched with H, so they stay that way until the next automatic switch.
+   */
+  restoreHeadlightOverride(): void {
+    this.autoHeadlights = this.env.lighting.headlightsOn;
+    const vehicle = this.drivenVehicle;
+    this.headlightOverride = vehicle && vehicle.headlights !== this.autoHeadlights ? vehicle.headlights : null;
   }
 
   /** @internal Loads the colliders around the officer at once (session start, load). */
@@ -602,7 +704,9 @@ export class GameSession {
     for (const vehicle of this.vehicleList) {
       const isDriven = vehicle.eid === driven;
       if (isDriven) vehicle.headlights = this.headlightOverride ?? auto;
-      mapDriverInput(isDriven ? this.driverInput : PARKED, vehicle.telemetry.speed, vehicle.reversing, this.controls);
+      // A parked car drops reverse (no reverse lamps or gear -1 for a car left in reverse).
+      const t = vehicle.telemetry;
+      mapDriverInput(isDriven ? this.driverInput : PARKED, t.speed, t.groundSpeed, isDriven && vehicle.reversing, this.controls);
       vehicle.setControls(this.controls);
       vehicle.preStep(dt, env);
     }
@@ -650,14 +754,20 @@ export class GameSession {
     out.yaw = this.yawOf(eid);
     out.halfWidth = vehicle.model.body.width / 2;
     out.halfLength = vehicle.model.body.length / 2;
-    out.speed = vehicle.telemetry.speed;
+    out.speed = vehicle.telemetry.groundSpeed;
     return out;
   }
 
-  /** The last-driven vehicle when the officer (on foot) is at a pump it is parked near. */
-  private refuelTarget(): DrivableVehicle | null {
+  /**
+   * What the pump the officer (on foot) stands at would do for the last-driven vehicle parked near it:
+   * repair (and refuel) a damaged car at the station's pump, refuel one that is not full, else nothing.
+   */
+  private pumpService(): 'repair' | 'refuel' | null {
     const vehicle = this.lastVehicle;
     if (!vehicle || this.driving) return null;
+    const refuel = vehicle.telemetry.fuelFraction < 1;
+    const repair = vehicle.needsRepair;
+    if (!refuel && !repair) return null;
     const at = this.playerPosition(scratchPoint);
     const vx = Transform.x[vehicle.eid] ?? 0;
     const vz = Transform.z[vehicle.eid] ?? 0;
@@ -666,7 +776,9 @@ export class GameSession {
       const px = pumps[i] ?? 0;
       const pz = pumps[i + 1] ?? 0;
       if (Math.hypot(at.x - px, at.z - pz) > REFUEL_PUMP_DISTANCE) continue;
-      if (Math.hypot(vx - px, vz - pz) <= REFUEL_VEHICLE_DISTANCE) return vehicle;
+      if (Math.hypot(vx - px, vz - pz) > REFUEL_VEHICLE_DISTANCE) continue;
+      if (repair && i < this.stationPumps * 2) return 'repair';
+      if (refuel) return 'refuel';
     }
     return null;
   }
@@ -713,13 +825,52 @@ export class GameSession {
     Transform.qw[p] = qw;
   }
 
-  /** The player as traffic sees it: streaming centre plus the driven car or the officer as an obstacle. */
+  /**
+   * The player as traffic sees it: streaming centre, the driven car or the officer as an obstacle, and
+   * the other drivable vehicles near the focus as parked obstacles: the car the officer got out of
+   * first, then the nearest others (sorted insertion into the fixed `parked` slots, no allocation).
+   */
   private updateFocus(): void {
     const f = this.focus;
     const at = this.playerPosition(scratchPoint);
     f.x = at.x;
     f.z = at.z;
     const vehicle = this.drivenVehicle;
+    const last = this.lastVehicle;
+    const r2 = DENSITY.radii.despawn * DENSITY.radii.despawn;
+    const parked = this.parked;
+    const keys = this.parkedKey;
+    let n = 0;
+    for (const v of this.vehicleList) {
+      if (v === vehicle) continue;
+      const eid = v.eid;
+      const x = Transform.x[eid] ?? 0;
+      const z = Transform.z[eid] ?? 0;
+      const d2 = (x - at.x) * (x - at.x) + (z - at.z) * (z - at.z);
+      if (d2 > r2) continue;
+      const key = v === last ? -1 : d2;
+      // When full, this one replaces the farthest entry if it is nearer.
+      let i: number;
+      if (n < MAX_PARKED_OBSTACLES) i = n++;
+      else if (key < (keys[MAX_PARKED_OBSTACLES - 1] ?? 0)) i = MAX_PARKED_OBSTACLES - 1;
+      else continue;
+      const p = parked[i] as TrafficParked;
+      while (i > 0 && (keys[i - 1] ?? 0) > key) {
+        parked[i] = parked[i - 1] as TrafficParked;
+        keys[i] = keys[i - 1] ?? 0;
+        i--;
+      }
+      parked[i] = p;
+      keys[i] = key;
+      const yaw = this.yawOf(eid);
+      p.x = x;
+      p.z = z;
+      p.hx = -Math.sin(yaw);
+      p.hz = -Math.cos(yaw);
+      p.halfLength = v.model.body.length / 2;
+      p.halfWidth = v.model.body.width / 2;
+    }
+    f.parkedCount = n;
     const body = this.ctx.physics.getBody(vehicle ? vehicle.eid : this.playerEid);
     f.obstacle = body !== undefined;
     if (!body) return;
@@ -730,6 +881,7 @@ export class GameSession {
     f.ovx = v.x;
     f.ovz = v.z;
     f.oRadius = vehicle ? vehicle.model.body.length / 2 : OFFICER_RADIUS;
+    f.oHalfWidth = vehicle ? vehicle.model.body.width / 2 : OFFICER_RADIUS;
   }
 
   private clearDriverInput(): void {
@@ -775,11 +927,23 @@ export class GameSession {
     return { ...officer, qx: q.x, qy: q.y, qz: q.z, qw: q.w };
   }
 
-  /** Kinematic officer body and box mesh at `position` (spawn and getting out). */
+  /** Kinematic officer body and box mesh at `position` (spawn and getting out); nothing is left if it throws. */
   private addOfficerBody(eid: EntityId, position: Vec3): void {
     const half = { x: PLAYER_SIZE.x / 2, y: PLAYER_SIZE.y / 2, z: PLAYER_SIZE.z / 2 };
-    this.ctx.physics.addBox(eid, position, half, { kinematic: true, friction: 0.2 });
-    this.ctx.meshes.addBox(eid, { size: PLAYER_SIZE, color: PLAYER_COLOR });
+    const body = this.ctx.physics.addBox(eid, position, half, { kinematic: true, friction: 0.2 });
+    try {
+      this.ctx.meshes.addBox(eid, { size: PLAYER_SIZE, color: PLAYER_COLOR });
+    } catch (error) {
+      this.ctx.physics.removeBody(eid);
+      throw error;
+    }
+    this.officerCollider = body.collider(0);
+  }
+
+  private removeOfficerBody(): void {
+    this.ctx.physics.removeBody(this.playerEid);
+    this.ctx.meshes.remove(this.playerEid);
+    this.officerCollider = null;
   }
 
   /** Entity + `VehicleLook` + `Drivable`, then the chassis from `create`; nothing is left behind if it throws. */
@@ -797,6 +961,8 @@ export class GameSession {
       despawn(world, eid);
       throw error;
     }
+    // Parked with the engine off until the officer gets in (no idle burn or stalls while empty).
+    vehicle.engineOn = false;
     this.vehicleList.push(vehicle);
     this.vehicleRngs.push(rng);
     this.writeInitialTransform(eid);
@@ -859,21 +1025,22 @@ export class GameSession {
   }
 }
 
-/** Fuel pumps of the city: the station's own pump and the four around each fuel POI. */
-function fuelPumps(city: City): Float64Array {
+/** Fuel pumps of the city: the station's own pump (counted in `station`) first, then the four around each fuel POI. */
+function fuelPumps(city: City): { xz: Float64Array; station: number } {
   const out: number[] = [];
   for (const poi of city.pois) {
-    if (poi.kind === 'station') {
-      const block = city.blocks[poi.block];
-      if (!block) continue;
-      const pump = stationLayout(block, LANDMARKS.station.yaw).pump;
-      out.push(pump.x, pump.z);
-    } else if (poi.kind === 'fuel') {
-      // Same offsets as the fuel station block in chunkLayout.
-      for (const [dx, dz] of [[-4, -3], [4, -3], [-4, 3], [4, 3]] as const) out.push(poi.x + dx, poi.z + dz);
-    }
+    const block = city.blocks[poi.block];
+    if (poi.kind !== 'station' || !block) continue;
+    const pump = stationLayout(block, LANDMARKS.station.yaw).pump;
+    out.push(pump.x, pump.z);
   }
-  return Float64Array.from(out);
+  const station = out.length / 2;
+  for (const poi of city.pois) {
+    if (poi.kind !== 'fuel') continue;
+    // Same offsets as the fuel station block in chunkLayout.
+    for (const [dx, dz] of [[-4, -3], [4, -3], [-4, 3], [4, 3]] as const) out.push(poi.x + dx, poi.z + dz);
+  }
+  return { xz: Float64Array.from(out), station };
 }
 
 /** Reads the entity's state from its rigid body (the per-world source of truth). */
@@ -1008,7 +1175,10 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     if (data.vehicles.length === 0) session.parkPatrolCars();
     for (const saved of data.vehicles) session.restoreVehicle(saved);
     const driven = data.player.mode === 'driving' ? session.vehicles[data.player.vehicle] : undefined;
+    session.restoreLastVehicle(data.player.lastVehicle ?? -1);
     if (driven) session.enterVehicle(driven);
+    session.restoreViolations(data.violations ?? []);
+    session.restoreHeadlightOverride();
     session.primeColliders();
     if (data.traffic) session.traffic.restore(data.traffic);
     else session.populateTraffic();

@@ -11,12 +11,15 @@ import { PLAYER_MODE, driverDoorPoint, exitPoint, type EnterCandidate } from '..
 import { migrateEnvelope } from '../../src/save/migrations';
 import { isSaveGame, type SaveGame } from '../../src/save/schema';
 import { Drivable, LIGHT, VehicleLook } from '../../src/vehicles/components';
+import type { DamageState } from '../../src/vehicles/damage';
 import type { DrivableVehicle } from '../../src/vehicles/drivableVehicle';
 import { vehicleModel } from '../../src/vehicles/model';
 import type { City } from '../../src/world/city';
 import { LANDMARKS } from '../../src/world/data';
 import { generateCity } from '../../src/world/generate';
+import { laneRef } from '../../src/world/roadGraph';
 import { stationLayout } from '../../src/world/stationLayout';
+import { MAX_PARKED_OBSTACLES, type TrafficFocus } from '../../src/traffic/trafficSystem';
 import { Harness, roundTrip } from './harness';
 
 const SEED = 42;
@@ -45,6 +48,25 @@ function placeOfficer(session: GameSession, x: number, z: number): void {
   session.physics.getBody(session.player)?.setTranslation({ x, y: PLAYER_SIZE.y / 2, z }, true);
   Transform.x[session.player] = x;
   Transform.z[session.player] = z;
+}
+
+/** The station pump (the refuelling tests park around it). */
+function stationPump(): { x: number; z: number } {
+  const station = city.pois.find((p) => p.kind === 'station');
+  const block = station ? city.blocks[station.block] : undefined;
+  if (!block) throw new Error('no station block');
+  return stationLayout(block, LANDMARKS.station.yaw).pump;
+}
+
+/** Moves a vehicle's chassis (and Transform) to (x, z) facing `yaw`, at rest. */
+function placeVehicle(session: GameSession, car: DrivableVehicle, x: number, z: number, yaw: number): void {
+  const body = session.physics.getBody(car.eid);
+  body?.setTranslation({ x, y: Transform.y[car.eid] ?? 1, z }, true);
+  body?.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
+  body?.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  body?.setAngvel({ x: 0, y: 0, z: 0 }, true);
+  Transform.x[car.eid] = x;
+  Transform.z[car.eid] = z;
 }
 
 function vehicle(session: GameSession, index: number): DrivableVehicle {
@@ -202,10 +224,7 @@ describe('GameSession (city)', () => {
     const car = vehicle(session, 0);
     expect(session.enterVehicle(car)).toBe(true);
     expect(session.exitVehicle()).toBe('exited');
-    const station = city.pois.find((p) => p.kind === 'station');
-    const block = station ? city.blocks[station.block] : undefined;
-    if (!block) throw new Error('no station block');
-    const pump = stationLayout(block, LANDMARKS.station.yaw).pump;
+    const pump = stationPump();
     // Park the car 6 m east of the pump; the officer stands 2 m west of it, away from the car's door.
     session.physics.getBody(car.eid)?.setTranslation({ x: pump.x + 6, y: Transform.y[car.eid] ?? 1, z: pump.z }, true);
     Transform.x[car.eid] = pump.x + 6;
@@ -219,6 +238,261 @@ describe('GameSession (city)', () => {
     expect(car.telemetry.fuelL).toBe(car.model.fuel.capacityL);
     placeOfficer(session, pump.x - 30, pump.z);
     expect(session.interactHint()).toBeNull();
+
+    // The last-driven car survives an on-foot save and load.
+    placeOfficer(session, pump.x - 2, pump.z);
+    car.refuel(-30);
+    const data = roundTrip(serializeGame(session));
+    expect(data.player.lastVehicle).toBe(0);
+    h.reset(session);
+    const loaded = h.load(data);
+    h.step(loaded, 2);
+    expect(loaded.lastVehicle).toBe(vehicle(loaded, 0));
+    expect(loaded.interactHint()).toBe('refuel');
+    expect(loaded.interact()).toBe('refuelled');
+    expect(vehicle(loaded, 0).telemetry.fuelL).toBe(car.model.fuel.capacityL);
+  });
+
+  it('refuels rather than gets in when the officer stands between the pump and the driver door', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const car = vehicle(session, 0);
+    expect(session.enterVehicle(car)).toBe(true);
+    expect(session.exitVehicle()).toBe('exited');
+    const pump = stationPump();
+    // Facing north (yaw 0) the driver door (left, -x) faces the pump 3 m to the west.
+    placeVehicle(session, car, pump.x + 3, pump.z, 0);
+    h.step(session, 5);
+    placeOfficer(session, pump.x + 1, pump.z);
+    expect(driverDoorPoint(candidate(car), { x: 0, z: 0 }).x).toBeLessThan(pump.x + 2.2);
+    car.refuel(-30);
+    expect(session.interactHint()).toBe('refuel');
+    expect(session.interact()).toBe('refuelled');
+    expect(car.telemetry.fuelL).toBe(car.model.fuel.capacityL);
+    // With a full tank E gets in as usual.
+    expect(session.interactHint()).toBe('enter');
+    expect(session.interact()).toBe('entered');
+  });
+
+  it('stops the officer at a parked car instead of shoving and damaging it', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const car = vehicle(session, 0);
+    let damaged = 0;
+    h.bus.on('vehicle:damaged', () => damaged++);
+    h.step(session, 10);
+    const c = candidate(car);
+    // 6 m in front of the car, facing it.
+    placeOfficer(session, c.x - Math.sin(c.yaw) * 6, c.z - Math.cos(c.yaw) * 6);
+    session.controller.yaw = c.yaw + Math.PI;
+    for (let i = 0; i < 4; i++) {
+      h.step(session, 60, { forward: 1, strafe: 0, sprint: true });
+      h.step(session, 120);
+    }
+    expect(damaged).toBe(0);
+    expect(car.telemetry.damage[0]).toBe(0);
+    expect(car.telemetry.engineHealth).toBe(1);
+    expect(Math.hypot((Transform.x[car.eid] ?? 0) - c.x, (Transform.z[car.eid] ?? 0) - c.z)).toBeLessThan(0.03);
+    // The officer stands at the front bumper.
+    const gap = Math.hypot((Transform.x[session.player] ?? 0) - c.x, (Transform.z[session.player] ?? 0) - c.z);
+    expect(gap).toBeGreaterThan(c.halfLength);
+    expect(gap).toBeLessThan(c.halfLength + 1);
+  });
+
+  it('a parked car keeps its engine off (no idle fuel) and drops reverse when left in it', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const parked = vehicle(session, 1);
+    const fuel = parked.telemetry.fuelL;
+    const car = vehicle(session, 0);
+    expect(session.enterVehicle(car)).toBe(true);
+    expect(car.telemetry.engineRunning).toBe(true);
+    session.driverInput.brake = 1;
+    h.step(session, 90);
+    expect(car.telemetry.speed).toBeLessThan(-3);
+    expect(car.telemetry.gear).toBe(-1);
+    session.driverInput.brake = 0;
+    for (let i = 0; i < 600 && Math.abs(car.telemetry.speed) >= 0.3; i++) h.step(session, 1);
+    expect(session.interact()).toBe('exited');
+    h.step(session, 600);
+    expect((VehicleLook.lights[car.eid] ?? 0) & LIGHT.reverse).toBe(0);
+    expect(car.telemetry.gear).toBe(1);
+    expect(car.telemetry.engineRunning).toBe(false);
+    expect(car.telemetry.rpm).toBe(0);
+    expect(parked.telemetry.engineRunning).toBe(false);
+    expect(parked.telemetry.fuelL).toBe(fuel);
+  });
+
+  it('refuses to get out of, or into, a car sliding sideways (the check uses the ground speed)', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const car = vehicle(session, 0);
+    expect(session.enterVehicle(car)).toBe(true);
+    h.step(session, 5);
+    const yaw = candidate(car).yaw;
+    // 12 m/s to the car's right: no forward component.
+    session.physics.getBody(car.eid)?.setLinvel({ x: Math.cos(yaw) * 12, y: 0, z: -Math.sin(yaw) * 12 }, true);
+    h.step(session, 1);
+    expect(Math.abs(car.telemetry.speed)).toBeLessThan(1);
+    expect(car.telemetry.groundSpeed).toBeGreaterThan(10);
+    expect(session.interactHint()).toBeNull();
+    expect(session.interact()).toBe('tooFast');
+    expect(session.driving).toBe(true);
+
+    const other = vehicle(session, 1);
+    session.teleport(Transform.x[car.eid] ?? 0, Transform.z[car.eid] ?? 0);
+    h.step(session, 30);
+    expect(session.interact()).toBe('exited');
+    const door = driverDoorPoint(candidate(other), { x: 0, z: 0 });
+    placeOfficer(session, door.x, door.z);
+    expect(session.interactHint()).toBe('enter');
+    const oy = candidate(other).yaw;
+    session.physics.getBody(other.eid)?.setLinvel({ x: Math.cos(oy) * 8, y: 0, z: -Math.sin(oy) * 8 }, true);
+    h.step(session, 1);
+    expect(session.interactHint()).not.toBe('enter');
+  });
+
+  it('traffic queues behind the patrol car parked in a lane instead of ramming it', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const car = vehicle(session, 0);
+    let damaged = 0;
+    let collisions = 0;
+    h.bus.on('vehicle:damaged', (e) => {
+      if (e.eid === car.eid) damaged++;
+    });
+    h.bus.on('traffic:collision', () => collisions++);
+    // A busy arterial curb lane (edge 58, see the review repro).
+    const lane = laneRef(58, 0, 0);
+    const p = city.graph.lanePoint(lane, city.graph.laneLength(lane) / 2, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+    expect(session.enterVehicle(car)).toBe(true);
+    session.teleport(p.x, p.z, p.yaw);
+    h.step(session, 30);
+    expect(session.exitVehicle()).toBe('exited');
+    // Step 12 m to the side of the car (no teleport, so traffic is not repopulated).
+    placeOfficer(session, p.x - p.hz * 12, p.z + p.hx * 12);
+    h.step(session, 2400);
+    expect(collisions).toBe(0);
+    expect(damaged).toBe(0);
+    expect(Math.max(...car.telemetry.damage)).toBe(0);
+  });
+
+  it('always gives traffic the car the officer left as a parked obstacle, then the nearest others', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    // Seven more cars in a row on the station's street: nine drivable vehicles, one more than the cap.
+    const station = city.pois.find((p) => p.kind === 'station');
+    const lane = laneRef(station?.entrance.edge ?? 0, 0, 0);
+    const start = city.graph.laneStart(lane);
+    const sedan = vehicleModel('sedan');
+    for (let i = 0; i < 7; i++) {
+      const p = city.graph.lanePoint(lane, start + 4 + 8 * i, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+      session.spawnVehicle(sedan, { x: p.x, y: 1, z: p.z, yaw: p.yaw });
+    }
+    const last = vehicle(session, 8);
+    session.restoreLastVehicle(8);
+    h.step(session, 1);
+    const focus = (session as unknown as { focus: TrafficFocus }).focus;
+    expect(focus.parkedCount).toBe(MAX_PARKED_OBSTACLES);
+    const parked = focus.parked ?? [];
+    expect(parked[0]?.x).toBeCloseTo(Transform.x[last.eid] ?? NaN, 5);
+    expect(parked[0]?.z).toBeCloseTo(Transform.z[last.eid] ?? NaN, 5);
+    const d2 = (i: number): number => ((parked[i]?.x ?? 0) - focus.x) ** 2 + ((parked[i]?.z ?? 0) - focus.z) ** 2;
+    for (let i = 2; i < MAX_PARKED_OBSTACLES; i++) expect(d2(i)).toBeGreaterThanOrEqual(d2(i - 1));
+  });
+
+  it('repairs and refuels the last-driven car at the station pump', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const car = vehicle(session, 0);
+    expect(session.enterVehicle(car)).toBe(true);
+    expect(session.exitVehicle()).toBe('exited');
+    const pump = stationPump();
+    placeVehicle(session, car, pump.x + 6, pump.z, 0);
+    h.step(session, 5);
+    // Wreck it (as a hard frontal hit and a burst tyre would), with a full tank.
+    const damage = (car as unknown as { damage: DamageState }).damage;
+    damage.zones.set([1, 0.4, 0, 0]);
+    damage.engineHealth = 0;
+    damage.engineFailed = true;
+    damage.tireFlat[0] = 1;
+    const wrecked = car;
+    h.step(session, 2);
+    expect(wrecked.telemetry.fuelFraction).toBe(1);
+    expect(wrecked.needsRepair).toBe(true);
+    placeOfficer(session, pump.x - 2, pump.z);
+    expect(session.interactHint()).toBe('repair');
+    expect(session.interact()).toBe('repaired');
+    expect(wrecked.needsRepair).toBe(false);
+    h.step(session, 1);
+    expect(wrecked.telemetry.damage).toEqual([0, 0, 0, 0]);
+    expect(wrecked.telemetry.tireFlat).toEqual([false, false, false, false]);
+    expect(wrecked.telemetry.engineHealth).toBe(1);
+    expect(session.interactHint()).toBeNull();
+  });
+
+  it('stops the officer at the station building instead of walking through it', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const station = city.pois.find((p) => p.kind === 'station');
+    const block = station ? city.blocks[station.block] : undefined;
+    if (!block) throw new Error('no station block');
+    const [x0, z0, x1, z1] = stationLayout(block, LANDMARKS.station.yaw).building;
+    let inside = 0;
+    for (let i = 0; i < 360; i++) {
+      // The officer spawns at the door facing out: walking backwards heads into the building.
+      h.step(session, 1, { forward: -1, strafe: 0, sprint: false });
+      const x = Transform.x[session.player] ?? 0;
+      const z = Transform.z[session.player] ?? 0;
+      if (x > x0 && x < x1 && z > z0 && z < z1) inside++;
+    }
+    expect(inside).toBe(0);
+    expect(Transform.y[session.player]).toBeCloseTo(PLAYER_SIZE.y / 2, 2);
+    // Still free to walk away from it.
+    const z = Transform.z[session.player] ?? 0;
+    const x = Transform.x[session.player] ?? 0;
+    h.step(session, 60, { forward: 1, strafe: 0, sprint: false });
+    expect(Math.hypot((Transform.x[session.player] ?? 0) - x, (Transform.z[session.player] ?? 0) - z)).toBeGreaterThan(2);
+  });
+
+  it('keeps a box-pool slot for the officer while driving, so getting out and loading still work', () => {
+    const h = fresh(4);
+    const session = h.start(SEED);
+    const car = vehicle(session, 0);
+    expect(session.enterVehicle(car)).toBe(true);
+    expect(session.boxCapacityLeft).toBe(3);
+    const at = { x: (Transform.x[car.eid] ?? 0) + 40, z: Transform.z[car.eid] ?? 0 };
+    for (let i = 0; i < 3; i++) session.spawnBox({ x: at.x + 3 * i, y: 0.5, z: at.z });
+    expect(() => session.spawnBox({ x: at.x, y: 0.5, z: at.z + 5 })).toThrow(RangeError);
+    expect(session.spawnRandomBoxes(5)).toHaveLength(0);
+    h.step(session, 2);
+    const driving = roundTrip(serializeGame(session));
+    expect(session.interact()).toBe('exited');
+    expect(h.meshes.has(session.player)).toBe(true);
+    const onFoot = roundTrip(serializeGame(session));
+    h.reset(session);
+    for (const data of [driving, onFoot]) {
+      const loaded = h.load(data);
+      expect(loaded.boxes).toHaveLength(3);
+      h.step(loaded, 2);
+      h.reset(loaded);
+    }
+  });
+
+  it('saves the observed violations with the game', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const id = session.traffic.view.vehicleId[0] ?? -1;
+    const eid = session.traffic.view.eid[0] ?? 0;
+    h.bus.emit('traffic:violation', { eid, vehicleId: id, kind: 'speeding', x: 0, z: 0, speedMph: 50, limitMph: 35 });
+    h.bus.emit('traffic:violation', { eid, vehicleId: id, kind: 'speeding', x: 0, z: 0, speedMph: 50, limitMph: 35 });
+    h.bus.emit('traffic:violation', { eid, vehicleId: id, kind: 'redLight', x: 0, z: 0, speedMph: 20, limitMph: 35 });
+    const data = roundTrip(serializeGame(session));
+    expect(data.violations).toEqual([[id, { speeding: 2, redLight: 1 }]]);
+    h.reset(session);
+    const loaded = h.load(data);
+    const row = loaded.trafficCars(500).find((r) => r.vehicleId === id);
+    expect(row?.violations).toEqual({ speeding: 2, redLight: 1 });
   });
 
   it('switches the driven car headlights with the time of day, and H overrides them until the next switch', () => {
@@ -247,8 +521,33 @@ describe('GameSession (city)', () => {
     expect((VehicleLook.lights[car.eid] ?? 0) & LIGHT.lightbar).toBe(LIGHT.lightbar);
   });
 
+  it('keeps headlights switched on with H through a save and load until the next automatic switch', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    session.env.setWeatherOverride('clear');
+    session.env.setTimeOfDay(12);
+    session.enterVehicle(vehicle(session, 0));
+    h.step(session, 1);
+    session.toggleHeadlights();
+    h.step(session, 1);
+    expect(vehicle(session, 0).headlights).toBe(true);
+    const data = roundTrip(serializeGame(session));
+    h.reset(session);
+    const loaded = h.load(data);
+    h.step(loaded, 2);
+    expect(vehicle(loaded, 0).headlights).toBe(true);
+    loaded.env.setTimeOfDay(22);
+    h.step(loaded, 1);
+    loaded.env.setTimeOfDay(12);
+    h.step(loaded, 1);
+    expect(vehicle(loaded, 0).headlights).toBe(false);
+  });
+
   it('teleports the driven car, primes colliders there and repopulates traffic around it', () => {
     const h = fresh();
+    const live = new Set<number>();
+    h.bus.on('traffic:spawned', (e) => live.add(e.eid));
+    h.bus.on('traffic:despawned', (e) => live.delete(e.eid));
     const session = h.start(SEED);
     const car = vehicle(session, 1);
     session.enterVehicle(car);
@@ -263,6 +562,8 @@ describe('GameSession (city)', () => {
     for (let i = 0; i < view.count; i++) {
       expect(Math.hypot((view.x[i] ?? 0) - target.x, (view.z[i] ?? 0) - target.z)).toBeLessThan(440);
     }
+    // Every car dropped by the teleport was reported as despawned.
+    expect(live.size).toBe(view.count);
     h.step(session, 60);
     expect(car.telemetry.airborne).toBe(false);
   });
@@ -285,7 +586,7 @@ describe('GameSession (city)', () => {
 
     const data = roundTrip(serializeGame(session));
     expect(isSaveGame(data)).toBe(true);
-    expect(data.player).toEqual({ mode: 'driving', vehicle: 0 });
+    expect(data.player).toEqual({ mode: 'driving', vehicle: 0, lastVehicle: 0 });
     expect(data.camera.mode).toBe(CAMERA_MODE.cockpit);
     expect(data.vehicles).toHaveLength(2);
     expect(data.vehicles[0]?.lightbar).toBe(true);
@@ -355,6 +656,22 @@ describe('GameSession (city)', () => {
     h.step(session, 30);
   });
 
+  it('keeps traffic flowing around the officer, with violations observed nearby', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    const seen = new Map<string, number>();
+    const off = h.bus.on('traffic:violation', (e) => seen.set(e.kind, (seen.get(e.kind) ?? 0) + 1));
+    h.step(session, 60 * 60);
+    off();
+    const view = session.traffic.view;
+    let speed = 0;
+    for (let i = 0; i < view.count; i++) speed += view.speed[i] ?? 0;
+    expect(view.count).toBeGreaterThan(100);
+    expect(speed / view.count).toBeGreaterThan(2);
+    expect(session.traffic.stats.spawned).toBeGreaterThan(view.count);
+    expect([...seen.values()].reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+  });
+
   it('spawns a vehicle ahead of the officer from its own stream', () => {
     const h = fresh();
     const session = h.start(SEED);
@@ -385,7 +702,7 @@ describe('GameSession (city)', () => {
     expect(entityCount(h.world)).toBe(0);
     expect(h.physics.bodyCount).toBe(0);
     expect(h.meshes.count).toBe(0);
-    expect(h.physics.raw.colliders.len()).toBe(1); // only the ground slab is left
+    expect(h.physics.raw.colliders.len()).toBe(5); // only the ground slab and the four world walls are left
   });
 
   it('spawnRandomBoxes drops boxes over the officer and stops at the pool capacity', () => {
@@ -397,6 +714,16 @@ describe('GameSession (city)', () => {
     expect(session.spawnRandomBoxes(1)).toHaveLength(0);
     const xs = spawned.map((eid) => session.physics.getBody(eid)?.translation().x ?? NaN);
     expect(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2 - (Transform.x[session.player] ?? 0))).toBeLessThan(10);
+  });
+
+  it('walls the world in just outside the perimeter roads', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    h.step(session, 1); // scene queries see colliders after a step
+    for (const [x, z, dx, dz] of [[-3570, 0, -1, 0], [3570, 0, 1, 0], [0, -3570, 0, -1], [0, 3570, 0, 1]] as const) {
+      const hit = session.physics.castRay({ x, y: 1, z }, { x: dx, y: 0, z: dz }, 100);
+      expect(hit?.toi).toBeCloseTo(28, 3);
+    }
   });
 
   it('seeds are normalized the same way as createRng', () => {
@@ -412,7 +739,7 @@ describe('GameSession (city)', () => {
     h.step(session, 30, { forward: 1, strafe: 0, sprint: false });
     session.controller.lookByMouse(500, -40);
     const data: SaveGame = roundTrip(serializeGame(session));
-    expect(data.player).toEqual({ mode: 'onFoot', vehicle: -1 });
+    expect(data.player).toEqual({ mode: 'onFoot', vehicle: -1, lastVehicle: -1 });
     const { yaw, pitch } = session.controller;
     const x = Transform.x[session.player] ?? NaN;
     const z = Transform.z[session.player] ?? NaN;

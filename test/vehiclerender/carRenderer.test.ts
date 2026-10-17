@@ -2,7 +2,7 @@ import type { EntityId } from 'bitecs';
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { PrevTransform, Transform } from '../../src/ecs/components';
-import { createGameWorld, despawn, spawn, type GameWorld } from '../../src/ecs/world';
+import { clearWorld, createGameWorld, despawn, spawn, type GameWorld } from '../../src/ecs/world';
 import { interpolateTransform } from '../../src/render/meshSync';
 import { buildCarParts, LENS_KINDS } from '../../src/render/vehicles/carParts';
 import { CarRenderer, type WheelSource } from '../../src/render/vehicles/carRenderer';
@@ -82,6 +82,9 @@ describe('CarRenderer', () => {
       expect(m.frustumCulled).toBe(false);
       expect(m.instanceMatrix.usage).toBe(THREE.DynamicDrawUsage);
     }
+    // Only the drawn instances are uploaded, not the whole capacity.
+    expect(mesh(scene, 'car-wheels').instanceMatrix.updateRanges).toEqual([{ start: 0, count: 12 * 16 }]);
+    expect(mesh(scene, 'car-lenses').instanceColor?.updateRanges).toEqual([{ start: 0, count: (2 * 6 + 4) * 3 }]);
     cars.dispose();
   });
 
@@ -270,6 +273,22 @@ describe('CarRenderer', () => {
     expect(mesh(scene, 'car-body:patrol_sedan').count).toBe(0);
     expect(mesh(scene, 'car-wheels').visible).toBe(false);
     expect(cars.stats).toEqual({ cars: 0, drawCalls: 0 });
+    cars.dispose();
+  });
+
+  it('follows the world through clearWorld (its registered query is rebuilt)', () => {
+    const { scene, world, cars } = setup();
+    addCar(world, SEDAN.index, 0, 0);
+    addCar(world, VAN.index, 5, 0);
+    cars.update(1, 0, 0, false);
+    expect(cars.stats.cars).toBe(2);
+    clearWorld(world);
+    cars.update(1, 0, 0, false);
+    expect(cars.stats.cars).toBe(0);
+    addCar(world, VAN.index, 0, 0);
+    cars.update(1, 0, 0, false);
+    expect(mesh(scene, 'car-body:van').count).toBe(1);
+    expect(mesh(scene, 'car-body:patrol_sedan').count).toBe(0);
     cars.dispose();
   });
 

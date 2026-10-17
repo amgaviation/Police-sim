@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { mapDriverInput, type DriverControls, type DriverInput } from '../../src/vehicles/controls';
 
-function map(input: Partial<DriverInput>, speed: number, reversing: boolean): DriverControls {
+function map(input: Partial<DriverInput>, speed: number, reversing: boolean, groundSpeed = Math.abs(speed)): DriverControls {
   const out: DriverControls = { throttle: -1, brake: -1, steer: -1, handbrake: false, reverse: false };
-  return mapDriverInput({ accelerate: 0, brake: 0, steer: 0, handbrake: false, ...input }, speed, reversing, out);
+  return mapDriverInput({ accelerate: 0, brake: 0, steer: 0, handbrake: false, ...input }, speed, groundSpeed, reversing, out);
 }
 
 describe('mapDriverInput', () => {
@@ -19,6 +19,17 @@ describe('mapDriverInput', () => {
     // Not while still rolling forward, nor with both pedals pressed.
     expect(map({ brake: 0.8 }, 3, false)).toMatchObject({ brake: 0.8, reverse: false });
     expect(map({ brake: 0.8, accelerate: 0.2 }, 0, false)).toMatchObject({ throttle: 0.2, brake: 0.8, reverse: false });
+  });
+
+  it('brake while rolling backwards in forward gear brakes (reverse engages only once stopped)', () => {
+    expect(map({ brake: 1 }, -4, false)).toMatchObject({ throttle: 0, brake: 1, reverse: false });
+    expect(map({ brake: 1 }, -0.3, false)).toMatchObject({ throttle: 1, brake: 0, reverse: true });
+  });
+
+  it('brake while sliding sideways or spinning brakes (zero forward speed is not a standstill)', () => {
+    expect(map({ brake: 1 }, 0, false, 15)).toMatchObject({ throttle: 0, brake: 1, reverse: false });
+    expect(map({ brake: 1 }, 0.2, false, 8)).toMatchObject({ throttle: 0, brake: 1, reverse: false });
+    expect(map({ brake: 1 }, 0.2, false, 0.3)).toMatchObject({ throttle: 1, brake: 0, reverse: true });
   });
 
   it('accelerate while rolling backwards brakes first, then drives forward once stopped', () => {

@@ -3,7 +3,16 @@ import { DEFAULT_DRAW_DISTANCE, disposeObject, type Renderer, type ShadowQuality
 import type { Environment } from '../environment';
 import type { Rgb } from '../sky';
 import { HeatHazePass } from './heatHaze';
-import { PRECIP_MAX_PARTICLES, createPrecipitation, type Precipitation } from './precipitation';
+import {
+  PRECIP_BOX,
+  PRECIP_FALL_SPEED,
+  PRECIP_FALL_WRAP,
+  PRECIP_MAX_PARTICLES,
+  PRECIP_SWAY_WRAP,
+  PRECIP_WIND_DRIFT,
+  createPrecipitation,
+  type Precipitation,
+} from './precipitation';
 import { createSkyDome, type SkyDome } from './skyDome';
 
 export interface EnvironmentRendererOptions {
@@ -21,8 +30,8 @@ const FOG_NEAR_RATIO = 0.1875;
 const MIN_FOG_FAR = 30;
 /** Linear-fog visibility from the weather's exponential density: far ~ factor / density. */
 const VISIBILITY_FACTOR = 2;
-/** Precipitation animation time wraps here so the shader keeps float precision. */
-const PRECIP_TIME_WRAP = 600;
+/** Heat-haze animation time wraps here so the shader keeps float precision. */
+const HAZE_TIME_WRAP = 600;
 /** Fallback drawing-buffer height without a renderer (headless). */
 const HEADLESS_HEIGHT = 1080;
 const RAIN_COLOR = { r: 0.72, g: 0.76, b: 0.82 };
@@ -59,9 +68,15 @@ export class EnvironmentRenderer {
   private readonly hemisphere = new THREE.HemisphereLight(0xffffff, 0x000000, 0);
   private readonly fog = new THREE.Fog(0x000000, 60, 320);
   private readonly background = new THREE.Color();
+  /** Created on first use and kept (rebuilding allocates an MSAA target and compiles a program). */
   private haze: HeatHazePass | null = null;
+  private hazeInstalled = false;
   private shadowQuality: ShadowQuality = 'off';
   private time = 0;
+  /** Precipitation motion integrated per frame (see PRECIP_FALL_WRAP): fall distance, sway clock, wind drift. */
+  private fall = 0;
+  private sway = 0;
+  private readonly drift = new THREE.Vector2();
   private disposed = false;
   private readonly scratchPos = new THREE.Vector3();
   private readonly scratchDir = new THREE.Vector3();
@@ -109,7 +124,7 @@ export class EnvironmentRenderer {
     const sky = env.sky;
     const l = env.lighting;
     const w = env.weather;
-    this.time = (this.time + Math.max(0, realDt)) % PRECIP_TIME_WRAP;
+    this.time = (this.time + Math.max(0, realDt)) % HAZE_TIME_WRAP;
     const cameraPos = camera.getWorldPosition(this.scratchPos);
 
     // Fog and background.
@@ -150,8 +165,27 @@ export class EnvironmentRenderer {
     setSrgb(this.hemisphere.groundColor, sky.ambientGround);
     this.hemisphere.intensity = sky.ambientIntensity * AMBIENT_SCALE;
 
-    this.updatePrecipitation(env, camera, cameraPos);
+    this.updatePrecipitation(env, camera, cameraPos, Math.max(0, realDt));
     this.updateHaze(w.heatHaze, camera);
+  }
+
+  /**
+   * Compiles every program the heat-haze pass will need for what is in the scene now (call once the
+   * session's first chunks are in, behind the loading phase). Otherwise the first hot spell recompiles
+   * every material synchronously for the render-target variant in the middle of a drive. Precipitation
+   * is hidden while it is dry and `compile` skips hidden objects, so it is shown for the duration and
+   * compiled for the screen as well (otherwise the first rain of a session compiles mid-drive).
+   */
+  prewarmHaze(camera: THREE.Camera): void {
+    const renderer = this.renderer;
+    if (!renderer || this.disposed) return;
+    this.haze ??= new HeatHazePass();
+    const points = this.precip.points;
+    const visible = points.visible;
+    points.visible = true;
+    renderer.gl.compile(this.scene, camera);
+    this.haze.compile(renderer.gl, this.scene, camera);
+    points.visible = visible;
   }
 
   /** Enables/sizes the sun shadow map; call alongside `Renderer.setShadows`. */
@@ -168,11 +202,10 @@ export class EnvironmentRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    if (this.haze) {
-      this.renderer?.setPostProcess(null);
-      this.haze.dispose();
-      this.haze = null;
-    }
+    if (this.hazeInstalled) this.renderer?.setPostProcess(null);
+    this.hazeInstalled = false;
+    this.haze?.dispose();
+    this.haze = null;
     this.root.removeFromParent();
     disposeObject(this.root);
     if (this.scene.fog === this.fog) this.scene.fog = null;
@@ -204,7 +237,7 @@ export class EnvironmentRenderer {
     this.light.position.copy(target).addScaledVector(dir, SHADOW_LIGHT_DISTANCE);
   }
 
-  private updatePrecipitation(env: Environment, camera: THREE.PerspectiveCamera, cameraPos: THREE.Vector3): void {
+  private updatePrecipitation(env: Environment, camera: THREE.PerspectiveCamera, cameraPos: THREE.Vector3, dt: number): void {
     const w = env.weather;
     const points = this.precip.points;
     const count = Math.round(PRECIP_MAX_PARTICLES * Math.min(1, w.precipitation));
@@ -212,11 +245,20 @@ export class EnvironmentRenderer {
     if (!points.visible) return;
     points.geometry.setDrawRange(0, count);
     const u = this.precip.uniforms;
-    const snow = w.kind === 'snow';
+    // By what falls, not by `w.kind`: a snow segment blending into clear still snows.
+    const snow = w.precipSnow > 0.5;
     const height = this.renderer ? this.renderer.gl.getDrawingBufferSize(this.bufferSize).y : HEADLESS_HEIGHT;
-    u.uTime.value = this.time;
+    // Integrated here rather than as velocity * time in the shader, so a changing wind or fall speed
+    // (a weather blend) only changes the current velocity, and the wraps are seamless.
+    const drift = snow ? PRECIP_WIND_DRIFT.snow : PRECIP_WIND_DRIFT.rain;
+    const dx = this.drift.x + w.windX * drift * dt, dz = this.drift.y + w.windZ * drift * dt;
+    this.drift.set(dx - PRECIP_BOX * Math.floor(dx / PRECIP_BOX), dz - PRECIP_BOX * Math.floor(dz / PRECIP_BOX));
+    this.fall = (this.fall + (snow ? PRECIP_FALL_SPEED.snow : PRECIP_FALL_SPEED.rain) * dt) % PRECIP_FALL_WRAP;
+    this.sway = (this.sway + dt) % PRECIP_SWAY_WRAP;
+    u.uTime.value = this.sway;
+    u.uFall.value = this.fall;
+    u.uDrift.value.copy(this.drift);
     u.uCamera.value.copy(cameraPos);
-    u.uWind.value.set(w.windX, w.windZ);
     u.uSnow.value = snow ? 1 : 0;
     u.uScale.value = height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     u.uSize.value = snow ? 0.08 : 0.5;
@@ -230,16 +272,16 @@ export class EnvironmentRenderer {
     const renderer = this.renderer;
     if (!renderer) return;
     if (strength <= 0.01) {
-      if (this.haze) {
+      if (this.hazeInstalled) {
         renderer.setPostProcess(null);
-        this.haze.dispose();
-        this.haze = null;
+        this.hazeInstalled = false;
       }
       return;
     }
-    if (!this.haze) {
-      this.haze = new HeatHazePass();
+    this.haze ??= new HeatHazePass();
+    if (!this.hazeInstalled) {
       renderer.setPostProcess(this.haze);
+      this.hazeInstalled = true;
     }
     // Screen height of the horizon from the camera pitch.
     const forward = camera.getWorldDirection(this.scratchDir);

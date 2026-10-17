@@ -33,13 +33,6 @@ export interface RenderStats {
   programs: number;
 }
 
-export interface TestScene {
-  ground: THREE.Mesh;
-  grid: THREE.GridHelper;
-  hemisphere: THREE.HemisphereLight;
-  sun: THREE.DirectionalLight;
-}
-
 /**
  * Replaces the plain `gl.render(scene, camera)` call of `Renderer.render()`, e.g. to draw
  * into a render target and composite it with a full-screen shader. The pass owns its GPU
@@ -350,48 +343,4 @@ export function disposeObject(root: THREE.Object3D): void {
       material.dispose();
     }
   });
-}
-
-/** Populates `scene` with a lit, fogged 200x200 ground plane and grid for testing. */
-export function createTestScene(scene: THREE.Scene): TestScene {
-  const skyColor = 0x9fb8d0;
-  scene.background = new THREE.Color(skyColor);
-  scene.fog = new THREE.Fog(skyColor, 60, 320);
-
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(200, 200),
-    new THREE.MeshStandardMaterial({ color: 0x3f4247, roughness: 0.95, metalness: 0 }),
-  );
-  ground.name = 'ground';
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  const grid = new THREE.GridHelper(200, 40, 0x7a7f88, 0x50545c);
-  grid.name = 'grid';
-  grid.position.y = 0.01;
-  scene.add(grid);
-
-  const hemisphere = new THREE.HemisphereLight(0xc8dcff, 0x4a4a3c, 1.0);
-  hemisphere.name = 'hemisphere';
-  scene.add(hemisphere);
-
-  const sun = new THREE.DirectionalLight(0xfff1e0, 2.5);
-  sun.name = 'sun';
-  sun.position.set(60, 100, 40);
-  sun.castShadow = true;
-  sun.shadow.mapSize.setScalar(SHADOW_MAP_SIZE.high);
-  sun.shadow.camera.left = -120;
-  sun.shadow.camera.right = 120;
-  sun.shadow.camera.top = 120;
-  sun.shadow.camera.bottom = -120;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 400;
-  sun.shadow.camera.updateProjectionMatrix();
-  sun.shadow.bias = -0.0005;
-  sun.shadow.normalBias = 0.02;
-  scene.add(sun);
-  scene.add(sun.target);
-
-  return { ground, grid, hemisphere, sun };
 }

@@ -79,6 +79,7 @@ export class PhysicsWorld {
   private readonly eidByBody = new Map<number, EntityId>();
   private readonly eidByCollider = new Map<number, EntityId>();
   private readonly listeners = new Set<CollisionListener>();
+  private readonly groundColliders = new Set<number>();
   private readonly scratchVec: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly scratchRot = { x: 0, y: 0, z: 0, w: 1 };
   private disposed = false;
@@ -145,7 +146,7 @@ export class PhysicsWorld {
 
   /**
    * Adds a fixed ground slab of `halfSize` x `halfSize` whose top surface is at `y`.
-   * Not tracked by an entity id.
+   * Not tracked by an entity id (see `isGround`).
    */
   addGround(halfSize = 100, y = 0, friction = 1): Collider {
     this.assertLive();
@@ -153,7 +154,14 @@ export class PhysicsWorld {
       .setTranslation(0, y - GROUND_HALF_THICKNESS, 0)
       .setFriction(friction)
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-    return this.world.createCollider(desc);
+    const collider = this.world.createCollider(desc);
+    this.groundColliders.add(collider.handle);
+    return collider;
+  }
+
+  /** True for a collider made by `addGround` (character controllers walk on it rather than into it). */
+  isGround(handle: number): boolean {
+    return this.groundColliders.has(handle);
   }
 
   /** Adds a box body for `eid`. `halfExtents` are half the box size on each axis. */

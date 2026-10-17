@@ -235,16 +235,26 @@ function bruteNearest(g: RoadGraph, x: number, z: number): number {
   return best;
 }
 
-/** Plain Dijkstra with the same cost model as RoadGraph routing. */
+/**
+ * Plain Dijkstra with the same cost model as RoadGraph routing: a junction's delay is paid on passing
+ * through it (not at the start or the end), and a minor-stop junction delays only approaches that stop.
+ */
 function dijkstra(g: RoadGraph, from: number, to: number, options: RouteOptions): number {
   const time = options.cost !== 'distance';
   const dist = new Float64Array(g.nodes.length).fill(Infinity);
   const done = new Uint8Array(g.nodes.length);
   dist[from] = 0;
   const noZone = { hour: 12, isWeekday: false };
-  const penalty = (n: number): number => {
-    const j = g.nodes[n]?.junction;
-    return !time || n === from ? 0 : j === JUNCTION.signal ? SIGNAL_PENALTY_S : j === JUNCTION.none ? 0 : STOP_PENALTY_S;
+  const penalty = (n: number, arrivingEdge: number): number => {
+    const node = g.nodes[n];
+    if (!time || n === to || !node) return 0;
+    if (node.junction === JUNCTION.signal) return SIGNAL_PENALTY_S;
+    if (node.junction === JUNCTION.none) return 0;
+    if (node.junction === JUNCTION.allWayStop) return STOP_PENALTY_S;
+    const classes = node.edges.map((id) => g.edges[id]?.roadClass ?? 0);
+    const top = Math.min(...classes);
+    const stops = classes.every((c) => c === top) || (g.edges[arrivingEdge]?.roadClass ?? 0) > top;
+    return stops ? STOP_PENALTY_S : 0;
   };
   const queue: [number, number][] = [[0, from]];
   while (queue.length > 0) {
@@ -259,7 +269,7 @@ function dijkstra(g: RoadGraph, from: number, to: number, options: RouteOptions)
       const v = e.from === u ? e.to : e.from;
       if (e.from !== u && e.lanesBackward === 0 && !options.ignoreOneWay) continue;
       const cost = time ? e.length / Math.max(1, g.effectiveSpeedLimitMph(id, noZone) * MPH) : e.length;
-      const nd = d + penalty(u) + cost;
+      const nd = d + cost + penalty(v, id);
       if (nd < (dist[v] ?? Infinity)) {
         dist[v] = nd;
         queue.push([nd, v]);
@@ -363,6 +373,49 @@ describe('generated graph queries', () => {
         }
       }
     }
+  });
+
+  it('routeBetweenPoints still leaves (or reaches) a point on an avoided edge, avoiding the edges in between', () => {
+    const e = g.edges.find((x) => x.lanesBackward > 0 && x.length > 100);
+    if (!e) throw new Error('no two-way edge');
+    const [x0, z0, x1, z1] = e.points as unknown as [number, number, number, number];
+    const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+    const free = g.routeBetweenPoints(mx, mz, 0, 0);
+    expect(free).not.toBeNull();
+    const other = free?.edges.find((id) => id !== e.id);
+    const avoid = new Set([e.id, ...(other !== undefined ? [other] : [])]);
+    const r = g.routeBetweenPoints(mx, mz, 0, 0, { avoidEdges: avoid });
+    expect(r).not.toBeNull();
+    expect(r?.edges[0]).toBe(e.id);
+    expect(r?.edges.slice(1).some((id) => avoid.has(id))).toBe(false);
+    // The same towards a destination on an avoided edge.
+    const back = g.routeBetweenPoints(0, 0, mx, mz, { avoidEdges: avoid });
+    expect(back?.edges[back.edges.length - 1]).toBe(e.id);
+    expect(back?.edges.slice(0, -1).some((id) => avoid.has(id))).toBe(false);
+  });
+
+  it('a major road through minor-stop junctions pays no stop delay there', () => {
+    const g42 = cityFor(42).graph;
+    const line = g42.nodes.filter((n) => n.z === -1024 && n.x >= -512 && n.x <= 1024).sort((a, b) => a.x - b.x);
+    const first = line[0], last = line[line.length - 1];
+    if (!first || !last) throw new Error('no arterial nodes');
+    const route = g42.findRoute(first.id, last.id, { cost: 'time' });
+    if (!route) throw new Error('no route');
+    let free = 0;
+    for (const id of route.edges) free += (g42.edges[id]?.length ?? 0) / Math.max(1, g42.effectiveSpeedLimitMph(id, { hour: 12, isWeekday: false }) * MPH);
+    let delays = 0;
+    let through = 0;
+    for (let i = 1; i < route.nodes.length - 1; i++) {
+      const n = g42.nodes[route.nodes[i] ?? 0];
+      if (n?.junction === JUNCTION.signal) delays += SIGNAL_PENALTY_S;
+      else if (n && n.junction !== JUNCTION.none) {
+        if (g42.stopsAt(route.edges[i - 1] ?? 0, n.id)) delays += STOP_PENALTY_S;
+        else through++;
+      }
+    }
+    expect(through).toBeGreaterThan(0);
+    expect(route.time).toBeCloseTo(free + delays, 3);
+    expect(route.time).toBeCloseTo(dijkstra(g42, first.id, last.id, { cost: 'time' }), 3);
   });
 
   it('findRoute to itself is empty and unknown nodes give null', () => {

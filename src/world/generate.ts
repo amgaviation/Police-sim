@@ -19,6 +19,11 @@ const NAME_SLOT = 128;
 const CROSSWALK = 1.5;
 /** Blocks narrower than this are not created (m). */
 const MIN_BLOCK = 8;
+/**
+ * Verge (m) between a sidewalk-less road and the water block beside it: streetlights, signs and
+ * signal heads stand up to ~1.4 m beyond the road edge, so the quay wall starts past them.
+ */
+const QUAY_VERGE = 2.5;
 
 /** Axis 0: the line runs along x at z = coord; axis 1: along z at x = coord. */
 type Axis = 0 | 1;
@@ -176,17 +181,22 @@ export function generateCity(seed: number): City {
         const ca = sideClass(da), cb = sideClass(db);
         const a = -H + i * DISTRICT_CELL;
         let inset = 0;
+        let verge = 0;
         if (ca !== -1 || cb !== -1) {
           const cls = (ca === -1 ? cb : cb === -1 ? ca : Math.min(ca, cb)) as RoadClassId;
           const sidewalk = sidewalkFor(cls, da, db);
           addSegment({ axis, coord, a, b: a + DISTRICT_CELL, cls, sidewalk, oneWay: 0, line });
           inset = insetOf(cls, 0, sidewalk);
+          if (sidewalk === 0) verge = QUAY_VERGE;
         }
-        // Register the boundary with both neighbouring cells (axis 0 bounds cells on z, axis 1 on x).
+        // Register the boundary with both neighbouring cells (axis 0 bounds cells on z, axis 1 on x);
+        // a water cell beside a road without sidewalk keeps a verge for the roadside items.
         for (const side of [k - 1, k]) {
           if (side < 0 || side >= N) continue;
           const cell = axis === 0 ? side * N + i : i * N + side;
-          (cellLines[cell] as { x: CellLine[]; z: CellLine[] })[axis === 0 ? 'z' : 'x'].push({ coord, inset, boundary: true });
+          const water = (side === k - 1 ? da : db) === DISTRICT.water;
+          const lineInset = water ? inset + verge : inset;
+          (cellLines[cell] as { x: CellLine[]; z: CellLine[] })[axis === 0 ? 'z' : 'x'].push({ coord, inset: lineInset, boundary: true });
         }
       }
     }
@@ -324,9 +334,20 @@ export function generateCity(seed: number): City {
     const mz = seg.axis === 0 ? seg.coord : m;
     const at = (x: number, z: number): DistrictId | -1 => cellDistrict(cellIndexOf(x), cellIndexOf(z));
     const d = at(mx, mz);
-    if (d !== -1 && d !== DISTRICT.water) return d;
-    // Boundary edges next to water take the land side.
+    // The cell on the -x / -z side of the line (the midpoint itself rounds into the +x / +z cell).
     const other = seg.axis === 0 ? at(mx, mz - 1) : at(mx - 1, mz);
+    const land = (x: DistrictId | -1): x is DistrictId => x !== -1 && x !== DISTRICT.water;
+    if ((seg.coord + H) % DISTRICT_CELL === 0 && land(d) && land(other)) {
+      // A cell boundary between two districts: the side with the lower limit, so both sides of a
+      // district get the same limits (downtown's 35 mph arterials all round it).
+      const limit = (x: DistrictId): number => {
+        const override = ROAD_CLASSES.districtSpeedMph[x]?.[seg.cls] ?? 0;
+        return override > 0 ? override : roadClassDef(seg.cls).speedMph;
+      };
+      return limit(other) < limit(d) ? other : d;
+    }
+    if (land(d)) return d;
+    // Boundary edges next to water take the land side.
     return other !== -1 ? other : d === -1 ? DISTRICT.water : d;
   };
   for (const seg of segments) {
@@ -535,7 +556,13 @@ export function generateCity(seed: number): City {
       count++;
     }
     if (count === 0) continue;
-    const id = nearestBlock(freeLots((b) => b.district === d), sx / count, sz / count);
+    let id = nearestBlock(freeLots((b) => b.district === d), sx / count, sz / count);
+    if (id < 0) {
+      // Every block rolled a non-building kind: build the landmark on one of them anyway.
+      const land = blocks.filter((b) => b.poi < 0 && b.district === d && b.kind !== BLOCK_KIND.runway && b.kind !== BLOCK_KIND.water);
+      id = nearestBlock(land.map((b) => b.id), sx / count, sz / count);
+      if (id >= 0) (blocks[id] as { kind: BlockKindId }).kind = BLOCK_KIND.lots;
+    }
     if (id >= 0) addPoi(kind, name, id, ...blockCentre(id), 0);
   }
   // Parks: one POI per park cell, on its largest park block.

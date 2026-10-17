@@ -49,6 +49,9 @@ describe('DrivableVehicle on dry asphalt', () => {
     expect(rig.vehicle.telemetry.speedKmh).toBeCloseTo(rig.vehicle.telemetry.speed * 3.6, 6);
     expect(rig.vehicle.telemetry.engineRunning).toBe(true);
     expect(rig.vehicle.telemetry.rpm).toBeGreaterThan(sedan.engine.idleRpm);
+    // Rolling forward turns the wheels the renderer's way (spin decreases about +X).
+    const pose: WheelPose = { x: 0, y: 0, z: 0, steer: 0, spin: 0, radius: 0, inContact: false };
+    expect(rig.vehicle.wheelPose(0, pose).spin).toBeLessThan(0);
   });
 
   it('patrol sedan does 0-100 km/h in 6.5-9.5 s', async () => {
@@ -142,7 +145,7 @@ describe('DrivableVehicle on dry asphalt', () => {
     const rig = await makeRig();
     const controls: DriverControls = { throttle: 0, brake: 0, steer: 0, handbrake: false, reverse: false };
     rig.run(() => {
-      mapDriverInput({ accelerate: 0, brake: 1, steer: 0, handbrake: false }, rig.vehicle.telemetry.speed, rig.vehicle.reversing, controls);
+      mapDriverInput({ accelerate: 0, brake: 1, steer: 0, handbrake: false }, rig.vehicle.telemetry.speed, rig.vehicle.telemetry.groundSpeed, rig.vehicle.reversing, controls);
       Object.assign(rig.controls, controls);
       return false;
     }, 3);
@@ -152,6 +155,49 @@ describe('DrivableVehicle on dry asphalt', () => {
     expect(rig.vehicle.telemetry.speedKmh).toBeGreaterThanOrEqual(-sedan.engine.reverseMaxSpeedKmh - 1);
     expect(rig.position().z).toBeGreaterThan(2);
     expect((VehicleLook.lights[1] ?? 0) & LIGHT.reverse).toBe(LIGHT.reverse);
+  });
+
+  it('holding the brake while sliding sideways brakes instead of engaging reverse', async () => {
+    const rig = await makeRig();
+    rig.physics.getBody(rig.vehicle.eid)?.setLinvel({ x: 15, y: 0, z: 0 }, true);
+    const controls: DriverControls = { throttle: 0, brake: 0, steer: 0, handbrake: false, reverse: false };
+    let reversed = false;
+    const t = rig.run(() => {
+      const tel = rig.vehicle.telemetry;
+      mapDriverInput({ accelerate: 0, brake: 1, steer: 0, handbrake: false }, tel.speed, tel.groundSpeed, rig.vehicle.reversing, controls);
+      Object.assign(rig.controls, controls);
+      if (rig.vehicle.reversing && tel.groundSpeed > 1) reversed = true;
+      return tel.groundSpeed < 0.3;
+    }, 10);
+    expect(reversed).toBe(false);
+    expect(t).toBeLessThan(4);
+  });
+
+  it('braking with the wheels in the air neither triggers ABS nor locks the wheels on landing', async () => {
+    const run = async (model: VehicleModel): Promise<{ absInAir: boolean; landingSteer: number }> => {
+      const rig = await makeRig(model);
+      const body = rig.physics.getBody(rig.vehicle.eid);
+      const p = body?.translation() ?? { x: 0, y: 0, z: 0 };
+      body?.setTranslation({ x: p.x, y: p.y + 1, z: p.z }, true);
+      body?.setLinvel({ x: 0, y: 0, z: -20 }, true);
+      Object.assign(rig.controls, { brake: 1, steer: 1 });
+      const ctl = (rig.vehicle as unknown as { controller: RAPIER.DynamicRayCastVehicleController }).controller;
+      let absInAir = false;
+      let landingSteer = Number.NaN;
+      rig.step();
+      // The brakes of a step are judged on the previous step's wheel loads: count steps after an airborne one.
+      let wasAirborne = false;
+      rig.run(() => {
+        if (wasAirborne && rig.vehicle.telemetry.absActive) absInAir = true;
+        wasAirborne = rig.vehicle.telemetry.airborne;
+        if (!rig.vehicle.telemetry.airborne) landingSteer = ctl.wheelSteering(0) ?? 0;
+        return !rig.vehicle.telemetry.airborne;
+      }, 2);
+      return { absInAir, landingSteer };
+    };
+    expect((await run(sedan)).absInAir).toBe(false);
+    const noAbs = await run({ ...sedan, brakes: { ...sedan.brakes, abs: false } });
+    expect(Math.abs(noAbs.landingSteer)).toBeGreaterThan(0.01);
   });
 });
 
@@ -238,6 +284,29 @@ describe('DrivableVehicle damage, fuel and lights', () => {
     rig.step();
     expect(rig.vehicle.telemetry.engineRunning).toBe(true);
     expect(rig.vehicle.telemetry.fuelL).toBeGreaterThan(9.9);
+  });
+
+  it('with the ignition off it neither runs, burns fuel nor stalls', async () => {
+    const rig = await makeRig();
+    const data = rig.vehicle.serialize();
+    data.engineHealth = 0.05; // stalls often while running
+    rig.vehicle.dispose();
+    rig.vehicle = DrivableVehicle.restore(rig.physics, 1, data, vehicleRng());
+    rig.vehicle.engineOn = false;
+    let stalls = 0;
+    rig.bus.on('vehicle:engineStalled', () => stalls++);
+    const fuel = rig.vehicle.telemetry.fuelL;
+    rig.controls.throttle = 1;
+    rig.run(() => false, 20);
+    expect(stalls).toBe(0);
+    expect(rig.vehicle.telemetry.fuelL).toBe(fuel);
+    expect(rig.vehicle.telemetry.engineRunning).toBe(false);
+    expect(rig.vehicle.telemetry.rpm).toBe(0);
+    expect(Math.abs(rig.vehicle.telemetry.speed)).toBeLessThan(0.1);
+    rig.vehicle.engineOn = true;
+    rig.run(() => false, 20);
+    expect(rig.vehicle.telemetry.fuelL).toBeLessThan(fuel);
+    expect(stalls).toBeGreaterThan(0);
   });
 
   it('writes light bits to VehicleLook every step', async () => {

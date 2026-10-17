@@ -15,7 +15,7 @@ export interface DriverControls {
   reverse: boolean;
 }
 
-/** Below this forward speed (m/s) the car counts as stopped for selecting reverse. */
+/** Below this horizontal ground speed (m/s) the car counts as stopped for selecting reverse. */
 export const STOPPED_SPEED = 0.5;
 
 function clamp01(v: number): number {
@@ -25,11 +25,13 @@ function clamp01(v: number): number {
 /**
  * Automatic forward/reverse selection. Holding the brake while stopped engages reverse and the brake
  * pedal then works as reverse throttle; pressing accelerate while still rolling backwards brakes first,
- * and switches back to forward once stopped. `forwardSpeed` is signed (+ = forwards).
+ * and switches back to forward once stopped. `forwardSpeed` is signed (+ = forwards); `groundSpeed` is the
+ * horizontal speed in any direction, so a car sliding sideways or spinning is not taken as stopped.
  */
 export function mapDriverInput(
   input: DriverInput,
   forwardSpeed: number,
+  groundSpeed: number,
   reversing: boolean,
   out: DriverControls,
 ): DriverControls {
@@ -39,7 +41,7 @@ export function mapDriverInput(
   out.handbrake = input.handbrake;
   let reverse = reversing;
   if (reverse && accelerate > 0 && forwardSpeed > -STOPPED_SPEED) reverse = false;
-  else if (!reverse && brake > 0 && accelerate === 0 && forwardSpeed < STOPPED_SPEED) reverse = true;
+  else if (!reverse && brake > 0 && accelerate === 0 && groundSpeed < STOPPED_SPEED) reverse = true;
   out.reverse = reverse;
   if (reverse) {
     // Brake pedal is the reverse throttle; accelerate (while still rolling back) brakes.

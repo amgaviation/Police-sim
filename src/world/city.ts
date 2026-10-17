@@ -2,7 +2,7 @@ import { CELLS_PER_SIDE, DISTRICT_CELL, WORLD_HALF_SIZE } from './constants';
 import { districtType } from './data';
 import { distanceToPolyline } from './geom';
 import { DISTRICT, SURFACE, type DistrictId, type SurfaceId } from './ids';
-import type { RoadEdge, RoadGraph } from './roadGraph';
+import type { RoadEdge, RoadGraph, RoadNode } from './roadGraph';
 import { SpatialHash } from './spatialHash';
 
 export const BLOCK_KIND = { lots: 0, park: 1, parking: 2, plaza: 3, runway: 4, water: 5, farm: 6, yard: 7, green: 8 } as const;
@@ -100,6 +100,10 @@ export class CityModel implements City {
   private readonly cells: Uint8Array;
   private readonly cellBlockStart: Int32Array;
   private readonly surfaceHash: SpatialHash;
+  /** Junction square half extents per node (0 when the node has no crossing edges) and its surface. */
+  private readonly squareX: Float32Array;
+  private readonly squareZ: Float32Array;
+  private readonly squareSurface: Uint8Array;
 
   constructor(
     seed: number,
@@ -138,6 +142,27 @@ export class CityModel implements City {
       boxes.set([minX - pad, minZ - pad, maxX + pad, maxZ + pad], i * 4);
     });
     this.surfaceHash = new SpatialHash(boxes);
+    // Junction squares, sized as the chunk mesher draws them: the widest edge on each axis.
+    const nodeCount = graph.nodes.length;
+    this.squareX = new Float32Array(nodeCount);
+    this.squareZ = new Float32Array(nodeCount);
+    this.squareSurface = new Uint8Array(nodeCount);
+    const bestClass = new Uint8Array(nodeCount).fill(255);
+    for (const e of graph.edges) {
+      const p = e.points;
+      const n = p.length;
+      for (const [node, dx, dz] of [
+        [e.from, (p[2] ?? 0) - (p[0] ?? 0), (p[3] ?? 0) - (p[1] ?? 0)],
+        [e.to, (p[n - 4] ?? 0) - (p[n - 2] ?? 0), (p[n - 3] ?? 0) - (p[n - 1] ?? 0)],
+      ] as const) {
+        const half = Math.abs(dx) >= Math.abs(dz) ? this.squareZ : this.squareX;
+        half[node] = Math.max(half[node] ?? 0, e.width / 2);
+        if (e.roadClass < (bestClass[node] ?? 255)) {
+          bestClass[node] = e.roadClass;
+          this.squareSurface[node] = e.surface;
+        }
+      }
+    }
   }
 
   districtAt(x: number, z: number): DistrictId {
@@ -154,6 +179,8 @@ export class CityModel implements City {
     let sidewalk = false;
     for (let i = start[cell] ?? 0, end = start[cell + 1] ?? 0; i < end; i++) {
       const e = edges[items[i] ?? 0] as RoadEdge;
+      const sq = this.inSquare(e.from, x, z) ? e.from : this.inSquare(e.to, x, z) ? e.to : -1;
+      if (sq >= 0) return (this.squareSurface[sq] ?? SURFACE.asphalt) as SurfaceId;
       const d = distanceToPolyline(e.points, x, z);
       const half = e.width / 2;
       if (d <= half) return e.surface;
@@ -169,6 +196,13 @@ export class CityModel implements City {
       if (x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) return blockSurface(b.kind, b.district);
     }
     return districtType(this.districtAt(x, z)).ground;
+  }
+
+  private inSquare(node: number, x: number, z: number): boolean {
+    const hx = this.squareX[node] ?? 0, hz = this.squareZ[node] ?? 0;
+    if (hx === 0 || hz === 0) return false;
+    const n = this.graph.nodes[node] as RoadNode;
+    return Math.abs(x - n.x) <= hx && Math.abs(z - n.z) <= hz;
   }
 
   blocksIn(minX: number, minZ: number, maxX: number, maxZ: number, out: number[]): number[] {

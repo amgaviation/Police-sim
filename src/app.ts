@@ -60,7 +60,7 @@ export const WORKER_PING_INTERVAL_MS = 2_000;
 export const HUD_INTERVAL_MS = 100;
 /** Perf overlay extras (chunks, traffic, cars) refresh at this interval. */
 const PERF_EXTRAS_INTERVAL_MS = 250;
-/** How long a one-off hint (exit blocked, refuelled) replaces the prompt line. */
+/** How long a one-off hint (exit blocked, refuelled, repaired) replaces the prompt line. */
 const FLASH_MS = 2500;
 const FIXED_DT = 1 / SIM_HZ;
 const QUICKSAVE_SLOT = 'quicksave';
@@ -77,6 +77,7 @@ const INTERACT_FLASH: Partial<Record<InteractResult, string>> = {
   exitBlocked: 'Both doors are blocked',
   tooFast: 'Stop the vehicle to get out',
   refuelled: 'Refuelled',
+  repaired: 'Repaired and refuelled',
 };
 
 /**
@@ -133,7 +134,13 @@ export class App {
   private readonly cameraRaycast: CameraRaycast;
   private flashText = '';
   private flashUntilMs = 0;
+  /** The heat-haze programs were compiled for this session's city (`prewarmHaze`). */
+  private hazeWarm = false;
   private interactKey = 'E';
+  /** Settings read every frame, cached here (refreshed by the settings subscription) so frames do not allocate. */
+  private mouseSensitivity = 1;
+  private invertY = false;
+  private reducedFlash = false;
   private nextHudMs = 0;
   private nextPerfExtrasMs = 0;
   /** Real seconds of rendered frames (drives light-bar and hazard flashing). */
@@ -498,8 +505,8 @@ export class App {
     drive.handbrake = false;
     if (!active) return;
     const input = this.input;
-    const sensitivity = this.settings.get('controls.mouseSensitivity');
-    const invertY = this.settings.get('controls.invertY');
+    const sensitivity = this.mouseSensitivity;
+    const invertY = this.invertY;
     const mouse = input.mouseDelta();
     session.controller.lookByMouse(mouse.x, mouse.y, sensitivity, invertY);
     // Mouse movement is applied above; the stick rate excludes it so it is not counted twice.
@@ -536,8 +543,8 @@ export class App {
     look.mouseY = lookActive ? mouse.y : 0;
     look.stickX = lookActive ? this.input.stickAxis('look.x') : 0;
     look.stickY = lookActive ? this.input.stickAxis('look.y') : 0;
-    look.sensitivity = this.settings.get('controls.mouseSensitivity');
-    look.invertY = this.settings.get('controls.invertY');
+    look.sensitivity = this.mouseSensitivity;
+    look.invertY = this.invertY;
     this.rig.updateVehicle(dt, target, look, camera, this.cameraRaycast);
   }
 
@@ -551,11 +558,17 @@ export class App {
       interpolateTransform(session.player, alpha, scratchPos, scratchQuat);
       this.envRenderer.update(session.env, camera, scratchPos, dt);
       this.view?.update(camera.position.x, camera.position.z, this.envRenderer.viewDistance, session.clock.simTime, lighting);
+      // Once the first ring of chunks is in (session start), so a later heat spell does not stall mid-drive.
+      const chunks = this.view?.streamer?.stats;
+      if (!this.hazeWarm && chunks && chunks.loaded > 0 && chunks.inFlight === 0) {
+        this.hazeWarm = true;
+        this.envRenderer.prewarmHaze(camera);
+      }
     }
     const cars = this.carRenderer;
     if (!cars) return;
     cars.setHeadlightTarget(session.drivenVehicle?.eid ?? session.lastVehicle?.eid ?? 0);
-    cars.update(alpha, lighting.nightFactor, this.renderTime, this.settings.get('accessibility.reducedFlash'));
+    cars.update(alpha, lighting.nightFactor, this.renderTime, this.reducedFlash);
   }
 
   /** HUD and minimap at 10 Hz (the road lookup and prompt strings only run at that rate). */
@@ -640,6 +653,7 @@ export class App {
     });
     this.route = null;
     this.flashUntilMs = 0;
+    this.hazeWarm = false;
     this.nextHudMs = 0;
     this.hud.setVisible(true);
     this.loop.timeScale = session.clock.timeScale;
@@ -718,7 +732,7 @@ export class App {
         this.carRenderer?.setDrivable(vehicle.eid, vehicle);
       },
       trafficStats: () => this.sessionValue?.traffic.stats ?? null,
-      clearTraffic: () => this.requireSession().traffic.clear(),
+      clearTraffic: () => this.requireSession().traffic.clear(true),
       setTrafficDensity: (scale) => {
         this.requireSession().traffic.densityScale = scale;
       },
@@ -770,6 +784,9 @@ export class App {
         if (all || change.path === 'controls.gamepadDeadzone') {
           this.input.setDeadzone(settings.get('controls.gamepadDeadzone'));
         }
+        if (all || change.path === 'controls.mouseSensitivity') this.mouseSensitivity = settings.get('controls.mouseSensitivity');
+        if (all || change.path === 'controls.invertY') this.invertY = settings.get('controls.invertY');
+        if (all || change.path === 'accessibility.reducedFlash') this.reducedFlash = settings.get('accessibility.reducedFlash');
       }),
       this.ui.onMenuChange(() => {
         this.menuChangedSinceUpdate = true;
@@ -780,6 +797,9 @@ export class App {
       this.bus.on('save:completed', () => void this.refreshSaveList()),
     );
     this.interactKey = keyLabel(settings.get('controls.bindings').interact);
+    this.mouseSensitivity = settings.get('controls.mouseSensitivity');
+    this.invertY = settings.get('controls.invertY');
+    this.reducedFlash = settings.get('accessibility.reducedFlash');
     // pagehide/hidden fire reliably on navigation and tab close (beforeunload does not on mobile),
     // and the settings storage keeps its connection open so the write starts synchronously here.
     const flushSettings = (): void => {

@@ -25,6 +25,8 @@ export interface GameWorldContext {
   time: WorldTime;
   /** Live entities created through `spawn`; maintained so counting does not allocate. */
   liveEntities: number;
+  /** Bumped by `clearWorld`, which drops every registered query: holders of a `registerQuery` re-register. */
+  generation: number;
 }
 
 export type GameWorld = World<GameWorldContext>;
@@ -37,7 +39,7 @@ export const NULL_ENTITY: EntityId = 0;
 
 /** Creates an empty world with a zeroed clock. */
 export function createGameWorld(): GameWorld {
-  return createWorld<GameWorldContext>({ time: { dt: 0, elapsed: 0, step: 0 }, liveEntities: 0 });
+  return createWorld<GameWorldContext>({ time: { dt: 0, elapsed: 0, step: 0 }, liveEntities: 0, generation: 0 });
 }
 
 /**
@@ -74,6 +76,7 @@ export function clearWorld(world: GameWorld): void {
   for (const eid of getAllEntities(world)) resetComponentSlot(eid);
   resetWorld(world);
   world.liveEntities = 0;
+  world.generation += 1;
   world.time.dt = 0;
   world.time.elapsed = 0;
   world.time.step = 0;

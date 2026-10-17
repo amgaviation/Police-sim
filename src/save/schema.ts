@@ -3,6 +3,7 @@ import { MAX_TIME_SCALE } from '../core/time';
 import { isEnvironmentSave, type EnvironmentSave } from '../environment/environment';
 import { CAMERA_MODE } from '../player/cameraRig';
 import type { PlayerModeName } from '../player/events';
+import type { TrafficViolationKind } from '../traffic/events';
 import { isTrafficSnapshot, type TrafficSnapshot } from '../traffic/trafficSystem';
 import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
@@ -72,6 +73,9 @@ export interface SavedVehicle extends SerializedVehicle {
   rng: RngState;
 }
 
+/** Violations the officer observed, per traffic registry id: [vehicleId, count per kind]. */
+export type SavedViolations = Array<[number, Partial<Record<TrafficViolationKind, number>>]>;
+
 /** v3 (Phase 1): the city session. The city itself is rebuilt from `seed`. */
 export interface SaveGameV3 {
   seed: number;
@@ -82,11 +86,16 @@ export interface SaveGameV3 {
   camera: { pitch: number; mode: number };
   /** The officer (its seat pose while driving) and debug boxes, as in v2. */
   world: { entities: SerializedEntity[] };
-  /** `vehicle` indexes `vehicles` while driving, -1 on foot. */
-  player: { mode: PlayerModeName; vehicle: number };
+  /**
+   * `vehicle` indexes `vehicles` while driving, -1 on foot; `lastVehicle` is the vehicle driven last
+   * (refuelling, parked headlights), -1 for none. Early v3 saves lack it (read as -1).
+   */
+  player: { mode: PlayerModeName; vehicle: number; lastVehicle?: number };
   vehicles: SavedVehicle[];
   /** Ambient traffic; null populates afresh around the player. */
   traffic: TrafficSnapshot | null;
+  /** Observed violations (`traffic list`); early v3 saves lack it (read as none). */
+  violations?: SavedViolations;
   environment: EnvironmentSave;
 }
 
@@ -130,6 +139,13 @@ const MOTION_KEYS = ['vx', 'vy', 'vz', 'wx', 'wy', 'wz'] as const;
 const VEHICLE_POSE_KEYS = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw', 'vx', 'vy', 'vz', 'wx', 'wy', 'wz'] as const;
 const VEHICLE_FLAG_KEYS = ['engineFailed', 'headlights', 'lightbar', 'reversing'] as const;
 const VEHICLE_CAMERA_MODES: readonly number[] = [CAMERA_MODE.chase, CAMERA_MODE.hood, CAMERA_MODE.cockpit];
+const VIOLATION_KINDS: readonly string[] = ['speeding', 'redLight', 'rollingStop', 'tailgating', 'weaving'] satisfies TrafficViolationKind[];
+
+/** One `[vehicleId, counts]` entry of `SaveGameV3.violations`. */
+function isViolationEntry(x: unknown): boolean {
+  if (!Array.isArray(x) || x.length !== 2 || !isUint32(x[0]) || !isRecord(x[1])) return false;
+  return Object.entries(x[1]).every(([kind, n]) => VIOLATION_KINDS.includes(kind) && isUint32(n));
+}
 
 export function isSerializedEntityV1(x: unknown): x is SerializedEntityV1 {
   return isRecord(x) && hasFiniteFields(x, TRANSFORM_KEYS);
@@ -226,7 +242,17 @@ export function isSaveGameV3(x: unknown): x is SaveGameV3 {
   const index = player['vehicle'] as number;
   const playerValid =
     player['mode'] === 'onFoot' ? index === -1 : player['mode'] === 'driving' && index >= 0 && index < vehicles.length;
-  return playerValid && (v3['traffic'] === null || isTrafficSnapshot(v3['traffic'])) && isEnvironmentSave(v3['environment']);
+  const last = player['lastVehicle'];
+  const lastValid = last === undefined || (Number.isInteger(last) && (last as number) >= -1 && (last as number) < vehicles.length);
+  const violations = v3['violations'];
+  const violationsValid = violations === undefined || (Array.isArray(violations) && violations.every(isViolationEntry));
+  return (
+    playerValid &&
+    lastValid &&
+    violationsValid &&
+    (v3['traffic'] === null || isTrafficSnapshot(v3['traffic'])) &&
+    isEnvironmentSave(v3['environment'])
+  );
 }
 
 /** Validator for the current save shape; used after migration, on load and before every write. */

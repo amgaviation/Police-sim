@@ -51,9 +51,10 @@ export function migrateV2ToV3(data: unknown): unknown {
   const v3: SaveGameV3 = {
     ...data,
     camera: { pitch: data.camera.pitch, mode: CAMERA_MODE.chase },
-    player: { mode: 'onFoot', vehicle: -1 },
+    player: { mode: 'onFoot', vehicle: -1, lastVehicle: -1 },
     vehicles: [],
     traffic: null,
+    violations: [],
     environment: { timeOffset: 0, override: null },
   };
   return v3;

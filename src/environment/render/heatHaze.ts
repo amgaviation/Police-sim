@@ -71,6 +71,18 @@ export class HeatHazePass implements PostProcess {
     this.uHorizon.value = horizon;
   }
 
+  /**
+   * Compiles the programs this pass needs ahead of time: the scene's materials in their render-target
+   * variant (output colour space and tone mapping differ from the screen's) and the shimmer quad.
+   */
+  compile(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
+    const previous = gl.getRenderTarget();
+    gl.setRenderTarget(this.target);
+    gl.compile(scene, camera);
+    gl.setRenderTarget(previous);
+    gl.compile(this.quadScene, this.quadCamera);
+  }
+
   render(gl: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): void {
     const previous = gl.getRenderTarget();
     gl.setRenderTarget(this.target);

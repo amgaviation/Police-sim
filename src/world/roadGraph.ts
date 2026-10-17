@@ -103,6 +103,16 @@ export interface SignalDef {
 /** edge * 16 + dir * 8 + index; dir 0 = from -> to, 1 = to -> from; index 0 = curb lane. */
 export type LaneRef = number;
 
+/**
+ * The edge's limit with the construction-zone reduction (what its speed-limit signs post); an
+ * active school zone lowers it further by time of day (`effectiveSpeedLimitMph`).
+ */
+export function constructionLimitMph(e: RoadEdge): number {
+  if ((e.flags & EDGE_FLAG.construction) === 0) return e.speedLimitMph;
+  const c = ZONES.construction;
+  return Math.max(Math.min(e.speedLimitMph, c.minLimitMph), e.speedLimitMph - c.limitReductionMph);
+}
+
 /** Packs a lane reference. */
 export function laneRef(edge: number, dir: 0 | 1, index: number): LaneRef {
   return edge * 16 + dir * 8 + index;
@@ -159,6 +169,7 @@ export interface ZoneTime {
 export interface RouteOptions {
   readonly cost?: 'time' | 'distance';
   readonly ignoreOneWay?: boolean;
+  /** Edges the route must not drive along; `routeBetweenPoints` still starts / ends on its snapped edges. */
   readonly avoidEdges?: ReadonlySet<number>;
 }
 
@@ -179,7 +190,7 @@ export interface PointRoute extends Route {
 
 /** Route time penalty for passing a signalised junction (s). */
 export const SIGNAL_PENALTY_S = 8;
-/** Route time penalty for passing a stop-controlled junction (s). */
+/** Route time penalty for stopping at a stop or yield sign (s): only approaches that stop pay it (`stopsAt`). */
 export const STOP_PENALTY_S = 4;
 
 /** Search radius used by routeBetweenPoints to snap points onto roads (m). */
@@ -266,12 +277,10 @@ export class RoadGraph {
     this.edgeStamp = new Uint32Array(edges.length);
     this.nodeStamp = new Uint32Array(nodes.length);
 
-    const { limitReductionMph, minLimitMph } = ZONES.construction;
     this.routeSpeed = new Float64Array(edges.length);
     let maxSpeed = 1;
     edges.forEach((e, i) => {
-      let mph = e.speedLimitMph;
-      if (e.flags & EDGE_FLAG.construction) mph = Math.max(Math.min(mph, minLimitMph), mph - limitReductionMph);
+      const mph = constructionLimitMph(e);
       this.routeSpeed[i] = Math.max(1, mph * MPH);
       maxSpeed = Math.max(maxSpeed, mph * MPH);
     });
@@ -334,6 +343,11 @@ export class RoadGraph {
       if (bound > best) break;
     }
     return found ? out : null;
+  }
+
+  /** Projection of (x, z) onto edge `id`'s centreline, clamped to its ends; allocation-free. */
+  projectOnEdge(id: number, x: number, z: number, out: RoadHit): RoadHit {
+    return this.project(id, x, z, out);
   }
 
   /** Clears `out` and fills it with the edges whose centreline is within `radius`, ascending. */
@@ -446,6 +460,24 @@ export class RoadGraph {
     return this.conns[edge * 2 + dir] ?? [];
   }
 
+  /**
+   * True when traffic arriving at `node` on `edge` stops at a stop or yield sign there: every approach of
+   * an all-way stop, and at a minor-stop junction the approaches below the top road class (all of them
+   * when every road there has the same class). Signs, stop lines, traffic and routing share this rule.
+   */
+  stopsAt(edge: number, node: number): boolean {
+    const n = this.nodes[node] as RoadNode;
+    if (n.junction === JUNCTION.allWayStop) return true;
+    if (n.junction !== JUNCTION.minorStop) return false;
+    let top = 99, allSame = true;
+    for (const id of n.edges) {
+      const c = (this.edges[id] as RoadEdge).roadClass;
+      if (top !== 99 && c !== top) allSame = false;
+      top = Math.min(top, c);
+    }
+    return allSame || (this.edges[edge] as RoadEdge).roadClass > top;
+  }
+
   /** 0 when the arriving travel heading runs along x, 1 along z. */
   approachGroup(edge: number, dir: 0 | 1): 0 | 1 {
     this.arrivalHeading(this.edges[edge] as RoadEdge, dir, this.heading);
@@ -493,12 +525,7 @@ export class RoadGraph {
 
   /** Posted limit with the construction reduction and an active school zone applied. */
   effectiveSpeedLimitMph(edge: number, time: ZoneTime): number {
-    const e = this.edges[edge] as RoadEdge;
-    let mph = e.speedLimitMph;
-    if (e.flags & EDGE_FLAG.construction) {
-      const c = ZONES.construction;
-      mph = Math.max(Math.min(mph, c.minLimitMph), mph - c.limitReductionMph);
-    }
+    let mph = constructionLimitMph(this.edges[edge] as RoadEdge);
     if (this.isSchoolZoneActive(edge, time)) mph = Math.min(mph, ZONES.schoolZone.limitMph);
     return mph;
   }
@@ -512,7 +539,7 @@ export class RoadGraph {
     this.beginSearch();
     this.addSource(fromNode, 0);
     this.addTarget(toNode, 0);
-    const best = this.search(options, fromNode, target.x, target.z);
+    const best = this.search(options, false, target.x, target.z);
     if (best < 0) return null;
     const nodes: number[] = [];
     const edges: number[] = [];
@@ -523,7 +550,7 @@ export class RoadGraph {
       length += (this.edges[e] as RoadEdge).length;
       time += this.edgeTime(e, (this.edges[e] as RoadEdge).length);
     }
-    for (let i = 1; i < nodes.length - 1; i++) time += this.penalty(nodes[i] ?? 0);
+    for (let i = 1; i < nodes.length - 1; i++) time += this.penalty(nodes[i] ?? 0, edges[i - 1] ?? -1);
     return { nodes, edges, length, time };
   }
 
@@ -536,26 +563,23 @@ export class RoadGraph {
     const eb = this.edges[end.edge] as RoadEdge;
     const time = options.cost !== 'distance';
     const wrongWayOk = options.ignoreOneWay === true;
-    const avoid = options.avoidEdges;
     const cost = (e: number, len: number): number => (time ? this.edgeTime(e, len) : len);
+    const pen = (n: number, e: number): number => (time ? this.penalty(n, e) : 0);
 
-    // Direct travel along a shared edge.
+    // Direct travel along a shared edge. `avoidEdges` only applies to the edges in between: a unit on
+    // (or heading to a point on) an avoided edge still has to drive part of it.
     let directCost = Infinity;
-    if (ea.id === eb.id && !avoid?.has(ea.id)) {
+    if (ea.id === eb.id) {
       if (end.s >= start.s || ea.lanesBackward > 0 || wrongWayOk) directCost = cost(ea.id, Math.abs(end.s - start.s));
     }
 
     this.beginSearch();
-    if (!avoid?.has(ea.id)) {
-      this.addSource(ea.to, cost(ea.id, ea.length - start.s));
-      if (ea.lanesBackward > 0 || wrongWayOk) this.addSource(ea.from, cost(ea.id, start.s));
-    }
-    if (!avoid?.has(eb.id)) {
-      const pen = (n: number): number => (time ? this.penalty(n) : 0);
-      this.addTarget(eb.from, cost(eb.id, end.s) + pen(eb.from));
-      if (eb.lanesBackward > 0 || wrongWayOk) this.addTarget(eb.to, cost(eb.id, eb.length - end.s) + pen(eb.to));
-    }
-    const bestNode = this.search(options, -1, end.x, end.z);
+    // The sources are reached on the start edge, so they pay their junction delay for it.
+    this.addSource(ea.to, cost(ea.id, ea.length - start.s) + pen(ea.to, ea.id));
+    if (ea.lanesBackward > 0 || wrongWayOk) this.addSource(ea.from, cost(ea.id, start.s) + pen(ea.from, ea.id));
+    this.addTarget(eb.from, cost(eb.id, end.s));
+    if (eb.lanesBackward > 0 || wrongWayOk) this.addTarget(eb.to, cost(eb.id, eb.length - end.s));
+    const bestNode = this.search(options, true, end.x, end.z);
     const graphCost = bestNode >= 0 ? (this.g[bestNode] ?? 0) + (this.tail[bestNode] ?? 0) : Infinity;
     if (directCost === Infinity && graphCost === Infinity) return null;
 
@@ -588,7 +612,7 @@ export class RoadGraph {
       this.appendAlong(eb, sLast, end.s, pts);
       length += Math.abs(end.s - sLast);
       travel += this.edgeTime(eb.id, Math.abs(end.s - sLast));
-      for (const n of nodes) travel += this.penalty(n);
+      for (let i = 0; i < nodes.length; i++) travel += this.penalty(nodes[i] ?? 0, i === 0 ? ea.id : (edges[i - 1] ?? -1));
       edges.unshift(ea.id);
       edges.push(eb.id);
     }
@@ -710,9 +734,12 @@ export class RoadGraph {
     return length / (this.routeSpeed[edge] ?? 1);
   }
 
-  private penalty(node: number): number {
+  /** Junction delay at `node` for a car arriving on `edge` (-1 = unknown: charged as stopping). */
+  private penalty(node: number, edge: number): number {
     const j = (this.nodes[node] as RoadNode).junction;
-    return j === JUNCTION.signal ? SIGNAL_PENALTY_S : j === JUNCTION.none ? 0 : STOP_PENALTY_S;
+    if (j === JUNCTION.signal) return SIGNAL_PENALTY_S;
+    if (j === JUNCTION.none || (edge >= 0 && !this.stopsAt(edge, node))) return 0;
+    return STOP_PENALTY_S;
   }
 
   private beginSearch(): void {
@@ -742,11 +769,12 @@ export class RoadGraph {
   }
 
   /**
-   * Runs A* from the seeded sources to the cheapest target (g + tail).
-   * `originNode` (or -1) is exempt from the junction penalty.
+   * Runs A* from the seeded sources to the cheapest target (g + tail). A node's junction delay is charged
+   * on arrival, for the edge it is reached on (so the search stays exact); a target pays it only with
+   * `targetPenalty` (the route turns onto the end edge there), not when the route ends at the node.
    * Returns the best target node or -1.
    */
-  private search(options: RouteOptions, originNode: number, hx: number, hz: number): number {
+  private search(options: RouteOptions, targetPenalty: boolean, hx: number, hz: number): number {
     const time = options.cost !== 'distance';
     const wrongWayOk = options.ignoreOneWay === true;
     const avoid = options.avoidEdges;
@@ -766,7 +794,6 @@ export class RoadGraph {
         bestNode = u;
       }
       const node = this.nodes[u] as RoadNode;
-      const leave = time && u !== originNode ? this.penalty(u) : 0;
       for (let i = 0; i < node.edges.length; i++) {
         const id = node.edges[i] ?? 0;
         if (avoid?.has(id)) continue;
@@ -776,7 +803,8 @@ export class RoadGraph {
         else if (e.lanesBackward > 0 || wrongWayOk) v = e.from;
         else continue;
         if (this.closed[v] === stamp) continue;
-        const ng = gu + leave + (time ? this.edgeTime(id, e.length) : e.length);
+        const arrive = time && (targetPenalty || this.isTarget[v] !== stamp) ? this.penalty(v, id) : 0;
+        const ng = gu + arrive + (time ? this.edgeTime(id, e.length) : e.length);
         if (this.seen[v] !== stamp || ng < (this.g[v] ?? 0)) {
           this.seen[v] = stamp;
           this.g[v] = ng;

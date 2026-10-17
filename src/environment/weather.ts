@@ -21,6 +21,8 @@ export interface WeatherState {
   fogDensity: number;
   /** 0..1 precipitation rate (rain or snow, by kind). */
   precipitation: number;
+  /** 0..1 share of `precipitation` falling as snow (a snow segment blending out still snows). */
+  precipSnow: number;
   /** 0..1 road wetness. */
   wetness: number;
   /** 0..1 snow on the ground. */
@@ -118,6 +120,7 @@ export function createWeatherState(): WeatherState {
     cloudCover: 0,
     fogDensity: 0,
     precipitation: 0,
+    precipSnow: 0,
     wetness: 0,
     snowCover: 0,
     temperatureC: 0,
@@ -295,6 +298,9 @@ function blendKinds(
   out.cloudCover = lerp(ka.cloudCover, kb.cloudCover, t);
   out.fogDensity = lerp(ka.fogDensity * ia, kb.fogDensity * ib, t);
   out.precipitation = lerp(ka.precip * ia, kb.precip * ib, t);
+  // The precipitation type comes from the kind contributing it, not from `out.kind`.
+  const snow = (ka.snows ? ka.precip * ia * (1 - t) : 0) + (kb.snows ? kb.precip * ib * t : 0);
+  out.precipSnow = out.precipitation > 0 ? Math.min(1, snow / out.precipitation) : kb.snows ? 1 : 0;
   out.temperatureC = lerp(ka.temperatureC, kb.temperatureC, t);
   out.windX = lerp(Math.cos(angleA) * ka.windSpeed * ia, Math.cos(angleB) * kb.windSpeed * ib, t);
   out.windZ = lerp(Math.sin(angleA) * ka.windSpeed * ia, Math.sin(angleB) * kb.windSpeed * ib, t);

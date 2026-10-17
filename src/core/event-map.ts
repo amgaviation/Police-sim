@@ -8,6 +8,10 @@
  *   interface EventMap { 'traffic:spawned': { eid: number } }
  * }
  * ```
+ *
+ * Phase 1 topics are declared that way next to their payload types:
+ * `env:*` in environment/events.ts, `vehicle:*` in vehicles/events.ts,
+ * `traffic:*` in traffic/events.ts, `player:mode` and `camera:mode` in player/events.ts.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;

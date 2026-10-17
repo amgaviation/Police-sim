@@ -5,6 +5,7 @@ import {
   nearestPoi,
   normalizePlate,
   parseClock,
+  routeStreets,
   type WorldCommandDeps,
 } from '../../src/debug/worldCommands';
 import { Environment } from '../../src/environment/environment';
@@ -117,6 +118,14 @@ describe('helpers', () => {
     expect(station?.kind).toBe('station');
     expect(nearestPoi({ ...city, pois: [] }, 'fuel', 0, 0)).toBeNull();
   });
+
+  it('lists the streets of a route once each, cut short when long', () => {
+    const edges = city.graph.edges;
+    const a = edges.find((e) => e.name !== edges[0]?.name);
+    if (!edges[0] || !a) throw new Error('need two street names');
+    expect(routeStreets(city, [0, 0, a.id, 0])).toBe(`${edges[0].name} > ${a.name} > ${edges[0].name}`);
+    expect(routeStreets(city, [0, a.id, 0, a.id], 2)).toBe(`${edges[0].name} > ${a.name} > ... (2 more)`);
+  });
 });
 
 describe('createWorldCommands', () => {
@@ -171,10 +180,11 @@ describe('createWorldCommands', () => {
     expect(h.run('tp rural')).toMatch(/^Teleported to rural/);
   });
 
-  it('route plots a polyline to a POI and prints length, ETA and time', () => {
+  it('route plots a polyline to a POI and prints length, ETA, time and the streets on the way', () => {
     const h = harness();
-    const out = h.run('route hospital');
-    expect(out).toMatch(/^Route to hospital ".+": \d+\.\d\d km, ETA \d+\.\d min \(computed in \d+\.\d\d ms\)$/);
+    const [summary, via] = h.run('route hospital').split('\n');
+    expect(summary).toMatch(/^Route to hospital ".+": \d+\.\d\d km, ETA \d+\.\d min \(computed in \d+\.\d\d ms\)$/);
+    expect(via).toMatch(/^ {2}via \S.*$/);
     expect(h.route.value).toBeInstanceOf(Float32Array);
     expect(h.route.value?.length ?? 0).toBeGreaterThanOrEqual(4);
     const hospital = nearestPoi(city, 'hospital', city.spawn.x, city.spawn.z);

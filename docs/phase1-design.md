@@ -510,12 +510,14 @@ create with `world.createVehicleController(chassis)`, forward axis via the sette
 ```ts
 export interface DriverInput { accelerate: number; brake: number; steer: number; handbrake: boolean } // raw, from [player]
 export interface DriverControls { throttle: number; brake: number; steer: number; handbrake: boolean; reverse: boolean }
-export function mapDriverInput(input: DriverInput, forwardSpeed: number, reversing: boolean, out: DriverControls): DriverControls;
+// forwardSpeed: signed (+ = forwards); groundSpeed: horizontal speed in any direction (a sliding or spinning car is not "stopped")
+export function mapDriverInput(input: DriverInput, forwardSpeed: number, groundSpeed: number, reversing: boolean, out: DriverControls): DriverControls;
 export interface VehicleEnvironment { surfaceAt(x: number, z: number): number; wetness: number; snowCover: number; ambientC: number }
 export interface VehiclePose { x: number; y: number; z: number; yaw: number }
-export interface WheelPose { x: number; y: number; z: number; steer: number; spin: number; radius: number; inContact: boolean } // chassis-local
+export interface WheelPose { x: number; y: number; z: number; steer: number; spin: number; radius: number; inContact: boolean } // chassis-local; spin about +X, decreasing when rolling forward
 export interface VehicleTelemetry {
   speed: number; speedKmh: number; speedMph: number;          // signed forward speed
+  groundSpeed: number;                                         // horizontal speed in any direction, >= 0
   rpm: number; gear: number;                                   // -1 reverse, 1..n
   throttle: number; brake: number; steer: number; absActive: boolean; handbrake: boolean;
   fuelL: number; fuelFraction: number; engineRunning: boolean; engineHealth: number;
@@ -533,6 +535,8 @@ export class DrivableVehicle {
   readonly eid: EntityId; readonly model: VehicleModel; readonly wheelCount: number;
   readonly telemetry: Readonly<VehicleTelemetry>;   // same object, updated in place
   headlights: boolean; lightbar: boolean;
+  engineOn: boolean;                                           // ignition; off = no drive, idle fuel burn or random stalls (session sets it on enter/exit)
+  readonly needsRepair: boolean;                               // true when repair() would change anything
   setControls(controls: DriverControls): void;
   preStep(dt: number, env: VehicleEnvironment): void;          // before physics.step()
   postStep(dt: number, bus?: EventBus<EventMap>): void;          // after physics.step(): damage, lights, events
@@ -579,7 +583,12 @@ population`), skipping ids that are already on the road, so ids repeat only afte
 - **Junctions**: the next lane is chosen when a car enters a lane (seeded draw among `connections`, lane
   index clamped to the target's lane count, no U-turns). At the stop line: signal -> stop on red, on yellow
   when it can stop at comfort decel; stop signs -> full stop 1 s (rolling stoppers slow to 3 m/s), then a
-  per-node occupancy check (one approach at a time); left turns at signals yield to oncoming cars within 35 m.
+  per-node occupancy check (one approach at a time); left turns at signals yield to oncoming cars within 35 m
+  (or a per-vehicle gap: at least 5 s, longer for slow, long vehicles to clear the box). On yellow a car that
+  cannot stop comfortably commits only if it crosses before red (a turner slows to turn speed first) or cannot
+  stop even at `maxDecel`. Through and right-turning cars wait while an oncoming left-turner that has
+  committed is crossing, and nobody enters while a car from another approach is crossing into the same exit
+  lane. A left-turner that held the junction from green and finishes on red is not a red-light violation.
   Crossing uses a quadratic Bezier connector (stop line point, lane-lines intersection, next lane start).
 - **Law breaking** (§4.3): speeding (desiredFactor > 1), tailgating (short headway), red-light running
   (continues if the light turned red less than `lateRedS` ago), rolling stops, DUI (sinusoidal lateral
@@ -587,7 +596,9 @@ population`), skipping ids that are already on the road, so ids repeat only afte
   (`VehicleLook.faults` from the record: a dark headlight at night), expired registration (record flag
   only). When a violation happens within `observeRadius` of the player a `traffic:violation` event is emitted.
 - **Player interaction**: `TrafficFocus` gives the player's position and an obstacle (player car or the
-  officer on foot): a car treats it as its leader when it is within the lane width ahead. Cars within
+  officer on foot): a car treats it as its leader when it is within the lane width ahead; the same holds for
+  up to `MAX_PARKED_OBSTACLES` parked player vehicles (`parked`: the car the officer last left first, then the
+  nearest others, filled by the session). Cars within
   `radii.proxy` of the focus get a kinematic velocity-based Rapier box (`physics.addBox(eid, ..., { kinematic:
   true })`, velocity = (target - position) / dt, rotation set each step), released beyond `proxyRelease`. A
   collision between a proxy and the player car marks the car `crashed` (stops, hazards on) and emits
@@ -598,8 +609,15 @@ population`), skipping ids that are already on the road, so ids repeat only afte
   Spawn/despawn radii are data constants, never render settings.
 
 ```ts
-export interface TrafficFocus { x: number; z: number; obstacle: boolean; ox: number; oz: number; ovx: number; ovz: number; oRadius: number }
-export interface TrafficDeps { world: GameWorld; physics: PhysicsWorld; graph: RoadGraph; seed: number;
+export interface TrafficParked { x: number; z: number; hx: number; hz: number; halfLength: number; halfWidth: number } // centre, unit heading, half size
+export const MAX_PARKED_OBSTACLES = 8;
+export interface TrafficFocus { x: number; z: number; obstacle: boolean; ox: number; oz: number; ovx: number; ovz: number;
+  oRadius: number;                // obstacle half length along its travel
+  oHalfWidth: number;             // obstacle half width: in a car's lane when within laneWidth / 2 + this
+  parked?: readonly TrafficParked[]; parkedCount?: number } // parked player vehicles, entries 0 .. parkedCount - 1 (<= MAX_PARKED_OBSTACLES)
+export interface TrafficDeps { world: GameWorld; physics: PhysicsWorld; graph: RoadGraph;
+  city?: City;                    // district lookup for the density target (else the nearest edge's district)
+  seed: number;
   rng: Rng;                       // session.rng.stream('traffic')
   bus?: EventBus<EventMap> }
 export const TRAFFIC_STATE = { driving: 0, waiting: 1, crashed: 2, parked: 3 } as const;
@@ -608,6 +626,8 @@ export class TrafficSystem {
   populate(focus: TrafficFocus, time: ZoneTime): void;
   step(dt: number, simTime: number, time: ZoneTime, focus: TrafficFocus): void; // writes Transform/VehicleLook
   readonly activeCount: number; readonly capacity: number;
+  densityScale: number;                          // multiplies the density target (debug); 0 stops spawning
+  setHeadlights(on: boolean): void;              // every traffic car's headlights (env.lighting.headlightsOn)
   readonly view: TrafficView;                    // read-only SoA for HUD/minimap: count, x, z, yaw, speed, state, vehicleId, eid
   slotOfEntity(eid: EntityId): number;           // -1 when not a traffic car
   vehicleIdOfEntity(eid: EntityId): number;      // -1 when not a traffic car

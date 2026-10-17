@@ -167,6 +167,37 @@ describe('generateCity', () => {
     for (const e of construction) expect([ROAD_CLASS.arterial, ROAD_CLASS.collector, ROAD_CLASS.local]).toContain(e.roadClass);
   });
 
+  it('gives a district the same limits on every side: boundary edges take the side with the lower limit', () => {
+    const arterial = (axis: 'x' | 'z', coord: number, from: number, to: number) =>
+      g.edges.filter((e) => {
+        const [x0, z0, x1, z1] = e.points as unknown as [number, number, number, number];
+        const [c0, c1, a0, a1] = axis === 'x' ? [z0, z1, x0, x1] : [x0, x1, z0, z1];
+        return e.roadClass === ROAD_CLASS.arterial && c0 === coord && c1 === coord && Math.min(a0, a1) >= from && Math.max(a0, a1) <= to;
+      });
+    // Downtown spans x -512..1024, z -1024..0: its north (z = -1024) and south (z = 0) sides alike.
+    for (const coord of [-1024, 0]) {
+      const side = arterial('x', coord, -512, 1024);
+      expect(side.length).toBeGreaterThan(0);
+      for (const e of side) {
+        expect(e.district).toBe(DISTRICT.downtown);
+        expect(e.speedLimitMph).toBe(35);
+      }
+    }
+    for (const coord of [-512, 1024]) {
+      for (const e of arterial('z', coord, -1024, 0)) expect(e.speedLimitMph).toBe(35);
+    }
+    // Rural (55 mph county roads) next to the airport (50): 50 on both of the airport's sides.
+    for (const e of g.edges) {
+      if (e.roadClass !== ROAD_CLASS.county) continue;
+      const [x0, z0, x1, z1] = e.points as unknown as [number, number, number, number];
+      const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
+      const [a, b] = z0 === z1 ? [city.districtAt(mx, mz - 1), city.districtAt(mx, mz + 1)] : [city.districtAt(mx - 1, mz), city.districtAt(mx + 1, mz)];
+      if ((a === DISTRICT.rural && b === DISTRICT.airport) || (a === DISTRICT.airport && b === DISTRICT.rural)) {
+        expect(e.speedLimitMph).toBe(50);
+      }
+    }
+  });
+
   it('has the station, landmarks, spawn and parking', () => {
     const kinds = new Set(city.pois.map((p) => p.kind));
     for (const k of ['station', 'hospital', 'campus', 'airport', 'harbor', 'school', 'fuel', 'park']) expect(kinds.has(k as never)).toBe(true);
@@ -191,6 +222,18 @@ describe('generateCity', () => {
     // Slots are far enough apart for a 1.95 m wide car.
     const xs = city.parking.map((p) => p.x + p.z).sort((a, b) => a - b);
     for (let i = 1; i < xs.length; i++) expect((xs[i] ?? 0) - (xs[i - 1] ?? 0)).toBeGreaterThan(3);
+  });
+
+  it('builds every landmark even when all of its district blocks roll parking', () => {
+    // 483, 665, 744, 514736 and 1092823 once had four parking blocks in the hospital cell and no hospital.
+    for (const seed of [483, 665, 744, 514736, 1092823, ...Array.from({ length: 40 }, (_, i) => i)]) {
+      const c = generateCity(seed);
+      for (const k of ['hospital', 'campus', 'airport', 'harbor'] as const) {
+        const p = c.pois.find((q) => q.kind === k);
+        expect(p, `seed ${seed} ${k}`).toBeDefined();
+        expect(c.blocks[p?.block ?? -1]?.kind).not.toBe(BLOCK_KIND.parking);
+      }
+    }
   });
 
   it('blocks stay inside their cell and blocksIn returns overlapping ids ascending', () => {
@@ -231,5 +274,17 @@ describe('generateCity', () => {
     const downtown = city.blocks.find((b) => b.district === DISTRICT.downtown && b.kind === BLOCK_KIND.lots);
     if (!downtown) throw new Error('no downtown lot');
     expect(city.surfaceAt((downtown.minX + downtown.maxX) / 2, (downtown.minZ + downtown.maxZ) / 2)).toBe(SURFACE.concrete);
+  });
+
+  it('surfaceAt reports the junction square where it reaches over a block corner', () => {
+    // Seed 42, node 49: county edges meet arterial ones, so the square covers farm block 21's corner.
+    const c = cityFor(42);
+    const n = c.graph.nodes[49];
+    expect([n?.x, n?.z]).toEqual([-2048, -2560]);
+    const b = c.blocks[21];
+    expect(b?.kind).toBe(BLOCK_KIND.farm);
+    expect(-2054).toBeGreaterThan(b?.minX ?? 0);
+    expect(c.surfaceAt(-2054, -2566)).toBe(SURFACE.asphalt);
+    expect(c.surfaceAt(-2054, -2570)).toBe(SURFACE.grass);
   });
 });

@@ -4,11 +4,31 @@ import { createRng } from '../../core/rng';
 /** Edge of the particle box that wraps around the camera, m. */
 export const PRECIP_BOX = 40;
 export const PRECIP_MAX_PARTICLES = 8000;
+/**
+ * Particles fade in between these distances from the eye (m) and sprites are capped at this size (px):
+ * a drop or flake next to the camera would otherwise cover hundreds of pixels (and show inside the cabin).
+ */
+export const PRECIP_NEAR_FADE: readonly [number, number] = [1, 3];
+export const PRECIP_MAX_POINT_PX = 64;
+/** Base fall speed (m/s) and the share of the wind velocity particles drift with. */
+export const PRECIP_FALL_SPEED = { rain: 9, snow: 1.2 } as const;
+export const PRECIP_WIND_DRIFT = { rain: 0.15, snow: 0.6 } as const;
+/**
+ * The owner integrates the fall distance and the drift on the CPU and wraps them here. Per-particle
+ * fall speeds are quantised to (20 + q) / 25 of the base (q = 0..9), so every particle's offset wraps
+ * by a whole number of boxes at PRECIP_FALL_WRAP; sway frequencies are (8 + q) / 10 and (7 + q) / 10
+ * rad/s, so the sway clock wraps after whole periods at PRECIP_SWAY_WRAP. Nothing jumps at a wrap.
+ */
+export const PRECIP_FALL_WRAP = PRECIP_BOX * 25;
+export const PRECIP_SWAY_WRAP = 20 * Math.PI;
 
 const VERTEX = /* glsl */ `
+#define NEAR_FADE vec2(${PRECIP_NEAR_FADE[0].toFixed(1)}, ${PRECIP_NEAR_FADE[1].toFixed(1)})
+#define MAX_POINT_PX ${PRECIP_MAX_POINT_PX.toFixed(1)}
 uniform float uTime;
+uniform float uFall;
 uniform vec3 uCamera;
-uniform vec2 uWind;
+uniform vec2 uDrift;
 uniform float uSnow;
 uniform float uBox;
 uniform float uScale;
@@ -16,18 +36,19 @@ uniform float uSize;
 attribute float aRand;
 varying float vFade;
 void main() {
-  float speed = mix(9.0, 1.2, uSnow) * (0.8 + 0.4 * aRand);
+  float q = min(floor(aRand * 10.0), 9.0);
   vec3 p = position;
-  p.y -= uTime * speed;
-  p.xz += uWind * uTime * mix(0.15, 0.6, uSnow);
-  p.x += uSnow * sin(uTime * (0.8 + aRand) + aRand * 40.0) * 0.6;
-  p.z += uSnow * cos(uTime * (0.7 + aRand) + aRand * 25.0) * 0.6;
+  p.y -= uFall * (0.8 + 0.04 * q);
+  p.xz += uDrift;
+  p.x += uSnow * sin(uTime * (0.8 + 0.1 * q) + aRand * 40.0) * 0.6;
+  p.z += uSnow * cos(uTime * (0.7 + 0.1 * q) + aRand * 25.0) * 0.6;
   vec3 h = vec3(uBox * 0.5);
   vec3 world = uCamera + mod(p - uCamera + h, uBox) - h;
   vec4 mv = viewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = uSize * uScale / max(-mv.z, 0.5);
-  vFade = 1.0 - smoothstep(uBox * 0.3, uBox * 0.5, length(world - uCamera));
+  gl_PointSize = min(uSize * uScale / max(-mv.z, 0.5), MAX_POINT_PX);
+  float d = length(world - uCamera);
+  vFade = (1.0 - smoothstep(uBox * 0.3, uBox * 0.5, d)) * smoothstep(NEAR_FADE.x, NEAR_FADE.y, d);
 }`;
 
 const FRAGMENT = /* glsl */ `
@@ -47,11 +68,13 @@ void main() {
 }`;
 
 export interface PrecipitationUniforms {
-  /** Animation time, s (wrapped by the owner to keep float precision). */
+  /** Snow sway clock, s (wrapped by the owner at PRECIP_SWAY_WRAP). */
   uTime: THREE.IUniform<number>;
+  /** Base fall distance, m (integrated and wrapped at PRECIP_FALL_WRAP by the owner). */
+  uFall: THREE.IUniform<number>;
   uCamera: THREE.IUniform<THREE.Vector3>;
-  /** Wind velocity (x, z), m/s. */
-  uWind: THREE.IUniform<THREE.Vector2>;
+  /** Integrated wind drift (x, z), m, wrapped by the owner at PRECIP_BOX. */
+  uDrift: THREE.IUniform<THREE.Vector2>;
   /** 0 = rain streaks, 1 = swaying snow flakes. */
   uSnow: THREE.IUniform<number>;
   uBox: THREE.IUniform<number>;
@@ -90,8 +113,9 @@ export function createPrecipitation(): Precipitation {
   geometry.setDrawRange(0, 0);
   const uniforms: PrecipitationUniforms = {
     uTime: { value: 0 },
+    uFall: { value: 0 },
     uCamera: { value: new THREE.Vector3() },
-    uWind: { value: new THREE.Vector2() },
+    uDrift: { value: new THREE.Vector2() },
     uSnow: { value: 0 },
     uBox: { value: PRECIP_BOX },
     uScale: { value: 1 },

@@ -3,10 +3,10 @@
   "kinds": {
     "clear":  { "cloudCover": 0.1, "fogDensity": 0,      "precip": 0, "temperatureC": 22, "windSpeed": 2,  "heatHaze": 0 },
     "cloudy": { "cloudCover": 0.8, "fogDensity": 0.0004, "precip": 0, "temperatureC": 16, "windSpeed": 4,  "heatHaze": 0 },
-    "rain":   { "cloudCover": 1,   "fogDensity": 0.0015, "precip": 1, "temperatureC": 12, "windSpeed": 6,  "heatHaze": 0 },
-    "storm":  { "cloudCover": 1,   "fogDensity": 0.0025, "precip": 1, "temperatureC": 11, "windSpeed": 14, "heatHaze": 0 },
+    "rain":   { "cloudCover": 1,   "fogDensity": 0.008,  "precip": 1, "temperatureC": 12, "windSpeed": 6,  "heatHaze": 0 },
+    "storm":  { "cloudCover": 1,   "fogDensity": 0.012,  "precip": 1, "temperatureC": 11, "windSpeed": 14, "heatHaze": 0 },
     "fog":    { "cloudCover": 0.6, "fogDensity": 0.012,  "precip": 0, "temperatureC": 9,  "windSpeed": 1,  "heatHaze": 0 },
-    "snow":   { "cloudCover": 1,   "fogDensity": 0.002,  "precip": 1, "temperatureC": -3, "windSpeed": 5,  "heatHaze": 0 },
+    "snow":   { "cloudCover": 1,   "fogDensity": 0.01,   "precip": 1, "temperatureC": -3, "windSpeed": 5,  "heatHaze": 0 },
     "heat":   { "cloudCover": 0,   "fogDensity": 0.0003, "precip": 0, "temperatureC": 36, "windSpeed": 1,  "heatHaze": 1 }
   },
   "transitions": {

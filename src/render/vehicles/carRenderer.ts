@@ -1,4 +1,4 @@
-import { query, type EntityId } from 'bitecs';
+import { commitRemovals, registerQuery, type EntityId, type Query } from 'bitecs';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAX_ENTITIES, Transform } from '../../ecs/components';
@@ -193,6 +193,9 @@ function frac(v: number): number {
 export class CarRenderer {
   readonly stats = { cars: 0, drawCalls: 0 };
   private readonly world: GameWorld;
+  /** Registered once per world generation: `query()` allocates (rest args, filter, hash strings) on every call. */
+  private carQuery: Query | null = null;
+  private queryGeneration = -1;
   private readonly group = new THREE.Group();
   private readonly slots: ModelSlot[];
   private readonly maxPerModel: number;
@@ -305,7 +308,12 @@ export class CarRenderer {
     const lensColors = this.lensMesh.instanceColor?.array;
     if (!lensColors) return;
 
-    const eids = query(this.world, CAR_TERMS);
+    if (!this.carQuery || this.queryGeneration !== this.world.generation) {
+      this.carQuery = registerQuery(this.world, CAR_TERMS);
+      this.queryGeneration = this.world.generation;
+    }
+    commitRemovals(this.world);
+    const eids = this.carQuery.dense;
     for (let e = 0; e < eids.length; e++) {
       const eid = eids[e] ?? 0;
       const slot = slots[VehicleLook.model[eid] ?? 0];
@@ -434,8 +442,16 @@ export class CarRenderer {
     mesh.count = count;
     mesh.visible = count > 0;
     if (count === 0) return 0;
-    mesh.instanceMatrix.needsUpdate = true;
-    if (colored && mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    // Upload only the instances drawn (three clears the ranges after each upload).
+    const matrix = mesh.instanceMatrix;
+    matrix.clearUpdateRanges();
+    matrix.addUpdateRange(0, count * 16);
+    matrix.needsUpdate = true;
+    if (colored && mesh.instanceColor) {
+      mesh.instanceColor.clearUpdateRanges();
+      mesh.instanceColor.addUpdateRange(0, count * 3);
+      mesh.instanceColor.needsUpdate = true;
+    }
     return 1;
   }
 

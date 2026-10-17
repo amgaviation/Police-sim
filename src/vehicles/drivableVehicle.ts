@@ -40,7 +40,10 @@ export interface VehiclePose {
   yaw: number;
 }
 
-/** Chassis-local wheel centre; `steer` is about +Y (positive = left), `spin` about the axle. */
+/**
+ * Chassis-local wheel centre; `steer` is about +Y (positive = left), `spin` about +X
+ * (decreasing when rolling forward, matching the renderer).
+ */
 export interface WheelPose {
   x: number;
   y: number;
@@ -56,6 +59,8 @@ export interface VehicleTelemetry {
   speed: number;
   speedKmh: number;
   speedMph: number;
+  /** Horizontal speed in any direction (m/s, >= 0): also counts sideways sliding. */
+  groundSpeed: number;
   rpm: number;
   /** -1 reverse, 1..n. */
   gear: number;
@@ -181,6 +186,11 @@ export class DrivableVehicle {
   headlights = false;
   /** Light bar on (only drawn for models with `lightbar`). */
   lightbar = false;
+  /**
+   * Ignition. Off, the engine does not run: no drive, no idle fuel burn and no random stalls
+   * (the session switches it with the driver getting in and out).
+   */
+  engineOn = true;
 
   private readonly physics: PhysicsWorld;
   private readonly body: RigidBody;
@@ -304,6 +314,7 @@ export class DrivableVehicle {
       speed: 0,
       speedKmh: 0,
       speedMph: 0,
+      groundSpeed: 0,
       rpm: 0,
       gear: 1,
       throttle: 0,
@@ -367,7 +378,7 @@ export class DrivableVehicle {
     }
     const { qx, qy, qz, qw } = data;
     const back = data.vx * 2 * (qx * qz + qw * qy) + data.vy * 2 * (qy * qz - qw * qx) + data.vz * (1 - 2 * (qx * qx + qy * qy));
-    v.refreshTelemetry(-back);
+    v.refreshTelemetry(-back, Math.hypot(data.vx, data.vz));
     v.writeLook();
     return v;
   }
@@ -447,7 +458,8 @@ export class DrivableVehicle {
       demand *= flat ? dt / FLAT_RADIUS : dt;
       let brake = demand;
       let locked = false;
-      if (demand > 0 && absSpeed >= ABS_MIN_SPEED) {
+      // An unloaded wheel (airborne, or the stale zero of the landing step) is not judged for ABS / locking.
+      if (demand > 0 && absSpeed >= ABS_MIN_SPEED && load > 0) {
         const abs = brakes.abs && !handbrake;
         absModulate(demand, limit, abs, this.absTime, this.absOut);
         brake = this.absOut.brake;
@@ -528,7 +540,7 @@ export class DrivableVehicle {
     }
 
     this.updateGear(absSpeed);
-    this.refreshTelemetry(speed);
+    this.refreshTelemetry(speed, Math.hypot(v.x, v.z));
     this.writeLook();
   }
 
@@ -539,7 +551,7 @@ export class DrivableVehicle {
     out.y = this.hardPointY - (ctl.wheelSuspensionLength(i) ?? this.model.suspension.restLength);
     out.z = this.wheelZ[i] ?? 0;
     out.steer = i < 2 ? -this.steerAngle : 0;
-    out.spin = ctl.wheelRotation(i) ?? 0;
+    out.spin = -(ctl.wheelRotation(i) ?? 0);
     out.radius = ctl.wheelRadius(i) ?? this.model.tires.radius;
     out.inContact = ctl.wheelIsInContact(i);
     return out;
@@ -553,7 +565,15 @@ export class DrivableVehicle {
     this.tel.fuelFraction = this.fuelL / this.model.fuel.capacityL;
   }
 
-  /** Restores body, engine and tyres (debug command / station). */
+  /** True when `repair()` would change anything: body damage, a worn or failed engine, a flat tyre or a stall. */
+  get needsRepair(): boolean {
+    const d = this.damage;
+    if (d.engineHealth < 1 || d.engineFailed || this.stallS > 0) return true;
+    for (let i = 0; i < WHEELS; i++) if ((d.zones[i] ?? 0) > 0 || d.tireFlat[i] === 1) return true;
+    return false;
+  }
+
+  /** Restores body, engine and tyres (debug command / station pump, see `GameSession.interact`). */
   repair(): void {
     resetDamageState(this.damage);
     this.stallS = 0;
@@ -610,13 +630,14 @@ export class DrivableVehicle {
     this.physics.removeBody(this.eid);
   }
 
-  private refreshTelemetry(speed: number): void {
+  private refreshTelemetry(speed: number, groundSpeed: number): void {
     const { model, controls: c, damage, tel } = this;
     const absSpeed = Math.abs(speed);
     const running = this.engineRunning();
     tel.speed = speed;
     tel.speedKmh = speed * 3.6;
     tel.speedMph = speed / MPH;
+    tel.groundSpeed = groundSpeed;
     tel.gear = c.reverse ? -1 : this.gear;
     tel.rpm = running ? clamp(this.rpmAt(c.reverse ? 1 : this.gear, absSpeed), model.engine.idleRpm, model.engine.redlineRpm) : 0;
     tel.throttle = c.throttle;
@@ -644,7 +665,7 @@ export class DrivableVehicle {
   }
 
   private engineRunning(): boolean {
-    return this.fuelL > 0 && !this.damage.engineFailed && this.stallS <= 0;
+    return this.engineOn && this.fuelL > 0 && !this.damage.engineFailed && this.stallS <= 0;
   }
 
   private rpmAt(gear: number, absSpeed: number): number {

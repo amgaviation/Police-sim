@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chunkLayout, type ChunkLayout } from '../../src/world/chunkLayout';
+import { chunkBounds, chunkLayout, type ChunkLayout } from '../../src/world/chunkLayout';
 import { chunkCoord } from '../../src/world/constants';
 import { generateCity } from '../../src/world/generate';
 import { buildChunkMesh, chunkMeshTransferables, type ChunkMeshData, type ChunkMeshGroup } from '../../src/world/render/chunkMesher';
@@ -118,10 +118,11 @@ describe('buildChunkMesh', () => {
         groundTop = Math.max(groundTop, ground.positions[i + 1] ?? 0);
         expect(ground.normals[i + 1]).toBe(1);
         const x = ground.positions[i] ?? 0, z = ground.positions[i + 2] ?? 0;
-        expect(x).toBeGreaterThanOrEqual(lod0.cx * 256);
-        expect(x).toBeLessThanOrEqual(lod0.cx * 256 + 256);
-        expect(z).toBeGreaterThanOrEqual(lod0.cz * 256);
-        expect(z).toBeLessThanOrEqual(lod0.cz * 256 + 256);
+        const b = chunkBounds(lod0.cx, lod0.cz);
+        expect(x).toBeGreaterThanOrEqual(b.minX);
+        expect(x).toBeLessThanOrEqual(b.maxX);
+        expect(z).toBeGreaterThanOrEqual(b.minZ);
+        expect(z).toBeLessThanOrEqual(b.maxZ);
       }
       const markings = groupOf(lod0, 'markings');
       if (!markings) continue;
@@ -130,6 +131,22 @@ describe('buildChunkMesh', () => {
         expect(markings.positions[i + 1]).toBeLessThan(0.05);
         expect(markings.normals[i + 1]).toBe(1);
       }
+    }
+  });
+
+  it('draws the outer half of the perimeter roads and the world boundary wall in an edge chunk, at both LODs', () => {
+    const [lod0, lod1] = meshes.get('13,13') as [ChunkMeshData, ChunkMeshData];
+    const ground = groupOf(lod0, 'ground') as ChunkMeshGroup;
+    let maxX = -Infinity;
+    for (let i = 0; i < ground.positions.length; i += 3) maxX = Math.max(maxX, ground.positions[i] ?? 0);
+    expect(maxX).toBe(3584 + 16);
+    for (const lod of [lod0, lod1]) {
+      const walls = groupOf(lod, 'buildings') as ChunkMeshGroup;
+      let wallTop = 0;
+      for (let i = 0; i < walls.positions.length; i += 3) {
+        if ((walls.positions[i] ?? 0) > 3584 + 13) wallTop = Math.max(wallTop, walls.positions[i + 1] ?? 0);
+      }
+      expect(wallTop).toBe(3);
     }
   });
 

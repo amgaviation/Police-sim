@@ -135,6 +135,40 @@ describe('WeatherTimeline', () => {
   });
 });
 
+describe('precipitation type', () => {
+  it('keeps snowing (not raining) while a snow segment blends into clear', () => {
+    const data = clone(weatherJson);
+    for (const from of WEATHER_KINDS) {
+      for (const to of WEATHER_KINDS) data.transitions[from][to] = 0;
+      data.transitions[from].clear = 1;
+    }
+    data.transitions.clear = { ...data.transitions.clear, clear: 0, snow: 1 };
+    data.segmentHours = [3, 3];
+    const timeline = new WeatherTimeline(7, validateWeatherConfig(data));
+    const snowing = timeline.sample(3600, createWeatherState());
+    expect(snowing.kind).toBe('snow');
+    expect(snowing.precipSnow).toBe(1);
+    const fading = timeline.sample(3 * 3600 + 300, createWeatherState());
+    expect(fading.kind).toBe('clear');
+    expect(fading.precipitation).toBeGreaterThan(0.3);
+    expect(fading.precipSnow).toBe(1);
+    expect(overrideWeather(WEATHER_CONFIG, 'rain', 1, createWeatherState()).precipSnow).toBe(0);
+    expect(overrideWeather(WEATHER_CONFIG, 'snow', 0.6, createWeatherState()).precipSnow).toBe(1);
+  });
+});
+
+describe('visibility', () => {
+  // Visibility is 2 / fogDensity (environmentRenderer's VISIBILITY_FACTOR); the default fog far is 320 m.
+  const visibility = (kind: 'rain' | 'snow' | 'storm', intensity: number): number =>
+    2 / overrideWeather(WEATHER_CONFIG, kind, intensity, createWeatherState()).fogDensity;
+
+  it('rain, snow and storm shorten the view below the default fog far', () => {
+    for (const kind of ['rain', 'snow', 'storm'] as const) expect(visibility(kind, 1), kind).toBeLessThan(320);
+    expect(visibility('storm', WEATHER_CONFIG.intensity[0])).toBeLessThan(320);
+    expect(visibility('storm', 1)).toBeLessThan(visibility('rain', 1));
+  });
+});
+
 describe('overrideWeather', () => {
   it('applies a fixed kind scaled by intensity', () => {
     const s = overrideWeather(WEATHER_CONFIG, 'fog', 0.5, createWeatherState());

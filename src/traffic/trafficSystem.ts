@@ -19,6 +19,7 @@ import {
   laneEdge,
   laneIndex,
   laneRef,
+  type LaneConnection,
   type LanePoint,
   type RoadEdge,
   type RoadGraph,
@@ -39,6 +40,19 @@ import { REGISTRY_POPULATION, vehicleRecord } from './registry';
  * (spawns, despawns and events are rare transitions and may allocate).
  */
 
+/** A parked player vehicle traffic keeps clear of: centre, heading (unit, travel direction) and half size. */
+export interface TrafficParked {
+  x: number;
+  z: number;
+  hx: number;
+  hz: number;
+  halfLength: number;
+  halfWidth: number;
+}
+
+/** Most parked player vehicles traffic looks at (`TrafficFocus.parked`). */
+export const MAX_PARKED_OBSTACLES = 8;
+
 /** The player as seen by traffic: streaming centre plus an optional obstacle (car or officer). */
 export interface TrafficFocus {
   x: number;
@@ -48,7 +62,13 @@ export interface TrafficFocus {
   oz: number;
   ovx: number;
   ovz: number;
+  /** Half length along the obstacle's travel: the longitudinal gap is measured to it. */
   oRadius: number;
+  /** Half width: the obstacle is in a car's lane when its centre is within laneWidth / 2 + this. */
+  oHalfWidth: number;
+  /** Player vehicles standing nearby (the car the officer got out of): entries 0 .. parkedCount - 1. */
+  parked?: readonly TrafficParked[];
+  parkedCount?: number;
 }
 
 export interface TrafficDeps {
@@ -142,7 +162,8 @@ export interface SpawnOptions {
 
 const CONTROL = { none: 0, signal: 1, stop: 2, yield: 3 } as const;
 const STOP_PHASE = { approach: 0, waiting: 1, cleared: 2 } as const;
-const CAR_FLAG = { fullStop: 1 } as const;
+/** `fullStop`: stopped at the current stop sign; `merge`: the next lane is shared with a sibling lane (lane drop). */
+const CAR_FLAG = { fullStop: 1, merge: 2 } as const;
 const VIOLATION_BIT: Readonly<Record<TrafficViolationKind, number>> = {
   speeding: 1,
   redLight: 2,
@@ -157,8 +178,10 @@ const STOP_WAIT_S = 1;
 const ROLLING_STOP_SPEED = 3;
 /** Left turns at signals yield to oncoming cars this close to their stop line (m). */
 const LEFT_YIELD_DISTANCE = 35;
-/** Minor-road cars wait while a major-road car is this close to the junction (m). */
+/** Minor-road cars wait while a major-road car is this close to the junction (m) ... */
 const MAJOR_CLEAR_DISTANCE = 40;
+/** ... or will reach its line within this time (s): pulling away from a stop and clearing the box takes 3-4 s. */
+const GAP_S = 5;
 const TURN_SPEED = 6;
 const UTURN_SPEED = 3;
 /** Hard minimum bumper gap; the integrator never lets a car close below it (m). */
@@ -192,6 +215,8 @@ const SPEEDING_MARGIN_MPH = 5;
 const TAILGATE_HEADWAY_S = 1;
 const TAILGATE_MIN_SPEED = 8;
 const BRAKE_LIGHT_DECEL = 0.4;
+/** A car whose lane ends (lane drop) yields to sibling-lane cars bound for the same lane this close to the line (m). */
+const MERGE_DISTANCE = 30;
 const TWO_PI = Math.PI * 2;
 
 /** Per-model constants, indexed by `VehicleModel.index`. */
@@ -203,6 +228,7 @@ const MODEL_A_MAX = Float64Array.from(VEHICLE_MODELS, (m) => m.traffic.maxAccel)
 const MODEL_B = Float64Array.from(VEHICLE_MODELS, (m) => m.traffic.comfortDecel);
 const MODEL_MAX_DECEL = Float64Array.from(VEHICLE_MODELS, (m) => m.traffic.maxDecel);
 const MAX_HALF_LEN = Math.max(...MODEL_HALF_LEN);
+const MIN_COMFORT_DECEL = Math.min(...MODEL_B);
 
 type SlotArray = Float64Array | Float32Array | Int32Array | Uint8Array;
 
@@ -233,6 +259,7 @@ export function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
 export class TrafficSystem {
   readonly capacity: number;
   readonly view: TrafficView;
+  /** `spawned` / `despawned` count the 'traffic:spawned' / 'traffic:despawned' events (silent clears are not counted). */
   readonly stats = { active: 0, proxies: 0, spawned: 0, despawned: 0 };
   /** Multiplies the density target (debug); 0 stops spawning (despawning continues). */
   densityScale = 1;
@@ -301,6 +328,10 @@ export class TrafficSystem {
   private readonly onRoad: Uint8Array;
   /** Cars holding each junction node (crossing it, or cleared at its stop line). */
   private readonly nodeHold: Int32Array;
+  /** The part of `nodeHold` taken from stop / yield approaches: major-road cars wait for these. */
+  private readonly minorHold: Int32Array;
+  /** The part of `nodeHold` taken from signal approaches, per node and signal group (node * 2 + group). */
+  private readonly signalHold: Int32Array;
   /** Per approach (edge * 2 + dir): CONTROL id, signal group and the oncoming approach (-1 = none). */
   private readonly control: Uint8Array;
   private readonly group: Uint8Array;
@@ -373,6 +404,8 @@ export class TrafficSystem {
     this.order = new Int32Array(cap);
     this.onRoad = new Uint8Array(REGISTRY_POPULATION);
     this.nodeHold = new Int32Array(this.graph.nodes.length);
+    this.minorHold = new Int32Array(this.graph.nodes.length);
+    this.signalHold = new Int32Array(this.graph.nodes.length * 2);
 
     const approaches = this.graph.edges.length * 2;
     this.control = new Uint8Array(approaches);
@@ -532,10 +565,7 @@ export class TrafficSystem {
       this.reported[slot] = c.reported;
       this.flags[slot] = c.flags;
       if (c.nextLane >= 0 && laneEdge(c.nextLane) < edges) this.setNextLane(slot, c.nextLane, this.turnOf(c.lane, c.nextLane));
-      if (c.holding >= 0 && c.holding < this.nodeHold.length) {
-        this.holding[slot] = c.holding;
-        this.nodeHold[c.holding] = (this.nodeHold[c.holding] ?? 0) + 1;
-      }
+      if (c.holding >= 0 && c.holding < this.nodeHold.length) this.acquireHold(slot, c.holding);
       this.pose(slot);
       this.writeEcs(slot);
       copyTransformSlot(Transform, PrevTransform, this.eid[slot] ?? 0);
@@ -544,10 +574,15 @@ export class TrafficSystem {
     this.stats.active = this.count;
   }
 
-  /** Removes every car (entities and proxies) without events. */
-  clear(): void {
-    while (this.count > 0) this.despawnSlot(this.count - 1, false);
+  /**
+   * Removes every car (entities and proxies). With `emit` each car gets its 'traffic:despawned'
+   * (teleport, `traffic clear`), so listeners tracking cars stay in step; restore and dispose are silent.
+   */
+  clear(emit = false): void {
+    while (this.count > 0) this.despawnSlot(this.count - 1, emit);
     this.nodeHold.fill(0);
+    this.minorHold.fill(0);
+    this.signalHold.fill(0);
     this.stats.active = 0;
     this.stats.proxies = 0;
   }
@@ -569,13 +604,7 @@ export class TrafficSystem {
     if (node.junction === JUNCTION.signal && node.signal >= 0) this.control[a] = CONTROL.signal;
     else if (node.junction !== JUNCTION.none) {
       // Same rule as the stop/yield signs in chunkLayout.
-      let topClass = 99, allSame = true;
-      for (const id of node.edges) {
-        const c = (g.edges[id] as RoadEdge).roadClass;
-        if (topClass !== 99 && c !== topClass) allSame = false;
-        topClass = Math.min(topClass, c);
-      }
-      const stops = node.junction === JUNCTION.allWayStop || allSame || edge.roadClass > topClass;
+      const stops = g.stopsAt(e, node.id);
       const yieldOnly = edge.roadClass === ROAD_CLASS.service || edge.roadClass === ROAD_CLASS.gravel;
       this.control[a] = stops ? (yieldOnly ? CONTROL.yield : CONTROL.stop) : CONTROL.none;
     }
@@ -633,16 +662,25 @@ export class TrafficSystem {
     const p = this.graph.lanePoint(lane, s, this.lp);
     const d2 = (p.x - focus.x) * (p.x - focus.x) + (p.z - focus.z) * (p.z - focus.z);
     if (d2 < rMin * rMin || d2 > rMax * rMax || d2 < NEVER_WITHIN * NEVER_WITHIN) return false;
+    // Nearest car ahead on the lane: bumper gap and speed.
+    let gapAhead = Infinity;
+    let vAhead = 0;
     for (let k = this.lowerBound(lane); k < this.count; k++) {
       const o = this.order[k] ?? 0;
       if (this.lane[o] !== lane) break;
-      if (Math.abs((this.s[o] ?? 0) - s) < SPAWN_SPACING) return false;
+      const so = this.s[o] ?? 0;
+      if (Math.abs(so - s) < SPAWN_SPACING) return false;
+      if (so > s && so - s - MAX_HALF_LEN - (MODEL_HALF_LEN[this.model[o] ?? 0] ?? 0) < gapAhead) {
+        gapAhead = so - s - MAX_HALF_LEN - (MODEL_HALF_LEN[this.model[o] ?? 0] ?? 0);
+        vAhead = this.v[o] ?? 0;
+      }
     }
     const id = this.nextVehicleId();
     if (id < 0) return false;
-    // Slow enough to stop comfortably at the stop line ahead.
+    // Slow enough to stop comfortably at the stop line ahead, and behind the car ahead.
     const toLine = this.graph.laneEnd(lane) - s - MAX_HALF_LEN;
-    const speed = Math.min(this.graph.effectiveSpeedLimitMph(e.id, time) * MPH * 0.8, Math.sqrt(3 * toLine));
+    let speed = Math.min(this.graph.effectiveSpeedLimitMph(e.id, time) * MPH * 0.8, Math.sqrt(3 * toLine));
+    if (gapAhead < Infinity) speed = Math.min(speed, vAhead + Math.sqrt(2 * MIN_COMFORT_DECEL * Math.max(0, gapAhead - IDM_S0)));
     const slot = this.spawnCar(id, lane, s, speed, time, undefined);
     this.pose(slot);
     this.writeEcs(slot);
@@ -744,8 +782,9 @@ export class TrafficSystem {
     }
     this.proxy[last] = null;
     this.count = last;
+    if (!emit) return;
     this.stats.despawned++;
-    if (emit) this.bus?.emit('traffic:despawned', { eid, vehicleId: id });
+    this.bus?.emit('traffic:despawned', { eid, vehicleId: id });
   }
 
   // --- Ordering -----------------------------------------------------------------------------
@@ -808,14 +847,30 @@ export class TrafficSystem {
     return TURN.straight;
   }
 
-  /** Seeded choice among the exits (U-turn only at dead ends); right turns use the curb lane, left the inner one. */
+  /**
+   * Seeded choice among the exits (U-turn only at dead ends). Each exit is taken from one source lane only:
+   * right turns from the curb lane into the curb lane, left turns from the inner lane into the inner lane,
+   * straight on from lane i into lane i. So two cars side by side never share a connector's target lane.
+   * A lane with no such exit keeps its index on any exit that has that lane; only a true lane drop shares
+   * a target lane with a sibling lane, and its cars then merge behind the sibling's (`CAR_FLAG.merge`).
+   */
   private chooseNextLane(slot: number): void {
     const lane = this.lane[slot] ?? 0;
-    const conns = this.graph.connections(laneEdge(lane), laneDir(lane));
+    const edge = laneEdge(lane), dir = laneDir(lane);
+    const g = this.graph;
+    const conns = g.connections(edge, dir);
+    const index = laneIndex(lane);
+    const inner = g.laneCount(edge, dir) - 1;
+    // Mode 0: exits that fit this lane; 1: any exit but a U-turn that has lane `index` (kept);
+    // 2: any exit but a U-turn (lane drop); 3: anything (dead end).
+    let mode = 0;
     let options = 0;
-    for (const c of conns) if (c.turn !== TURN.uturn) options++;
-    const allowUturn = options === 0;
-    if (allowUturn) options = conns.length;
+    for (const c of conns) if (this.exitAllowed(0, index, inner, c)) options++;
+    while (options === 0 && mode < 3) {
+      mode++;
+      for (const c of conns) if (this.exitAllowed(mode, index, inner, c)) options++;
+    }
+    this.flags[slot] = (this.flags[slot] ?? 0) & ~CAR_FLAG.merge;
     if (options === 0) {
       this.nextLane[slot] = -1;
       this.clen[slot] = 0;
@@ -823,13 +878,30 @@ export class TrafficSystem {
     }
     let pick = options > 1 ? this.rng.nextInt(0, options - 1) : 0;
     for (const c of conns) {
-      if (c.turn === TURN.uturn && !allowUturn) continue;
+      if (!this.exitAllowed(mode, index, inner, c)) continue;
       if (pick-- > 0) continue;
-      const count = this.graph.laneCount(c.edge, c.dir);
-      const idx = c.turn === TURN.right ? 0 : c.turn === TURN.left ? count - 1 : Math.min(laneIndex(lane), count - 1);
+      const count = g.laneCount(c.edge, c.dir);
+      let idx = c.turn === TURN.right ? 0 : c.turn === TURN.left ? count - 1 : Math.min(index, count - 1);
+      if (mode === 1) idx = index;
+      else if (mode >= 2 && inner > 0) this.flags[slot] = (this.flags[slot] ?? 0) | CAR_FLAG.merge;
       this.setNextLane(slot, laneRef(c.edge, c.dir, idx), c.turn);
       return;
     }
+  }
+
+  /** Whether exit `c` is a choice for lane `index` in `chooseNextLane`'s `mode`. */
+  private exitAllowed(mode: number, index: number, inner: number, c: LaneConnection): boolean {
+    if (mode === 3) return true;
+    if (c.turn === TURN.uturn) return false;
+    if (mode === 0) return this.fitsLane(index, inner, c);
+    return mode === 2 || index < this.graph.laneCount(c.edge, c.dir);
+  }
+
+  /** True when lane `index` (of `inner` + 1) may take exit `c` (see `chooseNextLane`). */
+  private fitsLane(index: number, inner: number, c: LaneConnection): boolean {
+    if (c.turn === TURN.right) return index === 0;
+    if (c.turn === TURN.left) return index === inner;
+    return index < this.graph.laneCount(c.edge, c.dir);
   }
 
   /** Sets the next lane and builds the quadratic Bezier connector across the junction. */
@@ -877,29 +949,60 @@ export class TrafficSystem {
   private acquireHold(slot: number, node: number): void {
     if ((this.holding[slot] ?? -1) >= 0) return;
     this.holding[slot] = node;
-    this.nodeHold[node] = (this.nodeHold[node] ?? 0) + 1;
+    this.countHold(slot, node, 1);
   }
 
+  /** Holds are released before the car moves onto its next lane, so the approach is the one it held from. */
   private releaseHold(slot: number): void {
     const node = this.holding[slot] ?? -1;
     if (node < 0) return;
-    this.nodeHold[node] = (this.nodeHold[node] ?? 1) - 1;
+    this.countHold(slot, node, -1);
     this.holding[slot] = -1;
   }
 
-  /** True when the next lane has no room for this car right after the junction. */
+  /** Adds `delta` to the node's hold counts for the car's current approach (total, minor road, signal group). */
+  private countHold(slot: number, node: number, delta: number): void {
+    this.nodeHold[node] = (this.nodeHold[node] ?? 0) + delta;
+    const lane = this.lane[slot] ?? 0;
+    const a = laneEdge(lane) * 2 + laneDir(lane);
+    const ctrl = this.control[a];
+    if (ctrl === CONTROL.stop || ctrl === CONTROL.yield) this.minorHold[node] = (this.minorHold[node] ?? 0) + delta;
+    else if (ctrl === CONTROL.signal) {
+      const k = node * 2 + (this.group[a] ?? 0);
+      this.signalHold[k] = (this.signalHold[k] ?? 0) + delta;
+    }
+  }
+
+  /**
+   * True when the next lane has no room for this car right after the junction, or a car from another
+   * lane is already crossing the junction into it (it only moves onto that lane once clear of the box).
+   */
   private exitBlocked(slot: number): boolean {
     const next = this.nextLane[slot] ?? -1;
     if (next < 0) return false;
+    const g = this.graph;
+    const node = g.nodes[g.laneEndNode(this.lane[slot] ?? 0)] as RoadNode;
+    for (let i = 0; i < node.edges.length; i++) {
+      const id = node.edges[i] ?? 0;
+      const d = (g.edges[id] as RoadEdge).to === node.id ? 0 : 1;
+      for (let l = 0; l < g.laneCount(id, d); l++) {
+        const lane = laneRef(id, d, l);
+        const o = this.frontCar(lane);
+        if (o >= 0 && o !== slot && this.nextLane[o] === next && (this.s[o] ?? 0) > g.laneEnd(lane)) return true;
+      }
+    }
     const k = this.lowerBound(next);
     const o = this.order[k] ?? 0;
     if (k >= this.count || this.lane[o] !== next) return false;
-    const room = (this.s[o] ?? 0) - this.graph.laneStart(next) - (MODEL_HALF_LEN[this.model[o] ?? 0] ?? 0);
+    const room = (this.s[o] ?? 0) - g.laneStart(next) - (MODEL_HALF_LEN[this.model[o] ?? 0] ?? 0);
     return room < 2 * (MODEL_HALF_LEN[this.model[slot] ?? 0] ?? 0) + IDM_S0 + 1;
   }
 
-  /** True when a car on approach `a` is about to cross (moving within `distance` of its line, or crossing). */
-  private approachBusy(a: number, distance: number): boolean {
+  /**
+   * True when a car on approach `a` is about to cross: moving and within `distance` of its line or
+   * `gapS` seconds of it at its speed (fast cars count from further out), or already crossing.
+   */
+  private approachBusy(a: number, distance: number, gapS: number): boolean {
     const e = a >> 1;
     const d = (a & 1) as 0 | 1;
     const g = this.graph;
@@ -908,19 +1011,46 @@ export class TrafficSystem {
       const o = this.frontCar(lane);
       if (o < 0 || this.state[o] === TRAFFIC_STATE.crashed) continue;
       const toLine = g.laneEnd(lane) - (this.s[o] ?? 0);
-      if (toLine < 0 || (toLine < distance && (this.v[o] ?? 0) > 1)) return true;
+      const v = this.v[o] ?? 0;
+      if (toLine < 0 || (toLine < Math.max(distance, v * gapS) && v > 1)) return true;
+    }
+    return false;
+  }
+
+  /** Gap (s) a car needs to pull away from its line and clear the box: at least GAP_S, longer for slow, long vehicles. */
+  private gapFor(slot: number): number {
+    const m = this.model[slot] ?? 0;
+    const travel = (this.clen[slot] ?? 0) + 2 * (MODEL_HALF_LEN[m] ?? 2);
+    return Math.max(GAP_S, Math.sqrt((2 * travel) / (MODEL_A_MAX[m] ?? 2)) + 1);
+  }
+
+  /**
+   * True when a left-turner from the oncoming approach has committed to its turn (released from its
+   * hold, or past its line) and is still crossing: through and right-turning cars wait for it.
+   */
+  private oncomingTurnerCrossing(a: number, node: number): boolean {
+    const opp = this.oncoming[a] ?? -1;
+    if (opp < 0) return false;
+    const e = opp >> 1;
+    const d = (opp & 1) as 0 | 1;
+    const g = this.graph;
+    for (let i = 0; i < g.laneCount(e, d); i++) {
+      const lane = laneRef(e, d, i);
+      const o = this.frontCar(lane);
+      if (o < 0 || this.holding[o] !== node || this.turn[o] !== TURN.left) continue;
+      if (this.stopPhase[o] === STOP_PHASE.cleared || (this.s[o] ?? 0) > g.laneEnd(lane)) return true;
     }
     return false;
   }
 
   /** Minor-road gap acceptance: no car on an approach that does not stop is close to the node. */
-  private majorRoadClear(node: RoadNode, ownApproach: number): boolean {
+  private majorRoadClear(node: RoadNode, ownApproach: number, gapS: number): boolean {
     for (let i = 0; i < node.edges.length; i++) {
       const id = node.edges[i] ?? 0;
       const e = this.graph.edges[id] as RoadEdge;
       const a = id * 2 + (e.to === node.id ? 0 : 1);
       if (a === ownApproach || this.control[a] !== CONTROL.none) continue;
-      if (this.approachBusy(a, MAJOR_CLEAR_DISTANCE)) return false;
+      if (this.approachBusy(a, MAJOR_CLEAR_DISTANCE, gapS)) return false;
     }
     return true;
   }
@@ -937,21 +1067,44 @@ export class TrafficSystem {
     const edge = laneEdge(lane);
     const a = edge * 2 + laneDir(lane);
     const ctrl = this.control[a] ?? 0;
-    if (ctrl === CONTROL.none) return false;
+    const node = g.nodes[g.laneEndNode(lane)] as RoadNode;
+    if (ctrl === CONTROL.none) {
+      // Major road through a junction: no stop, but left turns yield to oncoming cars, nobody enters
+      // the box behind a full exit (that would block the cross traffic), as on a green, and nobody
+      // enters while a minor-road car that has cleared its stop line is crossing.
+      if (node.junction === JUNCTION.none || d > NEAR_LINE) return false;
+      if ((this.minorHold[node.id] ?? 0) > 0) return true;
+      if (this.turn[slot] === TURN.left) {
+        const opp = this.oncoming[a] ?? -1;
+        if (opp >= 0 && this.approachBusy(opp, LEFT_YIELD_DISTANCE, this.gapFor(slot))) return true;
+      } else if (this.oncomingTurnerCrossing(a, node.id)) return true;
+      return this.exitBlocked(slot);
+    }
     const v = this.v[slot] ?? 0;
     const bits = this.behavior[slot] ?? 0;
     const b = MODEL_B[this.model[slot] ?? 0] ?? 2;
-    const node = g.nodes[g.laneEndNode(lane)] as RoadNode;
 
     if (ctrl === CONTROL.signal) {
       const grp = (this.group[a] ?? 0) as 0 | 1;
+      const opp = this.oncoming[a] ?? -1;
+      // A left-turner that took the junction on green (waiting at the line for oncoming traffic) finishes
+      // its turn on any aspect once the oncoming side stops; the cross traffic waits for it.
+      if (this.holding[slot] === node.id) {
+        if ((opp >= 0 && this.approachBusy(opp, LEFT_YIELD_DISTANCE, this.gapFor(slot))) || this.exitBlocked(slot)) return true;
+        this.stopPhase[slot] = STOP_PHASE.cleared;
+        return false;
+      }
       const aspect = g.signalAspect(node.signal, grp, this.simTime);
       if (aspect === ASPECT.green) {
         if (d > NEAR_LINE) return false;
+        // Cars of the other phase still in the junction (late on yellow, a left-turner finishing) go first.
+        if ((this.signalHold[node.id * 2 + 1 - grp] ?? 0) > 0) return true;
         if (this.turn[slot] === TURN.left) {
-          const opp = this.oncoming[a] ?? -1;
-          if (opp >= 0 && this.approachBusy(opp, LEFT_YIELD_DISTANCE)) return true;
-        }
+          if (opp >= 0 && this.approachBusy(opp, LEFT_YIELD_DISTANCE, this.gapFor(slot))) {
+            if (d < STOP_ZONE) this.acquireHold(slot, node.id);
+            return true;
+          }
+        } else if (this.oncomingTurnerCrossing(a, node.id)) return true;
         return this.exitBlocked(slot);
       }
       const runner = (bits & BEHAVIOR.redLight) !== 0;
@@ -963,9 +1116,16 @@ export class TrafficSystem {
           return false;
         }
         if (v * v > 2 * b * Math.max(d, 0)) {
-          // Cannot stop comfortably: commit.
-          this.stopPhase[slot] = STOP_PHASE.cleared;
-          return false;
+          // Cannot stop comfortably: commit if the centre crosses the line before red (a turner slows to
+          // TURN_SPEED first) or even the hardest braking cannot stop it; otherwise brake hard.
+          const m = this.model[slot] ?? 0;
+          const turn = this.turn[slot];
+          const vLine = turn === TURN.straight ? v : Math.min(v, turn === TURN.uturn ? UTURN_SPEED : TURN_SPEED);
+          const eta = (d + (MODEL_HALF_LEN[m] ?? 2)) / Math.max((v + vLine) / 2, 0.1);
+          if (eta <= g.signalTimeToChange(node.signal, grp, this.simTime) || v * v > 2 * (MODEL_MAX_DECEL[m] ?? 6) * Math.max(d, 0)) {
+            this.stopPhase[slot] = STOP_PHASE.cleared;
+            return false;
+          }
         }
         return true;
       }
@@ -993,7 +1153,7 @@ export class TrafficSystem {
     }
     this.stopTimer[slot] = (this.stopTimer[slot] ?? 0) + dt;
     if ((this.stopTimer[slot] ?? 0) < STOP_WAIT_S) return true;
-    if ((this.nodeHold[node.id] ?? 0) > 0 || this.exitBlocked(slot) || !this.majorRoadClear(node, a)) return true;
+    if ((this.nodeHold[node.id] ?? 0) > 0 || this.exitBlocked(slot) || !this.majorRoadClear(node, a, this.gapFor(slot))) return true;
     this.stopPhase[slot] = STOP_PHASE.cleared;
     this.acquireHold(slot, node.id);
     if (ctrl === CONTROL.stop && ((this.flags[slot] ?? 0) & CAR_FLAG.fullStop) === 0) this.report(slot, 'rollingStop', focus);
@@ -1053,14 +1213,15 @@ export class TrafficSystem {
     }
     if (bits & BEHAVIOR.tailgating && v > TAILGATE_MIN_SPEED && gap < v * TAILGATE_HEADWAY_S) this.report(slot, 'tailgating', focus);
 
-    // The player (car or officer) when it is in the lane ahead.
+    // The player (car or officer) and parked player vehicles when they are in the lane ahead.
+    const laneHalf = (g.edges[edge] as RoadEdge).laneWidth / 2;
+    const hx = this.hx[slot] ?? 0, hz = this.hz[slot] ?? 0;
+    const cx = this.x[slot] ?? 0, cz = this.z[slot] ?? 0;
     if (focus.obstacle) {
-      const hx = this.hx[slot] ?? 0, hz = this.hz[slot] ?? 0;
-      const dx = focus.ox - (this.x[slot] ?? 0), dz = focus.oz - (this.z[slot] ?? 0);
+      const dx = focus.ox - cx, dz = focus.oz - cz;
       const lon = dx * hx + dz * hz;
       const lat = -dx * hz + dz * hx;
-      const width = (g.edges[edge] as RoadEdge).laneWidth / 2 + focus.oRadius;
-      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && Math.abs(lat) < width) {
+      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && Math.abs(lat) < laneHalf + focus.oHalfWidth) {
         const og = lon - hl - focus.oRadius;
         if (og < gap) {
           gap = og;
@@ -1068,7 +1229,48 @@ export class TrafficSystem {
         }
       }
     }
+    const parked = focus.parked;
+    const parkedCount = parked ? Math.min(focus.parkedCount ?? 0, parked.length) : 0;
+    for (let i = 0; i < parkedCount; i++) {
+      const o = parked?.[i];
+      if (!o) continue;
+      const dx = o.x - cx, dz = o.z - cz;
+      const lon = dx * hx + dz * hz;
+      const lat = -dx * hz + dz * hx;
+      // Half extents of the parked body along and across this car's heading.
+      const cos = Math.abs(o.hx * hx + o.hz * hz), sin = Math.abs(o.hx * hz - o.hz * hx);
+      const halfLat = o.halfLength * sin + o.halfWidth * cos;
+      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && Math.abs(lat) < laneHalf + halfLat) {
+        const og = lon - hl - (o.halfLength * cos + o.halfWidth * sin);
+        if (og < gap) {
+          gap = og;
+          vLead = 0;
+        }
+      }
+    }
     this.hardGap[slot] = gap;
+    // Lane drop: yield to a sibling-lane car bound for the same lane unless clearly ahead of it (zipper merge).
+    // IDM only: side by side the gap is negative, which brakes at maxDecel instead of the hard clamp's instant stop.
+    if ((this.flags[slot] ?? 0) & CAR_FLAG.merge && next >= 0 && end - s < MERGE_DISTANCE) {
+      const toMerge = end + (this.clen[slot] ?? 0) - s;
+      const count = g.laneCount(edge, laneDir(lane));
+      for (let i = 0; i < count; i++) {
+        const sib = laneRef(edge, laneDir(lane), i);
+        if (sib === lane) continue;
+        const sibEnd = g.laneEnd(sib);
+        for (let j = this.lowerBound(sib); j < this.count; j++) {
+          const o = this.order[j] ?? 0;
+          if (this.lane[o] !== sib) break;
+          if (this.nextLane[o] !== next) continue;
+          const hlo = MODEL_HALF_LEN[this.model[o] ?? 0] ?? 0;
+          const og = toMerge - (sibEnd + (this.clen[o] ?? 0) - (this.s[o] ?? 0)) - hl - hlo;
+          if (og > -2 * (hl + hlo) - IDM_S0 && og < gap) {
+            gap = og;
+            vLead = this.v[o] ?? 0;
+          }
+        }
+      }
+    }
 
     // Stop line as a virtual stopped obstacle.
     const toLine = end - s - hl;
@@ -1114,7 +1316,9 @@ export class TrafficSystem {
     let s = s0 + ds;
     let end = g.laneEnd(lane);
     if (s0 <= end && s > end) this.enterJunction(slot, focus);
-    // Leave the connector onto the next lane (a zero-length connector can chain).
+    // Move onto the next lane once the rear bumper has left the connector (`pose` samples both bumpers
+    // along lane, connector and next lane); a zero-length connector can chain.
+    const hl = MODEL_HALF_LEN[this.model[slot] ?? 0] ?? 0;
     for (let guard = 0; guard < 4; guard++) {
       const next = this.nextLane[slot] ?? -1;
       if (next < 0) {
@@ -1122,7 +1326,7 @@ export class TrafficSystem {
         break;
       }
       const exit = end + (this.clen[slot] ?? 0);
-      if (s < exit) break;
+      if (s - hl < exit) break;
       this.releaseHold(slot);
       s = g.laneStart(next) + (s - exit);
       lane = next;
@@ -1145,47 +1349,37 @@ export class TrafficSystem {
     }
   }
 
-  /** The car crosses its stop line: hold the node; a red aspect is a red-light violation. */
+  /** The car crosses its stop line: hold the node; a red aspect is a red-light violation (unless held from green). */
   private enterJunction(slot: number, focus: TrafficFocus): void {
     const g = this.graph;
     const lane = this.lane[slot] ?? 0;
     const node = g.nodes[g.laneEndNode(lane)] as RoadNode;
+    // A hold taken before the line is a left-turner that took the junction on green: finishing is legal.
+    const held = this.holding[slot] === node.id;
     if (node.junction !== JUNCTION.none) this.acquireHold(slot, node.id);
     const a = laneEdge(lane) * 2 + laneDir(lane);
-    if (this.control[a] === CONTROL.signal) {
+    if (this.control[a] === CONTROL.signal && !held) {
       const aspect = g.signalAspect(node.signal, (this.group[a] ?? 0) as 0 | 1, this.simTime);
       if (aspect === ASPECT.red) this.report(slot, 'redLight', focus);
     }
   }
 
-  /** Pass 3: world pose (lane point or junction connector, plus DUI weave). */
+  /**
+   * Pass 3: world pose (plus DUI weave). Both bumpers follow the path (lane, junction connector, next
+   * lane) half a length ahead of and behind `s` and the body sits between them, so on a tight corner a
+   * long vehicle off-tracks inward instead of swinging its tail into the next lane or a waiting car.
+   */
   private pose(slot: number): void {
-    const g = this.graph;
-    const lane = this.lane[slot] ?? 0;
+    const hl = MODEL_HALF_LEN[this.model[slot] ?? 0] ?? 2;
     const s = this.s[slot] ?? 0;
-    const end = g.laneEnd(lane);
-    let px: number, pz: number, hx: number, hz: number;
-    if (s <= end || (this.nextLane[slot] ?? -1) < 0) {
-      const p = g.lanePoint(lane, s, this.lp);
-      px = p.x;
-      pz = p.z;
-      hx = p.hx;
-      hz = p.hz;
-    } else {
-      const len = this.clen[slot] ?? 0;
-      const t = len > 0 ? Math.min(1, (s - end) / len) : 1;
-      const u = 1 - t;
-      const x0 = this.c0x[slot] ?? 0, z0 = this.c0z[slot] ?? 0;
-      const x1 = this.c1x[slot] ?? 0, z1 = this.c1z[slot] ?? 0;
-      const x2 = this.c2x[slot] ?? 0, z2 = this.c2z[slot] ?? 0;
-      px = u * u * x0 + 2 * u * t * x1 + t * t * x2;
-      pz = u * u * z0 + 2 * u * t * z1 + t * t * z2;
-      const tx = u * (x1 - x0) + t * (x2 - x1);
-      const tz = u * (z1 - z0) + t * (z2 - z1);
-      const tl = Math.hypot(tx, tz);
-      hx = tl > 1e-9 ? tx / tl : (this.hx[slot] ?? 0);
-      hz = tl > 1e-9 ? tz / tl : (this.hz[slot] ?? -1);
-    }
+    const front = this.pathPoint(slot, s + hl, this.lp);
+    const fx = front.x, fz = front.z;
+    const rear = this.pathPoint(slot, s - hl, this.lp2);
+    const px = (fx + rear.x) / 2, pz = (fz + rear.z) / 2;
+    const dx = fx - rear.x, dz = fz - rear.z;
+    const dl = Math.hypot(dx, dz);
+    const hx = dl > 1e-6 ? dx / dl : rear.hx;
+    const hz = dl > 1e-6 ? dz / dl : rear.hz;
     let lat = 0;
     if ((this.behavior[slot] ?? 0) & BEHAVIOR.dui) lat = (this.weaveAmp[slot] ?? 0) * Math.sin(this.weavePhase[slot] ?? 0);
     this.lateral[slot] = lat;
@@ -1195,6 +1389,38 @@ export class TrafficSystem {
     this.hx[slot] = hx;
     this.hz[slot] = hz;
     this.yaw[slot] = Math.atan2(-hx, -hz);
+  }
+
+  /** Path point `s` metres along the car's lane, continuing over its connector onto the next lane. */
+  private pathPoint(slot: number, s: number, out: LanePoint): LanePoint {
+    const g = this.graph;
+    const lane = this.lane[slot] ?? 0;
+    const start = g.laneStart(lane);
+    if (s < start) {
+      // Behind the lane start (the rear still on the previous connector): straight back from the start.
+      g.lanePoint(lane, start, out);
+      out.x -= out.hx * (start - s);
+      out.z -= out.hz * (start - s);
+      return out;
+    }
+    const end = g.laneEnd(lane);
+    const next = this.nextLane[slot] ?? -1;
+    if (s <= end || next < 0) return g.lanePoint(lane, Math.min(s, end), out);
+    const len = this.clen[slot] ?? 0;
+    if (s - end >= len) return g.lanePoint(next, g.laneStart(next) + (s - end - len), out);
+    const t = (s - end) / len;
+    const u = 1 - t;
+    const x0 = this.c0x[slot] ?? 0, z0 = this.c0z[slot] ?? 0;
+    const x1 = this.c1x[slot] ?? 0, z1 = this.c1z[slot] ?? 0;
+    const x2 = this.c2x[slot] ?? 0, z2 = this.c2z[slot] ?? 0;
+    out.x = u * u * x0 + 2 * u * t * x1 + t * t * x2;
+    out.z = u * u * z0 + 2 * u * t * z1 + t * t * z2;
+    const tx = u * (x1 - x0) + t * (x2 - x1);
+    const tz = u * (z1 - z0) + t * (z2 - z1);
+    const tl = Math.hypot(tx, tz);
+    out.hx = tl > 1e-9 ? tx / tl : out.hx;
+    out.hz = tl > 1e-9 ? tz / tl : out.hz;
+    return out;
   }
 
   private writeEcs(slot: number): void {

@@ -115,6 +115,33 @@ describe('StreetlightPool', () => {
     expect(scene.getObjectByName('streetlights')).toBeUndefined();
   });
 
+  it('fades lights in and out as lamps swap places in the pool (no popping)', () => {
+    const scene = new THREE.Scene();
+    const pool = new StreetlightPool(scene, city, 4);
+    for (let i = 0; i < 9; i++) pool.update(camX, camZ, true);
+    const key = (l: THREE.PointLight): string => `${l.position.x.toFixed(2)},${l.position.z.toFixed(2)}`;
+    let before = new Map<string, number>();
+    for (const l of pool.lights) before.set(key(l), l.intensity);
+    // 0.25 m steps along x for 120 m: every lamp moves at most 0.25 m closer or further.
+    let worst = 0, swaps = 0;
+    for (let step = 1; step <= 480; step++) {
+      for (let i = 0; i < 3; i++) pool.update(camX + step * 0.25, camZ, true);
+      const now = new Map<string, number>();
+      for (const l of pool.lights) if (l.intensity > 0 || !now.has(key(l))) now.set(key(l), l.intensity);
+      for (const [k, v] of now) worst = Math.max(worst, Math.abs(v - (before.get(k) ?? 0)));
+      for (const [k, v] of before) {
+        if (now.has(k)) continue;
+        swaps++;
+        worst = Math.max(worst, v);
+      }
+      before = now;
+    }
+    expect(swaps).toBeGreaterThan(3);
+    // 60 cd over the 8 m fade, both distances changing by up to 0.25 m: well under 10 cd per step.
+    expect(worst).toBeLessThan(10);
+    pool.dispose();
+  });
+
   it('keeps unused lights dark where there are fewer lamps than lights', () => {
     const scene = new THREE.Scene();
     const pool = new StreetlightPool(scene, city, 4);

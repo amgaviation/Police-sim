@@ -51,6 +51,8 @@ const TRAFFIC_LIST_DEFAULT = 10;
 
 /** Search radius (m) of the `road` command. */
 const ROAD_SEARCH_M = 100;
+/** Street names `route` prints before cutting the list short. */
+const ROUTE_STREETS_MAX = 12;
 
 function isPoiKind(value: string): value is PoiKind {
   return (POI_KINDS as readonly string[]).includes(value);
@@ -173,6 +175,17 @@ function trafficLine(car: TrafficCarLine): string {
   );
 }
 
+/** Street names along `edges` with repeats merged, e.g. "Oak Avenue > 12th Street"; long routes are cut after `max` names. */
+export function routeStreets(city: City, edges: readonly number[], max = ROUTE_STREETS_MAX): string {
+  const names: string[] = [];
+  for (const id of edges) {
+    const name = city.graph.edges[id]?.name ?? '?';
+    if (names[names.length - 1] !== name) names.push(name);
+  }
+  const shown = names.slice(0, max).join(' > ');
+  return names.length > max ? `${shown} > ... (${String(names.length - max)} more)` : shown;
+}
+
 function recordLines(record: Record<string, unknown>): string {
   return Object.entries(record)
     .map(([k, v]) => `  ${k.padEnd(20)} ${typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)}`)
@@ -291,7 +304,10 @@ export function createWorldCommands(deps: WorldCommandDeps): Command[] {
         const ms = performance.now() - t0;
         if (!route) throw new Error(`No route to ${label} (no road within reach of the start or the end)`);
         deps.setRoute(route.polyline);
-        return `Route to ${label}: ${fmt(route.length / 1000, 2)} km, ETA ${fmt(route.time / 60, 1)} min (computed in ${fmt(ms, 2)} ms)`;
+        return (
+          `Route to ${label}: ${fmt(route.length / 1000, 2)} km, ETA ${fmt(route.time / 60, 1)} min (computed in ${fmt(ms, 2)} ms)\n` +
+          `  via ${routeStreets(c, route.edges)}`
+        );
       },
     },
     {

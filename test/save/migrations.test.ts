@@ -23,9 +23,10 @@ import { makeSaveGame, makeSaveGameV1, makeSaveGameV2, makeSavedVehicle, makeTra
 
 /** Defaults every migrated pre-v3 save gets. */
 const V3_DEFAULTS = {
-  player: { mode: 'onFoot', vehicle: -1 },
+  player: { mode: 'onFoot', vehicle: -1, lastVehicle: -1 },
   vehicles: [],
   traffic: null,
+  violations: [],
   environment: { timeOffset: 0, override: null },
 };
 
@@ -284,6 +285,17 @@ describe('v3 nested state', () => {
     expect(isSaveGame({ ...makeSaveGame(), player: { mode: 'flying', vehicle: -1 } })).toBe(false);
     expect(isSaveGame({ ...makeSaveGame(), player: undefined })).toBe(false);
     expect(isSaveGame({ ...makeSaveGame(), vehicles: undefined })).toBe(false);
+  });
+
+  it('checks the last-driven vehicle and the observed violations (both optional, as in early v3 saves)', () => {
+    expect(isSaveGame(makeSaveGame({ player: { mode: 'onFoot', vehicle: -1, lastVehicle: 1 } }))).toBe(true);
+    expect(isSaveGame(makeSaveGame({ player: { mode: 'onFoot', vehicle: -1 }, violations: undefined }))).toBe(true);
+    expect(isSaveGame(makeSaveGame({ violations: [] }))).toBe(true);
+    for (const lastVehicle of [2, -2, 0.5]) {
+      expect(isSaveGame(makeSaveGame({ player: { mode: 'onFoot', vehicle: -1, lastVehicle } }))).toBe(false);
+    }
+    const bad: unknown[] = [{}, [[1]], [[-1, {}]], [[1, { flying: 1 }]], [[1, { speeding: -1 }]], [[1, { speeding: 0.5 }]], [[1, null]]];
+    for (const violations of bad) expect(isSaveGame({ ...makeSaveGame(), violations })).toBe(false);
   });
 
   it('rejects camera modes that are not driving modes', () => {

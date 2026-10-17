@@ -26,7 +26,7 @@ export interface EnterCandidate {
   readonly yaw: number;
   readonly halfWidth: number;
   readonly halfLength: number;
-  /** Signed forward speed (m/s). */
+  /** Speed (m/s; the session passes the horizontal speed in any direction). */
   readonly speed: number;
 }
 

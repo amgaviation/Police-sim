@@ -95,9 +95,10 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
   return {
     ...makeSaveGameV2(),
     camera: { pitch: 0.3, mode: CAMERA_MODE.hood },
-    player: { mode: 'driving', vehicle: 0 },
+    player: { mode: 'driving', vehicle: 0, lastVehicle: 0 },
     vehicles: [makeSavedVehicle(), makeSavedVehicle({ modelId: 'patrol_suv', x: 194, sim: undefined })],
     traffic: makeTrafficSnapshot(),
+    violations: [[1234, { speeding: 2, redLight: 1 }]],
     environment: { timeOffset: 3600, override: { kind: 'rain', intensity: 0.8 } },
     ...overrides,
   };

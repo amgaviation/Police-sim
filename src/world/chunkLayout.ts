@@ -1,10 +1,10 @@
 import { createRng, type Rng } from '../core/rng';
 import { BLOCK_KIND, blockSurface, cellIndexOf, type Block, type City } from './city';
-import { CELLS_PER_SIDE, CHUNK_SIZE } from './constants';
+import { CELLS_PER_SIDE, CHUNK_SIZE, MAX_CHUNK, MIN_CHUNK, WORLD_EDGE_MARGIN, WORLD_HALF_SIZE, WORLD_WALL } from './constants';
 import { DISTRICTS, LANDMARKS, districtType, type DistrictTypeDef } from './data';
 import { yawOf } from './geom';
 import { DISTRICT, EDGE_FLAG, JUNCTION, ROAD_CLASS } from './ids';
-import type { RoadEdge, RoadGraph, RoadNode } from './roadGraph';
+import { constructionLimitMph, type RoadEdge, type RoadGraph, type RoadNode } from './roadGraph';
 import { stationLayout } from './stationLayout';
 
 /** minX, minZ, maxX, maxZ, height, roof (ROOF id), color (0xRRGGBB as float), style (district id). */
@@ -44,6 +44,26 @@ export interface ChunkLayout {
   readonly nodes: Uint32Array;
   /** Buildings, poles, trunks, containers, pumps, quay walls (centre inside chunk). */
   readonly colliders: Float32Array;
+  /** Walls to draw (COLLIDER_STRIDE): quay walls (also in `colliders`) and the world boundary (physics has its own). */
+  readonly walls: Float32Array;
+}
+
+/** A chunk's rectangle; chunks on the world edge reach `WORLD_EDGE_MARGIN` past it on that side. */
+export interface ChunkBounds {
+  minX: number;
+  minZ: number;
+  maxX: number;
+  maxZ: number;
+}
+
+export function chunkBounds(cx: number, cz: number): ChunkBounds {
+  const minX = cx * CHUNK_SIZE, minZ = cz * CHUNK_SIZE;
+  return {
+    minX: cx <= MIN_CHUNK ? minX - WORLD_EDGE_MARGIN : minX,
+    minZ: cz <= MIN_CHUNK ? minZ - WORLD_EDGE_MARGIN : minZ,
+    maxX: cx >= MAX_CHUNK ? minX + CHUNK_SIZE + WORLD_EDGE_MARGIN : minX + CHUNK_SIZE,
+    maxZ: cz >= MAX_CHUNK ? minZ + CHUNK_SIZE + WORLD_EDGE_MARGIN : minZ + CHUNK_SIZE,
+  };
 }
 
 /** Container length / width / height of one stacked unit (m). */
@@ -52,9 +72,12 @@ export const CONTAINER_SIZE = [12.2, 2.44, 2.6] as const;
 export const STREETLIGHT_HEIGHT = 8;
 /** Height of a signal pole (m). */
 export const SIGNAL_POLE_HEIGHT = 6;
+/** Sign post height (the mesher's face sits on top of it); the post gets a collider. */
+const SIGN_POST_HEIGHT = 2.2;
 const LOT_LIGHT_HEIGHT = 10;
 const TREE_TRUNK_HEIGHT = 4;
 const QUAY_WALL_HEIGHT = 1.2;
+const QUAY_WALL_HALF = 0.25;
 /** Search radius from the chunk centre that covers everything an edge or node can place in it (m). */
 const NEAR_RADIUS = CHUNK_SIZE * Math.SQRT1_2 + 48;
 
@@ -144,13 +167,15 @@ function hitsBuilding(out: Sink, from: number, x: number, z: number, pad: number
 }
 
 /** Scatters `count` props of `kind` in the block, away from its buildings. */
-function scatter(out: Sink, b: Block, rng: Rng, from: number, kind: number, count: number, scale0: number, scale1: number): void {
+function scatter(city: City, out: Sink, b: Block, rng: Rng, from: number, kind: number, count: number, scale0: number, scale1: number): void {
+  const ground = blockSurface(b.kind, b.district);
   for (let placed = 0, tries = 0; placed < count && tries < count * 4; tries++) {
     const x = rng.nextFloat(b.minX + 1.5, b.maxX - 1.5);
     const z = rng.nextFloat(b.minZ + 1.5, b.maxZ - 1.5);
     const yaw = rng.nextFloat(0, Math.PI * 2);
     const scale = rng.nextFloat(scale0, scale1);
-    if (hitsBuilding(out, from, x, z, 2.5)) continue;
+    // A junction square can reach over a block corner where the road class changes.
+    if (hitsBuilding(out, from, x, z, 2.5) || city.surfaceAt(x, z) !== ground) continue;
     pushProp(out, kind, x, z, yaw, scale);
     placed++;
   }
@@ -209,7 +234,7 @@ function blockContents(city: City, b: Block, out: Sink): void {
       fixedBuilding(out, b, cx - s, cz - s, cx + s, cz + s, 45, ROOF.flat, POI_COLOR.hospital);
       fixedBuilding(out, b, cx - s - 31, cz - 10, cx - s - 1, cz + 10, 15, ROOF.flat, POI_COLOR.hospital);
       fixedBuilding(out, b, cx + s + 1, cz - 10, cx + s + 31, cz + 10, 15, ROOF.flat, POI_COLOR.hospital);
-      scatter(out, b, rng, start, PROP.tree, perArea(b, 0.2, rng), 0.8, 1.2);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, 0.2, rng), 0.8, 1.2);
       return;
     }
     case 'campus': {
@@ -219,7 +244,7 @@ function blockContents(city: City, b: Block, out: Sink): void {
       fixedBuilding(out, b, cx - hx, b.maxZ - m - 20, cx + hx, b.maxZ - m, 16, ROOF.pitched, POI_COLOR.campus);
       fixedBuilding(out, b, b.minX + m, cz - hz, b.minX + m + 20, cz + hz, 20, ROOF.flat, POI_COLOR.campus);
       fixedBuilding(out, b, b.maxX - m - 20, cz - hz, b.maxX - m, cz + hz, 20, ROOF.flat, POI_COLOR.campus);
-      scatter(out, b, rng, start, PROP.tree, perArea(b, 0.4, rng), 0.8, 1.3);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, 0.4, rng), 0.8, 1.3);
       return;
     }
     case 'airport': {
@@ -237,7 +262,7 @@ function blockContents(city: City, b: Block, out: Sink): void {
     }
     case 'school': {
       fixedBuilding(out, b, cx - 30, b.minZ + 8, cx + 30, b.minZ + 32, 9, ROOF.flat, POI_COLOR.school);
-      scatter(out, b, rng, start, PROP.tree, perArea(b, 0.3, rng), 0.8, 1.2);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, 0.3, rng), 0.8, 1.2);
       return;
     }
     case 'fuel': {
@@ -254,19 +279,19 @@ function blockContents(city: City, b: Block, out: Sink): void {
   switch (b.kind) {
     case BLOCK_KIND.lots:
       lotsBlock(out, b, t, rng);
-      scatter(out, b, rng, start, PROP.tree, perArea(b, t.props.treesPer1000m2, rng), 0.8, 1.3);
-      if (t.buildings.setback >= 5) scatter(out, b, rng, start, PROP.bush, perArea(b, t.props.treesPer1000m2 * 0.5, rng), 0.7, 1.2);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, t.props.treesPer1000m2, rng), 0.8, 1.3);
+      if (t.buildings.setback >= 5) scatter(city, out, b, rng, start, PROP.bush, perArea(b, t.props.treesPer1000m2 * 0.5, rng), 0.7, 1.2);
       return;
     case BLOCK_KIND.park:
     case BLOCK_KIND.green: {
       if (w * d > 20000) fixedBuilding(out, b, cx - 5, cz - 5, cx + 5, cz + 5, 4, ROOF.pitched, t.buildings.palette[0] ?? 0xa58b6c);
-      scatter(out, b, rng, start, PROP.tree, perArea(b, Math.max(0.4, t.props.treesPer1000m2), rng), 0.8, 1.4);
-      scatter(out, b, rng, start, PROP.bench, perArea(b, 0.25, rng), 1, 1);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, Math.max(0.4, t.props.treesPer1000m2), rng), 0.8, 1.4);
+      scatter(city, out, b, rng, start, PROP.bench, perArea(b, 0.25, rng), 1, 1);
       return;
     }
     case BLOCK_KIND.plaza:
-      scatter(out, b, rng, start, PROP.tree, perArea(b, 0.2, rng), 0.8, 1.1);
-      scatter(out, b, rng, start, PROP.bench, perArea(b, 1.5, rng), 1, 1);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, 0.2, rng), 0.8, 1.1);
+      scatter(city, out, b, rng, start, PROP.bench, perArea(b, 1.5, rng), 1, 1);
       return;
     case BLOCK_KIND.parking:
       lotLights(out, b, 35);
@@ -284,7 +309,7 @@ function blockContents(city: City, b: Block, out: Sink): void {
         if (rng.chance(0.5)) pushProp(out, PROP.bush, x, b.minZ + 1.5, 0, 1.2);
         if (rng.chance(0.5)) pushProp(out, PROP.bush, x, b.maxZ - 1.5, 0, 1.2);
       }
-      scatter(out, b, rng, start, PROP.tree, perArea(b, t.props.treesPer1000m2, rng), 0.9, 1.4);
+      scatter(city, out, b, rng, start, PROP.tree, perArea(b, t.props.treesPer1000m2, rng), 0.9, 1.4);
       return;
     }
     case BLOCK_KIND.yard: {
@@ -356,6 +381,11 @@ function edgeItems(g: RoadGraph, e: RoadEdge, out: Sink, signs: number[]): void 
   const s0 = from.setback;
   const s1 = e.length - to.setback;
   const props = districtType(e.district).props;
+  // The yaw is computed first: besideTravel moves `f` to the item's position.
+  const roadside = (kind: number, dir: 0 | 1, s: number, lateral: number, side: 1 | -1): void => {
+    const yaw = besideTravel(e, dir, s, lateral, side, f);
+    pushProp(out, kind, f.x, f.z, yaw);
+  };
 
   // Streetlights: both kerbs at a spacing, or only beside junctions where the spacing is 0.
   const lightLateral = e.width / 2 + (e.sidewalk > 0 ? e.sidewalk - 0.6 : 1.2);
@@ -367,25 +397,28 @@ function edgeItems(g: RoadGraph, e: RoadEdge, out: Sink, signs: number[]): void 
       }
     }
   } else {
-    if (from.junction !== JUNCTION.none) pushProp(out, PROP.streetlight, f.x, f.z, besideTravel(e, 0, s0 + 3, lightLateral, 1, f));
-    if (to.junction !== JUNCTION.none) pushProp(out, PROP.streetlight, f.x, f.z, besideTravel(e, 1, e.length - s1 + 3, lightLateral, 1, f));
+    if (from.junction !== JUNCTION.none) roadside(PROP.streetlight, 0, s0 + 3, lightLateral, 1);
+    if (to.junction !== JUNCTION.none) roadside(PROP.streetlight, 1, e.length - s1 + 3, lightLateral, 1);
   }
   if (e.sidewalk > 0) {
     if (props.hydrantSpacing > 0) {
       for (let s = s0 + props.hydrantSpacing * 0.3; s <= s1 - 2; s += props.hydrantSpacing) {
-        pushProp(out, PROP.hydrant, f.x, f.z, besideTravel(e, 0, s, e.width / 2 + e.sidewalk - 0.4, 1, f));
+        roadside(PROP.hydrant, 0, s, e.width / 2 + e.sidewalk - 0.4, 1);
       }
     }
     if (props.benchSpacing > 0) {
       for (let s = s0 + props.benchSpacing * 0.4; s <= s1 - 2; s += props.benchSpacing) {
-        pushProp(out, PROP.bench, f.x, f.z, besideTravel(e, 0, s, e.width / 2 + e.sidewalk - 0.5, -1, f));
+        roadside(PROP.bench, 0, s, e.width / 2 + e.sidewalk - 0.5, -1);
       }
     }
   }
   if (e.flags & EDGE_FLAG.construction) {
-    for (let s = s0 + 6; s <= s1 - 6; s += 10) pushProp(out, PROP.cone, f.x, f.z, besideTravel(e, 0, s, e.width / 2 - 0.4, 1, f));
-    pushProp(out, PROP.barrier, f.x, f.z, besideTravel(e, 0, s0 + 3, e.width / 2 - 1.2, 1, f));
-    pushProp(out, PROP.barrier, f.x, f.z, besideTravel(e, 0, s1 - 3, e.width / 2 - 1.2, 1, f));
+    for (let s = s0 + 6; s <= s1 - 6; s += 10) roadside(PROP.cone, 0, s, e.width / 2 - 0.4, 1);
+    // End barriers stand on the shoulder turned along the kerb (their long side parallel to travel), clear of the lane.
+    for (const s of [s0 + 3, s1 - 3]) {
+      const yaw = besideTravel(e, 0, s, e.width / 2 - 0.15, 1, f);
+      pushProp(out, PROP.barrier, f.x, f.z, yaw + Math.PI / 2);
+    }
   }
 
   // Signs per travel direction, measured from that direction's start node.
@@ -399,7 +432,8 @@ function edgeItems(g: RoadGraph, e: RoadEdge, out: Sink, signs: number[]): void 
       const yaw = besideTravel(e, dir, start.setback + offset, lateral, 1, f);
       signs.push(kind, f.x, f.z, yaw, value);
     };
-    if (start.junction !== JUNCTION.none) sign(SIGN.speedLimit, 12, e.speedLimitMph);
+    // The posted limit includes the construction reduction (school zones have their own sign).
+    if (start.junction !== JUNCTION.none) sign(SIGN.speedLimit, 12, constructionLimitMph(e));
     if (e.flags & EDGE_FLAG.schoolZone) {
       const boundary = start.edges.some((id) => ((g.edges[id] as RoadEdge).flags & EDGE_FLAG.schoolZone) === 0);
       if (boundary) sign(SIGN.schoolZone, 20, 0);
@@ -422,30 +456,35 @@ function signAt(e: RoadEdge, dir: 0 | 1, s: number, lateral: number, f: Frame): 
 function nodeItems(g: RoadGraph, node: RoadNode, signs: number[], heads: number[]): void {
   if (node.junction === JUNCTION.none) return;
   const f: Frame = { x: 0, z: 0, ux: 1, uz: 0 };
-  let topClass = 99, allSame = true;
-  for (const id of node.edges) {
-    const c = (g.edges[id] as RoadEdge).roadClass;
-    if (topClass !== 99 && c !== topClass) allSame = false;
-    topClass = Math.min(topClass, c);
-  }
   for (const id of node.edges) {
     const e = g.edges[id] as RoadEdge;
     const dir: 0 | 1 = e.to === node.id ? 0 : 1;
     if ((dir === 0 ? e.lanesForward : e.lanesBackward) === 0) continue;
     const stopLine = e.length - node.setback;
     if (node.junction === JUNCTION.signal) {
-      // Head on the far-right corner: across the junction, beside the approach's kerb line.
+      // Head on the far-right corner: across the junction, beside the kerb line of the widest road on
+      // the approach's axis (a county road continuing as an arterial widens past the junction).
       frameAt(e, dir === 0 ? e.length : 0, f);
       const hx = dir === 0 ? f.ux : -f.ux;
       const hz = dir === 0 ? f.uz : -f.uz;
-      const lateral = e.width / 2 + 1;
-      const x = node.x + hx * node.setback - hz * lateral;
-      const z = node.z + hz * node.setback + hx * lateral;
+      let half = e.width / 2;
+      const axis = g.approachGroup(id, dir);
+      for (const oid of node.edges) {
+        const o = g.edges[oid] as RoadEdge;
+        if (g.approachGroup(oid, o.to === node.id ? 0 : 1) === axis) half = Math.max(half, o.width / 2);
+      }
+      const lateral = half + 1;
+      let x = node.x + hx * node.setback - hz * lateral;
+      let z = node.z + hz * node.setback + hx * lateral;
+      if (Math.abs(x) > WORLD_HALF_SIZE || Math.abs(z) > WORLD_HALF_SIZE) {
+        // Far side past the world edge (perimeter junctions): the near-right corner instead.
+        x = node.x - hx * node.setback - hz * lateral;
+        z = node.z - hz * node.setback + hx * lateral;
+      }
       heads.push(node.signal, g.approachGroup(id, dir), x, z, yawOf(-hx, -hz));
       continue;
     }
-    const stops = node.junction === JUNCTION.allWayStop || allSame || e.roadClass > topClass;
-    if (!stops) continue;
+    if (!g.stopsAt(id, node.id)) continue;
     const kind = e.roadClass === ROAD_CLASS.service || e.roadClass === ROAD_CLASS.gravel ? SIGN.yield : SIGN.stop;
     const yaw = besideTravel(e, dir, stopLine, roadsideOffset(e, 0), 1, f);
     signs.push(kind, f.x, f.z, yaw, 0);
@@ -486,6 +525,9 @@ function propCollider(out: number[], kind: number, x: number, z: number, yaw: nu
     case PROP.fuelPump:
       pushCollider(out, x, 0.9, z, 0.5, 0.9, 0.35, yaw);
       break;
+    case PROP.barrier:
+      pushCollider(out, x, 0.4, z, 1.0, 0.4, 0.1, yaw);
+      break;
     default:
       break;
   }
@@ -501,8 +543,7 @@ function propCollider(out: number[], kind: number, x: number, z: number, yaw: nu
  */
 export function chunkLayout(city: City, cx: number, cz: number): ChunkLayout {
   const g = city.graph;
-  const minX = cx * CHUNK_SIZE, minZ = cz * CHUNK_SIZE;
-  const maxX = minX + CHUNK_SIZE, maxZ = minZ + CHUNK_SIZE;
+  const { minX, minZ, maxX, maxZ } = chunkBounds(cx, cz);
   const inside = (x: number, z: number): boolean => x >= minX && x < maxX && z >= minZ && z < maxZ;
 
   const buildings: number[] = [];
@@ -511,6 +552,7 @@ export function chunkLayout(city: City, cx: number, cz: number): ChunkLayout {
   const heads: number[] = [];
   const ground: number[] = [];
   const colliders: number[] = [];
+  const walls: number[] = [];
 
   const keep = (sink: Sink): void => {
     const bl = sink.buildings;
@@ -542,13 +584,14 @@ export function chunkLayout(city: City, cx: number, cz: number): ChunkLayout {
     sink.props.length = 0;
     blockContents(city, b, sink);
     keep(sink);
-    if (b.kind === BLOCK_KIND.water) quayWalls(b, minX, minZ, maxX, maxZ, colliders);
+    if (b.kind === BLOCK_KIND.water) quayWalls(city, b, minX, minZ, maxX, maxZ, colliders, walls);
   }
+  boundaryWalls(cx, cz, minX, minZ, maxX, maxZ, walls);
 
   // Road-side items.
   const near: number[] = [];
   const touching: number[] = [];
-  const ccx = minX + CHUNK_SIZE / 2, ccz = minZ + CHUNK_SIZE / 2;
+  const ccx = (cx + 0.5) * CHUNK_SIZE, ccz = (cz + 0.5) * CHUNK_SIZE;
   for (const id of g.edgesNear(ccx, ccz, NEAR_RADIUS, near)) {
     const e = g.edges[id] as RoadEdge;
     if (edgeTouches(e, minX, minZ, maxX, maxZ)) touching.push(id);
@@ -557,7 +600,7 @@ export function chunkLayout(city: City, cx: number, cz: number): ChunkLayout {
     const edgeSigns: number[] = [];
     edgeItems(g, e, sink, edgeSigns);
     keep(sink);
-    keepSigns(edgeSigns, signs, inside);
+    keepSigns(edgeSigns, signs, colliders, inside);
   }
   const nodeIds: number[] = [];
   for (const id of g.nodesNear(ccx, ccz, NEAR_RADIUS, near)) {
@@ -567,7 +610,7 @@ export function chunkLayout(city: City, cx: number, cz: number): ChunkLayout {
     const nodeSigns: number[] = [];
     const nodeHeads: number[] = [];
     nodeItems(g, n, nodeSigns, nodeHeads);
-    keepSigns(nodeSigns, signs, inside);
+    keepSigns(nodeSigns, signs, colliders, inside);
     for (let i = 0; i < nodeHeads.length; i += HEAD_STRIDE) {
       const x = nodeHeads[i + 2] ?? 0, z = nodeHeads[i + 3] ?? 0;
       if (!inside(x, z)) continue;
@@ -587,13 +630,17 @@ export function chunkLayout(city: City, cx: number, cz: number): ChunkLayout {
     edges: new Uint32Array(touching),
     nodes: new Uint32Array(nodeIds),
     colliders: new Float32Array(colliders),
+    walls: new Float32Array(walls),
   };
 }
 
-function keepSigns(src: number[], dst: number[], inside: (x: number, z: number) => boolean): void {
+/** Keeps the signs inside the chunk, each with a collider for its post. */
+function keepSigns(src: number[], dst: number[], colliders: number[], inside: (x: number, z: number) => boolean): void {
   for (let i = 0; i < src.length; i += SIGN_STRIDE) {
-    if (!inside(src[i + 1] ?? 0, src[i + 2] ?? 0)) continue;
+    const x = src[i + 1] ?? 0, z = src[i + 2] ?? 0;
+    if (!inside(x, z)) continue;
     for (let k = 0; k < SIGN_STRIDE; k++) dst.push(src[i + k] ?? 0);
+    pushCollider(colliders, x, SIGN_POST_HEIGHT / 2, z, 0.06, SIGN_POST_HEIGHT / 2, 0.06, 0);
   }
 }
 
@@ -609,14 +656,28 @@ function edgeTouches(e: RoadEdge, minX: number, minZ: number, maxX: number, maxZ
   return false;
 }
 
-/** Quay walls along the sides of a water block that face land, cut to the chunk. */
-function quayWalls(b: Block, minX: number, minZ: number, maxX: number, maxZ: number, out: number[]): void {
+/**
+ * Quay walls along the sides of a water block that face land, cut to the chunk. Where land touches
+ * the block only diagonally (two land roads meet in an L at the block corner), two stubs continue
+ * the neighbours' walls across the corner square so the corner is closed too.
+ */
+function quayWalls(city: City, b: Block, minX: number, minZ: number, maxX: number, maxZ: number, out: number[], walls: number[]): void {
   const col = cellIndexOf((b.minX + b.maxX) / 2);
   const row = cellIndexOf((b.minZ + b.maxZ) / 2);
   const land = (c: number, r: number): boolean =>
     c >= 0 && r >= 0 && c < CELLS_PER_SIDE && r < CELLS_PER_SIDE && DISTRICTS.cells[r * CELLS_PER_SIDE + c] !== DISTRICT.water;
   const half = QUAY_WALL_HEIGHT / 2;
-  const t = 0.25;
+  const t = QUAY_WALL_HALF;
+  // Wall along x (axis 0) at z = fixed, or along z (axis 1) at x = fixed, from a0 to a1; kept by the chunk holding its line.
+  const wall = (axis: 0 | 1, fixed: number, a0: number, a1: number): void => {
+    if (axis === 1) {
+      const z0 = Math.max(a0, minZ), z1 = Math.min(a1, maxZ);
+      if (z1 > z0 && fixed >= minX && fixed < maxX) pushWall(out, walls, fixed, half, (z0 + z1) / 2, t, half, (z1 - z0) / 2);
+    } else {
+      const x0 = Math.max(a0, minX), x1 = Math.min(a1, maxX);
+      if (x1 > x0 && fixed >= minZ && fixed < maxZ) pushWall(out, walls, (x0 + x1) / 2, half, fixed, (x1 - x0) / 2, half, t);
+    }
+  };
   // [neighbour col, row, axis along which the wall runs, fixed coordinate]
   const sides: [number, number, 0 | 1, number][] = [
     [col - 1, row, 1, b.minX + t],
@@ -626,12 +687,47 @@ function quayWalls(b: Block, minX: number, minZ: number, maxX: number, maxZ: num
   ];
   for (const [c, r, axis, fixed] of sides) {
     if (!land(c, r)) continue;
-    if (axis === 1) {
-      const z0 = Math.max(b.minZ, minZ), z1 = Math.min(b.maxZ, maxZ);
-      if (z1 > z0 && fixed >= minX && fixed < maxX) pushCollider(out, fixed, half, (z0 + z1) / 2, t, half, (z1 - z0) / 2, 0);
-    } else {
-      const x0 = Math.max(b.minX, minX), x1 = Math.min(b.maxX, maxX);
-      if (x1 > x0 && fixed >= minZ && fixed < maxZ) pushCollider(out, (x0 + x1) / 2, half, fixed, (x1 - x0) / 2, half, t, 0);
+    if (axis === 1) wall(1, fixed, b.minZ, b.maxZ);
+    else wall(0, fixed, b.minX, b.maxX);
+  }
+  for (const sx of [-1, 1] as const) {
+    for (const sz of [-1, 1] as const) {
+      if (land(col + sx, row) || land(col, row + sz) || !land(col + sx, row + sz)) continue;
+      const cornerX = sx < 0 ? b.minX : b.maxX;
+      const cornerZ = sz < 0 ? b.minZ : b.maxZ;
+      // The water blocks beside this one, across the corner from the land: their walls end at the corner.
+      const above = waterBlockAt(city, cornerX - sx * 40, cornerZ + sz);
+      const beside = waterBlockAt(city, cornerX + sx, cornerZ - sz * 40);
+      if (!above || !beside) continue;
+      const wallX = sx < 0 ? above.minX + t : above.maxX - t;
+      const wallZ = sz < 0 ? beside.minZ + t : beside.maxZ - t;
+      // Each stub runs from the corner to the other stub's far face, so the two overlap.
+      wall(1, wallX, Math.min(cornerZ, wallZ - sz * t), Math.max(cornerZ, wallZ - sz * t));
+      wall(0, wallZ, Math.min(cornerX, wallX - sx * t), Math.max(cornerX, wallX - sx * t));
     }
   }
+}
+
+function waterBlockAt(city: City, x: number, z: number): Block | undefined {
+  for (const id of city.blocksIn(x, z, x, z, [])) {
+    const b = city.blocks[id] as Block;
+    if (b.kind === BLOCK_KIND.water) return b;
+  }
+  return undefined;
+}
+
+function pushWall(colliders: number[], walls: number[], x: number, y: number, z: number, hx: number, hy: number, hz: number): void {
+  pushCollider(colliders, x, y, z, hx, hy, hz, 0);
+  pushCollider(walls, x, y, z, hx, hy, hz, 0);
+}
+
+/** The world boundary walls (see `WORLD_WALL`; their colliders are global) drawn by the edge chunks. */
+function boundaryWalls(cx: number, cz: number, minX: number, minZ: number, maxX: number, maxZ: number, walls: number[]): void {
+  const c = WORLD_HALF_SIZE + WORLD_WALL.offset;
+  const t = WORLD_WALL.halfThickness;
+  const h = WORLD_WALL.height / 2;
+  if (cx <= MIN_CHUNK) pushCollider(walls, -c, h, (minZ + maxZ) / 2, t, h, (maxZ - minZ) / 2, 0);
+  if (cx >= MAX_CHUNK) pushCollider(walls, c, h, (minZ + maxZ) / 2, t, h, (maxZ - minZ) / 2, 0);
+  if (cz <= MIN_CHUNK) pushCollider(walls, (minX + maxX) / 2, h, -c, (maxX - minX) / 2, h, t, 0);
+  if (cz >= MAX_CHUNK) pushCollider(walls, (minX + maxX) / 2, h, c, (maxX - minX) / 2, h, t, 0);
 }

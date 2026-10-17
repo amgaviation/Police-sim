@@ -13,6 +13,7 @@ import {
   RoadGraph,
   SURFACE,
   type JunctionId,
+  type RoadClassId,
   type RoadEdge,
   type RoadNode,
   type SignalDef,
@@ -26,6 +27,7 @@ interface EdgeSpec {
   to: number;
   speedMph?: number;
   lanes?: number;
+  roadClass?: RoadClassId;
 }
 
 /** Small graph of straight two-way edges; nodes of degree >= 3 get an 8 m setback. */
@@ -46,7 +48,7 @@ export function buildGraph(
       id,
       from: s.from,
       to: s.to,
-      roadClass: ROAD_CLASS.local,
+      roadClass: s.roadClass ?? ROAD_CLASS.local,
       lanesForward: lanes,
       lanesBackward: lanes,
       laneWidth: 3.5,
@@ -78,15 +80,24 @@ export function buildGraph(
 /** Group 0 (x-axis) green 0-20 s, yellow 20-24, red 24-51; group 1 green 25.5-45.5. */
 export const CROSS_SIGNAL: SignalDef = { id: 0, node: 0, cycle: 51, offset: 0, green: [20, 20], yellow: 4, allRed: 1.5 };
 
+/** Overrides for `crossGraph`: the east-west road (edges 0, 1), the north-south road (2, 3) and lanes per direction. */
+export interface CrossOptions {
+  major?: { roadClass?: RoadClassId; speedMph?: number };
+  minor?: { roadClass?: RoadClassId; speedMph?: number };
+  lanes?: number;
+}
+
 /**
  * A + junction at the origin with 1000 m arms. Edge 0 runs west -> centre (travel +x on dir 0),
  * edge 1 centre -> east, edge 2 north -> centre (travel +z), edge 3 centre -> south.
  */
-export function crossGraph(junction: JunctionId): RoadGraph {
+export function crossGraph(junction: JunctionId, options: CrossOptions = {}): RoadGraph {
   const L = 1000;
+  const ew = { ...options.major, lanes: options.lanes };
+  const ns = { ...options.minor, lanes: options.lanes };
   return buildGraph(
     [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L]],
-    [{ from: 1, to: 0 }, { from: 0, to: 2 }, { from: 3, to: 0 }, { from: 0, to: 4 }],
+    [{ from: 1, to: 0, ...ew }, { from: 0, to: 2, ...ew }, { from: 3, to: 0, ...ns }, { from: 0, to: 4, ...ns }],
     [junction],
     junction === JUNCTION.signal ? [CROSS_SIGNAL] : [],
   );
@@ -114,6 +125,6 @@ export async function makeHarness(graph: RoadGraph, seed = 7, city?: City): Prom
   const sys = new TrafficSystem({ world, physics, graph, city, seed, rng: createRng(seed).stream('traffic'), bus });
   const violations: TrafficViolationEvent[] = [];
   bus.on('traffic:violation', (e) => violations.push(e));
-  const focus: TrafficFocus = { x: 0, z: 0, obstacle: false, ox: 0, oz: 0, ovx: 0, ovz: 0, oRadius: 1 };
+  const focus: TrafficFocus = { x: 0, z: 0, obstacle: false, ox: 0, oz: 0, ovx: 0, ovz: 0, oRadius: 1, oHalfWidth: 1 };
   return { sys, world, physics, bus, violations, focus };
 }

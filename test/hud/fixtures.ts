@@ -8,6 +8,7 @@ export function telemetry(overrides: Partial<VehicleTelemetry> = {}): VehicleTel
     speed: 20,
     speedKmh: 72,
     speedMph: 44.7,
+    groundSpeed: 20,
     rpm: 2500,
     gear: 3,
     throttle: 0.4,

@@ -5,7 +5,8 @@
  * Starts the Vite dev server (unless SMOKE_URL points at a running one), drives
  * the game in headless Chromium with SwiftShader: a new shift in the city, chunk
  * streaming and traffic, getting into the patrol car and driving it, weather and
- * night, the world console commands, a save/load round trip and the perf numbers.
+ * night, the world console commands, a save/load round trip, settings, and the perf
+ * numbers (including a per-frame cost breakdown under software GL).
  * Writes docs/screenshots/phase1.png and docs/screenshots/phase1-night.png.
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
@@ -24,6 +25,8 @@ const SHOTS = path.join(ROOT, 'docs', 'screenshots');
 const SEED = 42;
 /** Draw-call hard cap of the design (§15); the target is 200. */
 const DRAW_CALL_CAP = 300;
+/** Frames averaged by each frame-cost breakdown. */
+const BREAKDOWN_FRAMES = 10;
 
 process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/opt/pw-browsers';
 
@@ -99,6 +102,75 @@ async function waitFor(page, fn, arg, timeoutMs) {
   return value;
 }
 
+/**
+ * Average frame cost over `frames` rendered frames, measured by wrapping the loop hooks in the
+ * page: sim (fixed steps), update (input, camera, environment, streaming, cars, HUD) and render
+ * (mesh sync, the renderer's CPU-side draw submission, perf overlay). The rest of the frame
+ * interval is spent waiting for the GPU process (SwiftShader rasterises on the CPU there).
+ */
+async function frameBreakdown(frames) {
+  const app = window.patrol;
+  const hooks = app.loop.hooks; // private in TypeScript, a plain property at runtime
+  const renderer = app.renderer;
+  const original = { fixedUpdate: hooks.fixedUpdate, update: hooks.update, render: hooks.render, draw: renderer?.render };
+  const acc = { sim: 0, steps: 0, update: 0, render: 0, draw: 0, frames: 0, firstEnd: 0, lastEnd: 0 };
+  hooks.fixedUpdate = (dt, step) => {
+    const t0 = performance.now();
+    original.fixedUpdate(dt, step);
+    acc.sim += performance.now() - t0;
+    acc.steps += 1;
+  };
+  hooks.update = (dt, alpha) => {
+    const t0 = performance.now();
+    original.update(dt, alpha);
+    acc.update += performance.now() - t0;
+  };
+  hooks.render = (alpha) => {
+    const t0 = performance.now();
+    original.render(alpha);
+    const end = performance.now();
+    acc.frames += 1;
+    if (acc.frames === 1) {
+      // The first frame only starts the clock: drop its costs.
+      acc.sim = acc.steps = acc.update = acc.draw = 0;
+      acc.firstEnd = end;
+      return;
+    }
+    acc.render += end - t0;
+    acc.lastEnd = end;
+  };
+  if (renderer) {
+    renderer.render = (...args) => {
+      const t0 = performance.now();
+      original.draw.apply(renderer, args);
+      acc.draw += performance.now() - t0;
+    };
+  }
+  await new Promise((resolve) => {
+    const poll = () => (acc.frames > frames ? resolve() : setTimeout(poll, 50));
+    poll();
+  });
+  hooks.fixedUpdate = original.fixedUpdate;
+  hooks.update = original.update;
+  hooks.render = original.render;
+  if (renderer) renderer.render = original.draw;
+  const n = acc.frames - 1;
+  const round = (v, d = 2) => Number(v.toFixed(d));
+  const frameMs = (acc.lastEnd - acc.firstEnd) / n;
+  const cpuMs = (acc.sim + acc.update + acc.render) / n;
+  return {
+    frames: n,
+    fps: round(1000 / frameMs, 1),
+    frameMs: round(frameMs, 1),
+    simMs: round(acc.sim / n),
+    stepsPerFrame: round(acc.steps / n, 1),
+    updateMs: round(acc.update / n),
+    renderMs: round(acc.render / n),
+    drawSubmitMs: round(acc.draw / n),
+    gpuWaitMs: round(frameMs - cpuMs, 1),
+  };
+}
+
 /** Perf numbers of the running game: loop, renderer, streaming, traffic, cars and per-system timings. */
 function perfSnapshot() {
   const app = window.patrol;
@@ -132,11 +204,14 @@ async function run() {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 
   const consoleErrors = [];
+  const consoleWarnings = [];
   const consoleLines = [];
   page.on('console', (msg) => {
     const line = `[${msg.type()}] ${msg.text()}`;
     consoleLines.push(line);
     if (msg.type() === 'error') consoleErrors.push(line);
+    // Chromium's own GPU-process notes (e.g. SwiftShader "GPU stall due to ReadPixels") are not the app's.
+    if (msg.type() === 'warning' && !msg.text().includes('GL Driver Message')) consoleWarnings.push(line);
   });
   page.on('pageerror', (error) => {
     const line = `[pageerror] ${error.message}`;
@@ -212,6 +287,7 @@ async function run() {
       check(state.drawCalls <= DRAW_CALL_CAP, `draw calls within the ${DRAW_CALL_CAP} cap (${state.drawCalls})`);
     }
     const perfOnFoot = await page.evaluate(perfSnapshot);
+    const frameOnFoot = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
 
     const toggles = await page.evaluate(() => {
       const app = window.patrol;
@@ -313,6 +389,11 @@ async function run() {
     await page.screenshot({ path: path.join(SHOTS, 'phase1-night.png') });
     console.log(`screenshot: ${path.join(SHOTS, 'phase1-night.png')}`);
     const perfNight = await page.evaluate(perfSnapshot);
+    const frameNight = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+    // Software GL cost grows with the pixel count: a quarter of the pixels shows how much of the frame is rasterisation.
+    await page.evaluate(() => window.patrol.console.execute('settings set graphics.renderScale 0.5'));
+    const frameHalfScale = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+    await page.evaluate(() => window.patrol.console.execute('settings set graphics.renderScale 1'));
 
     // --- Save / load round trip ---------------------------------------------------------
     const saveLoad = await page.evaluate(async () => {
@@ -407,7 +488,15 @@ async function run() {
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
     console.log('perf night/rain:', JSON.stringify(perfNight));
+    const describe = (label, f) =>
+      `  ${label.padEnd(34)} ${f.fps} fps, ${f.frameMs} ms/frame = sim ${f.simMs} ms (${f.stepsPerFrame} steps) + update ${f.updateMs} ms` +
+      ` + render ${f.renderMs} ms (draw submit ${f.drawSubmitMs} ms) + GPU wait ${f.gpuWaitMs} ms`;
+    console.log(`frame breakdown (SwiftShader software GL, 1280x720, ${BREAKDOWN_FRAMES} frames each):`);
+    console.log(describe('on foot, day:', frameOnFoot));
+    console.log(describe('driving, night + rain:', frameNight));
+    console.log(describe('driving, night + rain, scale 0.5:', frameHalfScale));
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+    check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
   } finally {
     console.log('--- browser console ---');
     for (const line of consoleLines) console.log(line);

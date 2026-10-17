@@ -8,6 +8,7 @@
  */
 import {
   BUILDING_STRIDE,
+  COLLIDER_STRIDE,
   CONTAINER_SIZE,
   GROUND_STRIDE,
   PROP,
@@ -16,6 +17,7 @@ import {
   SIGN,
   SIGN_STRIDE,
   STREETLIGHT_HEIGHT,
+  chunkBounds,
   type ChunkLayout,
 } from '../chunkLayout';
 import { BLOCK_KIND, type City } from '../city';
@@ -58,7 +60,11 @@ const ROOF_UV = 0.5 / WINDOW_TEXTURE_SIZE;
 
 const GROUND_Y = 0;
 const BASE_Y = -0.1;
+/** Water sits a little below the roads, so a junction square over a water block corner does not z-fight. */
+const WATER_Y = -0.05;
 const MARKING_Y = 0.02;
+/** Junction squares sit just above the ground: one can reach over a block corner where the road class changes. */
+const JUNCTION_Y = 0.005;
 /** Streetlight arm length from the pole toward the road (local +X). */
 const ARM_LENGTH = 2.2;
 const LOT_LIGHT_POLE = 10;
@@ -86,6 +92,7 @@ const COLOR = {
   lamp: 0xd8d6cc,
   pump: 0xd9d9d6,
   bollard: 0xd4b22a,
+  concrete: 0x9a968e,
 } as const;
 const FOLIAGE = [0x3f6b2e, 0x4b7a35, 0x355c2a, 0x56803a] as const;
 const ROOF_TILES = [0x5a3d32, 0x4a4d52, 0x6b4a3a, 0x3f4247] as const;
@@ -371,15 +378,7 @@ function edgeRect(b: GroupBuilder, clip: Clip, f: EdgeFrame, s0: number, s1: num
 
 /** True when the approach of `e` arriving at `node` must stop there (signal or stop sign). */
 function approachStops(g: RoadGraph, e: RoadEdge, node: RoadNode): boolean {
-  if (node.junction === JUNCTION.signal || node.junction === JUNCTION.allWayStop) return true;
-  if (node.junction !== JUNCTION.minorStop) return false;
-  let top = 99, allSame = true;
-  for (const id of node.edges) {
-    const c = (g.edges[id] as RoadEdge).roadClass;
-    if (top !== 99 && c !== top) allSame = false;
-    top = Math.min(top, c);
-  }
-  return allSame || e.roadClass > top;
+  return node.junction === JUNCTION.signal || g.stopsAt(e.id, node.id);
 }
 
 interface Ctx {
@@ -713,15 +712,16 @@ function sign(b: GroupBuilder, kind: number, x: number, z: number, yaw: number, 
       signRect(b, f, 0.06, -0.2, 0.14, 0.02, 2 * d);
       return;
     case SIGN.oneWay:
-      signRect(b, f, -0.45, -0.16, 0.45, 0.16, -d, true);
+      // Faces oncoming traffic, so the arrow points up: straight ahead along the street.
+      signRect(b, f, -0.16, -0.45, 0.16, 0.45, -d, true);
       b.setColor(COLOR.black);
-      signRect(b, f, -0.45, -0.16, 0.45, 0.16, 0);
+      signRect(b, f, -0.16, -0.45, 0.16, 0.45, 0);
       b.setColor(COLOR.white);
-      signRect(b, f, -0.33, -0.04, 0.15, 0.04, d);
+      signRect(b, f, -0.04, -0.33, 0.04, 0.15, d);
       b.tri(
-        f.x + f.rx * 0.15 + f.nx * d, f.y - 0.11, f.z + f.rz * 0.15 + f.nz * d,
-        f.x + f.rx * 0.15 + f.nx * d, f.y + 0.11, f.z + f.rz * 0.15 + f.nz * d,
-        f.x + f.rx * 0.36 + f.nx * d, f.y, f.z + f.rz * 0.36 + f.nz * d,
+        f.x + f.rx * 0.11 + f.nx * d, f.y + 0.15, f.z + f.rz * 0.11 + f.nz * d,
+        f.x - f.rx * 0.11 + f.nx * d, f.y + 0.15, f.z - f.rz * 0.11 + f.nz * d,
+        f.x + f.nx * d, f.y + 0.36, f.z + f.nz * d,
         f.nx, 0, f.nz,
       );
       return;
@@ -760,12 +760,13 @@ function blockGroundColor(surface: number, kind: number): number {
 /**
  * Merged meshes of one chunk. LOD0: ground, markings, buildings (gabled roofs),
  * props (with sign faces) and lamp heads; LOD1: ground, box buildings and lamp
- * heads. Deterministic for a given city and layout.
+ * heads. Both draw the quay and world boundary walls. Deterministic for a given city and layout.
  */
 export function buildChunkMesh(city: City, layout: ChunkLayout, lod: 0 | 1): ChunkMeshData {
   const g = city.graph;
+  // Edge chunks reach past the world edge, so the outer half of the perimeter roads is drawn.
+  const clip: Clip = chunkBounds(layout.cx, layout.cz);
   const minX = layout.cx * CHUNK_SIZE, minZ = layout.cz * CHUNK_SIZE;
-  const clip: Clip = { minX, minZ, maxX: minX + CHUNK_SIZE, maxZ: minZ + CHUNK_SIZE };
   const ctx: Ctx = { city, g, clip, shapes: new Map(), frame: { ax: 0, az: 0, ux: 1, uz: 0, length: 0, alongX: true } };
   const ground = new GroupBuilder('ground', false);
   const markings = new GroupBuilder('markings', false);
@@ -779,9 +780,11 @@ export function buildChunkMesh(city: City, layout: ChunkLayout, lod: 0 | 1): Chu
   rectUp(ground, clip, clip.minX, clip.minZ, clip.maxX, clip.maxZ, BASE_Y);
   const gr = layout.ground;
   for (let i = 0; i + GROUND_STRIDE <= gr.length; i += GROUND_STRIDE) {
-    ground.setColor(blockGroundColor(gr[i + 4] ?? 0, gr[i + 5] ?? 0));
-    rectUp(ground, clip, gr[i] ?? 0, gr[i + 1] ?? 0, gr[i + 2] ?? 0, gr[i + 3] ?? 0, GROUND_Y);
+    const kind = gr[i + 5] ?? 0;
+    ground.setColor(blockGroundColor(gr[i + 4] ?? 0, kind));
+    rectUp(ground, clip, gr[i] ?? 0, gr[i + 1] ?? 0, gr[i + 2] ?? 0, gr[i + 3] ?? 0, kind === BLOCK_KIND.water ? WATER_Y : GROUND_Y);
   }
+
   for (const id of layout.edges) {
     const e = g.edges[id] as RoadEdge;
     edgeGround(ctx, ground, e);
@@ -792,12 +795,19 @@ export function buildChunkMesh(city: City, layout: ChunkLayout, lod: 0 | 1): Chu
     const s = nodeShape(g, id, ctx.shapes);
     if (!s.square) continue;
     ground.setColor(COLOR.surface[s.surface] ?? COLOR.surface[0] ?? 0);
-    rectUp(ground, clip, n.x - s.halfX, n.z - s.halfZ, n.x + s.halfX, n.z + s.halfZ, GROUND_Y);
+    rectUp(ground, clip, n.x - s.halfX, n.z - s.halfZ, n.x + s.halfX, n.z + s.halfZ, JUNCTION_Y);
   }
 
   const bl = layout.buildings;
   for (let i = 0; i + BUILDING_STRIDE <= bl.length; i += BUILDING_STRIDE) {
     building(buildings, bl[i] ?? 0, bl[i + 1] ?? 0, bl[i + 2] ?? 0, bl[i + 3] ?? 0, bl[i + 4] ?? 0, bl[i + 5] ?? 0, (bl[i + 6] ?? 0) | 0, lod);
+  }
+  // Quay and world boundary walls: plain (windowless) concrete in the buildings group, so both LODs draw them.
+  buildings.wallUv = false;
+  buildings.setColor(COLOR.concrete);
+  const wl = layout.walls;
+  for (let i = 0; i + COLLIDER_STRIDE <= wl.length; i += COLLIDER_STRIDE) {
+    box(buildings, wl[i] ?? 0, wl[i + 1] ?? 0, wl[i + 2] ?? 0, wl[i + 3] ?? 0, wl[i + 4] ?? 0, wl[i + 5] ?? 0, wl[i + 6] ?? 0);
   }
 
   const pr = layout.props;

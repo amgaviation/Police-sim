@@ -10,11 +10,17 @@ const LIGHT_DISTANCE = 35;
 const LIGHT_COLOR = 0xffd9a0;
 /** Cached chunk lamp lists are kept within this many chunks of the camera chunk. */
 const KEEP_CHUNKS = 2;
+/**
+ * A pooled light fades out over this distance (m) as it nears the first lamp left out of the pool,
+ * so lamps swap places at zero intensity instead of popping on and off.
+ */
+const FADE_M = 8;
 
 /**
  * A fixed pool of `PointLight`s (never added or removed, so shaders never
  * recompile) moved to the lamp heads nearest the camera while streetlights are
- * on; intensity 0 otherwise. Lamp positions come from the chunk layouts of the
+ * on; intensity 0 otherwise. Each light is dimmed by how close its lamp is to
+ * losing its slot (`FADE_M`). Lamp positions come from the chunk layouts of the
  * 3 x 3 chunks around the camera, computed on demand (at most one per update).
  */
 export class StreetlightPool {
@@ -38,8 +44,9 @@ export class StreetlightPool {
       this.group.add(light);
     }
     this.lights = lights;
-    this.bestD2 = new Float64Array(size);
-    this.bestPos = new Float32Array(size * 3);
+    // One extra candidate: the nearest lamp outside the pool sets the fade.
+    this.bestD2 = new Float64Array(size + 1);
+    this.bestPos = new Float32Array((size + 1) * 3);
     this.group.name = 'streetlights';
     scene.add(this.group);
   }
@@ -57,6 +64,7 @@ export class StreetlightPool {
     this.evict(ccx, ccz);
 
     const n = lights.length;
+    const m = n + 1;
     const best = this.bestD2;
     best.fill(Infinity);
     for (let cz = ccz - 1; cz <= ccz + 1; cz++) {
@@ -66,9 +74,9 @@ export class StreetlightPool {
         for (let i = 0; i < list.length; i += 3) {
           const dx = (list[i] ?? 0) - cameraX, dz = (list[i + 2] ?? 0) - cameraZ;
           const d2 = dx * dx + dz * dz;
-          if (!(d2 < (best[n - 1] ?? 0))) continue;
-          // Insertion into the sorted top-n.
-          let k = n - 1;
+          if (!(d2 < (best[m - 1] ?? 0))) continue;
+          // Insertion into the sorted top-(n + 1).
+          let k = m - 1;
           while (k > 0 && (best[k - 1] ?? 0) > d2) {
             best[k] = best[k - 1] ?? 0;
             this.bestPos.copyWithin(k * 3, (k - 1) * 3, k * 3);
@@ -88,7 +96,8 @@ export class StreetlightPool {
         continue;
       }
       light.position.set(this.bestPos[k * 3] ?? 0, this.bestPos[k * 3 + 1] ?? 0, this.bestPos[k * 3 + 2] ?? 0);
-      light.intensity = LIGHT_INTENSITY;
+      const w = (Math.sqrt(best[n] ?? Infinity) - Math.sqrt(best[k] ?? 0)) / FADE_M;
+      light.intensity = LIGHT_INTENSITY * (w < 1 ? Math.max(0, w) : 1);
     }
   }
 
