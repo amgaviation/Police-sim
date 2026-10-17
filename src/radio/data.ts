@@ -277,9 +277,11 @@ export const AMBIENT: Readonly<Record<ChannelId, AmbientChannel>> = validateAmbi
 export const PHONETIC: PhoneticTable = validatePhonetic(phoneticJson);
 export const VOICE_COMMANDS: CommandTable = validateCommands(commandsJson);
 
-/** Channel definition by id (every id exists: the validator checks it). */
+const CHANNEL_BY_ID: ReadonlyMap<ChannelId, ChannelDef> = new Map(RADIO_CONFIG.channels.map((c) => [c.id, c]));
+
+/** Channel definition by id (every id exists: the validator checks it). A map lookup: called per frame. */
 export function channelDef(id: ChannelId): ChannelDef {
-  const c = RADIO_CONFIG.channels.find((ch) => ch.id === id);
+  const c = CHANNEL_BY_ID.get(id);
   if (!c) throw new Error(`Unknown radio channel "${id}"`);
   return c;
 }

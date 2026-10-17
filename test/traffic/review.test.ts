@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { TrafficPulledOverEvent } from '../../src/traffic/events';
 import { PULL, TRAFFIC_STATE } from '../../src/traffic/trafficSystem';
 import { JUNCTION, laneRef } from '../../src/world/roadGraph';
-import { carInfo, crossGraph, followCar, lineGraph, makeHarness, runFor, slotOf, type Harness } from './helpers';
+import { buildGraph, carInfo, crossGraph, followCar, lineGraph, makeHarness, runFor, slotOf, type Harness } from './helpers';
 
 const EAST = laneRef(0, 0, 0);
 
@@ -22,8 +22,19 @@ function bump(h: Harness, slot: number, t: number, follow: () => void): number {
   return end;
 }
 
-describe('traffic stop with lights and siren', () => {
-  it('the car being followed pulls over for the stop at once instead of yielding and driving off first', async () => {
+describe('traffic stop arming (review round 2)', () => {
+  it('lights and siren only make the car ahead yield: it is never pulled over', async () => {
+    const h = await makeHarness(lineGraph());
+    h.sys.densityScale = 0;
+    const pulled = pulledLog(h);
+    h.sys.spawnAt(EAST, 1000, { speed: 12, behavior: 0, desiredFactor: 1 });
+    const id = h.sys.view.vehicleId[0] ?? 0;
+    runFor(h, 0, 15, () => followCar(h, slotOf(h, id), 12, true, true));
+    expect(pulled).toEqual([]);
+    expect(h.sys.stopVehicleId).toBe(-1);
+  });
+
+  it('the car being followed with the light bar on (siren off) pulls over', async () => {
     const h = await makeHarness(lineGraph());
     h.sys.densityScale = 0;
     const pulled = pulledLog(h);
@@ -31,12 +42,45 @@ describe('traffic stop with lights and siren', () => {
     const id = h.sys.view.vehicleId[0] ?? 0;
     let merged = false;
     runFor(h, 0, 15, () => {
-      followCar(h, slotOf(h, id), 12, true, true);
+      followCar(h, slotOf(h, id), 12, true);
       if (h.sys.inspect(slotOf(h, id), carInfo()).pull === PULL.merging) merged = true;
     });
     expect(merged).toBe(false);
     expect(pulled.map((e) => e.vehicleId)).toEqual([id]);
     expect(h.sys.stopVehicleId).toBe(id);
+  });
+
+  it('a parked patrol car with scene lights does not pull over the car driving off ahead of it', async () => {
+    const h = await makeHarness(lineGraph());
+    h.sys.densityScale = 0;
+    const pulled = pulledLog(h);
+    h.sys.spawnAt(EAST, 1000, { speed: 4, behavior: 0, desiredFactor: 1 });
+    const slot = slotOf(h, h.sys.view.vehicleId[0] ?? 0);
+    const x = (h.sys.view.x[slot] ?? 0) - 6;
+    const z = h.sys.view.z[slot] ?? 0;
+    const yaw = h.sys.view.yaw[slot] ?? 0;
+    Object.assign(h.focus, { obstacle: true, ox: x, oz: z, ovx: 0, ovz: 0, x, z, heading: yaw, lights: true, siren: false });
+    runFor(h, 0, 15);
+    expect(pulled).toEqual([]);
+    expect(h.sys.stopVehicleId).toBe(-1);
+  });
+
+  it('a fast stop target slows while it defers the curb move past junctions and pulls over within a block or two', async () => {
+    const points: [number, number][] = [];
+    for (let i = 0; i < 41; i++) points.push([i * 120, 0]);
+    const specs = points.slice(1).map((_, i) => ({ from: i, to: i + 1, speedMph: 45 }));
+    const h = await makeHarness(buildGraph(points, specs));
+    h.sys.densityScale = 0;
+    h.sys.spawnAt(laneRef(0, 0, 0), 20, { speed: 20.1, desiredFactor: 1, behavior: 0 });
+    const id = h.sys.view.vehicleId[0] ?? 0;
+    expect(h.sys.forceStop(id)).toBe(true);
+    let stoppedAt = -1;
+    runFor(h, 0, 30, (t) => {
+      followCar(h, slotOf(h, id), 15, true);
+      if (stoppedAt < 0 && h.sys.inspect(slotOf(h, id), carInfo()).pull === PULL.stopped) stoppedAt = t;
+    });
+    expect(stoppedAt).toBeGreaterThan(0);
+    expect(stoppedAt).toBeLessThan(20);
   });
 });
 

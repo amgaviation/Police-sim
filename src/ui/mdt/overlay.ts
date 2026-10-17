@@ -26,7 +26,7 @@ import {
 } from '../../cad/documents';
 import type { CadCall, TrafficStopInfo, UnitStatus } from '../../cad/types';
 import type { Bolo } from '../../records/bolo';
-import { epochDayFromYmd, formatClockTime, formatStamp } from '../../records/calendar';
+import { epochDayFromYmd, formatClockTime, formatStamp, ymdOfEpochDay } from '../../records/calendar';
 import { plateSummary, type PersonQuery, type PersonSummary, type PlateQueryResult, type QueryLogEntry, type VinQueryResult } from '../../records/db';
 import { PERSON_POPULATION } from '../../records/ids';
 import { mountedPlate } from '../../records/vehicle';
@@ -36,6 +36,7 @@ import { ListView, button, renderSections, selectField, setText, textField, type
 import { buildDocForm, showErrors, type DocFormView, type FormOptions } from './forms';
 import { MAP_ZOOM_STEP, MdtMap, type MapDrawState } from './map';
 import {
+  type CallDetailLine,
   callDetailLines,
   canCompleteBooking,
   citationDraftFromStop,
@@ -172,14 +173,30 @@ function draftFieldsOf(doc: CadDocument): DraftFields<DocKind> {
   return copy;
 }
 
-function parseDob(text: string): number | undefined {
+/** "MM/DD/YYYY" -> epoch day; undefined when malformed or not a calendar date (13/45/1990). */
+export function parseDob(text: string): number | undefined {
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text.trim());
   if (!m) return undefined;
-  return epochDayFromYmd(Number(m[3]), Number(m[1]), Number(m[2]));
+  const y = Number(m[3]), mo = Number(m[1]), d = Number(m[2]);
+  const day = epochDayFromYmd(y, mo, d);
+  const back = ymdOfEpochDay(day);
+  return back.y === y && back.m === mo && back.d === d ? day : undefined;
+}
+
+/** Person query fields as typed (the DOB still text). */
+export interface PersonQueryText {
+  readonly last: string;
+  readonly first: string;
+  readonly dob: string;
+  readonly dl: string;
 }
 
 function isRegistryId(id: number): boolean {
   return Number.isInteger(id) && id >= 0 && id < REGISTRY_POPULATION;
+}
+
+function callLineKey(l: CallDetailLine): string {
+  return `${l.kind}\t${l.label}\t${l.text}`;
 }
 
 const HEADLESS_ELEMENT = {} as HTMLElement;
@@ -213,6 +230,12 @@ export class MdtOverlay implements Menu {
   private lastLogKey = '';
   /** `docPaneKey` of the viewer last rendered ('' = a form or nothing). */
   private renderedDocKey = '';
+  /** What the Call / Stop tabs last rendered: rebuilt only when it changes (keeps focus, no churn). */
+  private renderedCallKey = '';
+  private renderedStopKey = '';
+  /** Non-CAD inputs of button states (reticle target, station, prisoner, active stop) last refreshed. */
+  private lastExtKey = -1;
+  private messageError = false;
   private refreshCount = 0;
 
   constructor(ui: UIRoot | null, deps: MdtDeps) {
@@ -320,14 +343,21 @@ export class MdtOverlay implements Menu {
     const avlTab = this.current === 'units' || this.current === 'map';
     const log = records.queryLog;
     const logKey = this.current === 'bolo' ? `${log.length}:${log[log.length - 1]?.gameSeconds ?? -1}:${records.today()}` : this.lastLogKey;
+    const extTab = this.current === 'vehicle' || this.current === 'reports' || this.current === 'stop';
+    const extKey = extTab ? this.externalKey() : this.lastExtKey;
     const changed =
-      this.dirty || cad.revision !== this.lastRev || (avlTab && cad.avlRevision !== this.lastAvl) || logKey !== this.lastLogKey;
+      this.dirty ||
+      cad.revision !== this.lastRev ||
+      (avlTab && cad.avlRevision !== this.lastAvl) ||
+      logKey !== this.lastLogKey ||
+      extKey !== this.lastExtKey;
     const tick = nowMs - this.lastTickMs >= TICK_MS;
     if (changed) {
       this.dirty = false;
       this.lastRev = cad.revision;
       this.lastAvl = cad.avlRevision;
       this.lastLogKey = logKey;
+      this.lastExtKey = extKey;
       this.refreshCount++;
       this.refreshTab();
     } else if (tick && (this.current === 'queue' || this.current === 'units')) {
@@ -338,6 +368,13 @@ export class MdtOverlay implements Menu {
       this.refreshHeader();
     }
     if (this.current === 'map') this.drawMap(nowMs);
+  }
+
+  /** Packs the non-CAD inputs of the Vehicle / Reports / Stop button states into one number (no allocation). */
+  private externalKey(): number {
+    const d = this.deps;
+    const bits = (d.target() !== null ? 1 : 0) | (d.atStation() ? 2 : 0) | (this.activeStop() !== null ? 4 : 0);
+    return (d.prisoner() + 1) * 8 + bits;
   }
 
   private drawMap(nowMs: number): void {
@@ -357,7 +394,8 @@ export class MdtOverlay implements Menu {
     if (!this.isOpen) return false;
     const key = event.key;
     if (key === 'Escape') {
-      if (this.cancelForm()) return true;
+      // Escape cancels a form only where it is shown; elsewhere it closes the MDT and keeps the form (like Close).
+      if (this.current === 'reports' && this.cancelForm()) return true;
       this.close();
       return true;
     }
@@ -432,6 +470,9 @@ export class MdtOverlay implements Menu {
   private listFor(target: EventTarget | null): ListView<unknown> | null {
     const dom = this.dom;
     if (!dom) return null;
+    // Keys on the controls of a form (checkboxes, Add/Remove buttons) or the document pane stay there.
+    if (target instanceof Node && dom.docPane.contains(target)) return null;
+    if (target instanceof Element && target.closest('form') !== null) return null;
     const lists: Partial<Record<MdtTab, ListView<unknown>[]>> = {
       queue: [dom.queue],
       units: [dom.units],
@@ -448,6 +489,15 @@ export class MdtOverlay implements Menu {
   private send(r: Parameters<MdtDeps['request']>[0], text: string): void {
     this.deps.request(r);
     this.setMessage(text);
+  }
+
+  /**
+   * The dispatcher's answer to a request (`dispatch:ack` for the player): MDT answers are silent on
+   * the radio, so a refusal ("No call offered", "Unable: ...") must show here.
+   */
+  notify(text: string, ok: boolean): void {
+    if (ok && text === '') return;
+    this.setMessage(ok ? text : `Refused: ${text}`, !ok);
   }
 
   /** Code 4: no further assistance needed; clears an active emergency. */
@@ -498,6 +548,8 @@ export class MdtOverlay implements Menu {
     const observed = vehicleId >= 0 ? this.deps.observed(vehicleId) : null;
     const r = this.deps.records.runPlate(plate, observed ?? undefined, this.deps.now().game);
     this.vehicleResultValue = r;
+    // Reported like a dispatcher run: hit tone, HUD target result and in-car alert.
+    this.deps.plateRun?.(vehicleId, plateSummary(r));
     const stop = this.activeStop();
     if (stop && (vehicleId === stop.vehicleId || r.plate === stop.plate)) {
       this.stopRun = r;
@@ -543,6 +595,17 @@ export class MdtOverlay implements Menu {
       return null;
     }
     return this.runPlate(stop.plate, stop.vehicleId);
+  }
+
+  /** The Person tab's search: a DOB that is typed but not a valid MM/DD/YYYY date refuses the search; null then. */
+  searchPersonFields(q: PersonQueryText): PersonSummary[] | null {
+    const dobText = q.dob.trim();
+    const dob = dobText === '' ? undefined : parseDob(dobText);
+    if (dobText !== '' && dob === undefined) {
+      this.setMessage('DOB must be MM/DD/YYYY', true);
+      return null;
+    }
+    return this.searchPersons({ last: q.last, first: q.first, dl: q.dl, ...(dob !== undefined ? { dob } : {}) });
   }
 
   searchPersons(q: PersonQuery): PersonSummary[] {
@@ -610,14 +673,33 @@ export class MdtOverlay implements Menu {
     }
   }
 
-  /** Opens a document form on the Reports tab (replacing any open one). */
-  openForm(kind: DocKind, init?: DraftFields<DocKind>, opts: FormOptions = {}, docId: string | null = null): void {
+  /**
+   * Opens a document form on the Reports tab. An open form is first saved as a draft; when it cannot
+   * be saved (validation) it stays open and nothing else opens (false).
+   */
+  openForm(kind: DocKind, init?: DraftFields<DocKind>, opts: FormOptions = {}, docId: string | null = null): boolean {
+    if (!this.stashForm()) return false;
     this.form = { kind, docId, init: init ?? this.prefill(kind), opts, view: null };
     this.docKind = kind;
     this.syncKindButtons();
     this.setTab('reports');
     this.dirty = true;
     this.renderForm();
+    return true;
+  }
+
+  /** Saves an open form as a draft before something replaces it; false (form kept, Reports tab shown) when it cannot be saved. */
+  private stashForm(): boolean {
+    if (!this.form) return true;
+    const r = this.submitForm(false);
+    if (r.errors.length > 0) {
+      this.setTab('reports', true);
+      this.setMessage(`Save or cancel the open form first: ${r.errors[0] ?? ''}`, true);
+      return false;
+    }
+    this.form = null;
+    this.formDom = null;
+    return true;
   }
 
   /** Closes the open form without saving; false when none was open. */
@@ -634,6 +716,12 @@ export class MdtOverlay implements Menu {
   submitForm(finalize: boolean): SaveResult {
     const form = this.form;
     if (!form) return { doc: null, errors: ['No form open'] };
+    const invalid = form.view?.validate?.() ?? [];
+    if (invalid.length > 0) {
+      if (this.formDom) showErrors(this.formDom.errors, invalid);
+      this.setMessage(invalid[0] ?? 'Not saved', true);
+      return { doc: form.docId !== null ? this.deps.cad.docs.get(form.docId) : null, errors: invalid };
+    }
     const fields = form.view ? form.view.read() : form.init;
     const result = this.saveDocument(form.kind, fields, finalize, form.docId);
     if (result.doc) form.docId = result.doc.id;
@@ -659,15 +747,15 @@ export class MdtOverlay implements Menu {
   }
 
   /** Citation form prefilled from the current stop (or empty without one). */
-  writeCitation(): void {
-    this.openForm('citation');
+  writeCitation(): boolean {
+    return this.openForm('citation');
   }
 
+  /** Shows a document read-only (an open form is saved as a draft first, or kept when it cannot be). */
   viewDocument(id: string): void {
     const doc = this.deps.cad.docs.get(id);
     if (!doc) return;
-    this.form = null;
-    this.formDom = null;
+    if (!this.stashForm()) return;
     this.docKind = doc.kind;
     this.syncKindButtons();
     this.viewDocId = id;
@@ -762,9 +850,18 @@ export class MdtOverlay implements Menu {
 
   // --- Rendering --------------------------------------------------------------------------------
 
-  private setMessage(text: string): void {
+  private setMessage(text: string, error = false): void {
     this.messageText = text;
-    if (this.dom) setText(this.dom.message, text);
+    this.messageError = error;
+    if (this.dom) {
+      setText(this.dom.message, text);
+      this.dom.message.classList.toggle('mdt-error', error);
+    }
+  }
+
+  /** The last message is an error or refusal. */
+  get messageIsError(): boolean {
+    return this.messageError;
   }
 
   private links(): { person: (id: number) => void; doc: (id: string) => void } {
@@ -837,7 +934,9 @@ export class MdtOverlay implements Menu {
         const rows = docRows(cad.docs, this.docKind);
         if (dom) {
           dom.docs.render(rows);
-          if (this.viewDocId !== null) dom.docs.select(this.viewDocId);
+          // Follow the viewed document, but not while a form is open or the user is moving in the list.
+          const listFocused = typeof document !== 'undefined' && dom.docs.contains(document.activeElement);
+          if (this.viewDocId !== null && !this.form && !listFocused) dom.docs.select(this.viewDocId);
           // The form is never rebuilt here; only its booking button state and a read-only viewer update.
           if (this.formDom?.complete && this.form) {
             const doc = this.form.docId !== null ? cad.docs.get(this.form.docId) : null;
@@ -868,12 +967,13 @@ export class MdtOverlay implements Menu {
     const mine = open && call.units.includes(this.deps.callsign);
     const offered = open && call.offeredTo === this.deps.callsign;
     const assignable = this.canTakeCall();
+    const player = this.deps.cad.unit(this.deps.callsign);
     const a = dom.queueActions;
     a.accept.disabled = !offered || !assignable;
     a.decline.disabled = !offered;
     a.self.disabled = !open || mine || !assignable;
-    a.enRoute.disabled = !mine;
-    a.onScene.disabled = !mine;
+    a.enRoute.disabled = !mine || !player || !canTransition(player.status, 'enRoute');
+    a.onScene.disabled = !mine || !player || !canTransition(player.status, 'onScene');
     a.clear.disabled = !mine;
     dom.disposition.disabled = !mine;
   }
@@ -897,10 +997,15 @@ export class MdtOverlay implements Menu {
     const dom = this.dom;
     if (!dom) return;
     const call = this.selectedCall !== null ? this.deps.cad.call(this.selectedCall) : this.playerCall();
-    clearChildren(dom.callDetail);
     dom.narrative.control.disabled = !call || call.status === 'closed';
     dom.callButtons.add.disabled = dom.narrative.control.disabled;
     dom.callButtons.report.disabled = !call;
+    const lines = call ? callDetailLines(call) : [];
+    // Rebuilt only when what it shows changed (any CAD revision bumps the refresh; a rebuild drops focus).
+    const key = call ? `${call.id}|${call.priority}|${lines.map(callLineKey).join('\n')}` : 'none';
+    if (key === this.renderedCallKey) return;
+    this.renderedCallKey = key;
+    clearChildren(dom.callDetail);
     if (!call) {
       dom.callDetail.appendChild(el('p', { class: 'mdt-hint' }, 'No call selected. Pick one on the Queue or Map tab.'));
       return;
@@ -908,7 +1013,7 @@ export class MdtOverlay implements Menu {
     const dl = el('dl', { class: 'mdt-lines' });
     const narrative = el('ol', { class: 'mdt-narrative', 'aria-label': 'Narrative' });
     let title: HTMLElement | null = null;
-    for (const l of callDetailLines(call)) {
+    for (const l of lines) {
       if (l.kind === 'title') {
         title = el('h3', { class: `mdt-call-title mdt-p${call.priority}` }, `${l.label}  ${l.text}`);
       } else if (l.kind === 'narrative') {
@@ -952,11 +1057,17 @@ export class MdtOverlay implements Menu {
     b.cite.disabled = !active;
     b.release.disabled = !active;
     if (!stop) {
+      if (this.renderedStopKey === 'none') return;
+      this.renderedStopKey = 'none';
       clearChildren(dom.stopBody);
       dom.stopBody.appendChild(el('p', { class: 'mdt-hint' }, 'No active traffic stop. Light up a car behind you to pull it over.'));
       return;
     }
     const sections = stopSections(stop, this.deps.records, this.deps.observed(stop.vehicleId), this.stopRun);
+    // Rebuilt only when the shown stop changed (keeps focus on its links).
+    const key = JSON.stringify(sections);
+    if (key === this.renderedStopKey) return;
+    this.renderedStopKey = key;
     renderSections(dom.stopBody, sections, this.links());
     dom.stopBody.appendChild(el('ul', { class: 'mdt-hint' }, ...STOP_CONTACT_HINTS.map((h) => el('li', null, h))));
   }
@@ -1219,12 +1330,7 @@ export class MdtOverlay implements Menu {
       last.element, first.element, dob.element, dl.element, el('button', { type: 'submit', class: 'primary' }, 'Search'));
     personForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      this.searchPersons({
-        last: last.control.value,
-        first: first.control.value,
-        dl: dl.control.value,
-        ...(parseDob(dob.control.value) !== undefined ? { dob: parseDob(dob.control.value) } : {}),
-      });
+      this.searchPersonFields({ last: last.control.value, first: first.control.value, dob: dob.control.value, dl: dl.control.value });
     });
     const personResults = new ListView<PersonSummary>('Person results', [
       { label: 'Name', text: (r) => r.name },

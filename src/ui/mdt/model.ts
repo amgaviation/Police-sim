@@ -12,7 +12,7 @@ import { ageOn, formatClockTime, formatDate, formatStamp } from '../../records/c
 import type { PlateQueryResult, RecordsDb, VinQueryResult } from '../../records/db';
 import type { RecordHit } from '../../records/hits';
 import { displayName, type PersonRecord } from '../../records/person';
-import { colorName, modelName, mountedPlate, PLATE_FLAG, vehicleDescription, type RegistrationRecord } from '../../records/vehicle';
+import { colorName, modelName, mountedPlate, observedVehicle, PLATE_FLAG, vehicleDescription, type RegistrationRecord } from '../../records/vehicle';
 import { REGISTRY_POPULATION } from '../../traffic/registry';
 import type { RoadGraph } from '../../world/roadGraph';
 import { MDT_TABS, type MdtTab } from './types';
@@ -381,12 +381,20 @@ function plateIssues(stop: TrafficStopInfo, records: RecordsDb, run: PlateRunInf
     if (reg?.expired) flags |= PLATE_FLAG.expired;
     if (reg && (reg.stolen || reg.plateReportedStolen)) flags |= PLATE_FLAG.stolen;
     if (reg?.cloneAlert) flags |= PLATE_FLAG.cloned;
+    if (reg && isRegistryId(stop.vehicleId)) {
+      const seen = observedVehicle(records.seed, stop.vehicleId);
+      if (seen.modelId !== reg.modelId || colorName(seen.color) !== reg.colorName) flags |= PLATE_FLAG.mismatched;
+    }
   } else {
     return [];
   }
+  // After a VIN check the car's own registration decides expiry and insurance; before it, a plate
+  // that returns to another car (description mismatch) says nothing about this car's insurance.
+  const own = stop.vinChecked && isRegistryId(stop.vehicleId) ? records.registration(stop.vehicleId) : null;
+  const insReg = own ?? ((flags & PLATE_FLAG.mismatched) !== 0 ? null : reg);
   const out: PlateIssue[] = [];
-  if (flags & PLATE_FLAG.expired) out.push('expired');
-  if (reg && !reg.insured) out.push('uninsured');
+  if (own ? own.expired : (flags & PLATE_FLAG.expired) !== 0) out.push('expired');
+  if (insReg && !insReg.insured) out.push('uninsured');
   // A clone alert or a description mismatch is cited only once a VIN check showed another plate.
   if (flags & (PLATE_FLAG.cloned | PLATE_FLAG.mismatched) && stop.vinChecked && isRegistryId(stop.vehicleId)) {
     if (records.registration(stop.vehicleId).plate !== stop.plate) out.push('cloned');

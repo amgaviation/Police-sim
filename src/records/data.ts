@@ -74,15 +74,32 @@ export interface PersonData {
     /** Minimum age (years on game day 0) per class; younger holders get the most common class. */
     readonly classMinAge: Readonly<Record<string, number>>;
   };
-  readonly warrants: { readonly rate: number; readonly max: number; readonly courts: readonly string[]; readonly kinds: readonly WarrantKind[] };
+  /** `benchPriorKinds`: prior-contact kinds that show the earlier court case a bench warrant needs (one precedes it). */
+  readonly warrants: {
+    readonly rate: number;
+    readonly max: number;
+    readonly courts: readonly string[];
+    readonly kinds: readonly WarrantKind[];
+    readonly benchPriorKinds: readonly string[];
+  };
   /** `priorKind`: the prior-contact kind every supervised person has at least once (their conviction arrest). */
   readonly supervision: { readonly probation: number; readonly parole: number; readonly priorKind: string; readonly conditions: readonly string[] };
   readonly gang: { readonly rate: number; readonly names: readonly string[]; readonly associateShare: number };
   readonly mentalHealth: { readonly rate: number; readonly notes: readonly string[] };
   readonly officerSafety: { readonly rate: number; readonly notes: readonly string[] };
-  /** No registered firearms below `minAge` (years on game day 0). */
-  readonly firearms: { readonly rate: number; readonly max: number; readonly minAge: number; readonly types: readonly string[] };
-  readonly protectiveOrders: { readonly rate: number; readonly conditions: readonly string[] };
+  /**
+   * No registered firearms below `minAge` (years on game day 0; none registered before that birthday),
+   * none for a person under a `prohibitedSupervision` kind or a protective order with the `surrenderCondition`.
+   */
+  readonly firearms: {
+    readonly rate: number;
+    readonly max: number;
+    readonly minAge: number;
+    readonly types: readonly string[];
+    readonly prohibitedSupervision: readonly string[];
+  };
+  /** `surrenderCondition`: the order condition that prohibits firearms (null: none does). */
+  readonly protectiveOrders: { readonly rate: number; readonly conditions: readonly string[]; readonly surrenderCondition: string | null };
   readonly priors: { readonly mean: number; readonly max: number; readonly kinds: readonly PriorKind[] };
   readonly phonePrefix: string;
 }
@@ -287,6 +304,15 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
   if (!priorKinds.some((k) => k.weight > 0)) fail(file, 'priors.kinds', 'must have a positive weight');
   const supPriorKind = sup.priorKind === undefined ? 'arrest' : readString(sup.priorKind, file, 'supervision.priorKind');
   if (!priorKinds.some((k) => k.kind === supPriorKind)) fail(file, 'supervision.priorKind', `must name a kind in priors.kinds, got ${JSON.stringify(supPriorKind)}`);
+  const benchPriorKinds = w.benchPriorKinds === undefined ? [] : readStrings(w.benchPriorKinds, file, 'warrants.benchPriorKinds', 0);
+  for (const k of benchPriorKinds) {
+    if (!priorKinds.some((pk) => pk.kind === k)) fail(file, 'warrants.benchPriorKinds', `must name kinds in priors.kinds, got ${JSON.stringify(k)}`);
+  }
+  const poConditions = readStrings(po.conditions, file, 'protectiveOrders.conditions', 1, MAX_SUBSET_LIST);
+  const surrenderCondition = po.surrenderCondition === undefined ? null : readString(po.surrenderCondition, file, 'protectiveOrders.surrenderCondition');
+  if (surrenderCondition !== null && !poConditions.includes(surrenderCondition)) {
+    fail(file, 'protectiveOrders.surrenderCondition', `must be one of protectiveOrders.conditions, got ${JSON.stringify(surrenderCondition)}`);
+  }
   const phonePrefix = readString(r.phonePrefix, file, 'phonePrefix');
   if (!/^\d{3}$/.test(phonePrefix)) fail(file, 'phonePrefix', `must be 3 digits, got ${JSON.stringify(phonePrefix)}`);
 
@@ -306,6 +332,7 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
       max: readInt(w.max, file, 'warrants.max', 1, 10),
       courts: readStrings(w.courts, file, 'warrants.courts'),
       kinds,
+      benchPriorKinds,
     },
     supervision: { probation, parole, priorKind: supPriorKind, conditions: readStrings(sup.conditions, file, 'supervision.conditions', 1, MAX_SUBSET_LIST) },
     gang: {
@@ -323,10 +350,13 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
       max: readInt(fa.max, file, 'firearms.max', 1, 10),
       minAge: fa.minAge === undefined ? 0 : readInt(fa.minAge, file, 'firearms.minAge', 0, 110),
       types: readStrings(fa.types, file, 'firearms.types'),
+      prohibitedSupervision:
+        fa.prohibitedSupervision === undefined ? [] : readStrings(fa.prohibitedSupervision, file, 'firearms.prohibitedSupervision', 0),
     },
     protectiveOrders: {
       rate: readProb(po.rate, file, 'protectiveOrders.rate'),
-      conditions: readStrings(po.conditions, file, 'protectiveOrders.conditions', 1, MAX_SUBSET_LIST),
+      conditions: poConditions,
+      surrenderCondition,
     },
     priors: {
       mean: readNumber(pr.mean, file, 'priors.mean', 0, 20),

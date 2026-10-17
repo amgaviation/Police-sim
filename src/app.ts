@@ -1276,6 +1276,11 @@ export class App {
       this.bus.on('radio:blocked', (e) => {
         for (const id of e.ids) this.radioPanelValue?.markBlocked(id);
       }),
+      // MDT requests are answered silently (design §8, §9.3): the dispatcher's answer, a refusal above all, shows on the MDT.
+      this.bus.on('dispatch:ack', (e) => {
+        const session = this.sessionValue;
+        if (session && e.callsign === session.dispatcher.playerCallsign) this.mdtValue?.notify(e.text, e.ok);
+      }),
       // A plate run from the keys or the MDT is silent on the radio: a hit beeps here (radio runs beep in RadioPlayer).
       this.bus.on('dispatch:plateResult', (e) => {
         if ((e.via === 'key' || e.via === 'mdt') && e.readback.hits.length > 0 && e.readback.severity !== 'clear') this.audio.radio.alertTone('hit');

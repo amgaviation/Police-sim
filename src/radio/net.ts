@@ -20,6 +20,13 @@ export interface NewTransmission {
   readonly speaker: string;
   readonly speakerKind: SpeakerKind;
   readonly text: string;
+  /**
+   * Text the air time is estimated from, when `text` depends on a presentation setting (the radio
+   * language): the ten-code wording, so timing never depends on the setting. Default `text`.
+   */
+  readonly durationText?: string;
+  /** Air time (s), overriding the estimate (a repeat keeps the original's). */
+  readonly duration?: number;
   readonly kind: string;
   readonly earliest: number;
   readonly priority?: boolean;
@@ -121,7 +128,7 @@ export class RadioNet {
       spoken,
       kind: t.kind,
       priority: t.priority ?? false,
-      duration: this.estimateDuration(spoken),
+      duration: t.duration ?? this.estimateDuration(t.durationText === undefined ? spoken : toSpoken(t.durationText)),
       earliest: t.earliest,
       waitClear: t.waitClear ?? true,
       follows: t.follows ?? -1,
@@ -185,8 +192,10 @@ export class RadioNet {
       }
     }
     if (this.queue.length === 0) return;
-    this.startPass(true);
-    this.startPass(false);
+    this.startPass(true, false);
+    // The player keys up first when a channel clears (their radio holds the press), then the others.
+    this.startPass(false, true);
+    this.startPass(false, false);
   }
 
   // --- Persistence ----------------------------------------------------------------------------
@@ -243,12 +252,13 @@ export class RadioNet {
 
   // --- Internals ------------------------------------------------------------------------------
 
-  private startPass(priority: boolean): void {
+  private startPass(priority: boolean, playerOnly: boolean): void {
     let i = 0;
     while (i < this.queue.length) {
       const e = this.queue[i] as QueuedTransmission;
       if (
         e.priority !== priority ||
+        (playerOnly && e.speakerKind !== 'player') ||
         e.follows >= 0 ||
         e.earliest > this.now ||
         // A hold (emergency traffic) keeps other units off the channel, never the player (Code 4 must get

@@ -157,6 +157,75 @@ describe.each(SEEDS)('RecordsDb lookups (seed %i)', (seed) => {
     expect(clear).toBeGreaterThan(50);
   });
 
+  it('detection matches the truth flags for every anomalous car and a spread of others', () => {
+    const db = new RecordsDb(seed, fakeCtx());
+    const bolos = db.bolos(db.today());
+    const ids = new Set(spreadIds(REGISTRY_POPULATION, 1500));
+    for (let id = 0; id < REGISTRY_POPULATION; id++) {
+      if (vehicleRecord(seed, id).stolen || mountedPlate(seed, id).anomaly !== 'none') ids.add(id);
+    }
+    let anomalous = 0;
+    for (const id of ids) {
+      if (!canBeOnRoad(seed, id)) continue;
+      const mp = mountedPlate(seed, id);
+      if (mp.anomaly !== 'none') anomalous++;
+      const truth = plateFlags(seed, id);
+      const r = db.runPlate(mp.plate, observedVehicle(seed, id));
+      let allowed = 0;
+      // Documented extras: a clone alert on the car's own registration, and the daily BOLO bulletin.
+      if (mp.anomaly === 'none' && generateRegistration(seed, id).cloneAlert) allowed |= PLATE_FLAG.cloned;
+      if (bolos.some((b) => b.kind === 'vehicle' && b.vehicleId === mp.plateVehicleId)) allowed |= PLATE_FLAG.flagged;
+      expect((r.flags ^ truth) & ~allowed, `vehicle ${id} (${mp.anomaly}) truth ${truth} detected ${r.flags}`).toBe(0);
+      if (mp.anomaly !== 'stolenPlate' && !vehicleRecord(seed, id).stolen) {
+        expect(r.hits.some((h) => h.kind === 'stolenVehicle' || h.kind === 'stolenPlate'), `vehicle ${id}`).toBe(false);
+      }
+    }
+    expect(anomalous).toBeGreaterThan(200);
+  });
+
+  it('applies today: lapsed licences, registrations, supervision and orders read expired or drop out', () => {
+    const start = CALENDAR.startEpochDay;
+    const later = new RecordsDb(seed, fakeCtx(start + 800));
+    const now = new RecordsDb(seed, fakeCtx(start));
+    let lic = 0, sup = 0, po = 0, reg = 0;
+    for (let id = 0; id < 4000; id++) {
+      const base = generatePerson(seed, id, fakeCtx());
+      const p = later.person(id);
+      expect(now.person(id)).toEqual(base);
+      if (base.license.status === 'valid' && base.license.expires < start + 800) {
+        lic++;
+        expect(p.license.status).toBe('expired');
+        expect(later.personSummary(id).dlStatus).toBe('EXPIRED');
+        expect(later.personHits(id).some((h) => h.text.startsWith('LICENSE EXPIRED'))).toBe(true);
+      }
+      if (base.supervision.kind !== 'none' && base.supervision.until < start + 800) {
+        sup++;
+        expect(p.supervision.kind).toBe('none');
+      }
+      for (const o of p.protectiveOrders) expect(o.expires).toBeGreaterThanOrEqual(start + 800);
+      if (base.protectiveOrders.some((o) => o.expires < start + 800)) po++;
+      // Saved snapshots stay the generated records (today is applied on view).
+      expect(later.serialize().persons.find((x) => x.id === id)).toEqual(base);
+    }
+    for (let id = 0; id < 3000; id++) {
+      const base = generateRegistration(seed, id);
+      if (base.expired || base.expires >= start + 800 || !canBeOnRoad(seed, id) || mountedPlate(seed, id).anomaly !== 'none') continue;
+      reg++;
+      const r = later.runPlate(base.plate, observedVehicle(seed, id));
+      expect(r.flags & PLATE_FLAG.expired).toBe(PLATE_FLAG.expired);
+      expect(r.hits.some((h) => h.kind === 'expired')).toBe(true);
+      expect(now.runPlate(base.plate, observedVehicle(seed, id)).flags & PLATE_FLAG.expired).toBe(0);
+    }
+    expect(lic).toBeGreaterThan(100);
+    expect(sup).toBeGreaterThan(10);
+    expect(po).toBeGreaterThan(0);
+    expect(reg).toBeGreaterThan(100);
+    if (seed === 42) {
+      const s274 = new RecordsDb(seed, fakeCtx(start + 40)).personSummary(274);
+      expect(s274.dlStatus).toBe('EXPIRED');
+    }
+  });
+
   it('summarises plate runs in the cad readback shape', () => {
     const db = new RecordsDb(seed, fakeCtx());
     const r = db.runPlate(plateOf(seed, 40), observedVehicle(seed, 40), 7200);

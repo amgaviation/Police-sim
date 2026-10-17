@@ -96,6 +96,7 @@
   font-size: 0.9em;
 }
 .mdt-message { color: var(--fg); min-height: 1.3em; }
+.mdt-message.mdt-error { color: var(--danger); font-weight: 600; }
 .mdt-keys { white-space: nowrap; }
 
 .mdt h3 { margin: 0.4em 0 0.2em; font-size: 0.95em; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.08em; }

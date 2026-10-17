@@ -40,5 +40,6 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
       const doc = session.cad.docs.get(id);
       hooks.bookingCompleted(id, session.releasePrisoner(doc?.kind === 'booking' ? doc.personId : -1));
     },
+    plateRun: (vehicleId, readback) => session.bus.emit('dispatch:plateResult', { callsign, via: 'mdt', vehicleId, readback }),
   };
 }

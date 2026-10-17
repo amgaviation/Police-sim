@@ -36,6 +36,8 @@ export interface DocFormView {
   readonly kind: DocKind;
   readonly element: HTMLElement;
   read(): DraftFields<DocKind>;
+  /** Input the form cannot read (malformed time...): messages; saving is refused while any. */
+  validate?(): string[];
   focus(): void;
 }
 
@@ -58,14 +60,20 @@ function numOrNull(input: HTMLInputElement): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** "HH:MM" on the day of `baseGame` (game seconds); `baseGame` when unparsable. */
-export function parseClock(text: string, baseGame: number): number {
+/**
+ * "HH:MM" nearest to `baseGame` (game seconds): on its day, or the next / previous day when that is
+ * more than 12 h away (00:20 for a call at 23:30 is the next morning); null when not a valid HH:MM.
+ */
+export function parseClock(text: string, baseGame: number): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
-  if (!m) return baseGame;
+  if (!m) return null;
   const h = Number(m[1]);
   const min = Number(m[2]);
-  if (h > 23 || min > 59) return baseGame;
-  return Math.floor(baseGame / SECONDS_PER_DAY) * SECONDS_PER_DAY + h * 3600 + min * 60;
+  if (h > 23 || min > 59) return null;
+  let t = Math.floor(baseGame / SECONDS_PER_DAY) * SECONDS_PER_DAY + h * 3600 + min * 60;
+  if (t - baseGame > SECONDS_PER_DAY / 2) t -= SECONDS_PER_DAY;
+  else if (baseGame - t > SECONDS_PER_DAY / 2) t += SECONDS_PER_DAY;
+  return t;
 }
 
 /** Calls a document can be linked to: none, then the newest 30 calls. */
@@ -200,13 +208,14 @@ function reportForm(init: DraftFields<'report'>, env: FormEnv, docs: { id: strin
       callId: call.read(),
       title: title.control.value.trim(),
       location: location.control.value.trim(),
-      occurredGame: parseClock(occurred.control.value, baseGame),
+      occurredGame: parseClock(occurred.control.value, baseGame) ?? baseGame,
       offenseIds: offenses.values(),
       persons: persons.read(),
       vehicles: vehicles.read(),
       narrative: narrative.control.value,
       evidenceIds: evidence.values(),
     }),
+    validate: () => (parseClock(occurred.control.value, baseGame) === null ? ['Occurred must be HH:MM (24-hour)'] : []),
     focus: () => title.control.focus(),
   };
 }

@@ -69,9 +69,17 @@ export interface PulloverData {
     readonly lateral: number;
     readonly headingDot: number;
     readonly delayS: number;
+    /** The player car must be moving at least this fast (m/s) along its heading: a parked car with scene lights stops no one. */
+    readonly minPatrolSpeed: number;
+    /** A candidate pulling away faster than the player car by more than this (m/s) is not being followed. */
+    readonly closingTol: number;
   };
-  /** Curb offset: clearance past the lane edge (m), lateral speed (m/s), braking (m/s²), no pull this close to a stop line (m). */
+  /**
+   * Curb offset: clearance past the lane edge (m), lateral speed (m/s), braking (m/s²), no pull this close
+   * to a stop line (m); while the curb move is deferred past a junction the car slows to `approachSpeed` (m/s).
+   */
   readonly curb: {
+    readonly approachSpeed: number;
     readonly clearance: number;
     readonly lateralSpeed: number;
     readonly decel: number;
@@ -235,12 +243,15 @@ export function validatePullover(data: unknown, file = 'pullover.json'): Pullove
       lateral: num(detect, 'detect', 'lateral', 0, 50),
       headingDot: num(detect, 'detect', 'headingDot', -1, 1),
       delayS: num(detect, 'detect', 'delayS', 0, 60),
+      minPatrolSpeed: detect.minPatrolSpeed === undefined ? 2 : num(detect, 'detect', 'minPatrolSpeed', 0, 50),
+      closingTol: detect.closingTol === undefined ? 0.5 : num(detect, 'detect', 'closingTol', 0, 50),
     },
     curb: {
       clearance: num(curb, 'curb', 'clearance', 0, 5),
       lateralSpeed: num(curb, 'curb', 'lateralSpeed', 0.05, 10),
       decel: num(curb, 'curb', 'decel', 0.1, 10),
       noPullNearLineM: num(curb, 'curb', 'noPullNearLineM', 0, 500),
+      approachSpeed: curb.approachSpeed === undefined ? 9 : num(curb, 'curb', 'approachSpeed', 1, 50),
       hazards: readBoolean(curb.hazards, file, 'curb.hazards'),
     },
     release: {

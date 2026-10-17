@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { generateRegistration, mountedPlate } from '../../src/records/vehicle';
 import { hasGeneratedWarrant } from '../../src/records/person';
-import { isTextField, MDT_REFRESH_MS, MdtOverlay } from '../../src/ui/mdt';
+import { isTextField, MDT_REFRESH_MS, MdtOverlay, parseClock } from '../../src/ui/mdt';
+import { parseDob } from '../../src/ui/mdt/overlay';
+import { epochDayFromYmd } from '../../src/records/calendar';
+import type { PlateSummary } from '../../src/records/db';
 import { addCall, at, fixture, key, SEED, startStop } from './helpers';
 
 const input = { tagName: 'INPUT', type: 'text' };
@@ -110,6 +113,87 @@ describe('MdtOverlay (headless)', () => {
     expect(mdt.isOpen).toBe(true);
     expect(mdt.onKeyDown(key('Escape'))).toBe(true);
     expect(mdt.isOpen).toBe(false);
+  });
+
+  it('Escape on another tab closes the MDT and keeps the open form', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open('reports');
+    mdt.openForm('report');
+    mdt.setTab('person');
+    expect(mdt.onKeyDown(key('Escape', input))).toBe(true);
+    expect(mdt.isOpen).toBe(false);
+    expect(mdt.editing).toBe(true);
+    expect(mdt.formKind).toBe('report');
+    mdt.open();
+    expect(mdt.tab).toBe('person');
+    mdt.setTab('reports');
+    expect(mdt.onKeyDown(key('Escape', input))).toBe(true);
+    expect(mdt.editing).toBe(false);
+    expect(mdt.isOpen).toBe(true);
+  });
+
+  it('saves an open form as a draft before another form or a document replaces it', () => {
+    const f = fixture();
+    startStop(f, 123);
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open('reports');
+    mdt.openForm('report', { callId: null, title: 'Found property', location: 'Oak', occurredGame: 0, narrative: 'Bicycle found' });
+    expect(mdt.writeCitation()).toBe(true);
+    expect(mdt.formKind).toBe('citation');
+    const reports = f.cad.docs.list('report');
+    expect(reports.length).toBe(1);
+    expect(reports[0]).toMatchObject({ status: 'draft', title: 'Found property', narrative: 'Bicycle found' });
+    // Viewing a document also keeps the open citation as a draft.
+    mdt.viewDocument(reports[0]?.id ?? '');
+    expect(mdt.editing).toBe(false);
+    expect(f.cad.docs.list('citation').length).toBe(1);
+  });
+
+  it('shows dispatcher refusals of MDT requests', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open('queue');
+    mdt.acceptCall(1);
+    expect(mdt.message).toBe('Accept sent');
+    mdt.notify('No call offered', false);
+    expect(mdt.message).toBe('Refused: No call offered');
+    expect(mdt.messageIsError).toBe(true);
+    mdt.notify('10-4', true);
+    expect(mdt.message).toBe('10-4');
+    expect(mdt.messageIsError).toBe(false);
+  });
+
+  it('reports MDT plate runs like dispatcher runs (deps.plateRun)', () => {
+    const f = fixture();
+    const runs: { vehicleId: number; readback: PlateSummary }[] = [];
+    const mdt = new MdtOverlay(null, { ...f.deps, plateRun: (vehicleId, readback) => runs.push({ vehicleId, readback }) });
+    const plate = mountedPlate(SEED, 77).plate;
+    mdt.runPlate(plate, 77);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ vehicleId: 77, readback: { plate, found: true } });
+  });
+
+  it('refuses malformed DOBs and report times instead of ignoring them', () => {
+    expect(parseDob('13/45/1990')).toBeUndefined();
+    expect(parseDob('02/30/1990')).toBeUndefined();
+    expect(parseDob('02/28/1990')).toBe(epochDayFromYmd(1990, 2, 28));
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open('person');
+    const before = f.records.queryLog.length;
+    expect(mdt.searchPersonFields({ last: 'Smith', first: '', dob: '13/45/1990', dl: '' })).toBeNull();
+    expect(mdt.message).toBe('DOB must be MM/DD/YYYY');
+    expect(f.records.queryLog.length).toBe(before);
+    expect(mdt.searchPersonFields({ last: 'Smith', first: '', dob: '', dl: '' })).not.toBeNull();
+    // Report time: HH:MM only, nearest day to the call time.
+    const day = 86400;
+    expect(parseClock('9.30', 10 * 3600)).toBeNull();
+    expect(parseClock('25:10', 10 * 3600)).toBeNull();
+    expect(parseClock('930', 10 * 3600)).toBeNull();
+    expect(parseClock('09:30', day + 10 * 3600)).toBe(day + 9.5 * 3600);
+    expect(parseClock('00:20', day + 23.5 * 3600)).toBe(2 * day + 1200);
+    expect(parseClock('23:50', 2 * day + 600)).toBe(day + 23 * 3600 + 50 * 60);
   });
 
   it('sends CAD changes through deps.request', () => {

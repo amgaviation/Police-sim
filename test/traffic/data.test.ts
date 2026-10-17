@@ -49,8 +49,8 @@ describe('traffic data', () => {
   });
 
   it('loads pullover.json (design §4.3) and names the file and field on errors', () => {
-    expect(PULLOVER.detect).toEqual({ minDistance: 3, maxDistance: 35, lateral: 2.5, headingDot: 0.8, delayS: 1.5 });
-    expect(PULLOVER.curb).toEqual({ clearance: 0.15, lateralSpeed: 0.9, decel: 2, noPullNearLineM: 30, hazards: true });
+    expect(PULLOVER.detect).toEqual({ minDistance: 3, maxDistance: 35, lateral: 2.5, headingDot: 0.8, delayS: 1.5, minPatrolSpeed: 2, closingTol: 0.5 });
+    expect(PULLOVER.curb).toEqual({ clearance: 0.15, lateralSpeed: 0.9, decel: 2, noPullNearLineM: 30, approachSpeed: 9, hazards: true });
     expect(PULLOVER.release).toEqual({ lateralSpeed: 0.7, autoReleaseM: 150 });
     expect(PULLOVER.yield).toEqual({ range: 50, lateral: 6, passMargin: 10, timeoutS: 20 });
     expect(PULLOVER.fleet.maxCars).toBe(16);

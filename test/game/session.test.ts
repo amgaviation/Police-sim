@@ -807,10 +807,19 @@ describe('determinism', () => {
     const p = city.graph.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
     session.teleport(p.x, p.z, p.yaw);
     h.step(session, 30);
-    expect(session.traffic.spawnAt(lane, s0 + 14, { speed: 6, behavior: 0, desiredFactor: 1 })).toBeGreaterThanOrEqual(0);
+    expect(session.traffic.spawnAt(lane, s0 + 14, { speed: 4, behavior: 0, desiredFactor: 0.3 })).toBeGreaterThanOrEqual(0);
     session.toggleLightbar();
     session.drivenEquipment?.cyclePattern();
-    h.step(session, 600);
+    // Creep after it (stop detection needs the patrol car moving), then brake once it is the stop target.
+    const d = session.driverInput;
+    d.handbrake = false;
+    d.accelerate = 0.35;
+    let n = 0;
+    for (; n < 600 && session.cad.trafficStop === null; n++) h.step(session, 1);
+    d.accelerate = 0;
+    d.brake = 1;
+    h.step(session, 600 - n);
+    d.brake = 0;
     const stop = session.cad.trafficStop;
     expect(stop?.outcome).toBe('active');
     if (!stop) return;

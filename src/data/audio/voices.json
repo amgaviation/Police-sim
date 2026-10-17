@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "excludeVoices": [
+    "Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos", "Deranged", "Good News", "Hysterical",
+    "Jester", "Organ", "Pipe Organ", "Superstar", "Trinoids", "Whisper", "Wobble", "Zarvox"
+  ]
+}

@@ -2,7 +2,7 @@
   "version": 1,
   "plateAnomalies": { "cloned": 0.002, "mismatched": 0.004, "stolenPlate": 0.002 },
   "intrinsic": { "plateReportedStolen": 0.004, "cloneAlert": 0.01 },
-  "flags": { "rate": 0.008, "reasons": ["Associated with narcotics investigation", "Used in a robbery - BOLO", "Hit-and-run suspect vehicle", "Registered owner reported missing"] },
+  "flags": { "rate": 0.008, "reasons": ["Associated with narcotics investigation", "Used in a robbery - BOLO", "Hit-and-run suspect vehicle"] },
   "driverIsOwner": 0.8,
   "registration": { "validMinDays": 60, "validMaxDays": 700, "expiredMaxDays": 400 },
   "insurers": ["Bluefield Mutual", "Ironbark Casualty", "Lanternway Insurance", "Fernhill Auto Assurance", "Cobblestone General"],

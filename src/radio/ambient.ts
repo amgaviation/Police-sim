@@ -21,6 +21,8 @@ export interface AmbientLine {
   readonly speaker: string;
   readonly speakerKind: SpeakerKind;
   readonly text: string;
+  /** The ten-code wording (air time never depends on the radio language). */
+  readonly durationText: string;
 }
 
 export interface AmbientContext {
@@ -63,7 +65,8 @@ export function composeAmbient(channel: ChannelDef, ctx: AmbientContext): Ambien
     randomAddress: template.includes('{randomAddress}') ? randomAddress(ctx) : '',
   };
   const text = fillTemplate(template, values, ctx.mode);
+  const durationText = ctx.mode === 'tenCode' ? text : fillTemplate(template, values, 'tenCode');
   return byDispatcher
-    ? { speaker: channel.dispatcher as string, speakerKind: 'dispatcher', text }
-    : { speaker: unit, speakerKind: amb.speakerKind, text };
+    ? { speaker: channel.dispatcher as string, speakerKind: 'dispatcher', text, durationText }
+    : { speaker: unit, speakerKind: amb.speakerKind, text, durationText };
 }

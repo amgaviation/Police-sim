@@ -352,7 +352,8 @@ describe('player requests', () => {
     const rig = makeRig();
     rig.radio.say('dispatch', 'all units be advised of a long bulletin about road works on the north side of the city');
     rig.run(0.5);
-    rig.radio.playerRequest({ kind: 'status', status: 'available' }, 'radio');
+    // Voice PTT keys up at once (a radio-menu request would wait for the clear channel).
+    rig.radio.playerRequest({ kind: 'status', status: 'available' }, 'voice');
     settle(rig);
     expect(rig.events.filter((e) => e.topic === 'radio:blocked')).toHaveLength(1);
     expect(requests(rig)).toHaveLength(0);

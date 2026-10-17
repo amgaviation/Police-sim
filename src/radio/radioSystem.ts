@@ -12,11 +12,12 @@ import type { Rng } from '../core/rng';
 import type { RoadGraph } from '../world/roadGraph';
 import { ambientInterval, composeAmbient } from './ambient';
 import { Composer, type ComposerHost } from './compose';
-import { channelDef, PHRASES, RADIO_CONFIG } from './data';
+import { channelDef, PHRASES, RADIO_CONFIG, REQUEST_CHANNEL } from './data';
 import './events';
 import { RadioMenu } from './menu';
 import { RadioNet } from './net';
 import type { RadioSave } from './save';
+import type { TemplateValue } from './template';
 import type { ChannelId, QueuedTransmission, Transmission } from './types';
 
 export interface RadioDeps {
@@ -216,9 +217,9 @@ export class RadioSystem {
     this.deps.bus.emit('radio:channel', { selected: this.net.selected, scanning: this.net.scanning });
   }
 
-  private playerNear(): string {
+  private playerNear(): TemplateValue {
     const a = addressAt(this.deps.graph, this.px, this.pz, undefined, PLAYER_ADDRESS_RADIUS);
-    return a ? locationText(a) : PHRASES.fragments.unknownLocation[this.deps.mode()];
+    return a ? locationText(a) : PHRASES.fragments.unknownLocation;
   }
 
   private ambient(t: CadTime): void {
@@ -245,6 +246,7 @@ export class RadioSystem {
         speaker: line.speaker,
         speakerKind: line.speakerKind,
         text: line.text,
+        durationText: line.durationText,
         kind: 'ambient',
         earliest: now,
         waitClear: !this.deps.rng.chance(RADIO_CONFIG.doubleKeyChance),
@@ -253,15 +255,19 @@ export class RadioSystem {
     }
   }
 
+  /** "Say again" repeats the last dispatch content line to the player, never a "you were blocked" or another agency's reply. */
   private onStart(e: QueuedTransmission): void {
-    if (e.speakerKind === 'dispatcher' && e.to === this.deps.playerCallsign) this.lastToPlayer = e.id;
+    if (e.speakerKind !== 'dispatcher' || e.to !== this.deps.playerCallsign || e.channel !== REQUEST_CHANNEL) return;
+    if (e.kind === 'blocked' || e.kind === 'wrongChannel') return;
+    this.lastToPlayer = e.id;
   }
 
   private onEnd(e: QueuedTransmission): void {
     if (e.speakerKind !== 'player') return;
     const def = channelDef(e.channel);
     const player = this.deps.playerCallsign;
-    if (e.kind === 'locationAnswer') this.composer.locationAnswerEnded(e.blocked);
+    // An answer on a channel without requests was not heard by dispatch: the question still stands.
+    if (e.kind === 'locationAnswer') this.composer.locationAnswerEnded(e.blocked || !def.requests);
     if (e.blocked) {
       // The emergency request already went out with the button: never ask to repeat it.
       // Priority on a held channel, or the player would never hear it (the request was lost).
@@ -293,6 +299,7 @@ export class RadioSystem {
       speaker: tx.speaker,
       speakerKind: tx.speakerKind,
       text: tx.text,
+      duration: tx.duration,
       kind: tx.kind,
       earliest: this.net.now + this.composer.replyGap(),
       to: this.deps.playerCallsign,

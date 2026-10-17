@@ -105,6 +105,10 @@ describe.each(SEEDS)('registrations and plates (seed %i)', (seed) => {
     expect(counts.stolenPlate / n).toBeLessThan(a.stolenPlate * 1.8);
   });
 
+  it('vehicle flags describe the vehicle, never its registered owner', () => {
+    for (const reason of VEHICLE_DATA.flags.reasons) expect(reason, reason).not.toMatch(/owner|missing/i);
+  });
+
   it('plate flags follow the anomaly and the mounted registration', () => {
     for (let id = 0; id < 3000; id++) {
       const flags = plateFlags(seed, id);
@@ -112,7 +116,8 @@ describe.each(SEEDS)('registrations and plates (seed %i)', (seed) => {
       const mp = mountedPlate(seed, id);
       const reg = generateRegistration(seed, mp.plateVehicleId);
       expect((flags & PLATE_FLAG.cloned) !== 0).toBe(mp.anomaly === 'cloned');
-      expect((flags & PLATE_FLAG.mismatched) !== 0).toBe(mp.anomaly === 'mismatched');
+      const otherLook = mp.anomaly === 'mismatched' || (mp.anomaly === 'stolenPlate' && (reg.modelId !== vehicleRecord(seed, id).modelId || reg.color !== vehicleRecord(seed, id).color));
+      if (mp.anomaly === 'none' || mp.anomaly === 'cloned' || mp.anomaly === 'mismatched') expect((flags & PLATE_FLAG.mismatched) !== 0).toBe(otherLook);
       expect((flags & PLATE_FLAG.expired) !== 0).toBe(reg.expired);
       if (vehicleRecord(seed, id).stolen || mp.anomaly === 'stolenPlate') expect(flags & PLATE_FLAG.stolen).toBe(PLATE_FLAG.stolen);
       if (reg.flag !== null) expect(flags & PLATE_FLAG.flagged).toBe(PLATE_FLAG.flagged);

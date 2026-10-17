@@ -147,7 +147,10 @@ export class RadioPlayer {
     if (tx.blocked) return;
     if (this.speakingId >= 0) {
       // One utterance at a time: the selected channel pre-empts a scanned one; otherwise captions only.
-      if (!this.speakingScanned || scanned) return;
+      // An utterance this transmission just stepped on (the emergency button pre-empts the channel;
+      // radio:blocked follows radio:start) gives way to it.
+      const cur = this.playing.get(this.speakingId);
+      if (!(cur?.blocked ?? false) && (!this.speakingScanned || scanned)) return;
       this.stopSpeaking();
     }
     if (toneS === 0) {

@@ -2,7 +2,13 @@
 import { codeText } from '../cad/codes';
 import type { RadioMode } from '../cad/types';
 
-export type TemplateValues = Readonly<Partial<Record<string, string>>>;
+/** A value whose wording depends on the radio mode (a ten-code, a fragment). */
+export interface ModeText {
+  readonly tenCode: string;
+  readonly plain: string;
+}
+export type TemplateValue = string | ModeText;
+export type TemplateValues = Readonly<Partial<Record<string, TemplateValue>>>;
 
 const PLACEHOLDER = /\{([^{}]*)\}/g;
 
@@ -10,7 +16,8 @@ const PLACEHOLDER = /\{([^{}]*)\}/g;
 export function fillTemplate(template: string, values: TemplateValues, mode: RadioMode): string {
   const text = template.replace(PLACEHOLDER, (_m, name: string) => {
     if (name.startsWith('code:')) return codeText(name.slice(5), mode);
-    return values[name] ?? '';
+    const v = values[name];
+    return v === undefined ? '' : typeof v === 'string' ? v : v[mode];
   });
   return text
     .replace(/\s+([,.!?])/g, '$1')

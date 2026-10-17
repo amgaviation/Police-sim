@@ -107,11 +107,25 @@ describe('RadioPlayer', () => {
     expect(speech.spoken.at(-1)?.text).toBe('after it finished');
   });
 
+  it('the emergency button pre-empting a voiced line is spoken', () => {
+    const rig = makeRig();
+    const fx = new FakeFx();
+    const speech = new FakeSpeech();
+    new RadioPlayer({ bus: rig.bus, audio: { radio: fx }, speech, schedule: (fn) => { fn(); return () => undefined; } });
+    rig.radio.say('dispatch', 'a long dispatcher message that is still going when the unit hits the emergency button');
+    rig.run(1);
+    rig.radio.emergencyButton();
+    rig.run(5);
+    expect(speech.spoken.map((x) => x.text)).toHaveLength(2);
+    expect(speech.spoken[1]?.profile).toEqual(voiceProfileFor(PLAYER, 'player'));
+  });
+
   it('blocked: cancels speech and plays a heterodyne for the overlap', () => {
     const { rig, fx, speech } = setup();
     rig.radio.say('dispatch', 'a long dispatcher message that is still going when the unit keys up');
     rig.run(0.5);
-    rig.radio.playerRequest({ kind: 'status', status: 'available' }, 'radio');
+    // Voice PTT keys up at once (a radio-menu request would wait for the clear channel).
+    rig.radio.playerRequest({ kind: 'status', status: 'available' }, 'voice');
     rig.run(0.05);
     expect(speech.calls).toContain('cancel');
     const het = fx.calls.find((c) => c.startsWith('heterodyne:'));

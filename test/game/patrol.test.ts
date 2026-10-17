@@ -52,6 +52,19 @@ function placeOfficer(session: GameSession, x: number, z: number): void {
   Transform.z[session.player] = z;
 }
 
+/** Creeps after the car ahead until it is the stop target, then brakes to a halt. */
+function followAndStop(h: Harness, session: GameSession): void {
+  const d = session.driverInput;
+  d.handbrake = false;
+  d.brake = 0;
+  d.accelerate = 0.35;
+  for (let i = 0; i < 900 && session.cad.trafficStop === null; i++) h.step(session, 1);
+  d.accelerate = 0;
+  d.brake = 1;
+  h.step(session, 120);
+  d.brake = 0;
+}
+
 /** Drives patrol car 0 onto an arterial, puts a car 14 m ahead and switches the light bar on until it is stopped at the curb. */
 function pullOverAhead(h: Harness, session: GameSession): number {
   session.enterVehicle(vehicle(session, 0));
@@ -60,10 +73,11 @@ function pullOverAhead(h: Harness, session: GameSession): number {
   const p = city.graph.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
   session.teleport(p.x, p.z, p.yaw);
   h.step(session, 30);
-  const slot = session.traffic.spawnAt(lane, s0 + 14, { speed: 6, behavior: 0, desiredFactor: 1 });
+  const slot = session.traffic.spawnAt(lane, s0 + 14, { speed: 4, behavior: 0, desiredFactor: 0.3 });
   const vehicleId = session.traffic.view.vehicleId[slot] ?? -1;
   session.toggleLightbar();
-  for (let i = 0; i < 900 && session.cad.trafficStop === null; i++) h.step(session, 1);
+  // Stop detection needs the patrol car moving behind the car (a parked car with scene lights stops no one).
+  followAndStop(h, session);
   const stop = session.cad.trafficStop;
   if (!stop) throw new Error('no traffic stop');
   expect(stop.vehicleId).toBe(vehicleId);
@@ -339,11 +353,22 @@ describe('patrol presentation', () => {
     expect(screen.call?.number).toBe(call.number);
     expect(screen.alert).toContain('STOLEN VEHICLE');
     expect(feed.screenModel(1100)).toBe(screen);
-    h.bus.emit('dispatch:statusCheck', { callsign: '12', attempt: 1, escalated: false, location: 'x' });
+    // The status check is the dispatcher's state (it survives save/load): pending until any player request.
+    const ds = session.dispatcher.serialize();
+    ds.statusCheck.attempt = 1;
+    ds.statusCheck.awaitingSince = session.now().sim;
+    session.dispatcher.restore(ds, session.now());
     feed.fillHud(s, null, 'T', 2000);
     expect(s.unit?.statusCheck).toBe(true);
     expect(s.target).toBeNull();
-    h.bus.emit('dispatch:ack', { callsign: '12', kind: 'status', ok: true, text: 'ok' });
+    // A fresh feed (as after a load) shows it too, with the in-car alert.
+    const reloaded = new PoliceFeed(session, h.bus);
+    reloaded.fillHud(s, null, 'T', 2050);
+    expect(s.unit?.statusCheck).toBe(true);
+    expect(reloaded.screenModel(2050).alert).toContain('STATUS CHECK');
+    reloaded.dispose();
+    session.dispatcher.request('12', { kind: 'location' }, 'mdt');
+    h.step(session, 2);
     feed.fillHud(s, null, 'T', 2100);
     expect(s.unit?.statusCheck).toBe(false);
     const ctx = feed.radioContext('plain', target);

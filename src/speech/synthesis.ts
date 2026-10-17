@@ -1,4 +1,21 @@
+import voicesJson from '../data/audio/voices.json';
+import { readArray, readObject, readString, readVersion } from '../vehicles/json';
 import type { VoiceProfile } from './profile';
+
+/** Parses `voices.json`: names (lower case) of novelty voices kept out of the speaker pool (singing, whispering...). */
+export function parseExcludedVoices(json: unknown, file = 'voices.json'): ReadonlySet<string> {
+  const root = readObject(json, file, '');
+  readVersion(root, file);
+  const list = readArray(root.excludeVoices, file, 'excludeVoices').map((v, i) => readString(v, file, `excludeVoices[${i}]`).trim().toLowerCase());
+  return new Set(list);
+}
+
+const EXCLUDED_VOICES = parseExcludedVoices(voicesJson);
+
+/** True when `name` is a novelty voice of the denylist ("Bubbles", "Bubbles (English (US))"). */
+export function isExcludedVoice(name: string, excluded: ReadonlySet<string> = EXCLUDED_VOICES): boolean {
+  return excluded.has(name.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase());
+}
 
 /**
  * Text-to-speech wrapper over `speechSynthesis` (design §10.4). Feature-detected: without
@@ -179,7 +196,7 @@ export class SpeechOut {
     return this.voices.map((v) => ({ name: v.name, lang: v.lang, local: v.localService }));
   }
 
-  /** Voices used for non-dispatcher speakers: English, local first, then by name. */
+  /** Voices used for non-dispatcher speakers: English, no novelty voices (voices.json), local first, then by name. */
   voicePool(): readonly string[] {
     return this.pool.map((v) => v.name);
   }
@@ -216,7 +233,10 @@ export class SpeechOut {
       this.voices = [];
     }
     const english = this.voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
-    this.pool = [...(english.length > 0 ? english : this.voices)].sort(byLocalThenName);
+    const base = english.length > 0 ? english : this.voices;
+    // Novelty voices stay selectable as the dispatcher voice (`voiceNames`), never assigned to speakers.
+    const usable = base.filter((v) => !isExcludedVoice(v.name));
+    this.pool = [...(usable.length > 0 ? usable : base)].sort(byLocalThenName);
   }
 
   private call(fn: (s: SpeechSynthesisLike) => void): void {

@@ -393,14 +393,23 @@ async function phase2(page, hasRenderer) {
     const p = g.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
     app.teleport(p.x, p.z, p.yaw);
     step(30);
-    const slot = s.traffic.spawnAt(lane, s0 + 14, { speed: 6, behavior: 0, desiredFactor: 1 });
+    const slot = s.traffic.spawnAt(lane, s0 + 14, { speed: 4, behavior: 0, desiredFactor: 0.3 });
     const vehicleId = s.traffic.view.vehicleId[slot];
     car.lightbar = true;
+    // Creep after it (stop detection needs the patrol car moving), then brake once it is the stop target.
+    const d = s.driverInput;
+    d.handbrake = false;
+    d.brake = 0;
+    d.accelerate = 0.35;
     let n = 0;
     while (s.cad.trafficStop === null && n < 900) {
       step(1);
       n++;
     }
+    d.accelerate = 0;
+    d.brake = 1;
+    step(120);
+    d.brake = 0;
     const st = s.cad.trafficStop;
     return { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1 };
   }, stepSim.toString());

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { voiceProfileFor, type VoiceProfile } from '../../src/speech/profile';
-import { SpeechOut, type SpeechSynthesisLike, type UtteranceLike, type VoiceLike } from '../../src/speech/synthesis';
+import { SpeechOut, isExcludedVoice, parseExcludedVoices, type SpeechSynthesisLike, type UtteranceLike, type VoiceLike } from '../../src/speech/synthesis';
 
 class FakeUtterance implements UtteranceLike {
   text: string;
@@ -93,6 +93,19 @@ describe('SpeechOut', () => {
     const { out } = make();
     expect(out.voicePool()).toEqual(['Alpha Local', 'Bravo Local', 'Alpha Remote', 'Zed Remote']);
     expect(out.voiceNames()).toEqual(VOICES.map((x) => x.name));
+  });
+
+  it('keeps novelty voices out of the speaker pool but selectable by name', () => {
+    const list = [v('Bubbles', 'en-US', true), v('Whisper (English (US))', 'en-US', true), v('Samantha', 'en-US', true), v('Zarvox', 'en-US', true)];
+    const { out } = make(list);
+    expect(out.voicePool()).toEqual(['Samantha']);
+    expect(out.voiceNames()).toEqual(list.map((x) => x.name));
+    expect(isExcludedVoice('Good News')).toBe(true);
+    expect(isExcludedVoice('Daniel')).toBe(false);
+    // Only novelty voices: they are still used rather than none.
+    expect(make([v('Bubbles', 'en-US', true)]).out.voicePool()).toEqual(['Bubbles']);
+    expect([...parseExcludedVoices({ version: 1, excludeVoices: [' Cellos '] })]).toEqual(['cellos']);
+    expect(() => parseExcludedVoices({ version: 1 })).toThrow();
   });
 
   it('falls back to all voices when none is English', () => {

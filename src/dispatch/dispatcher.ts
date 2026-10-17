@@ -400,7 +400,7 @@ export class Dispatcher {
    * by fleet index (save entries for unknown indices are ignored), PoliceLights are re-attached on the
    * next step.
    */
-  restore(save: DispatchSave): void {
+  restore(save: DispatchSave, t: CadTime = { sim: 0, game: 0 }): void {
     this.deps.rng.restore(save.rng.main);
     this.callsRng.restore(save.rng.calls);
     this.unitsRng.restore(save.rng.units);
@@ -460,6 +460,32 @@ export class Dispatcher {
     this.stopWarned = save.stop.warned;
     this.events = structuredClone(save.events);
     this.requests = structuredClone(save.requests);
+    this.reconcileRoster(t);
+  }
+
+  /**
+   * After a load, CAD matches the current roster (units.json may have changed since the save): a roster
+   * unit missing from CAD is added at its car (spawned by the step like any absent car) or beat; a CAD AI
+   * unit without a roster entry is removed.
+   */
+  private reconcileRoster(t: CadTime): void {
+    const { cad, traffic } = this.deps;
+    for (const u of this.units) {
+      if (cad.unit(u.callsign)) continue;
+      cad.addUnit({ callsign: u.callsign, kind: 'ai', officer: u.data.officer, beat: u.data.beat, fleetIndex: u.fleetIndex }, t);
+      const fs = traffic.fleetState(u.fleetIndex, u.fs);
+      u.lastAvlX = fs ? fs.x : u.beatX;
+      u.lastAvlZ = fs ? fs.z : u.beatZ;
+      cad.setUnitPosition(u.callsign, u.lastAvlX, u.lastAvlZ);
+    }
+    for (const cu of [...cad.units()]) {
+      if (cu.kind === 'ai' && !this.units.some((u) => u.callsign === cu.callsign)) cad.removeUnit(cu.callsign);
+    }
+  }
+
+  /** Dispatch is waiting for the player's answer to a status check (survives save/load; HUD and in-car screen). */
+  get statusCheckPending(): boolean {
+    return this.checkAttempt > 0;
   }
 
   dispose(): void {
@@ -498,6 +524,14 @@ export class Dispatcher {
   private onPulledOver(vehicleId: number, x: number, z: number, t: CadTime): void {
     if (isFleetVehicleId(vehicleId) || vehicleId < 0 || vehicleId >= REGISTRY_POPULATION) return;
     const { cad, seed, records } = this.deps;
+    // A stop never takes the player off another call they are on (en route or on scene): the car is let go.
+    const pcall = cad.playerUnit()?.callId ?? null;
+    const current = pcall !== null ? cad.call(pcall) : null;
+    if (current && current.status !== 'closed' && current.typeId !== 'trafficStop') {
+      this.deps.traffic.releaseStop();
+      this.ack(this.playerCallsign, 'trafficStop', false, `Clear ${current.number} first`);
+      return;
+    }
     const prev = cad.trafficStop;
     if (prev && prev.outcome === 'active') this.endStop('lost', 'handled', t);
     const type = findCallType('trafficStop');
@@ -1359,6 +1393,9 @@ export class Dispatcher {
         cad.closeCall(call.id, this.unitsRng.pick(options), t);
       } else {
         cad.unassign(u.callsign, t);
+        // Its share of the work is done: the call is never refilled (the unit leaving would be picked
+        // again at once, being nearest), it closes when the last unit on it finishes.
+        if (!call.units.includes(pc)) this.plans.set(call.id, others);
       }
     }
     this.toPatrol(u, t);

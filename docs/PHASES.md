@@ -191,5 +191,7 @@ Every action can be rebound under *Settings > Controls*. In the MDT: 1-9 or ←/
 - Speech output depends on the browser's voices (headless Chromium has none: captions only); recognition is browser-provided (Chromium sends audio to a vendor service unless on-device recognition is available) and is off by default.
 - Trunk items have no world use yet (deployables are Phase 3) and the rack's guns cannot be fired; the booking is a form at the station (no transport or jail scene).
 - The reticle target wins over the stopped car for **P** and the radio menu's plate run; the MDT closes with Escape only (Tab moves focus between its fields).
+- A traffic stop needs the patrol car moving behind the car with the light bar on and the siren off (lights + siren only make traffic yield; a parked car with scene lights stops no one); while the player is on another call a pull-over is refused (the car drives on, the MDT shows why).
+- Radio-menu requests wait for a clear dispatch channel and key up first when it clears; voice push-to-talk keys up at once and can step on traffic. During an emergency, routine unit traffic is not voiced (radio silence) and "resume normal traffic" goes out first after Code 4.
 - The dispatcher assigns all pending calls in one step, so a burst of calls can spike a single step to a few milliseconds (first call of a session up to ~5 ms).
 - Under software GL (SwiftShader) the game runs at about 1-2 fps and the loop hits its 5-sub-step cap; on a real GPU it runs at the display rate.

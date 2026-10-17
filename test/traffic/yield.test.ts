@@ -37,15 +37,15 @@ describe('yielding to emergency vehicles', () => {
     const { h, ahead, oncoming } = await road();
     let x = -520;
     let t = runFor(h, 0, 12, () => player(h, (x += 4 / 60), 4, true));
-    // The car right ahead (inside the stop window) is pulled over; the one further on yields.
+    // Lights and siren only make traffic yield: no car is pulled over (not even the one in the stop window).
     for (const id of ahead) {
       const slot = slotOf(h, id);
       const info = h.sys.inspect(slot, carInfo());
-      expect(info.pull).toBe(id === ahead[0] ? PULL.stopped : PULL.yielding);
+      expect(info.pull).toBe(PULL.yielding);
       expect(info.shoulder).toBeGreaterThan(2);
       expect(h.sys.view.speed[slot]).toBeLessThan(0.01);
     }
-    expect(h.sys.stopVehicleId).toBe(ahead[0]);
+    expect(h.sys.stopVehicleId).toBe(-1);
     expect(h.sys.inspect(slotOf(h, oncoming), carInfo()).pull).toBe(PULL.none);
     // Drive past them at 15 m/s: they merge back and drive on.
     t = runFor(h, t, 12, () => player(h, (x += 15 / 60), 15, true));

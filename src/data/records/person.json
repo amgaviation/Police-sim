@@ -13,7 +13,7 @@
   "warrants": {
     "rate": 0.03,
     "max": 3,
-    "courts": ["Municipal Court", "County Court"],
+    "courts": ["Municipal Court", "County Court"], "benchPriorKinds": ["citation", "arrest"],
     "kinds": [
       { "kind": "bench", "label": "Failure to appear", "weight": 5, "bail": [250, 2500] },
       { "kind": "bench", "label": "Failure to pay fine", "weight": 3, "bail": [150, 1500] },
@@ -29,8 +29,8 @@
   "gang": { "rate": 0.012, "names": ["Copperline Crew", "Quarry Lane Set", "Bluegill Boys", "Ashgrove Collective"], "associateShare": 0.6 },
   "mentalHealth": { "rate": 0.02, "notes": ["Prior crisis contact - approach calmly", "Known to be suicidal - use caution"] },
   "officerSafety": { "rate": 0.012, "notes": ["Known to carry weapons", "Prior assault on officer", "Flight risk"] },
-  "firearms": { "rate": 0.14, "max": 3, "minAge": 21, "types": ["Handgun 9mm", "Handgun .40", "Revolver .38", "Rifle .223", "Shotgun 12 ga"] },
-  "protectiveOrders": { "rate": 0.008, "conditions": ["No contact", "Stay 100 yards away", "Surrender firearms"] },
+  "firearms": { "rate": 0.14, "max": 3, "minAge": 21, "prohibitedSupervision": ["parole"], "types": ["Handgun 9mm", "Handgun .40", "Revolver .38", "Rifle .223", "Shotgun 12 ga"] },
+  "protectiveOrders": { "rate": 0.008, "conditions": ["No contact", "Stay 100 yards away", "Surrender firearms"], "surrenderCondition": "Surrender firearms" },
   "priors": {
     "mean": 0.7,
     "max": 6,

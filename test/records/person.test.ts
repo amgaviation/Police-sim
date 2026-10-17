@@ -153,7 +153,7 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
   it('keeps warrants, supervision, priors, firearms and licence consistent with each other and with age', () => {
     const ctx = fakeCtx();
     const start = CALENDAR.startEpochDay;
-    let supervised = 0, probationViolations = 0, young = 0;
+    let supervised = 0, probationViolations = 0, young = 0, prohibited = 0, benchWanted = 0;
     for (let id = 0; id < 30000; id++) {
       const p = generatePerson(seed, id, ctx);
       const age = Math.floor((start - p.dob) / 365.25);
@@ -167,6 +167,26 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
       }
       if (age < 21) young++;
       if (age < PERSON_DATA.firearms.minAge) expect(p.firearms, `person ${id}`).toEqual([]);
+      // No firearm registered before the holder's minAge birthday, none for a prohibited possessor.
+      for (const f of p.firearms) {
+        expect(ageOn(p.dob, f.registered), `person ${id} firearm ${f.serial}`).toBeGreaterThanOrEqual(PERSON_DATA.firearms.minAge);
+        expect(f.registered).toBeLessThan(start);
+      }
+      const surrender = p.protectiveOrders.some((o) => o.conditions.includes('Surrender firearms'));
+      if (p.supervision.kind === 'parole' || surrender) {
+        prohibited++;
+        expect(p.firearms, `person ${id} prohibited`).toEqual([]);
+      }
+      // A bench warrant follows an earlier citation or arrest.
+      const bench = p.warrants.filter((x) => x.kind === 'bench');
+      if (bench.length > 0) {
+        benchWanted++;
+        const benchDay = Math.min(...bench.map((x) => x.issued));
+        const court = p.priors.filter((x) => x.kind === 'citation' || x.kind === 'arrest');
+        expect(court.length, `person ${id} bench warrant priors`).toBeGreaterThan(0);
+        expect(Math.min(...court.map((x) => x.day)), `person ${id} bench prior day`).toBeLessThanOrEqual(benchDay);
+        if (benchDay > p.dob + 5845) expect(Math.min(...court.map((x) => x.day))).toBeLessThan(benchDay);
+      }
       const minAge = PERSON_DATA.license.classMinAge[p.license.cls] ?? 0;
       expect(age, `person ${id} class ${p.license.cls}`).toBeGreaterThanOrEqual(minAge);
       if (p.license.status === 'expired') {
@@ -177,6 +197,23 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
     expect(supervised).toBeGreaterThan(500);
     expect(probationViolations).toBeGreaterThan(0);
     expect(young).toBeGreaterThan(100);
+    expect(prohibited).toBeGreaterThan(100);
+    expect(benchWanted).toBeGreaterThan(100);
+  });
+
+  it('regression: firearms respect the minAge birthday, prohibited possessors hold none, bench warrants have a prior', () => {
+    if (seed !== 42) return;
+    const p110 = generatePerson(seed, 110, DETACHED_CONTEXT);
+    for (const f of p110.firearms) expect(ageOn(p110.dob, f.registered)).toBeGreaterThanOrEqual(PERSON_DATA.firearms.minAge);
+    const p587 = generatePerson(seed, 587, DETACHED_CONTEXT);
+    expect(p587.supervision.kind).toBe('parole');
+    expect(p587.firearms).toEqual([]);
+    const p221 = generatePerson(seed, 221, DETACHED_CONTEXT);
+    expect(p221.protectiveOrders.some((o) => o.conditions.includes('Surrender firearms'))).toBe(true);
+    expect(p221.firearms).toEqual([]);
+    const p163 = generatePerson(seed, 163, DETACHED_CONTEXT);
+    expect(p163.warrants.some((x) => x.kind === 'bench')).toBe(true);
+    expect(p163.priors.some((x) => x.kind === 'citation' || x.kind === 'arrest')).toBe(true);
   });
 
   it('formats display names', () => {

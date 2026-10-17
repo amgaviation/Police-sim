@@ -1,6 +1,6 @@
 import type { CadState } from '../../cad/cadState';
 import type { CadTime, UnitRequest } from '../../cad/types';
-import type { RecordsDb } from '../../records/db';
+import type { PlateSummary, RecordsDb } from '../../records/db';
 import type { ObservedVehicle } from '../../records/vehicle';
 import type { RoadGraph } from '../../world/roadGraph';
 
@@ -27,6 +27,11 @@ export interface MdtDeps {
   prisoner(): number;
   atStation(): boolean;
   completeBooking(bookingId: string): void;
+  /**
+   * A plate run made on the MDT (reported like a dispatcher run, `dispatch:plateResult` via 'mdt', so
+   * the hit tone, the HUD target result and the in-car alert follow it). Optional: headless tests.
+   */
+  plateRun?(vehicleId: number, readback: PlateSummary): void;
 }
 
 export const MDT_TABS = ['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop'] as const;

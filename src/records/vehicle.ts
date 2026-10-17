@@ -195,19 +195,26 @@ export function mountedPlate(seed: number, vehicleId: number): MountedPlate {
   const u = vehicleDraws(seed, vehicleId).uAnomaly;
   let anomaly: PlateAnomaly = 'none';
   let donor = -1;
+  // Donors carry no other plate state than the anomaly's own, so a plate run detects exactly the
+  // truth flags (`plateFlags`): no stolen vehicle, no reported-stolen plates (except for 'stolenPlate')
+  // and no clone alert (except for 'cloned').
   if (u < a.cloned) {
     anomaly = 'cloned';
     donor = findDonor(seed, vehicleId, (id) => {
-      if (!cloneAlert(seed, id)) return false;
+      if (!cloneAlert(seed, id) || plateReportedStolen(seed, id)) return false;
       const b = vehicleRecord(seed, id);
-      return b.modelId === rec.modelId && b.color === rec.color;
+      return !b.stolen && b.modelId === rec.modelId && b.color === rec.color;
     });
   } else if (u < a.cloned + a.mismatched) {
     anomaly = 'mismatched';
-    donor = findDonor(seed, vehicleId, (id) => vehicleRecord(seed, id).modelId !== rec.modelId);
+    donor = findDonor(seed, vehicleId, (id) => {
+      if (plateReportedStolen(seed, id) || cloneAlert(seed, id)) return false;
+      const b = vehicleRecord(seed, id);
+      return !b.stolen && b.modelId !== rec.modelId;
+    });
   } else if (u < a.cloned + a.mismatched + a.stolenPlate) {
     anomaly = 'stolenPlate';
-    donor = findDonor(seed, vehicleId, (id) => plateReportedStolen(seed, id));
+    donor = findDonor(seed, vehicleId, (id) => plateReportedStolen(seed, id) && !cloneAlert(seed, id) && !vehicleRecord(seed, id).stolen);
   }
   if (donor < 0) return own;
   return { vehicleId, plate: vehicleRecord(seed, donor).plate, plateVehicleId: donor, anomaly };
@@ -221,8 +228,9 @@ export function observedVehicle(seed: number, vehicleId: number): ObservedVehicl
 
 /**
  * Truth `PLATE_FLAG` bits of car `vehicleId` (a car that `canBeOnRoad`): stolen = the vehicle is
- * stolen or wears a donor plate reported stolen (anomaly 'stolenPlate'); cloned / mismatched = the
- * anomaly; expired / flagged = the registration the mounted plate belongs to is expired / has a
+ * stolen or wears a donor plate reported stolen (anomaly 'stolenPlate'); cloned = the anomaly;
+ * mismatched = the mounted registration describes another model or colour (anomaly 'mismatched',
+ * and most 'stolenPlate' donors); expired / flagged = the registration the mounted plate belongs to is expired / has a
  * vehicle flag or an owner with a generated warrant. This is pre-overlay truth: warrants served
  * during the game (RecordsDb) are not applied, so a plate run may show fewer flags afterwards.
  */
@@ -235,7 +243,8 @@ export function plateFlags(seed: number, vehicleId: number): number {
   // reported-stolen plates never drives on them itself (`canBeOnRoad`).
   if (rec.stolen || mp.anomaly === 'stolenPlate') flags |= PLATE_FLAG.stolen;
   if (mp.anomaly === 'cloned') flags |= PLATE_FLAG.cloned;
-  if (mp.anomaly === 'mismatched') flags |= PLATE_FLAG.mismatched;
+  // A donor plate of another model or colour (always for 'mismatched', usually for 'stolenPlate').
+  if (mp.anomaly === 'mismatched' || rec.modelId !== reg.modelId || colorName(rec.color) !== reg.colorName) flags |= PLATE_FLAG.mismatched;
   if (reg.expired) flags |= PLATE_FLAG.expired;
   if (reg.flag !== null || hasGeneratedWarrant(seed, reg.ownerId)) flags |= PLATE_FLAG.flagged;
   return flags;

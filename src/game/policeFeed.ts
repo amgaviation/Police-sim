@@ -105,7 +105,6 @@ export class PoliceFeed {
   private readonly session: GameSession;
   private readonly offs: (() => void)[] = [];
   private readonly plateRuns = new Map<number, PlateRunView>();
-  private statusCheckPending = false;
   private alertText: string | null = null;
   private alertUntilMs = 0;
   private alertPending: string | null = null;
@@ -144,18 +143,20 @@ export class PoliceFeed {
   private screenRevision = -1;
   private screenMinute = -1;
   private screenAlert: string | null = null;
-  private screenStop = '';
+  /** The stop the screen model was built for (primitives: no per-frame key string). */
+  private screenStopActive = false;
+  private screenStopPlate = '';
+  private screenStopDriver = -1;
+  private screenStopCitations = -1;
 
   constructor(session: GameSession, bus: EventBus<EventMap>) {
     this.session = session;
     const player = session.dispatcher.playerCallsign;
-    const answered = (callsign: string): void => {
-      if (callsign === player) this.statusCheckPending = false;
-    };
+    // Whether a status check is pending is the dispatcher's (saved) state; a loaded game shows it again.
+    if (session.dispatcher.statusCheckPending) this.alertPending = 'STATUS CHECK';
     this.offs.push(
       bus.on('dispatch:plateResult', (e) => {
         if (e.callsign !== player) return;
-        answered(e.callsign);
         const r = e.readback;
         const severity: TargetSeverity = r.severity;
         if (e.vehicleId >= 0) this.plateRuns.set(e.vehicleId, { result: plateResultText(r), severity });
@@ -163,18 +164,10 @@ export class PoliceFeed {
       }),
       bus.on('dispatch:statusCheck', (e) => {
         if (e.callsign !== player) return;
-        this.statusCheckPending = true;
         this.alertPending = e.escalated ? 'STATUS CHECK - UNITS SENT' : 'STATUS CHECK';
       }),
       bus.on('dispatch:personResult', (e) => {
-        answered(e.callsign);
         if (e.callsign === player && e.readback.severity === 'alert') this.alertPending = `WANTS ${e.readback.name}: ${e.readback.hits[0] ?? ''}`;
-      }),
-      bus.on('dispatch:ack', (e) => answered(e.callsign)),
-      bus.on('dispatch:backup', (e) => answered(e.requester)),
-      bus.on('dispatch:emergency', (e) => answered(e.callsign)),
-      bus.on('dispatch:location', (e) => {
-        if (!e.asked) answered(e.callsign);
       }),
     );
   }
@@ -186,7 +179,7 @@ export class PoliceFeed {
 
   /** A status check is waiting for the player's answer. */
   get statusCheck(): boolean {
-    return this.statusCheckPending;
+    return this.session.dispatcher.statusCheckPending;
   }
 
   /**
@@ -220,7 +213,7 @@ export class PoliceFeed {
       u.callsign = pu.callsign;
       u.status = statusLabel(pu.status);
       u.emergency = pu.emergency;
-      u.statusCheck = this.statusCheckPending;
+      u.statusCheck = session.dispatcher.statusCheckPending;
       s.unit = u;
     } else {
       s.unit = null;
@@ -303,20 +296,29 @@ export class PoliceFeed {
     const game = session.env.time.totalSeconds;
     const minute = Math.floor(game / 60);
     const stop = cad.trafficStop;
-    const stopKey = stop && stop.outcome === 'active' ? `${stop.plate}:${String(stop.driverId)}:${String(stop.citations.length)}` : '';
+    const active = stop !== null && stop.outcome === 'active';
+    const plate = active ? stop.plate : '';
+    const driver = active ? stop.driverId : -1;
+    const citations = active ? stop.citations.length : -1;
     if (
       this.screen &&
       this.screenRevision === cad.revision &&
       this.screenMinute === minute &&
       this.screenAlert === this.alertText &&
-      this.screenStop === stopKey
+      this.screenStopActive === active &&
+      this.screenStopPlate === plate &&
+      this.screenStopDriver === driver &&
+      this.screenStopCitations === citations
     ) {
       return this.screen;
     }
     this.screenRevision = cad.revision;
     this.screenMinute = minute;
     this.screenAlert = this.alertText;
-    this.screenStop = stopKey;
+    this.screenStopActive = active;
+    this.screenStopPlate = plate;
+    this.screenStopDriver = driver;
+    this.screenStopCitations = citations;
     const player = session.dispatcher.playerCallsign;
     const pu = cad.unit(player);
     const own = pu && pu.callId !== null ? cad.call(pu.callId) : null;

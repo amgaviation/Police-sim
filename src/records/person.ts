@@ -1,5 +1,5 @@
 import { createRng, type Rng } from '../core/rng';
-import { CALENDAR, epochDayFromYmd } from './calendar';
+import { CALENDAR, epochDayFromYmd, ymdOfEpochDay } from './calendar';
 import { CALENDAR_DATA, NAMES, PERSON_DATA, VIN_ALPHABET, type PriorKind } from './data';
 import { hash3 } from './hash';
 import { PERSON_POPULATION, dlNumberOf } from './ids';
@@ -188,7 +188,9 @@ function addressFrom(ctx: RecordsContext, uEdge: number, uT: number): string {
  * 13 priors: count, then `max` x (day, kind, location edge, location t, summary) (1 + 5 max)
  * Outcomes are then made consistent without extra draws: warrant kinds that `require` a
  * supervision kind are only resolved for such a person; a supervised person has at least one
- * prior of `supervision.priorKind`; no firearms below `firearms.minAge`; licence classes below
+ * prior of `supervision.priorKind`; a bench warrant has an earlier prior of `warrants.benchPriorKinds`;
+ * no firearms below `firearms.minAge` (nor registered before that birthday) or for a prohibited
+ * possessor (`firearms.prohibitedSupervision`, `protectiveOrders.surrenderCondition`); licence classes below
  * their `classMinAge` fall back to the most common class; an expired licence expired after 16.
  */
 export function generatePerson(seed: number, id: number, ctx: RecordsContext): PersonRecord {
@@ -281,7 +283,8 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
       offense: kind.label,
       bail: Math.round((kind.bail[0] + wd.uBail * (kind.bail[1] - kind.bail[0])) / 50) * 50,
       court: wd.court,
-      issued: pastDay(wd.issuedAgo),
+      // A bench warrant is issued after the earliest possible prior (adultFrom) so that a prior can precede it.
+      issued: kind.kind === 'bench' ? Math.min(start - 1, Math.max(pastDay(wd.issuedAgo), adultFrom + 1)) : pastDay(wd.issuedAgo),
     };
   });
   const supervision: PersonRecord['supervision'] =
@@ -303,29 +306,39 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
   const hasOs = rng.next() < d.officerSafety.rate * rf;
   const osNotes = subset(rng, d.officerSafety.notes);
 
-  // 11 firearms
+  // 11 firearms (drawn now, resolved after the protective order: some orders prohibit them)
   const f = d.firearms;
   const hasFirearms = rng.next() < f.rate;
   const firearmCount = 1 + Math.floor(rng.next() ** 2 * f.max);
-  const firearms: { type: string; serial: string; registered: number }[] = [];
+  const firearmDraws: { type: string; serial: string; regAgo: number }[] = [];
   for (let k = 0; k < f.max; k++) {
     const type = at(f.types, rng.next());
     const hi = rng.nextInt(0, VIN_ALPHABET.length ** 4 - 1);
     const lo = rng.nextInt(0, VIN_ALPHABET.length ** 3 - 1);
     const regAgo = rng.nextInt(1, 5000);
-    if (hasFirearms && k < firearmCount && ageYears >= f.minAge) {
-      firearms.push({ type, serial: `F${vinChars(hi, 4)}${vinChars(lo, 3)}`, registered: pastDay(regAgo) });
-    }
+    if (hasFirearms && k < firearmCount) firearmDraws.push({ type, serial: `F${vinChars(hi, 4)}${vinChars(lo, 3)}`, regAgo });
   }
 
   // 12 protective order
-  const hasOrder = rng.next() < d.protectiveOrders.rate * rf;
+  const po = d.protectiveOrders;
+  const hasOrder = rng.next() < po.rate * rf;
   const protectedRaw = rng.nextInt(0, PERSON_POPULATION - 2);
-  const orderConditions = subset(rng, d.protectiveOrders.conditions);
+  const orderConditions = subset(rng, po.conditions);
   const orderExpires = start + rng.nextInt(30, 700);
   const protectiveOrders = hasOrder
     ? [{ protectedId: protectedRaw >= id ? protectedRaw + 1 : protectedRaw, conditions: orderConditions, expires: orderExpires }]
     : [];
+
+  // A prohibited possessor (parole, or an order to surrender firearms) has no registered firearms;
+  // none are registered before the holder's `minAge` birthday.
+  const prohibited =
+    f.prohibitedSupervision.includes(supKind) || (hasOrder && po.surrenderCondition !== null && orderConditions.includes(po.surrenderCondition));
+  const dobYmd = ymdOfEpochDay(identity.dob);
+  const firearmFrom = Math.min(start - 1, epochDayFromYmd(dobYmd.y + f.minAge, dobYmd.m, dobYmd.d));
+  const firearms =
+    prohibited || ageYears < f.minAge
+      ? []
+      : firearmDraws.map((x) => ({ type: x.type, serial: x.serial, registered: Math.max(pastDay(x.regAgo), firearmFrom) }));
 
   // 13 priors
   const p = d.priors;
@@ -345,6 +358,22 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
     const first = priorDraws[0];
     const conviction = p.kinds.find((k) => k.kind === s.priorKind);
     if (first && conviction) first.kind = conviction;
+  }
+  // A bench warrant (failure to appear, unpaid fine, violation) follows an earlier court case:
+  // at least one prior of `benchPriorKinds`, dated before the earliest bench warrant.
+  const benchDays = warrants.filter((x) => x.kind === 'bench').map((x) => x.issued);
+  if (benchDays.length > 0 && w.benchPriorKinds.length > 0 && p.max > 0) {
+    const benchDay = Math.min(...benchDays);
+    priorCount = Math.max(1, priorCount);
+    let k = priorDraws.slice(0, priorCount).findIndex((x) => w.benchPriorKinds.includes(x.kind.kind));
+    if (k < 0) {
+      k = 0;
+      const court = p.kinds.find((pk) => pk.kind === w.benchPriorKinds[0]);
+      const first = priorDraws[0];
+      if (first && court) first.kind = court;
+    }
+    const x = priorDraws[k];
+    if (x) x.ago = Math.max(x.ago, start - benchDay + 1);
   }
   const priors: PriorContact[] = [];
   for (let k = 0; k < priorCount; k++) {

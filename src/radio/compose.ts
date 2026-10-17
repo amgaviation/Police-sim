@@ -9,7 +9,7 @@
  * until its first answer (or `answerWindowS`), so an answer reported by two events is voiced once.
  */
 import type { CadState } from '../cad/cadState';
-import { statusText } from '../cad/codes';
+import { statusLabel, statusText } from '../cad/codes';
 import type {
   CadTrafficStopEvent,
   CadUnitAssignedEvent,
@@ -23,7 +23,7 @@ import type {
   DispatchPlateResultEvent,
   DispatchStatusCheckEvent,
 } from '../cad/events';
-import type { RadioMode, RequestVia, UnitRequest } from '../cad/types';
+import { UNIT_STATUSES, type RadioMode, type RequestVia, type UnitRequest, type UnitStatus } from '../cad/types';
 import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
 import type { Rng } from '../core/rng';
@@ -31,7 +31,7 @@ import { plateOf } from '../traffic/registry';
 import type { TrafficCarEvent } from '../traffic/events';
 import { channelDef, PHRASES, REQUEST_CHANNEL, type FragmentKey, type PhraseKind } from './data';
 import type { RadioNet } from './net';
-import { fillTemplate, joinUnits, type TemplateValues } from './template';
+import { fillTemplate, joinUnits, type ModeText, type TemplateValue, type TemplateValues } from './template';
 import type { ChannelId, QueuedTransmission, SpeakerKind } from './types';
 
 export interface ComposerHost {
@@ -41,8 +41,8 @@ export interface ComposerHost {
   readonly seed: number;
   readonly player: string;
   mode(): RadioMode;
-  /** "Oak Street at 5th Street" for the player's last known position. */
-  playerNear(): string;
+  /** "Oak Street at 5th Street" for the player's last known position (a mode fragment when unknown). */
+  playerNear(): TemplateValue;
 }
 
 export interface PendingAnswer {
@@ -79,6 +79,12 @@ interface LineOptions {
   readonly via?: RequestVia | null;
 }
 
+/** Routine unit traffic that is dropped, not delayed, by an emergency hold. */
+const ROUTINE_KINDS: ReadonlySet<string> = new Set(['enRoute', 'onScene', 'clear', 'status', 'dispatchAck', 'assign', 'unitAck']);
+
+/** CAD call type of the player's emergency (dispatched units are named by the priority broadcast). */
+const EMERGENCY_CALL_TYPE = 'officerEmergency';
+
 /** Gap between two of the player's own transmissions (s): one key-up after the other, never over it. */
 const OWN_KEY_GAP_S = 0.3;
 
@@ -91,6 +97,30 @@ function isRadioVia(via: RequestVia | undefined): boolean {
 
 function stripEnd(text: string): string {
   return text.trim().replace(/[.!?]+$/, '');
+}
+
+/** A unit status in both radio modes (the template picks the current one). */
+function statusValue(status: UnitStatus): ModeText {
+  return { tenCode: statusText(status, 'tenCode'), plain: statusText(status, 'plain') };
+}
+
+/**
+ * The reason of a refusal for the 'refused' template ("12, unable, {reason}."): the CAD/MDT text without
+ * its leading "Unable:", with status labels ("10-8 AVAILABLE") worded in the radio mode.
+ */
+export function refusalReason(text: string): TemplateValue {
+  const full = stripEnd(text);
+  const t = full.replace(/^unable:?\s*/i, '');
+  if (t === '') return full;
+  let tenCode = t;
+  let plain = t;
+  for (const s of UNIT_STATUSES) {
+    const label = statusLabel(s);
+    if (!t.includes(label)) continue;
+    tenCode = tenCode.split(label).join(statusText(s, 'tenCode'));
+    plain = plain.split(label).join(statusText(s, 'plain'));
+  }
+  return tenCode === plain ? tenCode : { tenCode, plain };
 }
 
 export class Composer {
@@ -131,25 +161,30 @@ export class Composer {
 
   // --- Text -----------------------------------------------------------------------------------
 
-  /** A template of `kind` in the current mode, filled. Draws one number from the radio stream. */
-  phrase(kind: PhraseKind, values: TemplateValues): string {
-    const mode = this.host.mode();
-    return fillTemplate(this.host.rng.pick(PHRASES.kinds[kind][mode]), values, mode);
+  /** A fragment in both modes (filled in the mode current when the line is composed). */
+  fragment(key: FragmentKey): ModeText {
+    return PHRASES.fragments[key];
   }
 
-  fragment(key: FragmentKey): string {
-    return PHRASES.fragments[key][this.host.mode()];
-  }
-
-  /** Queues one line of `kind`. */
+  /**
+   * Queues one line of `kind`. One draw picks the template; the air time comes from the ten-code
+   * wording of the same pick, so the radio language (a display setting) never changes sim timing.
+   */
   line(kind: PhraseKind, o: LineOptions): QueuedTransmission {
     const net = this.host.net;
-    const text = this.phrase(kind, { player: this.host.player, time: this.clock(), ...o.values });
+    const mode = this.host.mode();
+    const values: TemplateValues = { player: this.host.player, time: this.clock(), ...o.values };
+    const u = this.host.rng.next();
+    const lists = PHRASES.kinds[kind];
+    const at = (list: readonly string[]): string => list[Math.min(list.length - 1, Math.floor(u * list.length))] ?? '';
+    const text = fillTemplate(at(lists[mode]), values, mode);
+    const durationText = mode === 'tenCode' ? text : fillTemplate(at(lists.tenCode), values, 'tenCode');
     return net.enqueue({
       channel: o.channel ?? REQUEST_CHANNEL,
       speaker: o.speaker,
       speakerKind: o.speakerKind,
       text,
+      durationText,
       kind,
       earliest: net.now + (o.delay ?? 0),
       priority: o.priority ?? false,
@@ -200,14 +235,13 @@ export class Composer {
    * someone). The request rides along and is acted on when the transmission ends unblocked.
    */
   playerLine(request: UnitRequest, via: RequestVia, channel: ChannelId): QueuedTransmission {
-    const mode = this.host.mode();
     const player = this.host.player;
     let kind: PhraseKind = 'generic';
     let values: TemplateValues = {};
     switch (request.kind) {
       case 'status':
         kind = 'status';
-        values = { status: statusText(request.status, mode) };
+        values = { status: statusValue(request.status) };
         break;
       case 'acceptCall':
       case 'selfAssign':
@@ -262,14 +296,16 @@ export class Composer {
         break;
     }
     // The player cannot key up over their own transmission (the automatic stop call-out, an earlier
-    // request): the new line follows it. Other units' traffic can still be stepped on (waitClear false).
+    // request): the new line follows it. A radio-menu request waits for a clear channel (the radio
+    // holds the press and keys up first when the channel clears); voice PTT and keys go out at once
+    // and can step on other traffic.
     const own = this.ownLatest();
     return this.line(kind, {
       speaker: player,
       speakerKind: 'player',
       channel,
       values: { unit: player, ...values },
-      waitClear: false,
+      waitClear: via === 'radio' && request.kind !== 'emergency',
       follows: own,
       gap: own ? OWN_KEY_GAP_S : 0,
       priority: request.kind === 'emergency',
@@ -322,12 +358,14 @@ export class Composer {
       return;
     }
     if (e.via !== 'auto') return;
+    // Radio silence during an emergency: other units' routine status traffic is not voiced.
+    if (this.host.net.isHeld(REQUEST_CHANNEL)) return;
     const kind: PhraseKind =
       e.status === 'enRoute' ? 'enRoute' : e.status === 'onScene' ? 'onScene' : e.status === 'available' ? 'clear' : 'status';
     const said = this.line(kind, {
       speaker: e.callsign,
       speakerKind: 'officer',
-      values: { unit: e.callsign, status: statusText(e.status, this.host.mode()) },
+      values: { unit: e.callsign, status: statusValue(e.status) },
     });
     if (this.host.rng.chance(PHRASES.timing.dispatchAckChance)) {
       this.dispatcherLine('dispatchAck', e.callsign, {}, { follows: said, gap: this.replyGap() });
@@ -356,6 +394,9 @@ export class Composer {
     const net = this.host.net;
     net.cancel((q) => q.speaker === e.callsign && q.kind === 'enRoute' && q.earliest >= net.now);
     if (e.by !== 'dispatch') return;
+    // Units sent to an officer emergency are named by the priority broadcast; nothing routine is
+    // voiced while the channel is held (radio silence), so nothing stale airs after Code 4.
+    if (call.typeId === EMERGENCY_CALL_TYPE || net.isHeld(REQUEST_CHANNEL)) return;
     const assign = this.dispatcherLine('assign', e.callsign, values);
     this.line('unitAck', {
       speaker: e.callsign,
@@ -436,7 +477,10 @@ export class Composer {
       );
     } else {
       net.release(REQUEST_CHANNEL);
-      this.dispatcherLine('emergencyClear', e.callsign, {});
+      // Routine traffic queued before the emergency is stale now; "resume normal traffic" goes first.
+      const player = this.host.player;
+      net.cancel((q) => q.channel === REQUEST_CHANNEL && (q.ambient || ROUTINE_KINDS.has(q.kind)) && !q.priority && q.to !== player && q.start < 0);
+      this.dispatcherLine('emergencyClear', e.callsign, {}, { priority: true });
     }
   }
 
@@ -466,7 +510,7 @@ export class Composer {
     if (e.callsign !== this.host.player) return;
     this.playerActed(e.kind);
     if (!e.ok) {
-      if (this.answer([e.kind], undefined, false)) this.dispatcherLine('refused', e.callsign, { reason: stripEnd(e.text) });
+      if (this.answer([e.kind], undefined, false)) this.dispatcherLine('refused', e.callsign, { reason: refusalReason(e.text) });
       return;
     }
     if (ACK_COVERED.has(e.kind)) return;
@@ -498,13 +542,13 @@ export class Composer {
     return net.pending.includes(e) || net.onAir.some((tx) => tx.id === e.id);
   }
 
-  private stopPlate(): string {
+  private stopPlate(): TemplateValue {
     const stop = this.host.cad.trafficStop;
     if (stop && stop.plate !== '') return stop.plate;
     return this.pulling >= 0 ? plateOf(this.host.seed, this.pulling) : this.fragment('noPlate');
   }
 
-  private stopNear(callId: number): string {
+  private stopNear(callId: number): TemplateValue {
     const call = callId >= 0 ? this.host.cad.call(callId) : null;
     return call ? call.location.near : this.host.playerNear();
   }

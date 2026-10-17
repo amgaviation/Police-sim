@@ -101,6 +101,13 @@ export class ListView<R> {
     }
     if (this.indexOfKey(this.activeKey) < 0) this.activeKey = n > 0 ? this.opts.key(rows[0] as R) : null;
     this.syncActive();
+    // Rows shifted under the focus (a new call sorted to the top): focus follows the active row, so
+    // the focus ring and Enter both mean the same item.
+    const focused = typeof document !== 'undefined' ? document.activeElement : null;
+    if (focused instanceof HTMLElement && focused.parentNode === this.body) {
+      const active = this.indexOfKey(this.activeKey);
+      if (active >= 0 && focused.dataset['key'] !== String(this.activeKey)) this.trs[active]?.focus();
+    }
   }
 
   /** Moves the active row by `delta` and focuses it; false when there are no rows. */

@@ -171,6 +171,26 @@ export class CadState {
     return unit;
   }
 
+  /**
+   * Removes a unit (a roster entry gone from the data since a save): it leaves its call (left without
+   * units, the call returns to pending). No event; false when unknown.
+   */
+  removeUnit(callsign: string): boolean {
+    const unit = this.unitMap.get(callsign);
+    if (!unit) return false;
+    const call = unit.callId !== null ? this.callMap.get(unit.callId) : undefined;
+    if (call && call.status !== 'closed') {
+      const i = call.units.indexOf(callsign);
+      if (i >= 0) call.units.splice(i, 1);
+      if (call.primary === callsign) call.primary = call.units[0] ?? null;
+      if (call.units.length === 0) call.status = 'pending';
+    }
+    this.unitList.splice(this.unitList.indexOf(unit), 1);
+    this.unitMap.delete(callsign);
+    this.rev++;
+    return true;
+  }
+
   unit(callsign: string): CadUnit | null {
     return this.unitMap.get(callsign) ?? null;
   }

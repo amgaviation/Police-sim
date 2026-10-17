@@ -1172,6 +1172,8 @@ export class TrafficSystem {
     this.lane[slot] = lane;
     this.s[slot] = s;
     this.v[slot] = speed;
+    // The view speed is right from the start (a restored or spawned car reads its speed before its first step).
+    this.speedView[slot] = speed;
     this.nextLane[slot] = -1;
     this.holding[slot] = -1;
     this.desiredFactor[slot] = 1;
@@ -1771,8 +1773,12 @@ export class TrafficSystem {
     if (p === PULL.pulling || p === PULL.yielding || p === PULL.parking) {
       const decel = PULLOVER.curb.decel;
       const side = this.aside[slot] === 1 ? SIDE.clear : this.sideBlock(slot, true);
-      if (next >= 0 && (s > end || s + hl + (v * v) / (2 * decel) > end - PULLOVER.curb.noPullNearLineM)) hold = 1;
-      else if (side !== SIDE.clear) {
+      if (next >= 0 && (s > end || s + hl + (v * v) / (2 * decel) > end - PULLOVER.curb.noPullNearLineM)) {
+        // Deferred past the junction: slow to the approach speed meanwhile, so the next block is long
+        // enough to stop in (a fast car would otherwise drive on at full speed for blocks).
+        hold = 1;
+        if (v > PULLOVER.curb.approachSpeed) a = Math.min(a, -decel);
+      } else if (side !== SIDE.clear) {
         // A car beside it on the way to the curb (or already at the curb there): hold the lateral move;
         // ease off for moving traffic so it passes, drive on past a car standing at the curb.
         hold = 3;
@@ -2029,9 +2035,10 @@ export class TrafficSystem {
   }
 
   /**
-   * Stop target upkeep ('lost' beyond autoReleaseM) and candidate detection: with the light bar on, the
-   * nearest ambient car ahead of the player car in its direction that stays the candidate for delayS.
-   * Cars merging or parked are not candidates; a car yielding to the siren is (it stays at the curb).
+   * Stop target upkeep ('lost' beyond autoReleaseM) and candidate detection: with the light bar on and
+   * the siren off (lights and siren only make traffic yield), the player car moving, the nearest ambient
+   * car ahead of it in its direction, not pulling away from it, that stays the candidate for delayS.
+   * Cars merging, yielding, parked or crashed are not candidates.
    */
   private updateStop(dt: number, focus: TrafficFocus): void {
     if (this.stopId >= 0) {
@@ -2049,26 +2056,27 @@ export class TrafficSystem {
       return;
     }
     const heading = focus.heading;
-    if (focus.lights !== true || !focus.obstacle || heading === undefined) {
+    const det = PULLOVER.detect;
+    const fx = heading === undefined ? 0 : -Math.sin(heading), fz = heading === undefined ? 0 : -Math.cos(heading);
+    const vf = focus.ovx * fx + focus.ovz * fz;
+    if (focus.lights !== true || focus.siren === true || !focus.obstacle || heading === undefined || vf < det.minPatrolSpeed) {
       this.stopCandidate = -1;
       this.stopDelay = 0;
       return;
     }
-    const det = PULLOVER.detect;
-    const fx = -Math.sin(heading), fz = -Math.cos(heading);
     let best = -1;
     let bestLon = Infinity;
     for (let slot = 0; slot < this.count; slot++) {
       if ((this.fleetIndex[slot] ?? -1) >= 0 || this.state[slot] === TRAFFIC_STATE.crashed) continue;
-      // A car already yielding to the siren can still be pulled over (its curb offset widens the window).
-      const p = this.pull[slot];
-      if (p !== PULL.none && p !== PULL.yielding) continue;
+      if (this.pull[slot] !== PULL.none) continue;
       const dx = (this.x[slot] ?? 0) - focus.ox, dz = (this.z[slot] ?? 0) - focus.oz;
       const lon = dx * fx + dz * fz;
       if (lon < det.minDistance || lon > det.maxDistance || lon >= bestLon) continue;
-      const lateral = det.lateral + (p === PULL.yielding ? (this.shoulder[slot] ?? 0) : 0);
-      if (Math.abs(-dx * fz + dz * fx) >= lateral) continue;
-      if ((this.hx[slot] ?? 0) * fx + (this.hz[slot] ?? 0) * fz <= det.headingDot) continue;
+      if (Math.abs(-dx * fz + dz * fx) >= det.lateral) continue;
+      const along = (this.hx[slot] ?? 0) * fx + (this.hz[slot] ?? 0) * fz;
+      if (along <= det.headingDot) continue;
+      // Pulling away (the gap grows): not a car being followed.
+      if ((this.v[slot] ?? 0) * along - vf > det.closingTol) continue;
       best = slot;
       bestLon = lon;
     }

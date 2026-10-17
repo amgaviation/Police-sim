@@ -1570,7 +1570,7 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     if (data.traffic) session.traffic.restore(data.traffic);
     session.cad.restore(data.cad);
     session.records.restore(data.records);
-    if (data.dispatch) session.dispatcher.restore(data.dispatch);
+    if (data.dispatch) session.dispatcher.restore(data.dispatch, session.now());
     else session.startDispatch();
     if (!data.traffic) session.populateTraffic();
     session.radio.restore(data.radio);

@@ -203,13 +203,13 @@ export class RecordsDb {
     return this.viewPerson(id);
   }
 
-  /** Registration record; RangeError outside the registry. */
+  /** Registration record (expired once its expiry date has passed); RangeError outside the registry. */
   registration(vehicleId: number): RegistrationRecord {
     if (!inRange(vehicleId, REGISTRY_POPULATION)) {
       throw new RangeError(`registration: id ${vehicleId} outside [0, ${REGISTRY_POPULATION})`);
     }
     this.touchVehicle(vehicleId);
-    return this.baseRegistration(vehicleId);
+    return this.viewRegistration(vehicleId);
   }
 
   /** Hits of a person (overlay and today's BOLOs applied); does not mark the record touched. */
@@ -454,20 +454,37 @@ export class RecordsDb {
     return r;
   }
 
-  /** Base record with the overlay: contacts (newest first) ahead of the priors, served warrants removed. */
+  /**
+   * Base record with the overlay: contacts (newest first) ahead of the priors, served warrants
+   * removed, and today's date applied (generation is independent of today): a valid licence past
+   * its expiry reads expired, lapsed supervision and protective orders are dropped.
+   */
   private viewPerson(id: number): PersonRecord {
     const base = this.basePerson(id);
     const contacts = this.contacts.get(id);
     const served = this.served.get(id);
-    if (!contacts && !served) return base;
+    const today = this.ctx.today();
+    const licLapsed = base.license.status === 'valid' && base.license.expires < today;
+    const supLapsed = base.supervision.kind !== 'none' && base.supervision.until < today;
+    const orderLapsed = base.protectiveOrders.some((o) => o.expires < today);
+    if (!contacts && !served && !licLapsed && !supLapsed && !orderLapsed) return base;
     const added: PriorContact[] = (contacts ?? [])
       .map((c) => ({ day: epochDayOfGameSeconds(c.gameSeconds), kind: c.kind, location: '', summary: c.summary, ref: c.ref }))
       .reverse();
     return {
       ...base,
+      license: licLapsed ? { ...base.license, status: 'expired' } : base.license,
+      supervision: supLapsed ? { kind: 'none', agent: '', until: 0, conditions: [] } : base.supervision,
+      protectiveOrders: orderLapsed ? base.protectiveOrders.filter((o) => o.expires >= today) : base.protectiveOrders,
       warrants: served ? base.warrants.filter((w) => !served.includes(w.id)) : base.warrants,
-      priors: [...added, ...base.priors],
+      priors: added.length === 0 ? base.priors : [...added, ...base.priors],
     };
+  }
+
+  /** Registration with today's date applied: past its expiry it reads expired. */
+  private viewRegistration(vehicleId: number): RegistrationRecord {
+    const base = this.baseRegistration(vehicleId);
+    return !base.expired && base.expires < this.ctx.today() ? { ...base, expired: true } : base;
   }
 
   private summaryOf(id: number): PersonSummary {

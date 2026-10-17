@@ -170,6 +170,30 @@ describe('citationDraftFromStop', () => {
     expect(citationDraftFromStop(checked, f3.records, {}, null, 'x', cloneRun).violations.map((x) => x.statuteId)).toContain('PC-211');
   });
 
+  it('takes insurance from the car itself after a VIN check, and never from a mismatched donor plate', () => {
+    const f = fixture();
+    const v = findId(60000, (i) => {
+      const mp = mountedPlate(SEED, i);
+      return mp.anomaly === 'mismatched' && generateRegistration(SEED, i).insured && !generateRegistration(SEED, mp.plateVehicleId).insured;
+    });
+    const stop = startStop(f, v, { plateRun: true });
+    const run = f.records.runPlate(stop.plate, observedVehicle(SEED, v));
+    expect(run.registration?.insured).toBe(false);
+    const ids = (s: typeof stop): string[] => citationDraftFromStop(s, f.records, {}, null, 'x', run).violations.map((x) => x.statuteId);
+    expect(ids(stop)).not.toContain('TR-321');
+    expect(citationDraftFromStop(stop, f.records, {}, null, 'x').violations.map((x) => x.statuteId)).not.toContain('TR-321');
+    expect(ids({ ...stop, vinChecked: true })).not.toContain('TR-321');
+    // An uninsured car on a donor plate of an insured registration is cited once the VIN check shows it.
+    const u = findId(60000, (i) => {
+      const mp = mountedPlate(SEED, i);
+      return mp.anomaly === 'mismatched' && !generateRegistration(SEED, i).insured && generateRegistration(SEED, mp.plateVehicleId).insured;
+    });
+    const f2 = fixture();
+    const stop2 = startStop(f2, u, { plateRun: true, vinChecked: true });
+    const run2 = f2.records.runPlate(stop2.plate, observedVehicle(SEED, u));
+    expect(citationDraftFromStop(stop2, f2.records, {}, null, 'x', run2).violations.map((x) => x.statuteId)).toContain('TR-321');
+  });
+
   it('leaves non-citeable plate issues (stolen) to a booking', () => {
     const f = fixture();
     const v = findId(60000, (i) => generateRegistration(SEED, i).stolen);
