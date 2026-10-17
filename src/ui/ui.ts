@@ -54,6 +54,8 @@ export function clearChildren(node: Node): void {
 export interface Menu {
   readonly id: string;
   readonly element: HTMLElement;
+  /** False for overlays that let the world keep running (MDT, action panels); menus pause by default. */
+  readonly pausesGame?: boolean;
   /** Called after the menu becomes the top of the stack. */
   onShow?(): void;
   /** Called when the menu is popped or covered by another menu. */

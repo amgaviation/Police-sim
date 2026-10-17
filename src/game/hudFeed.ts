@@ -34,6 +34,10 @@ export function interactPrompt(hint: InteractHint, key: string): string | null {
       return `${key}  Refuel`;
     case 'repair':
       return `${key}  Repair and refuel`;
+    case 'trunk':
+      return `${key}  Open trunk`;
+    case 'driver':
+      return `${key}  Talk to the driver`;
     default:
       return null;
   }

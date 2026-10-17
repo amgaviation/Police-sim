@@ -158,6 +158,22 @@ describe('composer: voicing rule', () => {
     expect(starts(rig).map((t) => t.kind)).toEqual(['plateRequest', 'plateClear']);
   });
 
+  it('a player line waits for the player\'s own transmission instead of stepping on it (integration fix)', () => {
+    const rig = makeRig();
+    rig.radio.playerRequest({ kind: 'status', status: 'busy' }, 'radio');
+    rig.run(0.1);
+    // Keyed up again while the first line is still on the air.
+    rig.radio.playerRequest({ kind: 'runPlate', plate: 'ABC 1234', vehicleId: 3 }, 'radio');
+    settle(rig);
+    const own = starts(rig).filter((t) => t.speakerKind === 'player');
+    expect(own.map((t) => t.kind)).toEqual(['status', 'plateRequest']);
+    expect(own.every((t) => !t.blocked)).toBe(true);
+    expect(rig.events.some((e) => e.topic === 'radio:blocked')).toBe(false);
+    const [first, second] = own;
+    expect((second?.start ?? 0) - ((first?.start ?? 0) + (first?.duration ?? 0))).toBeCloseTo(0.3, 1);
+    expect(requests(rig)).toHaveLength(2);
+  });
+
   it('acks of radio requests are spoken once; key requests get silent answers', () => {
     const rig = makeRig();
     rig.radio.playerRequest({ kind: 'code4' }, 'radio');

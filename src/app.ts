@@ -1,21 +1,33 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
+import { createAudioCommands } from './audio/commands';
+import { AudioEngine } from './audio/engine';
+import type { SirenEmitter } from './audio/math';
+import { createCadCommands } from './cad/commands';
+import './cad/events';
+import type { RadioMode } from './cad/types';
 import type { EventMap } from './core/event-map';
 import { bus, type EventBus } from './core/events';
 import { log } from './core/log';
 import { GameLoop, type LoopHooks } from './core/loop';
 import { createRng, normalizeSeed } from './core/rng';
-import { DebugConsole } from './debug/console';
+import { DebugConsole, type Command } from './debug/console';
 import { PerfOverlay, type PerfSample } from './debug/perfOverlay';
 import { createWorldCommands, type WorldCommandDeps } from './debug/worldCommands';
+import { createDispatchCommands } from './dispatch/commands';
 import { Transform } from './ecs/components';
 import { SystemRegistry, copyPrevTransform, integrateVelocity, type System } from './ecs/systems';
 import { clearWorld, createGameWorld, entityCount, type GameWorld } from './ecs/world';
 import { EnvironmentRenderer } from './environment/render/environmentRenderer';
 import { createCommands } from './game/commands';
 import { HudFeed, interactPrompt, keyLabel } from './game/hudFeed';
+import { createMdtDeps } from './game/mdtDeps';
+import { PatrolPanels } from './game/panels';
+import { createPatrolCommands } from './game/patrolCommands';
 import { PauseMenu } from './game/pauseMenu';
 import type { MoveInput } from './game/playerController';
+import { MARKER_CAPACITY, PoliceFeed } from './game/policeFeed';
+import { distanceToPolyline } from './game/route';
 import {
   GameSession,
   createScenePhysics,
@@ -26,22 +38,44 @@ import {
   type GameContext,
   type InteractResult,
 } from './game/session';
+import { TargetTracker, type TargetInfo } from './game/target';
 import { WorldView } from './game/worldView';
 import { InputManager } from './input/input';
 import { initRapier, type PhysicsWorld, type Vec3 } from './physics/physics';
-import { CAMERA_MODE_NAMES, CameraRig, type CameraRaycast, type FollowTarget, type LookInput } from './player/cameraRig';
+import { CAMERA_MODE, CAMERA_MODE_NAMES, CameraRig, type CameraRaycast, type FollowTarget, type LookInput } from './player/cameraRig';
 import { readDriverInput } from './player/driverInput';
+import { createPoliceCommands } from './police/commands';
+import { PoliceLights, SIREN_FLAG, hasPoliceLights } from './police/components';
+import { createPoliceInput, readPoliceInput } from './police/controls';
+import { SIREN_TONES, SPOTLIGHT } from './police/equipment';
+import { RadioController } from './radio/controller';
+import { RADIO_CONFIG, channelDef } from './radio/data';
+import './radio/events';
+import { RadioPlayer } from './radio/player';
+import type { Transmission } from './radio/types';
+import { createRecordsCommands } from './records/commands';
 import { MeshRegistry, interpolateTransform } from './render/meshSync';
+import { CockpitRenderer } from './render/police/cockpitRenderer';
+import { MdtScreen } from './render/police/mdtScreen';
 import { Renderer } from './render/renderer';
 import { CarRenderer } from './render/vehicles/carRenderer';
 import { MIGRATION_FAILURES, SaveMigrationError } from './save/migrations';
 import type { SaveGame } from './save/schema';
 import { SaveManager, SaveNotFoundError } from './save/saveManager';
 import { SettingsStore } from './settings/settings';
+import { SpeechIn } from './speech/recognition';
+import { SpeechOut } from './speech/synthesis';
+import { createTrafficCommands } from './traffic/commands';
+import { PULLOVER } from './traffic/data';
 import { vehicleIdFromPlate, vehicleRecord } from './traffic/registry';
 import { Hud } from './ui/hud/hud';
-import type { TrafficDots } from './ui/hud/minimap';
+import { createMinimapMarkers, type TrafficDots } from './ui/hud/minimap';
 import { MainMenu } from './ui/mainMenu';
+import { MdtOverlay } from './ui/mdt/overlay';
+import { ActionPanel } from './ui/panels/actionPanel';
+import { RadioMenuView } from './ui/panels/radioMenuView';
+import { RadioPanel } from './ui/panels/radioPanel';
+import type { RadioLine, RadioStatusView } from './ui/panels/text';
 import { SettingsMenu } from './ui/settingsMenu';
 import { UIRoot } from './ui/ui';
 import { vehicleModel } from './vehicles/model';
@@ -66,11 +100,25 @@ const FIXED_DT = 1 / SIM_HZ;
 const QUICKSAVE_SLOT = 'quicksave';
 const DETERMINISM_SEED = 12345;
 const DETERMINISM_SAMPLES = 8;
+/** The reticle target is picked at this interval (10 Hz). */
+const TARGET_INTERVAL_MS = 100;
+/** The route to the player's call is re-planned this often (ms) ... */
+const ROUTE_REPLAN_MS = 10_000;
+/** ... or as soon as the player is this far off it (m). */
+const ROUTE_OFF_M = 60;
+/** A radio caption stays up for the transmission plus this long (ms). */
+const CAPTION_LINGER_MS = 1500;
+/** Radio log lines shown again after a load. */
+const RADIO_LOG_RESTORE = 6;
 
 const scratchPos = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
+const scratchDir = new THREE.Vector3();
+const scratchUp = new THREE.Vector3();
 const scratchVel: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchPoint = { x: 0, z: 0 };
+const scratchDest = { x: 0, z: 0 };
+
 
 /** Player-facing line for an `interact` that did something other than get in or out. */
 const INTERACT_FLASH: Partial<Record<InteractResult, string>> = {
@@ -110,8 +158,57 @@ export class App {
   /** Sky, sun/moon, fog and precipitation (null without a renderer). */
   readonly envRenderer: EnvironmentRenderer | null;
   readonly carRenderer: CarRenderer | null;
+  /** Sirens and radio effects (Web Audio; a no-op without `AudioContext`). */
+  readonly audio: AudioEngine;
+  /** Spoken radio (text-to-speech; a no-op without `speechSynthesis`). */
+  readonly speechOut: SpeechOut;
+  /** Push-to-talk voice commands (off unless `audio.voiceCommands`). */
+  readonly speechIn: SpeechIn;
+  /** Plays audible transmissions (FX + TTS); presentation only. */
+  readonly radioPlayer: RadioPlayer;
+  /** Number-key radio menu display (left column). */
+  readonly radioMenuView: RadioMenuView;
+  /** Trunk, equipment and driver-contact panels (one non-pausing action panel). */
+  readonly panels: PatrolPanels;
+  /** In-car laptop canvas (shown on the cockpit's screen). */
+  readonly mdtScreen: MdtScreen;
+  /** Patrol-car interior in cockpit view (null without a renderer). */
+  readonly cockpit: CockpitRenderer | null;
 
   private sessionValue: GameSession | null = null;
+  /** Per-session Phase 2 presentation: MDT overlay, radio log, radio controller, HUD feed, target lock. */
+  private mdtValue: MdtOverlay | null = null;
+  private radioPanelValue: RadioPanel | null = null;
+  private radioCtl: RadioController | null = null;
+  private policeFeedValue: PoliceFeed | null = null;
+  private targets: TargetTracker | null = null;
+  private readonly actionPanel: ActionPanel;
+  private readonly policeInput = createPoliceInput();
+  private readonly markers = createMinimapMarkers(MARKER_CAPACITY);
+  /** Siren emitters rebuilt every frame (reused objects; grows only when more police cars exist). */
+  private readonly emitters: SirenEmitter[] = [];
+  private readonly radioStatus: { -readonly [K in keyof RadioStatusView]: RadioStatusView[K] } = {
+    channel: '',
+    scanning: false,
+    tx: false,
+    rx: false,
+    busy: false,
+    emergency: false,
+    mode: 'tenCode',
+    voice: 'unavailable',
+    emergencyCharge: 0,
+  };
+  private radioMode: RadioMode = 'tenCode';
+  private subtitles = true;
+  private radioMenuKey = 'T';
+  private lastRadioHint: string | null = null;
+  private nextTargetMs = 0;
+  /** Route to the player's call, re-planned every `ROUTE_REPLAN_MS` or when off it. */
+  private autoRoute: Float32Array | null = null;
+  private autoRouteX = NaN;
+  private autoRouteZ = NaN;
+  private nextRouteMs = 0;
+  private cockpitEid = 0;
   /** Replaced for every session: Rapier does not return to a pristine state after bodies are removed. */
   private physicsValue: PhysicsWorld;
   /** Render side of the running session's city (chunks, signals, streetlights, minimap). */
@@ -162,6 +259,9 @@ export class App {
     this.renderer?.setDrawDistance(settings.get('graphics.drawDistance'));
     this.envRenderer = this.renderer ? new EnvironmentRenderer(this.scene, this.renderer, { shadows }) : null;
     this.carRenderer = this.renderer ? new CarRenderer(this.scene, this.world, { shadows: shadows === 'high' }) : null;
+    this.mdtScreen = new MdtScreen();
+    this.cockpit = this.renderer ? new CockpitRenderer(this.scene) : null;
+    this.cockpit?.setScreenSource(this.mdtScreen.canvas);
 
     this.meshes = new MeshRegistry(this.scene, { world: this.world });
     this.input = new InputManager({
@@ -188,8 +288,30 @@ export class App {
     this.console = new DebugConsole({ parent: this.ui.hud, bus: this.bus });
     this.hud = new Hud(this.ui.hud);
     this.hud.setVisible(false);
+    this.audio = new AudioEngine();
+    this.speechOut = new SpeechOut();
+    this.speechIn = new SpeechIn();
+    this.radioPlayer = new RadioPlayer({
+      bus: this.bus,
+      audio: this.audio,
+      speech: this.speechOut,
+      selected: () => this.sessionValue?.radio.selected ?? RADIO_CONFIG.defaultSelected,
+    });
+    this.radioMenuView = new RadioMenuView(this.ui.hud);
+    this.actionPanel = new ActionPanel(this.ui);
+    this.panels = new PatrolPanels(this.actionPanel, {
+      session: () => this.sessionValue,
+      openCitation: () => {
+        const mdt = this.mdtValue;
+        if (!mdt) return;
+        mdt.open('reports');
+        mdt.writeCitation();
+      },
+      flash: (text) => this.flash(text),
+    });
     for (const command of createCommands(this)) this.console.register(command);
     for (const command of createWorldCommands(this.worldCommandDeps())) this.console.register(command);
+    for (const command of this.patrolCommands()) this.console.register(command);
 
     this.saves = new SaveManager({ bus: this.bus });
     this.settingsMenu = new SettingsMenu(this.ui, settings, this.input);
@@ -266,6 +388,26 @@ export class App {
   /** Render side of the running session's city, null without a session. */
   get worldView(): WorldView | null {
     return this.view;
+  }
+
+  /** The running session's MDT overlay (Tab in a patrol car), null without a session. */
+  get mdt(): MdtOverlay | null {
+    return this.mdtValue;
+  }
+
+  /** The running session's radio log and channel strip, null without a session. */
+  get radioPanel(): RadioPanel | null {
+    return this.radioPanelValue;
+  }
+
+  /** HUD, minimap and MDT-screen feed of the running session, null without a session. */
+  get policeFeed(): PoliceFeed | null {
+    return this.policeFeedValue;
+  }
+
+  /** The car under the reticle (picked at 10 Hz), null when none. */
+  get target(): TargetInfo | null {
+    return this.targets?.target ?? null;
   }
 
   /** Console-requested pause, independent of menus. */
@@ -388,12 +530,18 @@ export class App {
     this.worker?.terminate();
     this.chunkWorker?.terminate();
     this.input.detach();
+    this.radioPlayer.dispose();
+    this.radioMenuView.dispose();
+    this.speechIn.dispose();
+    this.speechOut.dispose();
+    this.audio.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
     this.ui.dispose();
     this.envRenderer?.dispose();
     this.carRenderer?.dispose();
+    this.cockpit?.dispose();
     this.meshes.dispose();
     this.renderer?.dispose();
     this.physicsValue.dispose();
@@ -415,7 +563,11 @@ export class App {
     this.bus.emit('loop:fixed', { dt, step: this.world.time.step });
   }
 
-  /** Design §13 frame order: input, actions, controls, camera, environment and city, cars, HUD. */
+  /**
+   * Frame order (Phase 1 §13, Phase 2 §15): input, toggles, actions (police toggles, MDT, plate run),
+   * controls (driving, siren holds, spotlight aim), radio controller, camera, target pick (10 Hz), MDT
+   * and panels, environment and city, cars (+ spotlight), cockpit and MDT screen, audio, HUD and radio panel.
+   */
   private update(dt: number, alpha: number): void {
     this.input.update();
     this.handleToggles();
@@ -425,11 +577,22 @@ export class App {
 
     const controlsActive = !this.ui.isMenuOpen() && !this.console.isOpen();
     const debugCam = this.renderer?.debugCameraEnabled ?? false;
+    const police = readPoliceInput(this.input, this.policeInput);
     if (controlsActive) this.handleActions(session);
     this.readControls(session, dt, controlsActive && !debugCam);
-    if (this.renderer && !debugCam) this.updateCamera(session, this.renderer.camera, dt, alpha, controlsActive);
+    this.updateRadio(session, dt, controlsActive);
+    // Holding the spotlight-aim button steers the spotlight with the mouse instead of the camera.
+    const spotAim = controlsActive && police.spotAim && session.drivenEquipment !== null;
+    if (this.renderer && !debugCam) this.updateCamera(session, this.renderer.camera, dt, alpha, controlsActive && !spotAim);
+    const now = performance.now();
+    this.updateTarget(session, now);
+    this.mdtValue?.update(now);
+    this.panels.update(now);
     this.updateWorld(session, dt, alpha);
+    this.updateCockpit(session, alpha, now);
+    this.updateAudio(session);
     this.updateHud(session);
+    this.updateRadioPanel(now);
   }
 
   private render(alpha: number): void {
@@ -460,17 +623,29 @@ export class App {
       this.console.close();
       this.refreshPointerLock();
     } else if (input.wasPressed('menu.toggle') && this.inGame && !this.menuChangedSinceUpdate) {
-      // A menu that closed itself on this key press (e.g. Settings on Escape) must not re-toggle.
-      if (!this.ui.isMenuOpen()) this.pauseMenu.open();
+      // A menu that closed itself on this key press (e.g. Settings, the MDT or a panel on Escape) must not re-toggle.
+      // Escape closes the radio menu first, then (handled by the menus themselves) a panel or the MDT, then pauses.
+      const radioMenu = this.sessionValue?.radio.menu;
+      if (!this.ui.isMenuOpen() && radioMenu?.isOpen) radioMenu.close();
+      else if (!this.ui.isMenuOpen()) this.pauseMenu.open();
       else if (this.ui.top === this.pauseMenu) this.pauseMenu.close();
     }
   }
 
-  /** Mode actions: interact (enter, exit, refuel), map zoom, and while driving camera, headlights, light bar. */
+  /**
+   * Mode actions: interact (enter, exit, refuel, trunk, driver contact), map zoom, MDT, plate run, and
+   * while driving camera, headlights, light bar and the patrol car's siren, pattern, spotlight and
+   * equipment panel.
+   */
   private handleActions(session: GameSession): void {
     const input = this.input;
     if (input.wasPressed('interact')) this.interact(session);
     if (input.wasPressed('map.toggle')) this.view?.minimap.toggleZoom();
+    if (input.wasPressed('mdt.toggle')) {
+      if (session.mdtReachable()) this.mdtValue?.open();
+      else this.flash('No MDT within reach (get in a patrol car)');
+    }
+    if (input.wasPressed('target.runPlate')) this.runTargetPlate(session);
     if (!session.driving) return;
     if (input.wasPressed('camera.toggle')) {
       this.rig.cycleVehicleMode();
@@ -478,14 +653,40 @@ export class App {
     }
     if (input.wasPressed('vehicle.headlights')) session.toggleHeadlights();
     if (input.wasPressed('vehicle.lights')) session.toggleLightbar();
+    const eq = session.drivenEquipment;
+    if (!eq) return;
+    const p = this.policeInput;
+    if (p.toggleSiren) eq.toggleSiren();
+    if (p.cycleTone) eq.cycleTone();
+    if (p.cyclePattern) eq.cyclePattern();
+    if (p.toggleSpot) eq.toggleSpot();
+    if (p.equipmentPanel) this.panels.openEquipment();
   }
 
   private interact(session: GameSession): void {
     const result = session.interact();
     if (result === 'entered') this.rig.setVehicle(session.drivenVehicle?.model.body ?? null);
     else if (result === 'exited') this.rig.setVehicle(null);
+    else if (result === 'trunk') {
+      const car = session.trunkVehicle();
+      if (car) this.panels.openTrunk(car);
+    } else if (result === 'contact') this.panels.openContact();
     const flash = INTERACT_FLASH[result];
     if (flash !== undefined) this.flash(flash);
+  }
+
+  /** `target.runPlate`: the reticle car, else the stopped car; the dispatcher answers on the HUD / MDT (silent on the radio). */
+  private runTargetPlate(session: GameSession): void {
+    const target = this.targets?.target ?? null;
+    const stop = session.cad.trafficStop;
+    const vehicleId = target ? target.vehicleId : stop && stop.outcome === 'active' ? stop.vehicleId : -1;
+    const plate = target ? target.plate : stop && stop.outcome === 'active' ? stop.plate : '';
+    if (vehicleId < 0 || plate === '') {
+      this.flash('No vehicle targeted');
+      return;
+    }
+    session.dispatcher.request(session.dispatcher.playerCallsign, { kind: 'runPlate', plate, vehicleId }, 'key');
+    this.flash(`Running plate ${plate}`);
   }
 
   /** On foot: mouse/stick look and movement keys. Driving: pedals, steering, handbrake for the next fixed steps. */
@@ -495,8 +696,18 @@ export class App {
     move.strafe = 0;
     move.sprint = false;
     const drive = session.driverInput;
+    const eq = session.drivenEquipment;
+    const police = this.policeInput;
+    // Held this frame; the session applies them to the driven patrol car in the next fixed steps.
+    session.sirenHeld.horn = active && eq !== null && police.horn;
+    session.sirenHeld.manual = active && eq !== null && police.manual;
     if (active && session.driving) {
       readDriverInput(this.input, drive);
+      if (eq && police.spotAim) {
+        // Mouse right turns the beam right (yaw + is left), mouse up raises it.
+        const mouse = this.input.mouseDelta();
+        eq.aimSpot(-mouse.x * SPOTLIGHT.aimRate, -mouse.y * SPOTLIGHT.aimRate);
+      }
       return;
     }
     drive.accelerate = 0;
@@ -567,8 +778,136 @@ export class App {
     }
     const cars = this.carRenderer;
     if (!cars) return;
-    cars.setHeadlightTarget(session.drivenVehicle?.eid ?? session.lastVehicle?.eid ?? 0);
+    const ownCar = session.drivenVehicle?.eid ?? session.lastVehicle?.eid ?? 0;
+    cars.setHeadlightTarget(ownCar);
+    // The one police spotlight follows the driven (else last driven) car; it shines only when that car has one switched on.
+    cars.setSpotlightTarget(ownCar);
     cars.update(alpha, lighting.nightFactor, this.renderTime, this.reducedFlash);
+  }
+
+  /** Radio keys (only while gameplay controls are active), the radio menu display and one-off hints. */
+  private updateRadio(session: GameSession, dt: number, active: boolean): void {
+    const ctl = this.radioCtl;
+    const feed = this.policeFeedValue;
+    if (!ctl || !feed) return;
+    const state = ctl.update(dt, active, feed.radioContext(this.radioMode, this.targets?.target ?? null));
+    this.radioMenuView.show(state.menu);
+    if (state.hint !== this.lastRadioHint) {
+      this.lastRadioHint = state.hint;
+      if (state.hint !== null) this.flash(state.hint);
+    }
+    const s = this.radioStatus;
+    const radio = session.radio;
+    s.channel = channelDef(radio.selected).short;
+    s.scanning = radio.scanning;
+    s.tx = radio.transmitting;
+    s.busy = radio.busy;
+    s.emergency = radio.isHeld('dispatch') || (session.cad.unit(session.dispatcher.playerCallsign)?.emergency ?? false);
+    s.mode = this.radioMode;
+    s.voice = state.voice;
+    s.emergencyCharge = state.emergencyCharge;
+  }
+
+  /** The reticle target at 10 Hz: a 2D ray from the camera along its forward direction. */
+  private updateTarget(session: GameSession, now: number): void {
+    const targets = this.targets;
+    if (!targets || now < this.nextTargetMs) return;
+    this.nextTargetMs = now + TARGET_INTERVAL_MS;
+    const camera = this.renderer?.activeCamera;
+    let ox: number, oz: number, dx: number, dz: number;
+    if (camera) {
+      camera.getWorldPosition(scratchPos);
+      camera.getWorldDirection(scratchDir);
+      ox = scratchPos.x;
+      oz = scratchPos.z;
+      dx = scratchDir.x;
+      dz = scratchDir.z;
+    } else {
+      // Headless: from the officer (or the driven car) along its heading.
+      const at = session.playerPosition(scratchPoint);
+      const v = session.drivenVehicle;
+      const yaw = v ? headingOf(Transform.qx[v.eid] ?? 0, Transform.qy[v.eid] ?? 0, Transform.qz[v.eid] ?? 0, Transform.qw[v.eid] ?? 1) : session.controller.yaw;
+      ox = at.x;
+      oz = at.z;
+      dx = -Math.sin(yaw);
+      dz = -Math.cos(yaw);
+    }
+    targets.update(session.traffic.view, ox, oz, dx, dz, now);
+  }
+
+  /** Cockpit interior and the laptop screen, in cockpit view of a patrol car only. */
+  private updateCockpit(session: GameSession, alpha: number, now: number): void {
+    const cockpit = this.cockpit;
+    const feed = this.policeFeedValue;
+    if (!cockpit || !feed) return;
+    const driven = session.drivenVehicle;
+    const eid = driven?.eid ?? 0;
+    if (eid !== this.cockpitEid) {
+      this.cockpitEid = eid;
+      cockpit.setVehicle(eid, driven?.model ?? null);
+    }
+    const visible = this.rig.mode === CAMERA_MODE.cockpit && session.inPatrolCar;
+    cockpit.update(alpha, visible, feed.cockpitState(visible));
+    if (visible && this.mdtScreen.paint(feed.screenModel(now), now)) cockpit.markScreenDirty();
+  }
+
+  /** Listener from the camera; one siren emitter per police car with `PoliceLights` (the driven one in the cabin). */
+  private updateAudio(session: GameSession): void {
+    const audio = this.audio;
+    if (!audio.unlocked) return;
+    const camera = this.renderer?.activeCamera;
+    if (camera) {
+      camera.getWorldPosition(scratchPos);
+      camera.getWorldDirection(scratchDir);
+      scratchUp.copy(camera.up).applyQuaternion(camera.getWorldQuaternion(scratchQuat));
+      audio.setListener(scratchPos.x, scratchPos.y, scratchPos.z, scratchDir.x, scratchDir.y, scratchDir.z, scratchUp.x, scratchUp.y, scratchUp.z);
+    } else {
+      const at = session.playerPosition(scratchPoint);
+      scratchPos.set(at.x, 1.6, at.z);
+      audio.setListener(at.x, 1.6, at.z, 0, 0, -1, 0, 1, 0);
+    }
+    const driven = session.drivenVehicle?.eid ?? 0;
+    let n = 0;
+    for (const vehicle of session.vehicles) {
+      if (session.equipmentOf(vehicle)) n = this.addEmitter(n, vehicle.eid, vehicle.eid === driven);
+    }
+    const traffic = session.traffic;
+    for (let i = 0; i < PULLOVER.fleet.maxCars; i++) {
+      const eid = traffic.fleetEntity(i);
+      if (eid !== 0) n = this.addEmitter(n, eid, false);
+    }
+    audio.sirens.update(this.emitters, n, scratchPos.x, scratchPos.z);
+  }
+
+  /** Writes emitter `n` from the `PoliceLights` of `eid` (skipped without the component); returns the new count. */
+  private addEmitter(n: number, eid: number, inCabin: boolean): number {
+    if (!hasPoliceLights(this.world, eid)) return n;
+    let e = this.emitters[n];
+    if (!e) {
+      e = { id: 0, x: 0, y: 0, z: 0, tone: null, horn: false, manual: false, inCabin: false };
+      this.emitters.push(e);
+    }
+    const siren = PoliceLights.siren[eid] ?? 0;
+    const flags = PoliceLights.sirenFlags[eid] ?? 0;
+    e.id = eid;
+    e.x = Transform.x[eid] ?? 0;
+    e.y = Transform.y[eid] ?? 0;
+    e.z = Transform.z[eid] ?? 0;
+    e.tone = siren > 0 ? (SIREN_TONES[siren - 1] ?? null) : null;
+    e.horn = (flags & SIREN_FLAG.horn) !== 0;
+    e.manual = (flags & SIREN_FLAG.manual) !== 0;
+    e.inCabin = inCabin;
+    return n + 1;
+  }
+
+  /** Radio channel strip (self-throttled to 4 Hz) and the caption timeout. */
+  private updateRadioPanel(now: number): void {
+    const panel = this.radioPanelValue;
+    const feed = this.policeFeedValue;
+    if (!panel || !feed) return;
+    this.radioStatus.rx = feed.receiving();
+    panel.setStatus(this.radioStatus, now);
+    panel.update(now);
   }
 
   /** HUD and minimap at 10 Hz (the road lookup and prompt strings only run at that rate). */
@@ -577,7 +916,10 @@ export class App {
     if (now < this.nextHudMs) return;
     this.nextHudMs = now + HUD_INTERVAL_MS;
     const prompt = now < this.flashUntilMs ? this.flashText : interactPrompt(session.interactHint(), this.interactKey);
-    this.hud.update(this.hudFeed.fill(session, CAMERA_MODE_NAMES[this.rig.mode] ?? 'onFoot', prompt), now);
+    const snapshot = this.hudFeed.fill(session, CAMERA_MODE_NAMES[this.rig.mode] ?? 'onFoot', prompt);
+    const feed = this.policeFeedValue;
+    feed?.fillHud(snapshot, this.targets?.target ?? null, this.radioMenuKey, now);
+    this.hud.update(snapshot, now);
     const view = this.view;
     if (!view) return;
     const at = session.playerPosition(scratchPoint);
@@ -591,7 +933,32 @@ export class App {
     dots.count = traffic.count;
     dots.x = traffic.x;
     dots.z = traffic.z;
-    view.minimap.update(at.x, at.z, yaw, dots, this.route, now);
+    // A route plotted with the console wins; otherwise the route to the player's call.
+    const route = this.route ?? this.updateAutoRoute(session, at.x, at.z, now);
+    view.minimap.update(at.x, at.z, yaw, dots, route, now, feed ? feed.fillMarkers(this.markers) : null);
+  }
+
+  /**
+   * Route line to the player's destination (the assigned call): re-planned every `ROUTE_REPLAN_MS`,
+   * when the destination moves, or when the player is `ROUTE_OFF_M` off it; null without a destination.
+   */
+  private updateAutoRoute(session: GameSession, x: number, z: number, now: number): Float32Array | null {
+    const dest = scratchDest;
+    if (!session.dispatcher.playerDestination(dest)) {
+      this.autoRoute = null;
+      this.autoRouteX = NaN;
+      return null;
+    }
+    const moved = Math.hypot(dest.x - this.autoRouteX, dest.z - this.autoRouteZ) > 1 || !Number.isFinite(this.autoRouteX);
+    // A failed plan (no road near either end) waits for the next interval instead of retrying every tick.
+    const off = this.autoRoute !== null && distanceToPolyline(this.autoRoute, x, z) > ROUTE_OFF_M;
+    if (moved || off || now >= this.nextRouteMs) {
+      this.autoRoute = session.city.graph.routeBetweenPoints(x, z, dest.x, dest.z)?.polyline ?? null;
+      this.autoRouteX = dest.x;
+      this.autoRouteZ = dest.z;
+      this.nextRouteMs = now + ROUTE_REPLAN_MS;
+    }
+    return this.autoRoute;
   }
 
   private updatePerfExtras(): void {
@@ -600,10 +967,25 @@ export class App {
     this.nextPerfExtrasMs = now + PERF_EXTRAS_INTERVAL_MS;
     const chunks = this.view?.streamer?.stats;
     this.perf.setExtra('chunks', chunks ? `${String(chunks.loaded)} loaded (lod0 ${String(chunks.lod0)}), ${String(chunks.inFlight)} in flight` : undefined);
-    const traffic = this.sessionValue?.traffic.stats;
+    const session = this.sessionValue;
+    const traffic = session?.traffic.stats;
     this.perf.setExtra('traffic', traffic ? `${String(traffic.active)} active, ${String(traffic.proxies)} proxies` : undefined);
     const cars = this.carRenderer?.stats;
-    this.perf.setExtra('cars', cars && this.sessionValue ? `${String(cars.cars)} drawn, ${String(cars.drawCalls)} draw calls` : undefined);
+    this.perf.setExtra('cars', cars && session ? `${String(cars.cars)} drawn, ${String(cars.drawCalls)} draw calls` : undefined);
+    const d = session?.dispatcher.stats;
+    this.perf.setExtra('dispatch', d ? `${String(d.generated)} calls, ${String(d.open)} open, ${String(d.aiBusy)} AI units busy` : undefined);
+    const radio = session?.radio;
+    this.perf.setExtra(
+      'radio',
+      radio ? `${channelDef(radio.selected).short}${radio.scanning ? ' scan' : ''}, ${String(radio.onAir.length)} on air, ${String(radio.queued)} queued` : undefined,
+    );
+    const a = this.audio;
+    this.perf.setExtra(
+      'audio',
+      !a.available ? 'unavailable' : a.unlocked ? `${String(a.stats.active)}/${String(a.stats.voices)} siren voices` : 'waiting for input',
+    );
+    const cockpit = this.cockpit?.stats.drawCalls ?? 0;
+    this.perf.setExtra('cockpit', cockpit > 0 ? `${String(cockpit)} draw calls` : undefined);
   }
 
   /** Replaces the prompt line with `text` for a moment. */
@@ -616,7 +998,14 @@ export class App {
   // --- sessions ---------------------------------------------------------------
 
   private context(seed: number): GameContext {
-    return { world: this.world, physics: this.physicsValue, meshes: this.meshes, bus: this.bus, city: this.cityFor(seed) };
+    return {
+      world: this.world,
+      physics: this.physicsValue,
+      meshes: this.meshes,
+      bus: this.bus,
+      city: this.cityFor(seed),
+      radioMode: () => this.radioMode,
+    };
   }
 
   private cityFor(seed: number): City {
@@ -651,6 +1040,7 @@ export class App {
       worker: this.chunkWorker,
       shadows: this.settings.get('graphics.shadows'),
     });
+    this.beginPatrol(session);
     this.route = null;
     this.flashUntilMs = 0;
     this.hazeWarm = false;
@@ -671,8 +1061,10 @@ export class App {
     if (session) {
       this.detachSystems?.();
       this.detachSystems = null;
+      this.endPatrol();
       for (const vehicle of session.vehicles) this.carRenderer?.setDrivable(vehicle.eid, null);
       this.carRenderer?.setHeadlightTarget(0);
+      this.carRenderer?.setSpotlightTarget(0);
       session.dispose();
       this.view?.dispose();
       this.view = null;
@@ -686,6 +1078,75 @@ export class App {
     this.moveInput.strafe = 0;
     this.moveInput.sprint = false;
     this.refreshPointerLock();
+  }
+
+  /** Per-session Phase 2 presentation: HUD feed, target lock, MDT overlay, radio log (with the saved log's last lines) and radio keys. */
+  private beginPatrol(session: GameSession): void {
+    this.policeFeedValue = new PoliceFeed(session, this.bus);
+    this.targets = new TargetTracker(session.seed);
+    this.mdtValue = new MdtOverlay(
+      this.ui,
+      createMdtDeps(session, {
+        target: () => this.targets?.target ?? null,
+        bookingCompleted: (_id, released) => this.flash(released >= 0 ? 'Booking complete: prisoner handed over' : 'Booking complete'),
+      }),
+    );
+    const panel = new RadioPanel(this.ui.hud);
+    for (const tx of session.radio.log.filter((t) => t.audible).slice(-RADIO_LOG_RESTORE)) panel.addLine(radioLine(tx));
+    this.radioPanelValue = panel;
+    this.radioCtl = new RadioController({
+      input: this.input,
+      radio: session.radio,
+      speechIn: this.speechIn.available ? this.speechIn : null,
+    });
+    this.lastRadioHint = null;
+    this.autoRoute = null;
+    this.autoRouteX = NaN;
+    this.nextRouteMs = 0;
+    this.nextTargetMs = 0;
+    this.cockpitEid = -1;
+  }
+
+  private endPatrol(): void {
+    this.panels.close();
+    this.mdtValue?.dispose();
+    this.mdtValue = null;
+    this.radioCtl?.dispose();
+    this.radioCtl = null;
+    this.radioPanelValue?.dispose();
+    this.radioPanelValue = null;
+    this.radioMenuView.show(null);
+    this.policeFeedValue?.dispose();
+    this.policeFeedValue = null;
+    this.targets = null;
+    this.autoRoute = null;
+    this.cockpit?.setVehicle(0, null);
+    this.cockpitEid = 0;
+    this.speechOut.cancel();
+  }
+
+  /** Phase 2 console commands: records, CAD, traffic, police, audio, dispatch, radio and the patrol shortcuts. */
+  private patrolCommands(): Command[] {
+    const session = (): GameSession | null => this.sessionValue;
+    const position = (): { x: number; z: number } | null => session()?.playerPosition({ x: 0, z: 0 }) ?? null;
+    return [
+      ...createRecordsCommands({ records: () => session()?.records ?? null, seed: () => session()?.seed ?? null }),
+      ...createCadCommands({ cad: () => session()?.cad ?? null }),
+      ...createTrafficCommands({
+        traffic: () => session()?.traffic ?? null,
+        playerPosition: position,
+        playerHeading: () => {
+          const s = session();
+          if (!s) return null;
+          const v = s.drivenVehicle;
+          return v ? headingOf(Transform.qx[v.eid] ?? 0, Transform.qy[v.eid] ?? 0, Transform.qz[v.eid] ?? 0, Transform.qw[v.eid] ?? 1) : s.controller.yaw;
+        },
+      }),
+      ...createPoliceCommands({ equipment: () => session()?.lastEquipment ?? null }),
+      ...createAudioCommands({ audio: () => this.audio, speech: () => this.speechOut }),
+      ...createDispatchCommands({ dispatcher: () => session()?.dispatcher ?? null, now: () => session()?.now() ?? null, playerPosition: position }),
+      ...createPatrolCommands({ session }),
+    ];
   }
 
   private async quickSave(): Promise<void> {
@@ -746,18 +1207,31 @@ export class App {
     };
   }
 
-  /** Single owner of `loop.paused`: paused by the console command or while any menu is open. */
+  /**
+   * Single owner of `loop.paused`: paused by the console command or while a pausing menu is open (the
+   * MDT and the action panels set `pausesGame` false: the world keeps running behind them). Audio and
+   * speech follow the pause.
+   */
   private refreshPause(): void {
-    const paused = this.userPausedValue || this.ui.isMenuOpen();
+    const paused = this.userPausedValue || this.ui.menuStack.some((m) => m.pausesGame !== false);
     if (paused === this.loop.paused) return;
     this.loop.paused = paused;
+    if (paused) this.audio.suspend();
+    else this.audio.resume();
+    this.radioPlayer.setPaused(paused);
     this.bus.emit('app:pause', { paused });
   }
 
-  /** The browser swallows the Escape that releases pointer lock, so treat losing the lock as "pause". */
+  /**
+   * The browser swallows the Escape that releases pointer lock, so treat losing the lock as Escape:
+   * close the radio menu when it is open, else pause.
+   */
   private onPointerLockLost(): void {
     const playing = this.inGame && !this.ui.isMenuOpen() && !this.console.isOpen();
-    if (playing && !(this.renderer?.debugCameraEnabled ?? false)) this.pauseMenu.open();
+    if (!playing || (this.renderer?.debugCameraEnabled ?? false)) return;
+    const radioMenu = this.sessionValue?.radio.menu;
+    if (radioMenu?.isOpen) radioMenu.close();
+    else this.pauseMenu.open();
   }
 
   // --- wiring -----------------------------------------------------------------
@@ -780,6 +1254,7 @@ export class App {
           const bindings = settings.get('controls.bindings');
           this.input.setBindings(bindings);
           this.interactKey = keyLabel(bindings.interact);
+          this.radioMenuKey = keyLabel(bindings['radio.menu']);
         }
         if (all || change.path === 'controls.gamepadDeadzone') {
           this.input.setDeadzone(settings.get('controls.gamepadDeadzone'));
@@ -787,6 +1262,7 @@ export class App {
         if (all || change.path === 'controls.mouseSensitivity') this.mouseSensitivity = settings.get('controls.mouseSensitivity');
         if (all || change.path === 'controls.invertY') this.invertY = settings.get('controls.invertY');
         if (all || change.path === 'accessibility.reducedFlash') this.reducedFlash = settings.get('accessibility.reducedFlash');
+        if (all || change.path.startsWith('audio.') || change.path === 'accessibility.subtitles') this.applyAudioSettings();
       }),
       this.ui.onMenuChange(() => {
         this.menuChangedSinceUpdate = true;
@@ -795,8 +1271,27 @@ export class App {
       }),
       this.input.onPointerLockLost(() => this.onPointerLockLost()),
       this.bus.on('save:completed', () => void this.refreshSaveList()),
+      // Radio log and captions (written on events, presentation only).
+      this.bus.on('radio:start', (e) => this.onRadioStart(e.tx)),
+      this.bus.on('radio:blocked', (e) => {
+        for (const id of e.ids) this.radioPanelValue?.markBlocked(id);
+      }),
+      // A plate run from the keys or the MDT is silent on the radio: a hit beeps here (radio runs beep in RadioPlayer).
+      this.bus.on('dispatch:plateResult', (e) => {
+        if ((e.via === 'key' || e.via === 'mdt') && e.readback.hits.length > 0 && e.readback.severity !== 'clear') this.audio.radio.alertTone('hit');
+      }),
     );
     this.interactKey = keyLabel(settings.get('controls.bindings').interact);
+    this.radioMenuKey = keyLabel(settings.get('controls.bindings')['radio.menu']);
+    this.applyAudioSettings();
+    // Web Audio may only start from a user gesture: every pointer or key press (re)tries (idempotent and cheap).
+    const unlockAudio = (): void => this.audio.unlock();
+    window.addEventListener('pointerdown', unlockAudio, true);
+    window.addEventListener('keydown', unlockAudio, true);
+    this.disposers.push(() => {
+      window.removeEventListener('pointerdown', unlockAudio, true);
+      window.removeEventListener('keydown', unlockAudio, true);
+    });
     this.mouseSensitivity = settings.get('controls.mouseSensitivity');
     this.invertY = settings.get('controls.invertY');
     this.reducedFlash = settings.get('accessibility.reducedFlash');
@@ -814,6 +1309,28 @@ export class App {
       window.removeEventListener('pagehide', flushSettings);
       document.removeEventListener('visibilitychange', onVisibility);
     });
+  }
+
+  /** Volumes, text-to-speech, voice commands, radio language and captions from the settings. */
+  private applyAudioSettings(): void {
+    const a = this.settings.get().audio;
+    this.audio.setVolumes({ master: a.master, sfx: a.sfx, radio: a.radio });
+    this.speechOut.enabled = a.tts;
+    this.speechOut.preferredVoice = a.ttsVoice;
+    // Speech does not go through the Web Audio radio bus, so it gets the same volume product here.
+    this.speechOut.volume = a.master * a.radio;
+    this.speechIn.enabled = a.voiceCommands;
+    this.radioMode = a.radioMode;
+    this.subtitles = this.settings.get('accessibility.subtitles');
+    if (!this.subtitles) this.radioPanelValue?.setCaption(null, 0);
+  }
+
+  /** An audible transmission started: radio log line, and the caption when captions are on. */
+  private onRadioStart(tx: Readonly<Transmission>): void {
+    const panel = this.radioPanelValue;
+    if (!panel || !tx.audible) return;
+    panel.addLine(radioLine(tx));
+    if (this.subtitles) panel.setCaption(`${tx.speaker}: ${tx.text}`, performance.now() + tx.duration * 1000 + CAPTION_LINGER_MS);
   }
 
   /**
@@ -866,6 +1383,20 @@ export class App {
       log.warn('Worker determinism check failed:', error);
     }
   }
+}
+
+/** Radio log line of a transmission (channel short tag, own lines marked). */
+function radioLine(tx: Readonly<Transmission>): RadioLine {
+  return {
+    id: tx.id,
+    channel: channelDef(tx.channel).short,
+    speaker: tx.speaker,
+    text: tx.text,
+    clock: tx.clock,
+    blocked: tx.blocked,
+    priority: tx.priority,
+    self: tx.speakerKind === 'player',
+  };
 }
 
 /** Runs `fn` once the browser has painted (so a status line set just before is visible). */

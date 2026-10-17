@@ -70,7 +70,7 @@ interface LineOptions {
   readonly channel?: ChannelId;
   /** Seconds from now (ignored with `follows`). */
   readonly delay?: number;
-  readonly follows?: QueuedTransmission | null;
+  readonly follows?: { readonly id: number } | null;
   readonly gap?: number;
   readonly to?: string;
   readonly priority?: boolean;
@@ -78,6 +78,9 @@ interface LineOptions {
   readonly request?: UnitRequest | null;
   readonly via?: RequestVia | null;
 }
+
+/** Gap between two of the player's own transmissions (s): one key-up after the other, never over it. */
+const OWN_KEY_GAP_S = 0.3;
 
 /** Answers that richer events report; a dispatch:ack for these is not voiced again. */
 const ACK_COVERED: ReadonlySet<UnitRequest['kind']> = new Set(['runPlate', 'runPerson', 'backup', 'location', 'emergency', 'repeat', 'stopContact']);
@@ -256,16 +259,31 @@ export class Composer {
         kind = 'generic';
         break;
     }
+    // The player cannot key up over their own transmission (the automatic stop call-out, an earlier
+    // request): the new line follows it. Other units' traffic can still be stepped on (waitClear false).
+    const own = this.ownLatest();
     return this.line(kind, {
       speaker: player,
       speakerKind: 'player',
       channel,
       values: { unit: player, ...values },
       waitClear: false,
+      follows: own,
+      gap: own ? OWN_KEY_GAP_S : 0,
       priority: request.kind === 'emergency',
       request: request.kind === 'repeat' || request.kind === 'emergency' ? null : request,
       via,
     });
+  }
+
+  /** The player's latest transmission still waiting or on the air, null when none. */
+  private ownLatest(): { readonly id: number } | null {
+    const net = this.host.net;
+    const pending = net.pending;
+    for (let i = pending.length - 1; i >= 0; i--) if (pending[i]?.speakerKind === 'player') return pending[i] ?? null;
+    const air = net.onAir;
+    for (let i = air.length - 1; i >= 0; i--) if (air[i]?.speakerKind === 'player') return air[i] ?? null;
+    return null;
   }
 
   /** A request transmitted by radio/voice was acted on: its answer will be spoken. */

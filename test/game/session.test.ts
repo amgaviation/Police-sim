@@ -790,4 +790,117 @@ describe('determinism', () => {
     expect(parsed.traffic.cars.length).toBeGreaterThan(0);
     h.dispose();
   }, 60_000);
+
+  /**
+   * Phase 2 script: the officer drives onto an arterial, a car is put ahead of the patrol car, the light
+   * bar pulls it over (lights behind a car, design §7.2), its plate is run by radio, the driver's licence
+   * is requested, a citation is issued and the car released; generated and debug calls go to the AI
+   * units, the emergency button and code 4 go out on the radio; then the officer parks in the station lot
+   * and gets out. Returns the session at the end of phase A (`midSteps`) after `phaseB` more steps.
+   */
+  const patrolScript = (h: Harness, session: GameSession): void => {
+    const callsign = session.dispatcher.playerCallsign;
+    h.step(session, 30, { forward: 1, strafe: 0, sprint: false });
+    session.enterVehicle(vehicle(session, 0));
+    const lane = laneRef(58, 0, 0);
+    const s0 = city.graph.laneStart(lane) + 40;
+    const p = city.graph.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+    session.teleport(p.x, p.z, p.yaw);
+    h.step(session, 30);
+    expect(session.traffic.spawnAt(lane, s0 + 14, { speed: 6, behavior: 0, desiredFactor: 1 })).toBeGreaterThanOrEqual(0);
+    session.toggleLightbar();
+    session.drivenEquipment?.cyclePattern();
+    h.step(session, 600);
+    const stop = session.cad.trafficStop;
+    expect(stop?.outcome).toBe('active');
+    if (!stop) return;
+    // Run the stopped car's plate over the radio (the request goes to dispatch when the transmission ends).
+    session.radio.playerRequest({ kind: 'runPlate', plate: stop.plate, vehicleId: stop.vehicleId }, 'radio');
+    h.step(session, 600);
+    session.dispatcher.request(callsign, { kind: 'stopContact', action: 'license' }, 'key');
+    h.step(session, 60);
+    // The MDT writes documents straight into the CAD store (design §13.2).
+    const t = session.now();
+    const draft = session.cad.docs.create(
+      'citation',
+      {
+        callId: stop.callId,
+        personId: session.cad.trafficStop?.driverId ?? -1,
+        vehicleId: stop.vehicleId,
+        plate: stop.plate,
+        location: 'test',
+        violations: [{ statuteId: 'TR-301', fine: 150, detail: '45 in a 30' }],
+      },
+      t,
+      'Officer Doe #4071',
+    );
+    session.cad.docs.finalize(draft.id, t);
+    h.step(session, 60);
+    session.dispatcher.request(callsign, { kind: 'stopContact', action: 'release' }, 'key');
+    h.step(session, 120);
+    expect(session.dispatcher.createCall('noiseComplaint', session.now())).not.toBeNull();
+    session.radio.playerRequest({ kind: 'status', status: 'available' }, 'radio');
+    h.step(session, 900);
+    session.radio.emergencyButton();
+    h.step(session, 600);
+    session.radio.playerRequest({ kind: 'code4' }, 'radio');
+    h.step(session, 600);
+    // Park in the station lot and get out: nothing physical is left in a traffic lane before the mid save.
+    const slot = city.parking[0];
+    if (!slot) throw new Error('no parking slot');
+    session.driverInput.accelerate = 0;
+    session.teleport(slot.x, slot.z, slot.yaw);
+    h.step(session, 120);
+    expect(session.interact()).toBe('exited');
+    h.step(session, 60);
+  };
+
+  it('replays a scripted patrol (calls, AI units, a traffic stop, radio) to bit-identical v4 saves', () => {
+    const h = new Harness(city);
+    const run = (): string => {
+      const session = h.start(SEED);
+      patrolScript(h, session);
+      const data = serializeGame(session);
+      h.reset(session);
+      return JSON.stringify(data);
+    };
+    const first = run();
+    const second = run();
+    expect(second).toBe(first);
+    const data = JSON.parse(first) as SaveGame;
+    expect(isSaveGame(data)).toBe(true);
+    // The script exercised every Phase 2 block.
+    expect(data.cad.calls.some((c) => c.typeId === 'trafficStop' && c.disposition === 'citationIssued')).toBe(true);
+    expect(data.cad.calls.some((c) => !c.selfInitiated && c.units.some((u) => u !== '12'))).toBe(true);
+    expect(data.cad.calls.some((c) => c.typeId === 'officerEmergency')).toBe(true);
+    expect(data.cad.docs.items.some((d) => d.kind === 'citation' && d.status === 'final')).toBe(true);
+    expect(data.dispatch?.generator.generated).toBeGreaterThan(0);
+    expect(data.radio.log.length).toBeGreaterThan(10);
+    expect(data.radio.log.some((tx) => tx.speakerKind === 'player')).toBe(true);
+    expect(data.records.queries.some((q) => q.kind === 'plate')).toBe(true);
+    expect(data.records.contacts.length).toBeGreaterThan(0);
+    expect(data.equipment[0]?.pattern).toBe('quad');
+    expect(data.traffic?.cars.some((c) => c.fleet !== undefined)).toBe(true);
+    h.dispose();
+  }, 120_000);
+
+  it('a v4 save continues exactly: CAD, dispatch, records, radio and traffic after a load match the original run', () => {
+    const h = new Harness(city);
+    const session = h.start(SEED);
+    patrolScript(h, session);
+    const mid = roundTrip(serializeGame(session));
+    const blocks = (d: SaveGame): string =>
+      JSON.stringify({ cad: d.cad, dispatch: d.dispatch, records: d.records, radio: d.radio, traffic: d.traffic, equipment: d.equipment, kit: d.officerKit, rng: d.rngState, env: d.environment });
+    h.step(session, 1800);
+    const original = roundTrip(serializeGame(session));
+    h.reset(session);
+    const loaded = h.load(mid);
+    // Loading itself restores every block exactly.
+    expect(blocks(roundTrip(serializeGame(loaded)))).toBe(blocks(mid));
+    h.step(loaded, 1800);
+    const continued = roundTrip(serializeGame(loaded));
+    expect(blocks(continued)).toBe(blocks(original));
+    expect(continued.cad.calls.length).toBeGreaterThan(mid.cad.calls.length - 1);
+    h.dispose();
+  }, 120_000);
 });
