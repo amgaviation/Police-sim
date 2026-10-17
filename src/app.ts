@@ -201,7 +201,8 @@ export class App {
   private radioMode: RadioMode = 'tenCode';
   private subtitles = true;
   private radioMenuKey = 'T';
-  private lastRadioHint: string | null = null;
+  /** `hintSeq` of the last radio hint flashed. */
+  private lastRadioHint = 0;
   private nextTargetMs = 0;
   /** Route to the player's call, re-planned every `ROUTE_REPLAN_MS` or when off it. */
   private autoRoute: Float32Array | null = null;
@@ -457,6 +458,8 @@ export class App {
   /** Serializes the running session (throws when none is running). */
   serializeGame(): SaveGame {
     if (!this.sessionValue) throw new Error('No game running');
+    // A document form being typed in the MDT is kept as a draft.
+    this.mdtValue?.flushDraft();
     return serializeGame(this.sessionValue);
   }
 
@@ -792,8 +795,8 @@ export class App {
     if (!ctl || !feed) return;
     const state = ctl.update(dt, active, feed.radioContext(this.radioMode, this.targets?.target ?? null));
     this.radioMenuView.show(state.menu);
-    if (state.hint !== this.lastRadioHint) {
-      this.lastRadioHint = state.hint;
+    if (state.hintSeq !== this.lastRadioHint) {
+      this.lastRadioHint = state.hintSeq;
       if (state.hint !== null) this.flash(state.hint);
     }
     const s = this.radioStatus;
@@ -1099,7 +1102,7 @@ export class App {
       radio: session.radio,
       speechIn: this.speechIn.available ? this.speechIn : null,
     });
-    this.lastRadioHint = null;
+    this.lastRadioHint = 0;
     this.autoRoute = null;
     this.autoRouteX = NaN;
     this.nextRouteMs = 0;
@@ -1122,7 +1125,8 @@ export class App {
     this.autoRoute = null;
     this.cockpit?.setVehicle(0, null);
     this.cockpitEid = 0;
-    this.speechOut.cancel();
+    // The radio player outlives the session: forget its transmissions, pending tone and utterance.
+    this.radioPlayer.reset();
   }
 
   /** Phase 2 console commands: records, CAD, traffic, police, audio, dispatch, radio and the patrol shortcuts. */
@@ -1321,6 +1325,8 @@ export class App {
     const a = this.settings.get().audio;
     this.audio.setVolumes({ master: a.master, sfx: a.sfx, radio: a.radio });
     this.speechOut.enabled = a.tts;
+    // Switching spoken radio off also stops the (paused) utterance, so it does not resume later.
+    if (!a.tts) this.speechOut.cancel();
     this.speechOut.preferredVoice = a.ttsVoice;
     // Speech does not go through the Web Audio radio bus, so it gets the same volume product here.
     this.speechOut.volume = a.master * a.radio;

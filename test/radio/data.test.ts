@@ -6,6 +6,7 @@ import channelsJson from '../../src/data/radio/channels.json';
 import commandsJson from '../../src/data/radio/commands.json';
 import phoneticJson from '../../src/data/radio/phonetic.json';
 import phrasesJson from '../../src/data/radio/phrases.json';
+import { UNITS_DATA } from '../../src/dispatch/data';
 import {
   AMBIENT,
   PHONETIC,
@@ -131,6 +132,12 @@ describe('ambient.json', () => {
     const one = clone(ambientJson) as { channels: Record<string, Record<string, unknown>> };
     (one.channels.car as Record<string, unknown>).units = ['26'];
     expect(() => validateAmbient(one, RADIO_CONFIG.channels)).toThrow('ambient.json: channels.car.units must have at least 2 units');
+    expect(() => validateAmbient(ambientJson, RADIO_CONFIG.channels, 'ambient.json', ['34'])).toThrow('ambient.json: channels.dispatch.units "34" is a CAD unit callsign');
+  });
+
+  it('never uses the callsign of a CAD unit (the radio would contradict its CAD status)', () => {
+    const roster = new Set([UNITS_DATA.player.callsign, ...UNITS_DATA.units.map((u) => u.callsign)]);
+    for (const id of CHANNEL_IDS) for (const u of AMBIENT[id].units) expect(roster.has(u), `${id}: ${u}`).toBe(false);
   });
 });
 

@@ -47,6 +47,11 @@ export interface RadioPlayerDeps {
 /** Priority warble length (6 x 125 ms) and the longest alert beep sequence (s): speech starts after them. */
 const PRIORITY_TONE_S = 0.75;
 const ALERT_TONE_S = 0.45;
+/**
+ * An utterance whose transmission ended this long ago (s) no longer blocks the next one: the speech
+ * engine may never report its end (lost end/error events), which would otherwise mute the radio.
+ */
+const STALE_SPEECH_S = 3;
 
 function defaultSchedule(fn: () => void, ms: number): () => void {
   const h = setTimeout(fn, ms);
@@ -70,6 +75,8 @@ export class RadioPlayer {
   /** The transmission being spoken (-1 none) and whether it is from a scanned channel. */
   private speakingId = -1;
   private speakingScanned = false;
+  /** Sim time the spoken transmission ends (start + duration). */
+  private speakingEnd = Infinity;
   private paused = false;
   /** Cancels the speech waiting for its tone (null when none). */
   private cancelPending: (() => void) | null = null;
@@ -104,10 +111,19 @@ export class RadioPlayer {
   dispose(): void {
     for (const off of this.offs) off();
     this.offs.length = 0;
+    this.reset();
+  }
+
+  /**
+   * Session ended: forgets the transmissions on the air (a new session reuses their ids), drops a
+   * speech waiting for its tone and stops the current utterance.
+   */
+  reset(): void {
     this.playing.clear();
     this.clearPending();
-    if (this.speakingId >= 0) this.deps.speech.cancel();
+    this.deps.speech.cancel();
     this.speakingId = -1;
+    this.speakingEnd = Infinity;
   }
 
   private clearPending(): void {
@@ -150,7 +166,8 @@ export class RadioPlayer {
       // An utterance this transmission just stepped on (the emergency button pre-empts the channel;
       // radio:blocked follows radio:start) gives way to it.
       const cur = this.playing.get(this.speakingId);
-      if (!(cur?.blocked ?? false) && (!this.speakingScanned || scanned)) return;
+      const stale = cur === undefined && tx.start > this.speakingEnd + STALE_SPEECH_S;
+      if (!stale && !(cur?.blocked ?? false) && (!this.speakingScanned || scanned)) return;
       this.stopSpeaking();
     }
     if (toneS === 0) {
@@ -160,6 +177,7 @@ export class RadioPlayer {
     // The tone comes first, then the voice.
     this.speakingId = tx.id;
     this.speakingScanned = scanned;
+    this.speakingEnd = tx.start + tx.duration;
     this.cancelPending = (this.deps.schedule ?? defaultSchedule)(() => {
       this.cancelPending = null;
       if (this.speakingId === tx.id) this.speak(tx, scanned);
@@ -173,6 +191,7 @@ export class RadioPlayer {
     const id = tx.id;
     this.speakingId = id;
     this.speakingScanned = scanned;
+    this.speakingEnd = tx.start + tx.duration;
     const kind = tx.speakerKind;
     const started = speech.speak(tx.spoken, voiceProfileFor(tx.speaker, kind), {
       dispatcher: kind === 'dispatcher',

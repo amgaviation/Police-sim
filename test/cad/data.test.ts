@@ -164,3 +164,20 @@ describe('cad data tables', () => {
     expect(() => validateAddressConfig(a2)).toThrow(/address\.json: version/);
   });
 });
+
+describe('call-type narratives', () => {
+  it('never repeat the street name (each location placeholder once)', () => {
+    const values: Record<string, string> = {
+      street: 'Oak Street', cross: '5th Street', address: '248 N Oak Street', district: 'Downtown', dir: 'northbound',
+      plate: 'ABC 1234', vehicle: 'gray sedan', caller: 'RP',
+    };
+    for (const near of ['Oak Street at 5th Street', '800 block of N Oak Street']) {
+      for (const type of CALL_TYPES) {
+        for (const template of type.narratives) {
+          const text = template.replace(/\{(\w+)\}/g, (_, k: string) => (k === 'near' ? near : values[k] ?? type.fill[k]?.[0] ?? k));
+          expect(text.split('Oak Street').length - 1, `${type.id}: ${text}`).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+});

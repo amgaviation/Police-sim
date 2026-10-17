@@ -117,6 +117,7 @@ describe('callDetailLines', () => {
       '14:00 CAD: RP reports a mattress in lane 2.',
       '14:30 21: Unit en route.',
       '15:00 MDT: Debris cleared.',
+      '14:15 CAD: 21 dispatched',
     ]);
     expect(text.find((t) => t.startsWith('Times|'))).toBe('Times|Created 14:00  Dispatched 14:15');
   });

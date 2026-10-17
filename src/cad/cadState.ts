@@ -6,7 +6,7 @@
  */
 import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
-import { findCallType } from './data';
+import { dispositionLabel, findCallType } from './data';
 import { DocumentStore, emptyCounters, isDocumentsSave, type CadDocument, type DocumentsSave } from './documents';
 import type { AssignedBy, CadCallChange } from './events';
 import {
@@ -214,7 +214,7 @@ export class CadState {
     if (!unit || !isOneOf(status, UNIT_STATUSES)) return false;
     if (unit.status === status) return true;
     if (!canTransition(unit.status, status)) return false;
-    if (status === 'available' || status === 'outOfService') this.detach(unit);
+    if (status === 'available' || status === 'outOfService') this.detach(unit, t);
     this.changeStatus(unit, status, t, via);
     return true;
   }
@@ -322,7 +322,7 @@ export class CadState {
     if (!call || !unit || call.status === 'closed') return false;
     if (unit.callId === callId && call.units.includes(callsign)) return true;
     if (!canAssign(unit.status)) return false;
-    this.detach(unit);
+    this.detach(unit, t);
     call.units.push(callsign);
     call.primary ??= callsign;
     call.status = 'active';
@@ -333,6 +333,7 @@ export class CadState {
     }
     unit.callId = callId;
     this.rev++;
+    this.log(call, `${callsign} ${by === 'self' ? 'self-assigned' : by === 'backup' ? 'assigned as backup' : 'dispatched'}`, t);
     this.changeStatus(unit, 'enRoute', t, 'auto');
     this.bus?.emit('cad:unitAssigned', { callId, callsign, by });
     return true;
@@ -342,7 +343,7 @@ export class CadState {
   unassign(callsign: string, t: CadTime): void {
     const unit = this.unitMap.get(callsign);
     if (!unit || unit.callId === null) return;
-    this.detach(unit);
+    this.detach(unit, t);
     if (unit.status !== 'outOfService') this.changeStatus(unit, 'available', t, 'auto');
   }
 
@@ -359,6 +360,7 @@ export class CadState {
     call.offeredTo = null;
     call.offerExpires = 0;
     this.rev++;
+    this.log(call, `Closed: ${dispositionLabel(disposition)}`, t);
     for (const callsign of call.units) {
       const unit = this.unitMap.get(callsign);
       if (!unit || unit.callId !== callId) continue;
@@ -438,19 +440,25 @@ export class CadState {
 
   // --- Internals ------------------------------------------------------------------------------
 
+  /** A timestamped CAD line in the call narrative (dispatch, arrival, clear, close). */
+  private log(call: CadCall, text: string, t: CadTime): void {
+    call.narrative.push({ sim: t.sim, game: t.game, source: 'CAD', text });
+  }
+
   private changed(call: CadCall, change: CadCallChange): void {
     this.rev++;
     this.bus?.emit('cad:callUpdated', { callId: call.id, change });
   }
 
   /** Removes the unit from its call without a status change. */
-  private detach(unit: CadUnit): void {
+  private detach(unit: CadUnit, t: CadTime): void {
     const callId = unit.callId;
     if (callId === null) return;
     unit.callId = null;
     this.rev++;
     const call = this.callMap.get(callId);
     if (!call || call.status === 'closed') return;
+    this.log(call, `${unit.callsign} cleared`, t);
     const i = call.units.indexOf(unit.callsign);
     if (i >= 0) call.units.splice(i, 1);
     if (call.primary === unit.callsign) call.primary = call.units[0] ?? null;
@@ -464,9 +472,10 @@ export class CadState {
     unit.status = status;
     unit.statusSince = time(t);
     this.rev++;
-    if (status === 'onScene' && unit.callId !== null) {
+    if ((status === 'onScene' || status === 'transporting') && unit.callId !== null) {
       const call = this.callMap.get(unit.callId);
-      if (call && call.firstOnScene === null) call.firstOnScene = time(t);
+      if (call && status === 'onScene' && call.firstOnScene === null) call.firstOnScene = time(t);
+      if (call && call.status !== 'closed') this.log(call, `${unit.callsign} ${status === 'onScene' ? 'on scene' : 'transporting'}`, t);
     }
     this.bus?.emit('cad:unitStatus', { callsign: unit.callsign, status, prev, callId: unit.callId, via });
   }

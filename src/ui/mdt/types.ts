@@ -32,6 +32,8 @@ export interface MdtDeps {
    * the hit tone, the HUD target result and the in-car alert follow it). Optional: headless tests.
    */
   plateRun?(vehicleId: number, readback: PlateSummary): void;
+  /** The disposition the dispatcher would use to clear this call (a stop's citation / warning). Optional: headless tests. */
+  defaultDisposition?(callId: number): string;
 }
 
 export const MDT_TABS = ['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop'] as const;

@@ -7,6 +7,7 @@ import { TEN_CODES } from '../cad/data';
 import type { RadioMode, UnitStatus } from '../cad/types';
 import { UNIT_STATUSES } from '../cad/types';
 import ambientJson from '../data/radio/ambient.json';
+import { UNITS_DATA } from '../dispatch/data';
 import channelsJson from '../data/radio/channels.json';
 import commandsJson from '../data/radio/commands.json';
 import phoneticJson from '../data/radio/phonetic.json';
@@ -190,7 +191,16 @@ export interface AmbientChannel {
   readonly dispatcherTemplates: readonly string[];
 }
 
-export function validateAmbient(data: unknown, channels: readonly ChannelDef[], file = 'ambient.json'): Readonly<Record<ChannelId, AmbientChannel>> {
+/**
+ * `reserved`: callsigns of real CAD units (dispatch roster and the player). Made-up chatter may not use
+ * them, or the radio would contradict the units' CAD status.
+ */
+export function validateAmbient(
+  data: unknown,
+  channels: readonly ChannelDef[],
+  file = 'ambient.json',
+  reserved: readonly string[] = [],
+): Readonly<Record<ChannelId, AmbientChannel>> {
   const root = readObject(data, file, '');
   readVersion(root, file);
   const chObj = readObject(root.channels, file, 'channels');
@@ -199,6 +209,7 @@ export function validateAmbient(data: unknown, channels: readonly ChannelDef[], 
     const path = `channels.${id}`;
     const o: JsonObject = readObject(chObj[id], file, path);
     const units = readArray(o.units, file, `${path}.units`, 1).map((v, i) => readString(v, file, `${path}.units[${i}]`));
+    for (const u of units) if (reserved.includes(u)) fail(file, `${path}.units`, `${JSON.stringify(u)} is a CAD unit callsign`);
     const templates = readTemplates(o.templates, AMBIENT_PLACEHOLDERS, file, `${path}.templates`);
     const dispatcherTemplates =
       o.dispatcherTemplates === undefined ? [] : readTemplates(o.dispatcherTemplates, AMBIENT_PLACEHOLDERS, file, `${path}.dispatcherTemplates`, 0);
@@ -273,7 +284,10 @@ export function validateCommands(data: unknown, file = 'commands.json'): Command
 
 export const RADIO_CONFIG: RadioConfig = validateChannels(channelsJson);
 export const PHRASES: PhraseTable = validatePhrases(phrasesJson);
-export const AMBIENT: Readonly<Record<ChannelId, AmbientChannel>> = validateAmbient(ambientJson, RADIO_CONFIG.channels);
+export const AMBIENT: Readonly<Record<ChannelId, AmbientChannel>> = validateAmbient(ambientJson, RADIO_CONFIG.channels, 'ambient.json', [
+  UNITS_DATA.player.callsign,
+  ...UNITS_DATA.units.map((u) => u.callsign),
+]);
 export const PHONETIC: PhoneticTable = validatePhonetic(phoneticJson);
 export const VOICE_COMMANDS: CommandTable = validateCommands(commandsJson);
 

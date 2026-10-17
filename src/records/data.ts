@@ -86,7 +86,8 @@ export interface PersonData {
   readonly supervision: { readonly probation: number; readonly parole: number; readonly priorKind: string; readonly conditions: readonly string[] };
   readonly gang: { readonly rate: number; readonly names: readonly string[]; readonly associateShare: number };
   readonly mentalHealth: { readonly rate: number; readonly notes: readonly string[] };
-  readonly officerSafety: { readonly rate: number; readonly notes: readonly string[] };
+  /** `priorKind`: the prior-contact kind every person with officer-safety notes has at least once (null: none required). */
+  readonly officerSafety: { readonly rate: number; readonly notes: readonly string[]; readonly priorKind: string | null };
   /**
    * No registered firearms below `minAge` (years on game day 0; none registered before that birthday),
    * none for a person under a `prohibitedSupervision` kind or a protective order with the `surrenderCondition`.
@@ -304,6 +305,10 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
   if (!priorKinds.some((k) => k.weight > 0)) fail(file, 'priors.kinds', 'must have a positive weight');
   const supPriorKind = sup.priorKind === undefined ? 'arrest' : readString(sup.priorKind, file, 'supervision.priorKind');
   if (!priorKinds.some((k) => k.kind === supPriorKind)) fail(file, 'supervision.priorKind', `must name a kind in priors.kinds, got ${JSON.stringify(supPriorKind)}`);
+  const osPriorKind = os.priorKind === undefined || os.priorKind === null ? null : readString(os.priorKind, file, 'officerSafety.priorKind');
+  if (osPriorKind !== null && !priorKinds.some((k) => k.kind === osPriorKind)) {
+    fail(file, 'officerSafety.priorKind', `must name a kind in priors.kinds, got ${JSON.stringify(osPriorKind)}`);
+  }
   const benchPriorKinds = w.benchPriorKinds === undefined ? [] : readStrings(w.benchPriorKinds, file, 'warrants.benchPriorKinds', 0);
   for (const k of benchPriorKinds) {
     if (!priorKinds.some((pk) => pk.kind === k)) fail(file, 'warrants.benchPriorKinds', `must name kinds in priors.kinds, got ${JSON.stringify(k)}`);
@@ -344,6 +349,7 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
     officerSafety: {
       rate: readProb(os.rate, file, 'officerSafety.rate'),
       notes: readStrings(os.notes, file, 'officerSafety.notes', 1, MAX_SUBSET_LIST),
+      priorKind: osPriorKind,
     },
     firearms: {
       rate: readProb(fa.rate, file, 'firearms.rate'),

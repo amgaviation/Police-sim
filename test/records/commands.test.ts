@@ -4,7 +4,7 @@ import { createRecordsCommands } from '../../src/records/commands';
 import { RecordsDb } from '../../src/records/db';
 import { dlNumberOf, vinOf } from '../../src/records/ids';
 import { personIdentity } from '../../src/records/person';
-import { mountedPlate } from '../../src/records/vehicle';
+import { canBeOnRoad, mountedPlate } from '../../src/records/vehicle';
 import { plateOf } from '../../src/traffic/registry';
 import { fakeCtx } from './helpers';
 
@@ -59,6 +59,13 @@ describe('records console commands', () => {
       expect(line, state).toMatch(/#\d+ [A-Z]{3} \d{4}/);
       const id = Number(/#(\d+)/.exec(line ?? '')?.[1]);
       expect(line).toContain(mountedPlate(SEED, id).plate);
+    }
+    // Every listed car can actually be on the road (none drive on their own reported-stolen plates).
+    for (const seed of [SEED, 1234]) {
+      const cmds = createRecordsCommands({ records: () => new RecordsDb(seed, fakeCtx()), seed: () => seed });
+      const ids = [...run(cmds, 'platestates 3').matchAll(/#(\d+) [A-Z]{3} \d{4}/g)].map((m) => Number(m[1]));
+      expect(ids.length).toBeGreaterThan(10);
+      for (const id of ids) expect(canBeOnRoad(seed, id), `seed ${seed} #${id}`).toBe(true);
     }
     expect(() => run(commands, 'platestates 0')).toThrow('Usage');
   });

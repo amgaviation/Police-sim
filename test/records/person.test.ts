@@ -153,7 +153,7 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
   it('keeps warrants, supervision, priors, firearms and licence consistent with each other and with age', () => {
     const ctx = fakeCtx();
     const start = CALENDAR.startEpochDay;
-    let supervised = 0, probationViolations = 0, young = 0, prohibited = 0, benchWanted = 0;
+    let supervised = 0, probationViolations = 0, young = 0, prohibited = 0, benchWanted = 0, safety = 0;
     for (let id = 0; id < 30000; id++) {
       const p = generatePerson(seed, id, ctx);
       const age = Math.floor((start - p.dob) / 365.25);
@@ -164,6 +164,11 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
       if (p.supervision.kind !== 'none') {
         supervised++;
         expect(p.priors.some((x) => x.kind === PERSON_DATA.supervision.priorKind), `person ${id}`).toBe(true);
+      }
+      // Officer-safety notes (e.g. 'Prior assault on officer') come with an arrest on record.
+      if (p.officerSafety.length > 0) {
+        safety++;
+        expect(p.priors.some((x) => x.kind === PERSON_DATA.officerSafety.priorKind), `person ${id} officer safety`).toBe(true);
       }
       if (age < 21) young++;
       if (age < PERSON_DATA.firearms.minAge) expect(p.firearms, `person ${id}`).toEqual([]);
@@ -195,6 +200,8 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
       }
     }
     expect(supervised).toBeGreaterThan(500);
+    expect(safety).toBeGreaterThan(100);
+    expect(PERSON_DATA.officerSafety.priorKind).toBe('arrest');
     expect(probationViolations).toBeGreaterThan(0);
     expect(young).toBeGreaterThan(100);
     expect(prohibited).toBeGreaterThan(100);

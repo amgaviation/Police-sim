@@ -188,7 +188,7 @@ function addressFrom(ctx: RecordsContext, uEdge: number, uT: number): string {
  * 13 priors: count, then `max` x (day, kind, location edge, location t, summary) (1 + 5 max)
  * Outcomes are then made consistent without extra draws: warrant kinds that `require` a
  * supervision kind are only resolved for such a person; a supervised person has at least one
- * prior of `supervision.priorKind`; a bench warrant has an earlier prior of `warrants.benchPriorKinds`;
+ * prior of `supervision.priorKind`, a person with officer-safety notes one of `officerSafety.priorKind`; a bench warrant has an earlier prior of `warrants.benchPriorKinds`;
  * no firearms below `firearms.minAge` (nor registered before that birthday) or for a prohibited
  * possessor (`firearms.prohibitedSupervision`, `protectiveOrders.surrenderCondition`); licence classes below
  * their `classMinAge` fall back to the most common class; an expired licence expired after 16.
@@ -358,6 +358,16 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
     const first = priorDraws[0];
     const conviction = p.kinds.find((k) => k.kind === s.priorKind);
     if (first && conviction) first.kind = conviction;
+  }
+  // Officer-safety notes (an assault on an officer, carrying weapons, flight) come from a past arrest:
+  // such a person has at least one prior of `officerSafety.priorKind` (kept apart from the supervision one).
+  const osKind = d.officerSafety.priorKind;
+  if (hasOs && osKind !== null && p.max > 0 && !priorDraws.slice(0, priorCount).some((x) => x.kind.kind === osKind)) {
+    const k = supKind !== 'none' && priorDraws[0]?.kind.kind === s.priorKind && p.max > 1 ? 1 : 0;
+    priorCount = Math.max(k + 1, priorCount);
+    const x = priorDraws[k];
+    const arrest = p.kinds.find((pk) => pk.kind === osKind);
+    if (x && arrest) x.kind = arrest;
   }
   // A bench warrant (failure to appear, unpaid fine, violation) follows an earlier court case:
   // at least one prior of `benchPriorKinds`, dated before the earliest bench warrant.

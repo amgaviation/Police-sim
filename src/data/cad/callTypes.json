@@ -12,7 +12,7 @@
       "narratives": [
         "RP reports {hazard} in the roadway near {cross}.",
         "{hazard} blocking the {dir} lane on {street}.",
-        "Caller advises {hazard} on {street} at {near}, vehicles swerving."
+        "Caller advises {hazard} on {street} near {cross}, vehicles swerving."
       ],
       "fill": { "hazard": ["a mattress", "a large tire", "a fallen tree branch", "scattered debris", "a stalled vehicle"] },
       "dispositions": ["handled", "goneOnArrival", "unfounded"]

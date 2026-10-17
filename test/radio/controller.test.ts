@@ -176,7 +176,15 @@ describe('RadioController', () => {
     frame(CTX, 2);
     expect(frame(CTX, 1.5).hint).toBeNull();
     (speech as FakeSpeechIn).fail('no-match');
-    expect(frame().hint).toBe('Say again');
+    const first = frame();
+    expect(first.hint).toBe('Say again');
+    // A second identical hint before the first expired is a new hint (the app flashes it again).
+    const seq = first.hintSeq;
+    frame(CTX, 2.6);
+    (speech as FakeSpeechIn).fail('no-match');
+    const again = frame();
+    expect(again.hint).toBe('Say again');
+    expect(again.hintSeq).toBe(seq + 1);
   });
 
   it('other recognition failures ("network") and a refused start give a "voice unavailable" hint', () => {

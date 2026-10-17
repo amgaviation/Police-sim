@@ -165,6 +165,12 @@ function readPlate(raw: readonly string[]): string | null {
       if (letters.length === 3) digits += t;
       continue;
     }
+    // "ten forty five" was joined like a ten-code ("10-45"): in a plate it is the digits 1045.
+    const ten = /^10-(\d{1,3})$/.exec(t);
+    if (ten) {
+      if (letters.length === 3) digits += `10${ten[1] as string}`;
+      continue;
+    }
     const mixed = /^([a-z]{1,3})(\d{1,4})$/.exec(t);
     if (mixed && digits.length === 0 && letters.length + (mixed[1] as string).length <= 3) {
       letters += (mixed[1] as string).toUpperCase();

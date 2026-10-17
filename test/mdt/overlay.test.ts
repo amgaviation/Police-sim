@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateRegistration, mountedPlate } from '../../src/records/vehicle';
+import { PLATE_FLAG, canBeOnRoad, generateRegistration, mountedPlate } from '../../src/records/vehicle';
 import { hasGeneratedWarrant } from '../../src/records/person';
 import { isTextField, MDT_REFRESH_MS, MdtOverlay, parseClock } from '../../src/ui/mdt';
 import { parseDob } from '../../src/ui/mdt/overlay';
@@ -370,6 +370,72 @@ describe('MdtOverlay (headless)', () => {
     expect(f.cad.call(call.id)?.documents).toEqual(['R-0001']);
     // A draft stays open (headless forms close after saving).
     expect(mdt.message).toBe('R-0001 saved as draft');
+  });
+
+  it('runs a typed stop plate against the stop car, so a mismatched plate is caught and citable', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    let v = 0;
+    while (mountedPlate(SEED, v).anomaly !== 'mismatched' || !canBeOnRoad(SEED, v)) v++;
+    const stop = startStop(f, v, { vinChecked: true });
+    const r = mdt.runVehicleQuery(stop.plate.replace(' ', '').toLowerCase());
+    expect(r && 'plate' in r ? r.flags & PLATE_FLAG.mismatched : 0).toBeTruthy();
+    expect(r && 'plate' in r ? r.hits.some((h) => h.kind === 'mismatch') : false).toBe(true);
+    expect(f.cad.trafficStop?.plateRun).toBe(true);
+    mdt.openForm('citation');
+    const doc = mdt.submitForm(false).doc;
+    expect(doc?.kind === 'citation' ? doc.violations.map((x) => x.detail) : []).toContain('Plate run: cloned');
+  });
+
+  it("does not show an earlier stop's plate run for a new stop of a car with the same plate", () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    let v = 0;
+    while (mountedPlate(SEED, v).anomaly !== 'mismatched' || !f.records.registration(mountedPlate(SEED, v).plateVehicleId).expired) v++;
+    const donor = mountedPlate(SEED, v).plateVehicleId;
+    const first = startStop(f, donor);
+    expect(mdt.runStopVehicle()?.flags).toBeTruthy();
+    f.cad.updateTrafficStop({ outcome: 'released' }, at(1));
+    f.cad.closeCall(first.callId, 'handled', at(1));
+    const second = startStop(f, v);
+    expect(second.plate).toBe(first.plate);
+    mdt.openForm('citation');
+    const doc = mdt.submitForm(false).doc;
+    // Not run on this stop: no plate issues prefilled from the first car's run.
+    expect(doc?.kind === 'citation' ? doc.violations.filter((x) => x.detail.startsWith('Plate run')) : null).toEqual([]);
+  });
+
+  it("does not link a new document to the queue's auto-selected call", () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const call = addCall(f.cad, 0, 2);
+    f.cad.assign(call.id, '21', at(0), 'dispatch');
+    mdt.open('queue');
+    mdt.update(1000);
+    expect(mdt.selectedCallId).toBe(call.id);
+    for (const kind of ['citation', 'report', 'evidence'] as const) {
+      mdt.open('queue');
+      mdt.openForm(kind);
+      const doc = mdt.submitForm(false).doc;
+      expect(doc?.callId, kind).toBeNull();
+    }
+    expect(f.cad.call(call.id)?.documents).toEqual([]);
+  });
+
+  it('keeps an open form as a draft on flushDraft and dispose', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.openForm('report', { callId: null, title: 'Found property', location: '1 Main Street', occurredGame: 0, narrative: 'A long narrative' });
+    expect(mdt.flushDraft()).toBe(true);
+    const doc = f.cad.docs.get('R-0001');
+    expect(doc?.status).toBe('draft');
+    expect(doc?.kind === 'report' ? doc.narrative : '').toBe('A long narrative');
+    expect(mdt.flushDraft()).toBe(true);
+    expect(f.cad.docs.get('R-0002')).toBeNull();
+    const other = new MdtOverlay(null, f.deps);
+    other.openForm('evidence', { callId: null, foundAt: '2 Main Street', description: 'Wallet' });
+    other.dispose();
+    expect(f.cad.docs.list('evidence').length).toBe(1);
   });
 
   it('remembers the selected call and the stop vehicle is the stop plate', () => {

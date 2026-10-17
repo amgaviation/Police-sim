@@ -59,10 +59,15 @@ function followAndStop(h: Harness, session: GameSession): void {
   d.brake = 0;
   d.accelerate = 0.35;
   for (let i = 0; i < 900 && session.cad.trafficStop === null; i++) h.step(session, 1);
+  // Brake only while still rolling forwards (a held brake at a standstill is reverse), then the handbrake.
   d.accelerate = 0;
   d.brake = 1;
-  h.step(session, 120);
+  const car = session.drivenVehicle;
+  for (let i = 0; i < 300 && (car?.telemetry.speed ?? 0) > 0.2; i++) h.step(session, 1);
   d.brake = 0;
+  d.handbrake = true;
+  h.step(session, 30);
+  d.handbrake = false;
 }
 
 /** Drives patrol car 0 onto an arterial, puts a car 14 m ahead and switches the light bar on until it is stopped at the curb. */

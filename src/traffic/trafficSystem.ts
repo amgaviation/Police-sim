@@ -929,6 +929,8 @@ export class TrafficSystem {
       } else {
         if (this.ambientCount >= this.capacity) continue;
         if (c.vehicleId < 0 || c.vehicleId >= REGISTRY_POPULATION || this.onRoad[c.vehicleId] === 1) continue;
+        // Older saves (Phase 1) may hold cars kept off the road now (their own plates reported stolen).
+        if (!canBeOnRoad(this.seed, c.vehicleId)) continue;
         slot = this.createEntity(c.vehicleId, c.lane, c.s, c.speed);
       }
       const pull = c.pull ?? PULL.none;
@@ -1287,7 +1289,11 @@ export class TrafficSystem {
   /** True when leader `o` stands clear of the lane far enough to the side for `slot` to pass it. */
   private passable(slot: number, o: number): boolean {
     if (this.aside[o] !== 1) return false;
-    const lateral = Math.abs((this.shoulder[slot] ?? 0) - (this.shoulder[o] ?? 0));
+    // A car on its way to the curb is judged where it is heading: it must stop behind a car there.
+    const pull = this.pull[slot];
+    const own = this.shoulder[slot] ?? 0;
+    const mine = pull === PULL.pulling || pull === PULL.parking ? Math.max(own, this.curbTarget(slot)) : own;
+    const lateral = Math.abs(mine - (this.shoulder[o] ?? 0));
     return lateral >= (MODEL_HALF_WID[this.model[slot] ?? 0] ?? 1) + (MODEL_HALF_WID[this.model[o] ?? 0] ?? 1) + 0.1;
   }
 
@@ -1690,15 +1696,20 @@ export class TrafficSystem {
     }
     if (bits & BEHAVIOR.tailgating && v > TAILGATE_MIN_SPEED && gap < v * TAILGATE_HEADWAY_S) this.report(slot, 'tailgating', focus);
 
-    // The player (car or officer) and parked player vehicles when they are in the lane ahead.
+    // The player (car or officer) and parked player vehicles when they are in the lane ahead. A car on
+    // its way to the curb also looks where it is heading, so it brakes in time behind a car standing there.
     const laneHalf = (g.edges[edge] as RoadEdge).laneWidth / 2;
     const hx = this.hx[slot] ?? 0, hz = this.hz[slot] ?? 0;
     const cx = this.x[slot] ?? 0, cz = this.z[slot] ?? 0;
+    const pullNow = this.pull[slot];
+    const curbShift =
+      pullNow === PULL.pulling || pullNow === PULL.parking ? Math.max(0, this.curbTarget(slot) - (this.shoulder[slot] ?? 0)) : 0;
     if (focus.obstacle) {
       const dx = focus.ox - cx, dz = focus.oz - cz;
       const lon = dx * hx + dz * hz;
       const lat = -dx * hz + dz * hx;
-      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && Math.abs(lat) < laneHalf + focus.oHalfWidth) {
+      const band = laneHalf + focus.oHalfWidth;
+      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && (Math.abs(lat) < band || (curbShift > 0 && Math.abs(lat - curbShift) < band))) {
         const og = lon - hl - focus.oRadius;
         if (og < gap) {
           gap = og;
@@ -1717,7 +1728,8 @@ export class TrafficSystem {
       // Half extents of the parked body along and across this car's heading.
       const cos = Math.abs(o.hx * hx + o.hz * hz), sin = Math.abs(o.hx * hz - o.hz * hx);
       const halfLat = o.halfLength * sin + o.halfWidth * cos;
-      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && Math.abs(lat) < laneHalf + halfLat) {
+      const band = laneHalf + halfLat;
+      if (lon > 0 && lon < OBSTACLE_LOOKAHEAD && (Math.abs(lat) < band || (curbShift > 0 && Math.abs(lat - curbShift) < band))) {
         const og = lon - hl - (o.halfLength * cos + o.halfWidth * sin);
         if (og < gap) {
           gap = og;
@@ -1818,6 +1830,7 @@ export class TrafficSystem {
     }
     const g = this.graph;
     let lane = this.lane[slot] ?? 0;
+    const lane0 = lane;
     const s0 = this.s[slot] ?? 0;
     let s = s0 + ds;
     let end = g.laneEnd(lane);
@@ -1856,7 +1869,7 @@ export class TrafficSystem {
       this.weavePhase[slot] = phase >= TWO_PI ? phase - TWO_PI : phase;
     }
     const f = this.fleetIndex[slot] ?? -1;
-    if (f >= 0 && this.pull[slot] === PULL.none && (this.destEdge[f] ?? -1) >= 0 && this.arrived[f] === 0) this.checkArrival(f, slot);
+    if (f >= 0 && this.pull[slot] === PULL.none && (this.destEdge[f] ?? -1) >= 0 && this.arrived[f] === 0) this.checkArrival(f, slot, lane0 === lane ? s0 : -Infinity);
     if (this.pull[slot] !== PULL.none) this.stepPull(slot, v, dt);
   }
 
@@ -1892,7 +1905,11 @@ export class TrafficSystem {
     const hx = dl > 1e-6 ? dx / dl : rear.hx;
     const hz = dl > 1e-6 ? dz / dl : rear.hz;
     let lat = 0;
-    if ((this.behavior[slot] ?? 0) & BEHAVIOR.dui) lat = (this.weaveAmp[slot] ?? 0) * Math.sin(this.weavePhase[slot] ?? 0);
+    if ((this.behavior[slot] ?? 0) & BEHAVIOR.dui) {
+      // The weave fades out on the way to the curb (none while stopped there) and back in when merging.
+      const k = this.pull[slot] === PULL.none ? 1 : Math.max(0, 1 - (this.shoulder[slot] ?? 0) / this.curbTarget(slot));
+      lat = k * (this.weaveAmp[slot] ?? 0) * Math.sin(this.weavePhase[slot] ?? 0);
+    }
     this.lateral[slot] = lat;
     lat += this.shoulder[slot] ?? 0;
     // Right of the heading (hx, hz) is (-hz, hx).
@@ -2466,13 +2483,24 @@ export class TrafficSystem {
     else if (!this.planRoute(f, slot)) this.routeLen[f] = 0;
   }
 
-  /** On the destination edge within arriveDistance of the point, or past it: park at the curb. */
-  private checkArrival(f: number, slot: number): void {
+  /**
+   * On the destination edge: park at the curb within arriveDistance of the point, once the point is
+   * within braking distance ahead (curb.decel), or when the car drove past it this step (`s0`: its s at
+   * the start of the step on this lane, -Infinity when it entered the lane during the step). A point
+   * already behind the car does not count: its route loops round to it.
+   */
+  private checkArrival(f: number, slot: number, s0: number): void {
     const lane = this.lane[slot] ?? 0;
     if (laneEdge(lane) !== this.destEdge[f]) return;
     const dx = (this.x[slot] ?? 0) - (this.destX[f] ?? 0), dz = (this.z[slot] ?? 0) - (this.destZ[f] ?? 0);
     const r = PULLOVER.fleet.arriveDistance;
-    if (dx * dx + dz * dz >= r * r && (this.s[slot] ?? 0) < this.destLaneS(f, laneDir(lane))) return;
+    const s = this.s[slot] ?? 0;
+    const dS = this.destLaneS(f, laneDir(lane));
+    const v = this.v[slot] ?? 0;
+    const ahead = dS - s;
+    const brake = Math.max(r, (v * v) / (2 * PULLOVER.curb.decel) + (MODEL_HALF_LEN[this.model[slot] ?? 0] ?? 2));
+    const crossed = s0 < dS && s >= dS;
+    if (dx * dx + dz * dz >= r * r && !crossed && !(ahead >= 0 && ahead <= brake)) return;
     this.pull[slot] = PULL.parking;
     this.routeLen[f] = 0;
     this.routePos[f] = 0;

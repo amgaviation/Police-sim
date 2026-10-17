@@ -18,6 +18,8 @@ export interface RadioControllerState {
   readonly menu: MenuView | null;
   readonly voice: 'off' | 'ready' | 'listening' | 'unavailable';
   readonly hint: string | null;
+  /** Bumped by every new hint, so a repeated identical hint (a second "Say again") shows again. */
+  readonly hintSeq: number;
   /** Emergency button charge 0..1 while held. */
   readonly emergencyCharge: number;
 }
@@ -71,12 +73,13 @@ interface MutableState {
   menu: MenuView | null;
   voice: 'off' | 'ready' | 'listening' | 'unavailable';
   hint: string | null;
+  hintSeq: number;
   emergencyCharge: number;
 }
 
 export class RadioController {
   private readonly deps: RadioControllerDeps;
-  private readonly state: MutableState = { menu: null, voice: 'unavailable', hint: null, emergencyCharge: 0 };
+  private readonly state: MutableState = { menu: null, voice: 'unavailable', hint: null, hintSeq: 0, emergencyCharge: 0 };
   private readonly offs: (() => void)[] = [];
   private hintTimer = 0;
   private emergencyHeld = 0;
@@ -212,6 +215,7 @@ export class RadioController {
 
   private setHint(text: string): void {
     this.state.hint = text;
+    this.state.hintSeq++;
     this.hintTimer = HINT_S;
   }
 

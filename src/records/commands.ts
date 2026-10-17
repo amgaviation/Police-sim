@@ -3,7 +3,7 @@ import { REGISTRY_POPULATION, vehicleRecord } from '../traffic/registry';
 import { formatDate } from './calendar';
 import type { PersonSummary, RecordsDb } from './db';
 import { displayName, type PersonRecord } from './person';
-import { PLATE_FLAG, PLATE_FLAG_NAMES, mountedPlate, plateFlags, vehicleDescription, type PlateFlagName } from './vehicle';
+import { PLATE_FLAG, PLATE_FLAG_NAMES, canBeOnRoad, mountedPlate, plateFlags, vehicleDescription, type PlateFlagName } from './vehicle';
 
 /** Debug console commands of the records module: person, runplate, vin, dl, platestates, bolos. */
 
@@ -128,6 +128,8 @@ export function createRecordsCommands(deps: { records(): RecordsDb | null; seed(
         let scanned = 0;
         for (let id = 0; id < REGISTRY_POPULATION; id++) {
           scanned = id + 1;
+          // Only cars that can be on the road (plateFlags describes those).
+          if (!canBeOnRoad(seed, id)) continue;
           const flags = plateFlags(seed, id);
           if (flags !== 0) {
             const mp = mountedPlate(seed, id);

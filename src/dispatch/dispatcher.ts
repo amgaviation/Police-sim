@@ -524,10 +524,13 @@ export class Dispatcher {
   private onPulledOver(vehicleId: number, x: number, z: number, t: CadTime): void {
     if (isFleetVehicleId(vehicleId) || vehicleId < 0 || vehicleId >= REGISTRY_POPULATION) return;
     const { cad, seed, records } = this.deps;
-    // A stop never takes the player off another call they are on (en route or on scene): the car is let go.
+    // A stop never takes the player off another call they are on (en route or on scene), nor off a
+    // stop that ended in an arrest and is still open (its booking needs it): the car is let go.
     const pcall = cad.playerUnit()?.callId ?? null;
     const current = pcall !== null ? cad.call(pcall) : null;
-    if (current && current.status !== 'closed' && current.typeId !== 'trafficStop') {
+    const cur = cad.trafficStop;
+    const activeStopCall = current !== null && current.typeId === 'trafficStop' && cur?.callId === current.id && cur.outcome === 'active';
+    if (current && current.status !== 'closed' && !activeStopCall) {
       this.deps.traffic.releaseStop();
       this.ack(this.playerCallsign, 'trafficStop', false, `Clear ${current.number} first`);
       return;
@@ -824,9 +827,9 @@ export class Dispatcher {
   }
 
   /**
-   * The player leaves their current call: an active traffic stop on it is released, then the call
-   * closes with its default disposition when the player was the last unit, else the player is
-   * unassigned (the remaining units keep it).
+   * The player leaves their current call: an active traffic stop on it is released; a dispatched call
+   * nobody has reached returns to the queue; otherwise the call closes with its default disposition
+   * when the player was the last unit, else the player is unassigned (the remaining units keep it).
    */
   private leaveOwnCall(t: CadTime): void {
     const { cad } = this.deps;
@@ -836,6 +839,22 @@ export class Dispatcher {
     if (stop && stop.outcome === 'active' && stop.callId === callId) {
       this.deps.traffic.releaseStop();
       this.endStop('released', this.stopDisposition(), t);
+      return;
+    }
+    // A dispatched call nobody reached yet is not handled: it goes back to the queue for the AI units.
+    const call = cad.call(callId);
+    const status = cad.unit(this.playerCallsign)?.status;
+    const arrived = status === 'onScene' || status === 'busy' || status === 'transporting' || (call?.firstOnScene ?? null) !== null;
+    if (call && !call.selfInitiated && !arrived) {
+      for (const u of this.units) {
+        if (u.callId === callId && u.role !== 'call') {
+          cad.unassign(u.callsign, t);
+          this.toPatrol(u, t);
+        }
+      }
+      cad.unassign(this.playerCallsign, t);
+      this.declined.add(callId);
+      this.assignDirty = true;
       return;
     }
     this.closeOwnCall(callId, this.defaultDisposition(callId), t);
@@ -850,7 +869,7 @@ export class Dispatcher {
   }
 
   /** Disposition used when the player clears a call without choosing one. */
-  private defaultDisposition(callId: number): string {
+  defaultDisposition(callId: number): string {
     const { cad } = this.deps;
     const stop = cad.trafficStop;
     if (stop && stop.callId === callId) return stop.outcome === 'arrest' ? 'arrestMade' : this.stopDisposition();
@@ -899,12 +918,16 @@ export class Dispatcher {
       this.ack(pc, 'runPlate', false, 'No plate');
       return;
     }
-    const registered = vehicleId >= 0 && vehicleId < REGISTRY_POPULATION && !isFleetVehicleId(vehicleId);
-    const observed = registered ? observedVehicle(seed, vehicleId) : undefined;
-    const readback = plateSummary(records.runPlate(plate, observed, t.game));
-    bus.emit('dispatch:plateResult', { callsign: pc, via, vehicleId, readback });
     const stop = cad.trafficStop;
-    if (stop && stop.outcome === 'active' && (vehicleId === stop.vehicleId || normalizePlate(plate) === stop.plate)) {
+    const active = stop !== null && stop.outcome === 'active';
+    // The stop car's plate (e.g. read out while another car is under the reticle) is run against the
+    // stop car, so a description mismatch still shows.
+    const vid = vehicleId < 0 && active && normalizePlate(plate) === stop.plate ? stop.vehicleId : vehicleId;
+    const registered = vid >= 0 && vid < REGISTRY_POPULATION && !isFleetVehicleId(vid);
+    const observed = registered ? observedVehicle(seed, vid) : undefined;
+    const readback = plateSummary(records.runPlate(plate, observed, t.game));
+    bus.emit('dispatch:plateResult', { callsign: pc, via, vehicleId: vid, readback });
+    if (active && vid === stop.vehicleId) {
       if (!stop.plateRun) cad.updateTrafficStop({ plateRun: true }, t);
       cad.addNarrative(stop.callId, 'CAD', plateRunNarrative(readback), t);
     }

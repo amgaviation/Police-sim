@@ -58,8 +58,9 @@ describe('CAD save', () => {
     expect(restored.docs.create('citation', {}, at(20), AUTHOR).id).toBe('CT-000002');
 
     // The restored state is independent of the save object.
+    const n = restored.call(1)?.narrative.length;
     (json as CadSave).calls[0]?.narrative.push({ sim: 0, game: 0, source: 'x', text: 'y' });
-    expect(restored.call(1)?.narrative).toHaveLength(1);
+    expect(restored.call(1)?.narrative).toHaveLength(n ?? -1);
   });
 
   it('starts empty', () => {

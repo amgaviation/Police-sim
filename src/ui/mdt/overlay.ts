@@ -14,7 +14,7 @@ import { addressAt } from '../../cad/address';
 import { canAssign, canTransition } from '../../cad/cadState';
 import { plateRunNarrative } from '../../cad/codes';
 import { statusLabel } from '../../cad/codes';
-import { DISPOSITIONS } from '../../cad/data';
+import { DISPOSITIONS, findCallType } from '../../cad/data';
 import {
   CUSTODY_ACTIONS,
   DOC_KINDS,
@@ -27,7 +27,7 @@ import {
 import type { CadCall, TrafficStopInfo, UnitStatus } from '../../cad/types';
 import type { Bolo } from '../../records/bolo';
 import { epochDayFromYmd, formatClockTime, formatStamp, ymdOfEpochDay } from '../../records/calendar';
-import { plateSummary, type PersonQuery, type PersonSummary, type PlateQueryResult, type QueryLogEntry, type VinQueryResult } from '../../records/db';
+import { normalizePlate, plateSummary, type PersonQuery, type PersonSummary, type PlateQueryResult, type QueryLogEntry, type VinQueryResult } from '../../records/db';
 import { PERSON_POPULATION } from '../../records/ids';
 import { mountedPlate } from '../../records/vehicle';
 import { REGISTRY_POPULATION } from '../../traffic/registry';
@@ -219,6 +219,11 @@ export class MdtOverlay implements Menu {
   private personShown = -1;
   private vehicleResultValue: PlateQueryResult | VinQueryResult | null = null;
   private stopRun: PlateQueryResult | null = null;
+  /** The stop call `stopRun` belongs to. */
+  private stopRunCallId = -1;
+  /** The call (and its default) the Queue's disposition select was last set for. */
+  private dispositionCallId: number | null = null;
+  private dispositionDefault = '';
   private messageText = '';
   private dirty = true;
   private lastUpdateMs = -Infinity;
@@ -545,14 +550,18 @@ export class MdtOverlay implements Menu {
 
   /** Runs a plate; `vehicleId` (target or stop car) adds the observed description. */
   runPlate(plate: string, vehicleId = -1): PlateQueryResult {
-    const observed = vehicleId >= 0 ? this.deps.observed(vehicleId) : null;
+    const stop = this.activeStop();
+    // A typed plate that is the stop car's (or the targeted car's) is run against that car, so a
+    // description mismatch still shows.
+    const vid = vehicleId >= 0 ? vehicleId : this.observedIdForPlate(plate, stop);
+    const observed = vid >= 0 ? this.deps.observed(vid) : null;
     const r = this.deps.records.runPlate(plate, observed ?? undefined, this.deps.now().game);
     this.vehicleResultValue = r;
     // Reported like a dispatcher run: hit tone, HUD target result and in-car alert.
-    this.deps.plateRun?.(vehicleId, plateSummary(r));
-    const stop = this.activeStop();
-    if (stop && (vehicleId === stop.vehicleId || r.plate === stop.plate)) {
+    this.deps.plateRun?.(vid, plateSummary(r));
+    if (stop && vid === stop.vehicleId) {
       this.stopRun = r;
+      this.stopRunCallId = stop.callId;
       // Recorded in CAD like a radio run, so it survives save/load and shows on every screen.
       const { cad } = this.deps;
       const t = this.deps.now();
@@ -562,6 +571,20 @@ export class MdtOverlay implements Menu {
     this.dirty = true;
     this.renderVehicle();
     return r;
+  }
+
+  /** The stop car (else the targeted car) when `plate` is the one mounted on it; -1 otherwise. */
+  private observedIdForPlate(plate: string, stop: TrafficStopInfo | null): number {
+    const p = normalizePlate(plate);
+    if (p === null) return -1;
+    if (stop && p === stop.plate) return stop.vehicleId;
+    const target = this.deps.target();
+    return target && p === normalizePlate(target.plate) ? target.vehicleId : -1;
+  }
+
+  /** The MDT's own plate run of this stop's car (a run of an earlier stop does not count). */
+  private stopRunFor(stop: TrafficStopInfo): PlateQueryResult | null {
+    return this.stopRunCallId === stop.callId ? this.stopRun : null;
   }
 
   runVin(vin: string): VinQueryResult {
@@ -702,6 +725,20 @@ export class MdtOverlay implements Menu {
     return true;
   }
 
+  /**
+   * Saves the open form as a draft without touching the UI (before a save or when the MDT goes away),
+   * so typed text is kept; false when it cannot be saved (invalid input: the form stays as it is).
+   */
+  flushDraft(): boolean {
+    const form = this.form;
+    if (!form) return true;
+    if ((form.view?.validate?.() ?? []).length > 0) return false;
+    const fields = form.view ? form.view.read() : form.init;
+    const r = this.saveDocument(form.kind, fields, false, form.docId);
+    if (r.doc) form.docId = r.doc.id;
+    return r.errors.length === 0;
+  }
+
   /** Closes the open form without saving; false when none was open. */
   cancelForm(): boolean {
     if (!this.form) return false;
@@ -787,7 +824,8 @@ export class MdtOverlay implements Menu {
     const stop = this.activeStop();
     const arrestStop = stop ?? (cad.trafficStop?.outcome === 'arrest' ? cad.trafficStop : null);
     const selected = this.selectedCall !== null ? cad.call(this.selectedCall) : null;
-    const call = this.current === 'call' && selected ? selected : this.playerCall() ?? selected;
+    // The queue's selection is only used from the Call tab: the queue auto-selects its first row.
+    const call = this.current === 'call' && selected ? selected : this.playerCall();
     switch (kind) {
       case 'report': {
         if (!call) return { callId: null, location: this.playerLocation(), occurredGame: now.game };
@@ -809,7 +847,7 @@ export class MdtOverlay implements Menu {
           this.deps.observedViolations(stop.vehicleId),
           this.deps.observedSpeed(stop.vehicleId),
           this.stopLocation(stop),
-          this.stopRun,
+          this.stopRunFor(stop),
         );
         const { idUnverified: _idUnverified, totalFine: _totalFine, ...fields } = draft;
         return fields;
@@ -841,6 +879,7 @@ export class MdtOverlay implements Menu {
   // --- Lifecycle ------------------------------------------------------------------------------
 
   dispose(): void {
+    this.flushDraft();
     this.close();
     this.dom?.map.dispose();
     this.dom?.root.remove();
@@ -976,6 +1015,26 @@ export class MdtOverlay implements Menu {
     a.onScene.disabled = !mine || !player || !canTransition(player.status, 'onScene');
     a.clear.disabled = !mine;
     dom.disposition.disabled = !mine;
+    // The disposition follows the selected call's default (a stop's citation / warning / arrest)
+    // until the player picks another one.
+    const def = call ? this.defaultDisposition(call) : 'handled';
+    if (call?.id !== this.dispositionCallId || (dom.disposition.value === this.dispositionDefault && def !== this.dispositionDefault)) {
+      dom.disposition.value = def;
+    }
+    this.dispositionCallId = call?.id ?? null;
+    this.dispositionDefault = def;
+  }
+
+  private defaultDisposition(call: CadCall): string {
+    const fromDeps = this.deps.defaultDisposition?.(call.id);
+    if (fromDeps !== undefined) return fromDeps;
+    const stop = this.deps.cad.trafficStop;
+    if (stop && stop.callId === call.id) {
+      if (stop.outcome === 'arrest') return 'arrestMade';
+      if (stop.citations.length > 0) return 'citationIssued';
+    }
+    const first = findCallType(call.typeId)?.dispositions[0];
+    return first !== undefined && DISPOSITIONS.some((d) => d.id === first) ? first : 'handled';
   }
 
   /** The player may take a call: their status can go en route and they are not on an active traffic stop. */
@@ -1063,7 +1122,7 @@ export class MdtOverlay implements Menu {
       dom.stopBody.appendChild(el('p', { class: 'mdt-hint' }, 'No active traffic stop. Light up a car behind you to pull it over.'));
       return;
     }
-    const sections = stopSections(stop, this.deps.records, this.deps.observed(stop.vehicleId), this.stopRun);
+    const sections = stopSections(stop, this.deps.records, this.deps.observed(stop.vehicleId), this.stopRunFor(stop));
     // Rebuilt only when the shown stop changed (keeps focus on its links).
     const key = JSON.stringify(sections);
     if (key === this.renderedStopKey) return;
@@ -1119,6 +1178,11 @@ export class MdtOverlay implements Menu {
   }
 
   private renderDocPane(): void {
+    this.buildDocPane();
+    this.keepFocusInMdt();
+  }
+
+  private buildDocPane(): void {
     const dom = this.dom;
     if (!dom) return;
     if (this.form) {
@@ -1151,6 +1215,19 @@ export class MdtOverlay implements Menu {
     }
     dom.docPane.append(body, actions);
     if (doc.kind === 'evidence') dom.docPane.appendChild(this.custodyForm(doc.id));
+  }
+
+  /**
+   * The doc pane was rebuilt: when that removed the focused control (focus fell to <body>), focus
+   * moves to the pane's first button, else the document list, so Tab keeps working inside the MDT.
+   */
+  private keepFocusInMdt(): void {
+    const dom = this.dom;
+    if (!dom || !this.isOpen || typeof document === 'undefined') return;
+    if (dom.root.contains(document.activeElement)) return;
+    const first = dom.docPane.querySelector('button:not([disabled])');
+    if (first instanceof HTMLElement) first.focus();
+    else dom.docs.focus();
   }
 
   private finalizeViewed(id: string): void {

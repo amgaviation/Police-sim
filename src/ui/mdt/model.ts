@@ -619,7 +619,7 @@ export function stopSections(
           ? lastRun.hits.map((h) => line('', h.text, hitSeverity(h)))
           : [line('', 'CLEAR - NO HITS')]
         : [line('', 'NO RECORD', 'caution')]
-      : [line('', stop.plateRun ? 'Plate run by radio (see radio log)' : 'NOT RUN')];
+      : [line('', stop.plateRun ? 'Plate run (see call narrative)' : 'NOT RUN')];
   let driver: MdtLine[];
   if (stop.driverId >= 0) {
     const p = records.person(stop.driverId);

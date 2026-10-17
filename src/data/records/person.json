@@ -28,7 +28,7 @@
   "supervision": { "probation": 0.03, "parole": 0.01, "priorKind": "arrest", "conditions": ["Search waiver", "No alcohol", "Curfew 22:00", "No contact with victim"] },
   "gang": { "rate": 0.012, "names": ["Copperline Crew", "Quarry Lane Set", "Bluegill Boys", "Ashgrove Collective"], "associateShare": 0.6 },
   "mentalHealth": { "rate": 0.02, "notes": ["Prior crisis contact - approach calmly", "Known to be suicidal - use caution"] },
-  "officerSafety": { "rate": 0.012, "notes": ["Known to carry weapons", "Prior assault on officer", "Flight risk"] },
+  "officerSafety": { "rate": 0.012, "notes": ["Known to carry weapons", "Prior assault on officer", "Flight risk"], "priorKind": "arrest" },
   "firearms": { "rate": 0.14, "max": 3, "minAge": 21, "prohibitedSupervision": ["parole"], "types": ["Handgun 9mm", "Handgun .40", "Revolver .38", "Rifle .223", "Shotgun 12 ga"] },
   "protectiveOrders": { "rate": 0.008, "conditions": ["No contact", "Stay 100 yards away", "Surrender firearms"], "surrenderCondition": "Surrender firearms" },
   "priors": {

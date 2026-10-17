@@ -299,7 +299,9 @@ export class Composer {
     // request): the new line follows it. A radio-menu request waits for a clear channel (the radio
     // holds the press and keys up first when the channel clears); voice PTT and keys go out at once
     // and can step on other traffic.
-    const own = this.ownLatest();
+    // The emergency pre-empts the channel: it only follows an own transmission already on the air,
+    // never a queued routine request (that one goes out after the emergency traffic).
+    const own = request.kind === 'emergency' ? this.ownOnAir() : this.ownLatest();
     return this.line(kind, {
       speaker: player,
       speakerKind: 'player',
@@ -314,14 +316,19 @@ export class Composer {
     });
   }
 
+  /** The player's latest transmission on the air, null when none. */
+  private ownOnAir(): { readonly id: number } | null {
+    const air = this.host.net.onAir;
+    for (let i = air.length - 1; i >= 0; i--) if (air[i]?.speakerKind === 'player') return air[i] ?? null;
+    return null;
+  }
+
   /** The player's latest transmission still waiting or on the air, null when none. */
   private ownLatest(): { readonly id: number } | null {
     const net = this.host.net;
     const pending = net.pending;
     for (let i = pending.length - 1; i >= 0; i--) if (pending[i]?.speakerKind === 'player') return pending[i] ?? null;
-    const air = net.onAir;
-    for (let i = air.length - 1; i >= 0; i--) if (air[i]?.speakerKind === 'player') return air[i] ?? null;
-    return null;
+    return this.ownOnAir();
   }
 
   /** A request transmitted by radio/voice was acted on: its answer will be spoken. */

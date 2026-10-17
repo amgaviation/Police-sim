@@ -406,10 +406,14 @@ async function phase2(page, hasRenderer) {
       step(1);
       n++;
     }
+    // Brake only while still rolling forwards (a held brake at a standstill is reverse), then hold the handbrake.
     d.accelerate = 0;
     d.brake = 1;
-    step(120);
+    for (let i = 0; i < 300 && car.telemetry.speed > 0.2; i++) step(1);
     d.brake = 0;
+    d.handbrake = true;
+    step(30);
+    d.handbrake = false;
     const st = s.cad.trafficStop;
     return { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1 };
   }, stepSim.toString());
@@ -420,12 +424,17 @@ async function phase2(page, hasRenderer) {
   await page.evaluate((stepSrc) => {
     const step = new Function(`return ${stepSrc}`)();
     const s = window.patrol.session;
-    s.driverInput.brake = 1;
+    // The handbrake, not the brake: a held brake at a standstill reverses the car.
+    s.driverInput.handbrake = true;
     for (let i = 0; i < 300 && s.drivenVehicle.telemetry.groundSpeed > 0.3; i++) step(1);
-    s.driverInput.brake = 0;
   }, stepSim.toString());
   await press(page, 'KeyE');
-  await waitFor(page, () => window.patrol.session.driving === false, null, 10000);
+  const gotOut = await waitFor(page, () => window.patrol.session.driving === false, null, 10000);
+  await page.evaluate(() => {
+    window.patrol.session.driverInput.handbrake = false;
+  });
+  check(Boolean(gotOut), 'E got out of the car at the stop');
+  if (!gotOut) throw new Error('still in the car: cannot walk up to the stopped car');
   await page.evaluate((stepSrc) => {
     const step = new Function(`return ${stepSrc}`)();
     const s = window.patrol.session;

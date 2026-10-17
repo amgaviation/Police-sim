@@ -58,6 +58,14 @@ describe('CadState calls and units', () => {
     expect(cad.unit('21')?.status).toBe('available');
     expect(cad.unit('21')?.callId).toBeNull();
     expect(cad.unit('23')?.status).toBe('available');
+    // Timestamped CAD narrative lines follow the call through its life.
+    expect(call.narrative.slice(1).map((n) => `${n.sim} ${n.source}: ${n.text}`)).toEqual([
+      '20 CAD: 21 dispatched',
+      '60 CAD: 21 on scene',
+      '70 CAD: 23 assigned as backup',
+      '80 CAD: 23 on scene',
+      '200 CAD: Closed: Handled',
+    ]);
     expect(cad.openCalls()).toEqual([]);
 
     expect(events).toEqual([
@@ -200,8 +208,10 @@ describe('CadState calls and units', () => {
     cad.offer(call.id, '12', 30, at(3));
     cad.assign(call.id, '12', at(4), 'self');
     expect(call.offeredTo).toBeNull();
+    // Assigning logs a timestamped CAD line.
+    expect(call.narrative[1]).toEqual({ sim: 4, game: at(4).game, source: 'CAD', text: '12 self-assigned' });
     cad.addNarrative(call.id, '12', 'On scene, debris removed.', at(5));
-    expect(call.narrative[1]).toEqual({ sim: 5, game: at(5).game, source: '12', text: 'On scene, debris removed.' });
+    expect(call.narrative[2]).toEqual({ sim: 5, game: at(5).game, source: '12', text: 'On scene, debris removed.' });
     cad.setPriority(call.id, 2, at(6));
     expect(call.priority).toBe(2);
     cad.setPriority(call.id, 2, at(6));

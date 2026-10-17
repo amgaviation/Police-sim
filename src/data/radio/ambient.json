@@ -3,7 +3,7 @@
   "channels": {
     "dispatch": {
       "speakerKind": "officer",
-      "units": ["31", "34", "40", "42", "45", "51"],
+      "units": ["36", "34", "40", "42", "45", "51"],
       "templates": [
         "{unit}, {code:available}.",
         "{unit}, show me {code:onScene}.",
@@ -21,7 +21,7 @@
     },
     "tac": {
       "speakerKind": "officer",
-      "units": ["31", "34", "Sergeant 3", "K9 1"],
+      "units": ["36", "34", "Sergeant 3", "K9 1"],
       "templates": [
         "{unit} to {other}, set up on the north side of {randomAddress}.",
         "{unit}, perimeter is set.",
@@ -31,7 +31,7 @@
     },
     "car": {
       "speakerKind": "officer",
-      "units": ["26", "28", "33", "37"],
+      "units": ["26", "28", "38", "37"],
       "templates": [
         "{unit} to {other}, meet me at {randomAddress}.",
         "{unit} to {other}, you want coffee?",
