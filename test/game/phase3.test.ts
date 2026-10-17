@@ -476,6 +476,39 @@ describe('Phase 3 session', () => {
     expect(outcome?.suggested).toBe('arrestMade');
   }, 120_000);
 
+  it('lie detection: people carrying a fake ID give a false identity; running the name shows what contradicts the record, and nothing before', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    h.step(session, 10);
+    const liars: number[] = [];
+    for (let p = 0; p < 20_000 && liars.length < 4; p++) {
+      const i = session.people.identity(p);
+      if (!i.juvenile && i.age > 20 && i.age < 60 && i.hearing === 'normal' && i.language.english === 'fluent' && !i.dementia && i.baseItems.some((x) => x.item === 'fakeId')) liars.push(p);
+    }
+    expect(liars.length).toBe(4);
+    const at = session.playerPosition({ x: 0, z: 0 });
+    const found: string[] = [];
+    for (const personId of liars) {
+      const aid = session.npc.spawnActor({ personId, x: at.x - 3, z: at.z - 3, yaw: 0, profile: 'suspectNervous', role: 'subject', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId: -1 });
+      session.contact.request({ kind: 'open', target: { kind: 'actor', actorId: aid } });
+      h.step(session, 5);
+      const cid = session.contact.active;
+      say(session, h, cid, 'requestId', 360);
+      say(session, h, cid, 'askAddress', 360);
+      // Before any lookup nothing contradicts the claim: the player knows only what the person said.
+      expect(session.contact.view(cid)?.inconsistencies ?? []).toEqual([]);
+      session.contact.request({ kind: 'action', contactId: cid, action: 'runName' });
+      h.step(session, 360);
+      for (const n of session.contact.view(cid)?.inconsistencies ?? []) found.push(`${n.severity}:${n.text}`);
+      session.contact.request({ kind: 'close', contactId: cid });
+      h.step(session, 5);
+    }
+    // At least one of them lied about something the record contradicts (no record, a different date of birth or address).
+    expect(found.some((f) => f.startsWith('alert:'))).toBe(true);
+    // Statements and lookup facts persist on the people block.
+    expect(liars.some((p) => session.people.facts(p).some((f) => f.source === 'record'))).toBe(true);
+  }, 120_000);
+
   it('a false call has no actors and a duplicate call is linked and closed in CAD', () => {
     const h = fresh();
     const session = h.start(SEED);
@@ -488,7 +521,19 @@ describe('Phase 3 session', () => {
     expect(frt?.materialized).toBe(true);
     // A false report has its caller and nothing else on scene.
     expect(frt?.scenario.participants.map((p) => p.role)).toEqual(['caller']);
-    const dupId = session.scene.spawnCall('loudParty', session.now(), { x: at.x - 40, z: at.z + 40 }, ['duplicate']);
+    // Cleared by the officer, it is graded as nothing found (an AI unit assigned too may close the CAD call first).
+    session.scene.request({ kind: 'clear', callId: falseId, disposition: null });
+    for (let i = 0; i < 100 && session.cad.call(falseId)?.status !== 'closed'; i++) h.step(session, 600);
+    expect(session.cad.call(falseId)?.status).toBe('closed');
+    expect(['unfounded', 'gone']).toContain(session.scene.outcomes().find((o) => o.callId === falseId)?.outcomeId);
+    let dupId = 0;
+    for (let k = 0; k < 40 && dupId === 0; k++) {
+      const cand = session.scene.spawnCall('loudParty', session.now(), { x: at.x - 40, z: at.z + 40 }, ['duplicate']);
+      if (session.scene.runtime(cand)?.scenario.timeline.some((e) => e.kind === 'linkedCall')) dupId = cand;
+      else session.dispatcher.request(session.dispatcher.playerCallsign, { kind: 'clearCall', callId: cand, disposition: 'unfounded' }, 'key');
+      h.step(session, 2);
+    }
+    expect(dupId).toBeGreaterThan(0);
     h.step(session, 3600);
     const orig = session.cad.call(dupId);
     expect(orig?.links.length).toBeGreaterThan(0);

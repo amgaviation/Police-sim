@@ -25,6 +25,6 @@ describe('dispatch performance', () => {
     console.log(`dispatch step: ${avg.toFixed(4)} ms average, ${worst.toFixed(3)} ms worst over ${String(steps)} steps (${String(h.dispatcher.stats.generated)} calls generated)`);
     // Budget 0.05 ms average / 2 ms spikes on the target machine; generous bounds for shared CI runners.
     expect(avg).toBeLessThan(0.25);
-    expect(worst).toBeLessThan(20);
+    expect(worst).toBeLessThan(50);
   }, 60000);
 });

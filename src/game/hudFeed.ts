@@ -38,6 +38,10 @@ export function interactPrompt(hint: InteractHint, key: string): string | null {
       return `${key}  Open trunk`;
     case 'driver':
       return `${key}  Talk to the driver`;
+    case 'talk':
+      return `${key}  Talk`;
+    case 'cage':
+      return `${key}  Place in rear seat`;
     default:
       return null;
   }
