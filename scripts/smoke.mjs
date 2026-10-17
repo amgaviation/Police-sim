@@ -447,7 +447,7 @@ function phase3Flows(stepSrc) {
 
   // --- Lie detection ----------------------------------------------------------------------------
   const liars = [];
-  for (let p = 0; p < 20000 && liars.length < 4; p++) {
+  for (let p = 0; p < 40000 && liars.length < 14; p++) {
     const i = s.people.identity(p);
     if (!i.juvenile && i.age > 20 && i.age < 60 && i.hearing === 'normal' && i.language.english === 'fluent' && !i.dementia && i.baseItems.some((x) => x.item === 'fakeId')) liars.push(p);
   }
@@ -455,6 +455,8 @@ function phase3Flows(stepSrc) {
   let early = 0;
   const at = pos();
   for (const personId of liars) {
+    // Not everybody with a fake ID uses it: ask people until one lies to the officer's face.
+    if (found.some((f) => f.startsWith('alert:'))) break;
     if (s.npc.isActivePerson(personId)) continue;
     const aid = s.npc.spawnActor({ personId, x: at.x - 3, z: at.z - 3, yaw: 0, profile: 'suspectNervous', role: 'subject', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId: -1 });
     const cid = open(aid);
@@ -1278,10 +1280,9 @@ async function phase3(page, hasRenderer) {
     app.setUserPaused(true);
     return { cid, pid };
   }, stepSim.toString());
-  await page.evaluate(() => window.patrol.presenter.dialogue.close());
-  const sfstShown = await waitFor(page, () => window.patrol.presenter.sfst.isOpen, null, 10000);
+  // The SFST panel opens above the dialogue panel (which stays open below it).
+  const sfstShown = await waitFor(page, () => window.patrol.presenter.sfst.isOpen && window.patrol.ui.top === window.patrol.presenter.sfst, null, 10000);
   check(Boolean(sfstShown), 'the SFST panel opens for the field sobriety tests');
-  const sfstSteps = await page.evaluate(() => ({ title: document.querySelector('.dlg-sfst, .sfst-panel, [class*="sfst"]')?.textContent?.slice(0, 120) ?? '' }));
   // Follow the prompts with the real keys until the tests finish (sim time is fast-forwarded between key presses).
   let sfstEnd = { view: null, open: false };
   for (let i = 0; i < 1500; i++) {
@@ -1302,7 +1303,10 @@ async function phase3(page, hasRenderer) {
     }
   }
   await page.evaluate(() => window.patrol.setUserPaused(false));
-  check(sfstEnd.view !== null && sfstEnd.view.finished && sfstEnd.view.summary.length === 3, `the key presses completed the tests (${sfstEnd.view?.summary.join('; ') ?? 'none'}; ${sfstSteps.title.slice(0, 40)})`);
+  check(
+    sfstEnd.view !== null && sfstEnd.view.finished && sfstEnd.view.summary.length === 3 && !sfstEnd.view.summary.some((l) => l.includes('not administered')),
+    `the key presses administered the tests (${sfstEnd.view?.summary.join('; ') ?? 'none'})`,
+  );
   await press(page, 'Escape');
   await waitFor(page, () => !window.patrol.presenter.sfst.isOpen, null, 10000);
   await page.evaluate(() => {
