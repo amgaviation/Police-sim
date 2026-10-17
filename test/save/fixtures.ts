@@ -7,7 +7,10 @@ import { OfficerKit } from '../../src/police/inventory';
 import { defaultRadioSave } from '../../src/radio/save';
 import { RecordsDb } from '../../src/records/db';
 import { DETACHED_CONTEXT } from '../../src/records/person';
-import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SavedVehicle } from '../../src/save/schema';
+import { emptyContactSave } from '../../src/contact/save';
+import { Population } from '../../src/people/population';
+import { emptySceneSave } from '../../src/scene/save';
+import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SavedVehicle } from '../../src/save/schema';
 import type { TrafficSnapshot } from '../../src/traffic/trafficSystem';
 import { vehicleModel } from '../../src/vehicles/model';
 
@@ -186,8 +189,18 @@ export function makeEquipmentSave(): NonNullable<SaveGame['equipment'][number]> 
   return eq.serialize();
 }
 
-/** A complete current-version (v4) payload: the v3 fixture plus every Phase 2 block. */
-export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+/** People save with one touched person (intoxication, mood, custody and a statement). */
+export function makePeopleSave(): SaveGame['people'] {
+  const records = new RecordsDb(42, DETACHED_CONTEXT);
+  const pop = new Population({ seed: 42, records, now: () => T0.game });
+  pop.setMood(17, 0.4);
+  pop.setCustody(17, 'detained');
+  pop.ensureIntoxicated(17, 0.09);
+  return pop.serialize();
+}
+
+/** A complete v4 (Phase 2) payload: the v3 fixture plus every Phase 2 block. */
+export function makeSaveGameV4(overrides: Partial<SaveGameV4> = {}): SaveGameV4 {
   const kit = new OfficerKit();
   kit.adjust('cones', 2);
   return {
@@ -199,6 +212,18 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
     equipment: [makeEquipmentSave(), null],
     officerKit: kit.serialize(),
     speeding: [[1234, 52.5, 35]],
+    ...overrides,
+  };
+}
+
+/** A complete current-version (v5) payload: the v4 fixture plus the people, npc, contact and scene blocks. */
+export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  return {
+    ...makeSaveGameV4(),
+    people: makePeopleSave(),
+    npc: null,
+    contacts: emptyContactSave(),
+    scenes: emptySceneSave(createRng(42).stream('scene').state()),
     ...overrides,
   };
 }

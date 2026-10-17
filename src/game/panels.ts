@@ -11,7 +11,7 @@ import { describeTarget } from './target';
 export const PANEL_REFRESH_MS = 100;
 
 /** Which interaction panel is open (design §13.4). */
-export type PatrolPanelKind = 'trunk' | 'equipment' | 'contact';
+export type PatrolPanelKind = 'trunk' | 'equipment' | 'contact' | 'scene';
 
 /** Trunk panel, level 1 (`item` null: every item with its counts) or level 2 (take / stow one of `item`). */
 export function trunkPanelModel(eq: PatrolEquipment, kit: OfficerKit, item: string | null): ActionPanelModel {
@@ -98,6 +98,8 @@ export interface PatrolPanelHost {
   openCitation(): void;
   /** One-off HUD line. */
   flash(text: string): void;
+  /** Opens the MDT (the call's disposition is chosen there). */
+  openMdt?(): void;
 }
 
 /**
@@ -112,6 +114,7 @@ export class PatrolPanels {
   private kindValue: PatrolPanelKind | null = null;
   private trunkCar: DrivableVehicle | null = null;
   private trunkItem: string | null = null;
+  private sceneCall = -1;
   /** Change key of the shown model; the panel DOM is refreshed only when it changes. */
   private shownKey = '';
   private nextRefreshMs = 0;
@@ -148,6 +151,18 @@ export class PatrolPanels {
   openContact(): void {
     const model = this.contactModel();
     if (model) this.show('contact', model);
+  }
+
+  /** The scene panel (actions of the call on scene, clear call); a hint line when no scene is near. */
+  openScene(): boolean {
+    const model = this.sceneModel();
+    if (!model) {
+      this.host.flash('No call scene here');
+      return false;
+    }
+    this.show('scene', model.model);
+    this.sceneCall = model.callId;
+    return true;
   }
 
   close(): void {
@@ -194,9 +209,21 @@ export class PatrolPanels {
       }
       case 'contact':
         return this.contactModel();
+      case 'scene':
+        return session.scene.panelModel(this.sceneCall);
       default:
         return null;
     }
+  }
+
+  /** The scene panel model for the officer's position: the player's materialized call within reach. */
+  private sceneModel(): { callId: number; model: ActionPanelModel } | null {
+    const session = this.host.session();
+    if (!session) return null;
+    const at = session.playerPosition({ x: 0, z: 0 });
+    const callId = session.scene.sceneAt(at.x, at.z);
+    const model = callId > 0 ? session.scene.panelModel(callId) : null;
+    return model ? { callId, model } : null;
   }
 
   private contactModel(): ActionPanelModel | null {
@@ -212,6 +239,7 @@ export class PatrolPanels {
     if (!session) return;
     if (kind === 'trunk') this.selectTrunk(session, index);
     else if (kind === 'equipment') this.selectEquipment(session, index);
+    else if (kind === 'scene') this.selectScene(session, index);
     else this.selectContact(session, index);
     this.update();
   }
@@ -228,6 +256,16 @@ export class PatrolPanels {
     if (index === 0 && !eq.take(item, kit)) this.host.flash('Cannot take more');
     else if (index === 1 && !eq.stow(item, kit)) this.host.flash('Nothing to stow');
     else if (index === 2) this.trunkItem = null;
+  }
+
+  private selectScene(session: GameSession, index: number): void {
+    const model = session.scene.panelModel(this.sceneCall);
+    session.scene.panelSelect(this.sceneCall, index);
+    // The last option opens the MDT to pick the disposition by hand.
+    if (model && index === model.options.length - 1) {
+      this.panel.close();
+      this.host.openMdt?.();
+    }
   }
 
   private selectEquipment(session: GameSession, index: number): void {
@@ -270,7 +308,7 @@ export class PatrolPanels {
         return;
       case 'arrest':
         send('arrest');
-        this.host.flash('Suspect cuffed; seated in the patrol car');
+        this.host.flash('Suspect cuffed; walk them to a patrol car rear door');
         this.panel.close();
         return;
       default:

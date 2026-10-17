@@ -20,7 +20,7 @@ import type { GameSession } from './session';
 import type { TargetInfo } from './target';
 
 /** Markers the minimap draws at most (calls, AI units, the stop). */
-export const MARKER_CAPACITY = 48;
+export const MARKER_CAPACITY = 72;
 /** How long an alert line stays on the in-car MDT screen (ms). */
 const ALERT_MS = 20_000;
 

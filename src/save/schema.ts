@@ -2,20 +2,26 @@ import { isCadSave, type CadSave } from '../cad/cadState';
 import type { RngState } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { isDispatchSave, type DispatchSave } from '../dispatch/save';
+import type { ContactSave } from '../contact';
+import { isContactSave } from '../contact/save';
 import { isEnvironmentSave, type EnvironmentSave } from '../environment/environment';
+import { isNpcSave } from '../npc/save';
+import type { NpcSave } from '../npc/types';
+import { isPeopleSave, type PeopleSave } from '../people';
 import { CAMERA_MODE } from '../player/cameraRig';
 import type { PlayerModeName } from '../player/events';
 import { isEquipmentSave, type EquipmentSave } from '../police/equipment';
 import { isOfficerKitSave, type OfficerKitSave } from '../police/inventory';
 import { isRadioSave, type RadioSave } from '../radio/save';
 import { isRecordsSave, type RecordsSave } from '../records/db';
+import { isSceneSave, type SceneSave } from '../scene/save';
 import type { TrafficViolationKind } from '../traffic/events';
 import { isTrafficSnapshot, type TrafficSnapshot } from '../traffic/trafficSystem';
 import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 4;
+export const CURRENT_SAVE_VERSION = 5;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -125,8 +131,22 @@ export interface SaveGameV4 extends SaveGameV3 {
   speeding?: SavedSpeeding;
 }
 
+/**
+ * v5 (Phase 3): people and calls. `people` holds only the persons the shift touched (deltas over the
+ * deterministic base identity), `npc` the pedestrians, actors and occupant state (null in migrated saves:
+ * fresh pedestrians at load), `contacts` the open conversations (memory, transcript, SFST) and `scenes`
+ * the scenarios of open and closed calls with their branch state, flags, props and pursuits. The scene
+ * block holds hidden truth and must never be shown to the player. Frozen after Phase 3.
+ */
+export interface SaveGameV5 extends SaveGameV4 {
+  people: PeopleSave;
+  npc: NpcSave | null;
+  contacts: ContactSave;
+  scenes: SceneSave;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV4;
+export type SaveGame = SaveGameV5;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -305,8 +325,20 @@ export function isSaveGameV4(x: unknown): x is SaveGameV4 {
   );
 }
 
+/** Structural check for the v5 payload: v4 plus the Phase 3 blocks (each module's own validator). */
+export function isSaveGameV5(x: unknown): x is SaveGameV5 {
+  if (!isSaveGameV4(x)) return false;
+  const v5 = x as unknown as Record<string, unknown>;
+  return (
+    isPeopleSave(v5['people']) &&
+    (v5['npc'] === null || isNpcSave(v5['npc'])) &&
+    isContactSave(v5['contacts']) &&
+    isSceneSave(v5['scenes'])
+  );
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV4;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV5;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

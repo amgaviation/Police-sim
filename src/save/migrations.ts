@@ -1,21 +1,26 @@
 import { emptyCadSave } from '../cad/cadState';
+import { emptyContactSave } from '../contact/save';
 import { createRng } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { CAMERA_MODE } from '../player/cameraRig';
+import { emptyPeopleSave } from '../people';
 import { emptyOfficerKit } from '../police/inventory';
 import { defaultRadioSave } from '../radio/save';
 import { emptyRecordsSave } from '../records/db';
+import { emptySceneSave } from '../scene/save';
 import {
   CURRENT_SAVE_VERSION,
   isSaveGame,
   isSaveGameV1,
   isSaveGameV2,
   isSaveGameV3,
+  isSaveGameV4,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
   type SaveGameV3,
   type SaveGameV4,
+  type SaveGameV5,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -87,8 +92,25 @@ export function migrateV3ToV4(data: unknown): unknown {
   return v4;
 }
 
+/**
+ * v4 -> v5: a Phase 2 patrol shift gets people and calls. Everything is kept; the new blocks start empty:
+ * no touched persons, no saved pedestrians (fresh ones at load), no open contacts and an empty scene
+ * block with the seed's own 'scene' stream (loading then gives the open CAD calls scenarios).
+ */
+export function migrateV4ToV5(data: unknown): unknown {
+  if (!isSaveGameV4(data)) return data;
+  const v5: SaveGameV5 = {
+    ...data,
+    people: emptyPeopleSave(),
+    npc: null,
+    contacts: emptyContactSave(),
+    scenes: emptySceneSave(createRng(data.seed).stream('scene').state()),
+  };
+  return v5;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
-export const migrations: MigrationTable = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4 };
+export const migrations: MigrationTable = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5 };
 
 export const MIGRATION_FAILURES = {
   missingStep: 'missing-step',

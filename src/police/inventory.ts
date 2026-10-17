@@ -72,6 +72,11 @@ export class OfficerKit {
     return true;
   }
 
+  /** Uses up `n` (>= 1) of `itemId` (a flare lit, a cone placed); false (unchanged) when fewer are carried. */
+  consume(itemId: string, n = 1): boolean {
+    return Number.isInteger(n) && n >= 1 && this.adjust(itemId, -n);
+  }
+
   /** Sets the carried long gun (`PatrolEquipment` check-out/in). */
   setLongGun(id: string | null): void {
     this.gun = id;

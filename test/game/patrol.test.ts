@@ -192,6 +192,9 @@ describe('patrol session (Phase 2)', () => {
     session.dispatcher.request('12', { kind: 'stopContact', action: 'arrest' }, 'key');
     h.step(session, 1);
     expect(session.cad.trafficStop?.outcome).toBe('arrest');
+    // The arrest alone seats nobody: the contact module cages the escorted person (Phase 3 §20).
+    expect(session.prisoner()).toBe(-1);
+    session.bus.emit('contact:caged', { personId: stop.trueDriverId, vehicleIndex: 0, callId: stop.callId });
     expect(session.prisoner()).toBe(stop.trueDriverId);
     expect(session.equipmentOf(vehicle(session, 0))?.prisoner).toBe(stop.trueDriverId);
     // That cage is taken now, and the other patrol car is back in the station lot, far away.

@@ -14,6 +14,7 @@ import { createRng, normalizeSeed } from './core/rng';
 import { DebugConsole, type Command } from './debug/console';
 import { PerfOverlay, type PerfSample } from './debug/perfOverlay';
 import { createWorldCommands, type WorldCommandDeps } from './debug/worldCommands';
+import { createCallsCommands } from './calls/commands';
 import { createDispatchCommands } from './dispatch/commands';
 import { Transform } from './ecs/components';
 import { SystemRegistry, copyPrevTransform, integrateVelocity, type System } from './ecs/systems';
@@ -22,9 +23,14 @@ import { EnvironmentRenderer } from './environment/render/environmentRenderer';
 import { createCommands } from './game/commands';
 import { HudFeed, interactPrompt, keyLabel } from './game/hudFeed';
 import { createMdtDeps } from './game/mdtDeps';
+import { createNpcCommands } from './npc/commands';
+import { createPeopleCommands } from './people/commands';
+import { createSceneCommands } from './scene/commands';
 import { PatrolPanels } from './game/panels';
 import { createPatrolCommands } from './game/patrolCommands';
 import { PauseMenu } from './game/pauseMenu';
+import { createPhase3Commands } from './game/phase3Commands';
+import { PeoplePresenter } from './game/peoplePresenter';
 import type { MoveInput } from './game/playerController';
 import { MARKER_CAPACITY, PoliceFeed } from './game/policeFeed';
 import { distanceToPolyline } from './game/route';
@@ -96,6 +102,8 @@ export const HUD_INTERVAL_MS = 100;
 const PERF_EXTRAS_INTERVAL_MS = 250;
 /** How long a one-off hint (exit blocked, refuelled, repaired) replaces the prompt line. */
 const FLASH_MS = 2500;
+/** Index of the mouse button for `officer.fire` is handled by the input layer; this is the horizontal aim length floor. */
+const MIN_AIM = 1e-6;
 const FIXED_DT = 1 / SIM_HZ;
 const QUICKSAVE_SLOT = 'quicksave';
 const DETERMINISM_SEED = 12345;
@@ -183,6 +191,8 @@ export class App {
   private policeFeedValue: PoliceFeed | null = null;
   private targets: TargetTracker | null = null;
   private readonly actionPanel: ActionPanel;
+  /** People layer presentation: figures, props, dialogue and SFST panels, subtitles. */
+  readonly presenter: PeoplePresenter;
   private readonly policeInput = createPoliceInput();
   private readonly markers = createMinimapMarkers(MARKER_CAPACITY);
   /** Siren emitters rebuilt every frame (reused objects; grows only when more police cars exist). */
@@ -309,7 +319,19 @@ export class App {
         mdt.writeCitation();
       },
       flash: (text) => this.flash(text),
+      openMdt: () => this.mdtValue?.open(),
     });
+    this.presenter = new PeoplePresenter(
+      this.renderer ? this.scene : null,
+      this.ui,
+      this.speechOut,
+      {
+        session: () => this.sessionValue,
+        flash: (text) => this.flash(text),
+        openForm: (kind, personId, vehicleId, callId) => this.openMdtForm(kind, personId, vehicleId, callId),
+      },
+      false,
+    );
     for (const command of createCommands(this)) this.console.register(command);
     for (const command of createWorldCommands(this.worldCommandDeps())) this.console.register(command);
     for (const command of this.patrolCommands()) this.console.register(command);
@@ -538,6 +560,7 @@ export class App {
     this.speechIn.dispose();
     this.speechOut.dispose();
     this.audio.dispose();
+    this.presenter.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -591,6 +614,7 @@ export class App {
     this.updateTarget(session, now);
     this.mdtValue?.update(now);
     this.panels.update(now);
+    this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
     this.updateAudio(session);
@@ -649,7 +673,11 @@ export class App {
       else this.flash('No MDT within reach (get in a patrol car)');
     }
     if (input.wasPressed('target.runPlate')) this.runTargetPlate(session);
-    if (!session.driving) return;
+    if (input.wasPressed('scene.menu')) this.panels.openScene();
+    if (!session.driving) {
+      this.handleOfficerActions(session);
+      return;
+    }
     if (input.wasPressed('camera.toggle')) {
       this.rig.cycleVehicleMode();
       session.cameraMode = this.rig.vehicleMode;
@@ -666,6 +694,66 @@ export class App {
     if (p.equipmentPanel) this.panels.openEquipment();
   }
 
+  /** On foot: weapon, fire (mouse 0, only with a weapon drawn), tackle and shout become scene requests. */
+  private handleOfficerActions(session: GameSession): void {
+    const input = this.input;
+    const scene = session.scene;
+    // Gamepad Start is both menu.toggle and the default officer.weapon: a menu press never cycles the weapon.
+    if (input.wasPressed('officer.weapon') && !input.wasPressed('menu.toggle')) scene.request({ kind: 'weapon' });
+    if (input.wasPressed('officer.fire') && scene.officerWeapon !== 'none') {
+      const dir = this.aimDirection(session);
+      scene.request({ kind: 'fire', dirX: dir.x, dirZ: dir.z });
+    }
+    if (input.wasPressed('officer.tackle')) scene.request({ kind: 'tackle' });
+    if (input.wasPressed('officer.shout')) scene.request({ kind: 'shout' });
+  }
+
+  /** The camera's horizontal forward direction (the officer's heading headless). */
+  private aimDirection(session: GameSession): { x: number; z: number } {
+    const out = scratchPoint;
+    const camera = this.renderer?.activeCamera;
+    if (camera) {
+      camera.getWorldDirection(scratchDir);
+      out.x = scratchDir.x;
+      out.z = scratchDir.z;
+    } else {
+      out.x = -Math.sin(session.controller.yaw);
+      out.z = -Math.cos(session.controller.yaw);
+    }
+    const len = Math.hypot(out.x, out.z);
+    if (len < MIN_AIM) {
+      out.x = -Math.sin(session.controller.yaw);
+      out.z = -Math.cos(session.controller.yaw);
+    } else {
+      out.x /= len;
+      out.z /= len;
+    }
+    return out;
+  }
+
+  /** `contact:openForm` / `scene:openForm`: the MDT's citation or report form for the person, written on the spot. */
+  private openMdtForm(kind: 'citation' | 'report', personId: number, vehicleId: number, callId: number): void {
+    const mdt = this.mdtValue;
+    const session = this.sessionValue;
+    if (!mdt || !session) return;
+    const stop = session.cad.trafficStop;
+    const onStop = stop !== null && stop.outcome === 'active' && (vehicleId < 0 || stop.vehicleId === vehicleId);
+    mdt.open('reports');
+    let opened: boolean;
+    if (kind === 'citation' && !onStop) {
+      const call = callId > 0 ? session.cad.call(callId) : null;
+      opened = mdt.openForm('citation', {
+        callId: call ? call.id : null,
+        personId: personId >= 0 ? personId : -1,
+        vehicleId: vehicleId >= 0 ? vehicleId : -1,
+        location: call?.location.text ?? '',
+      });
+    } else {
+      opened = mdt.openForm(kind);
+    }
+    if (!opened) this.flash('Finish the open document first');
+  }
+
   private interact(session: GameSession): void {
     const result = session.interact();
     if (result === 'entered') this.rig.setVehicle(session.drivenVehicle?.model.body ?? null);
@@ -673,7 +761,7 @@ export class App {
     else if (result === 'trunk') {
       const car = session.trunkVehicle();
       if (car) this.panels.openTrunk(car);
-    } else if (result === 'contact') this.panels.openContact();
+    } else if (result === 'cage') this.flash('Placing the prisoner in the patrol car');
     const flash = INTERACT_FLASH[result];
     if (flash !== undefined) this.flash(flash);
   }
@@ -778,6 +866,10 @@ export class App {
         this.hazeWarm = true;
         this.envRenderer.prewarmHaze(camera);
       }
+    }
+    if (renderer) {
+      const cam = renderer.activeCamera;
+      this.presenter.render(session, alpha, cam.position.x, cam.position.z, lighting.nightFactor, dt);
     }
     const cars = this.carRenderer;
     if (!cars) return;
@@ -922,6 +1014,7 @@ export class App {
     const snapshot = this.hudFeed.fill(session, CAMERA_MODE_NAMES[this.rig.mode] ?? 'onFoot', prompt);
     const feed = this.policeFeedValue;
     feed?.fillHud(snapshot, this.targets?.target ?? null, this.radioMenuKey, now);
+    this.presenter.fillHud(snapshot, session);
     this.hud.update(snapshot, now);
     const view = this.view;
     if (!view) return;
@@ -938,7 +1031,7 @@ export class App {
     dots.z = traffic.z;
     // A route plotted with the console wins; otherwise the route to the player's call.
     const route = this.route ?? this.updateAutoRoute(session, at.x, at.z, now);
-    view.minimap.update(at.x, at.z, yaw, dots, route, now, feed ? feed.fillMarkers(this.markers) : null);
+    view.minimap.update(at.x, at.z, yaw, dots, route, now, feed ? this.presenter.fillMarkers(feed.fillMarkers(this.markers), session) : null);
   }
 
   /**
@@ -986,6 +1079,15 @@ export class App {
     this.perf.setExtra(
       'audio',
       !a.available ? 'unavailable' : a.unlocked ? `${String(a.stats.active)}/${String(a.stats.voices)} siren voices` : 'waiting for input',
+    );
+    const npc = session?.npc.stats;
+    this.perf.setExtra('npc', npc ? `${String(npc.peds)} peds, ${String(npc.actors)} actors, ${String(npc.occupants)} occupants, ${npc.stepMs.toFixed(2)} ms` : undefined);
+    const sc = session?.scene.stats;
+    this.perf.setExtra('scene', sc ? `${String(sc.scenarios)} scenarios, ${String(sc.materialized)} on scene` : undefined);
+    const pp = this.presenter.stats;
+    this.perf.setExtra(
+      'people',
+      session ? `${String(session.people.touchedCount)} touched, ${String(pp.figures)} drawn, ${String(pp.props)} props, ${String(pp.drawCalls)} draw calls` : undefined,
     );
     const cockpit = this.cockpit?.stats.drawCalls ?? 0;
     this.perf.setExtra('cockpit', cockpit > 0 ? `${String(cockpit)} draw calls` : undefined);
@@ -1102,6 +1204,7 @@ export class App {
       radio: session.radio,
       speechIn: this.speechIn.available ? this.speechIn : null,
     });
+    this.presenter.begin(session);
     this.lastRadioHint = 0;
     this.autoRoute = null;
     this.autoRouteX = NaN;
@@ -1112,6 +1215,7 @@ export class App {
 
   private endPatrol(): void {
     this.panels.close();
+    this.presenter.end();
     this.mdtValue?.dispose();
     this.mdtValue = null;
     this.radioCtl?.dispose();
@@ -1150,6 +1254,11 @@ export class App {
       ...createAudioCommands({ audio: () => this.audio, speech: () => this.speechOut }),
       ...createDispatchCommands({ dispatcher: () => session()?.dispatcher ?? null, now: () => session()?.now() ?? null, playerPosition: position }),
       ...createPatrolCommands({ session }),
+      ...createPeopleCommands({ people: () => session()?.people ?? null }),
+      ...createNpcCommands({ npc: () => session()?.npc ?? null }),
+      ...createSceneCommands({ scene: () => session()?.scene ?? null, now: () => session()?.now() ?? null, playerPosition: position }),
+      ...createCallsCommands(),
+      ...createPhase3Commands({ session }),
     ];
   }
 
@@ -1333,6 +1442,7 @@ export class App {
     this.speechIn.enabled = a.voiceCommands;
     this.radioMode = a.radioMode;
     this.subtitles = this.settings.get('accessibility.subtitles');
+    this.presenter.setSubtitles(this.subtitles);
     if (!this.subtitles) this.radioPanelValue?.setCaption(null, 0);
   }
 

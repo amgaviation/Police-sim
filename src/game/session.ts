@@ -3,16 +3,21 @@ import type { EntityId } from 'bitecs';
 import { addressOnEdge } from '../cad/address';
 import { CadState } from '../cad/cadState';
 import '../cad/events';
+import { ContactManager } from '../contact';
+import '../contact/events';
 import type { RadioMode } from '../cad/types';
 import type { EventMap } from '../core/event-map';
 import { EventBus } from '../core/events';
 import { createRng, normalizeSeed, rngFromState, type Rng } from '../core/rng';
 import { GameClock } from '../core/time';
+import { trustOf } from '../dialogue';
 import { Dispatcher, type PlayerUnitState } from '../dispatch/dispatcher';
 import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
 import type { System, SystemRegistry } from '../ecs/systems';
 import { advanceTime, despawn, spawn, type GameWorld } from '../ecs/world';
 import { Environment } from '../environment/environment';
+import { NpcSystem, type ActorInfo, type NpcFocus, type PersonPick } from '../npc';
+import { Population } from '../people';
 import { PhysicsWorld, type Vec3 } from '../physics/physics';
 import { CAMERA_MODE, type VehicleCameraModeId } from '../player/cameraRig';
 import type { DriverInput } from '../player/driverInput';
@@ -25,6 +30,8 @@ import { epochDayOfGameSeconds } from '../records/calendar';
 import { RecordsDb, homeEdgesOf } from '../records/db';
 import { mountedPlate } from '../records/vehicle';
 import type { MeshRegistry } from '../render/meshSync';
+import '../scene/events';
+import { SceneDirector } from '../scene';
 import type { SaveEnvelope, SaveGame, SavedSpeeding, SavedVehicle, SavedViolations, SerializedEntity } from '../save/schema';
 import type { TrafficViolationEvent, TrafficViolationKind } from '../traffic/events';
 import { vehicleRecord } from '../traffic/registry';
@@ -82,9 +89,20 @@ export interface SessionSystem {
  * Outcome of `GameSession.interact()`. `trunk` and `contact` ask the caller to open the trunk panel of
  * `trunkVehicle()` or the traffic-stop driver contact panel (design §13.4).
  */
-export type InteractResult = 'none' | 'entered' | 'exited' | 'refuelled' | 'repaired' | 'exitBlocked' | 'tooFast' | 'trunk' | 'contact';
+export type InteractResult =
+  | 'none'
+  | 'entered'
+  | 'exited'
+  | 'refuelled'
+  | 'repaired'
+  | 'exitBlocked'
+  | 'tooFast'
+  | 'trunk'
+  | 'contact'
+  | 'talk'
+  | 'cage';
 /** What `interact` would do right now (HUD prompt). */
-export type InteractHint = 'enter' | 'exit' | 'refuel' | 'repair' | 'trunk' | 'driver' | null;
+export type InteractHint = 'enter' | 'exit' | 'refuel' | 'repair' | 'trunk' | 'driver' | 'talk' | 'cage' | null;
 
 /** One ambient traffic car for the `traffic list` command. */
 export interface TrafficCarRow {
@@ -122,6 +140,8 @@ export const GRAVITY: Vec3 = { x: 0, y: -9.81, z: 0 };
 export const GROUND_HALF_SIZE = WORLD_HALF_SIZE + 64;
 export const PLAYER_SIZE: Vec3 = { x: 0.8, y: 1.8, z: 0.8 };
 export const PLAYER_COLOR = 0x1f3b6f;
+/** The officer's pool box is scaled to this edge (m): invisible; the humanoid figure replaces it. */
+const OFFICER_MESH_SIZE: Vec3 = { x: 0.001, y: 0.001, z: 0.001 };
 /** Within this distance (m) of a fuel pump the officer can refuel the last-driven vehicle (and repair it at the station's) ... */
 export const REFUEL_PUMP_DISTANCE = 4;
 /** ... when that vehicle is within this distance (m) of the pump. */
@@ -158,6 +178,14 @@ export const TRUNK_DISTANCE = 1.6;
 export const DRIVER_CONTACT_DISTANCE = 1.8;
 /** On foot within this distance (m) of a patrol car's driver door: its MDT. */
 export const MDT_REACH_DISTANCE = 3;
+/** On foot: a person within this distance (m) and inside the cone below can be talked to (design §20). */
+export const TALK_DISTANCE = 2.2;
+/** Cosine of the talk cone's half angle (60 degrees in total). */
+const TALK_CONE_COS = Math.cos(Math.PI / 6);
+/** An escorted prisoner must be within this distance (m) of the officer to be caged ... */
+export const CAGE_PRISONER_DISTANCE = 4;
+/** ... and the officer within this distance (m) of the patrol car's rear door. */
+export const CAGE_DOOR_DISTANCE = 1.8;
 /** An arrest needs a patrol car with an empty cage within this distance (m). */
 export const ARREST_CAR_DISTANCE = 40;
 /** The station counts from this far outside its block (m) (booking). */
@@ -173,6 +201,11 @@ const scratchVec: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchQuat: Quat = { x: 0, y: 0, z: 0, w: 1 };
 const scratchPoint = { x: 0, z: 0 };
 const scratchDoor = { x: 0, z: 0 };
+const scratchPick: PersonPick = { kind: 'ped', id: 0, seat: -1, personId: -1, distance: 0 };
+const scratchActor: ActorInfo = {
+  id: 0, personId: -1, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false,
+  following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0,
+};
 const scratchStop: StopState = { vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 };
 
 /** Heading (yaw about +Y, 0 = facing -Z) of a rotation's forward axis, ignoring pitch and roll. */
@@ -225,6 +258,14 @@ export class GameSession {
   readonly dispatcher: Dispatcher;
   /** Channels, composer, ambient chatter (design §9); fixed step -650. */
   readonly radio: RadioSystem;
+  /** Touched persons over the deterministic base identities (Phase 3 §5). */
+  readonly people: Population;
+  /** Pedestrians, scene actors and car occupants; fixed step 60. */
+  readonly npc: NpcSystem;
+  /** Conversations, field actions, statements; fixed step -680. */
+  readonly contact: ContactManager;
+  /** Scenarios of the calls: materialization, tactics, services, pursuits; fixed step -690. */
+  readonly scene: SceneDirector;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -250,6 +291,10 @@ export class GameSession {
   private kit = new OfficerKit();
   /** Sim and game time of the current fixed step (dispatch, radio). */
   private readonly cadTime = { sim: 0, game: 0 };
+  /** The officer as the NPC system and the scene see them (updated in place every step). */
+  private readonly npcFocus: NpcFocus = { x: 0, z: 0, yaw: 0, speed: 0, onFoot: true, weapon: 'none', lights: false, backup: 0 };
+  /** Patrol cars with equipment for the scene's presence scan (reused). */
+  private readonly patrolInfo: { eid: number; lightbar: boolean; siren: boolean }[] = [];
   /** Last speeding reading per vehicle id (citation prefill). */
   private readonly speedLog = new Map<number, { speedMph: number; limitMph: number }>();
   /** The station's block, grown by `STATION_MARGIN` (booking); null without a station. */
@@ -349,18 +394,88 @@ export class GameSession {
       playerCallsign: this.dispatcher.playerCallsign,
       mode: radioMode,
     });
+    this.people = new Population({ seed, records: this.records, now: () => this.env.time.totalSeconds });
+    this.npc = new NpcSystem({
+      seed,
+      rng: rng.stream('npc'),
+      city,
+      people: this.people,
+      traffic: this.traffic,
+      world: ctx.world,
+      bus: this.bus,
+      now: () => this.env.time.totalSeconds,
+    });
+    this.contact = new ContactManager({
+      seed,
+      bus: this.bus,
+      cad: this.cad,
+      records: this.records,
+      people: this.people,
+      npc: this.npc,
+      rng: rng.stream('contact'),
+      playerCallsign: this.dispatcher.playerCallsign,
+      request: (r) => this.dispatcher.request(this.dispatcher.playerCallsign, r, 'auto'),
+      officer: () => this.officer,
+      presence: () => this.scene.presence,
+      officerPosition: (out) => {
+        const f = this.syncFocus();
+        out.x = f.x;
+        out.z = f.z;
+        out.yaw = f.yaw;
+      },
+      trustAt: (x, z) => trustOf(districtOf(x, z)),
+      districtOf,
+      stopVehicleId: () => this.traffic.stopVehicleId,
+      interpreterAvailable: (callId) => this.scene.interpreterAvailable(callId),
+      vehiclePosition: (vehicleId, out) => {
+        const slot = this.traffic.slotOfVehicle(vehicleId);
+        if (slot < 0) return false;
+        out.x = this.traffic.view.x[slot] ?? 0;
+        out.z = this.traffic.view.z[slot] ?? 0;
+        return true;
+      },
+    });
+    this.scene = new SceneDirector({
+      seed,
+      city,
+      bus: this.bus,
+      cad: this.cad,
+      records: this.records,
+      people: this.people,
+      npc: this.npc,
+      traffic: this.traffic,
+      dispatcher: this.dispatcher,
+      contact: this.contact,
+      rng: rng.stream('scene'),
+      kit: () => ({ carried: (item) => this.kit.carried(item), use: (item, n) => this.kit.consume(item, n) }),
+      patrolCars: () => this.patrolCars(),
+    });
+    this.contact.setResolver(this.scene);
     this.stationRect = stationRectOf(city);
     this.vehicleEnv = { surfaceAt: (x, z) => city.surfaceAt(x, z), wetness: 0, snowCover: 0, ambientC: 20 };
     const pumps = fuelPumps(city);
     this.pumps = pumps.xz;
     this.stationPumps = pumps.station;
     const offViolation = this.bus.on('traffic:violation', (e) => this.logViolation(e));
-    const offArrest = this.bus.on('dispatch:arrest', (e) => {
-      this.seatPrisoner(e.personId);
+    // The prisoner is seated when the contact module cages them (the escort ends at a rear door), not on the arrest itself.
+    const offCaged = this.bus.on('contact:caged', (e) => {
+      this.equipmentList[e.vehicleIndex]?.seatPrisoner(e.personId);
+    });
+    // The scene's dispatch lines go out on the radio, from the dispatcher or (a request line) from the player.
+    const offRadio = this.bus.on('scene:radio', (e) => {
+      this.radio.say(e.channel, e.text, e.speaker ?? undefined);
+    });
+    // A completed booking puts the person in jail (the contact module records the booking fact itself).
+    const offBooking = this.bus.on('cad:documentSaved', (e) => {
+      if (e.kind !== 'booking' || !e.final) return;
+      const doc = this.cad.docs.get(e.id);
+      if (doc?.kind === 'booking' && doc.personId >= 0) this.people.setCustody(doc.personId, 'jailed');
     });
     this.unsubscribe = () => {
       offViolation();
-      offArrest();
+      offCaged();
+      offRadio();
+      offBooking();
     };
     this.mover = ctx.physics.raw.createCharacterController(OFFICER_SKIN);
     this.mover.disableSnapToGround();
@@ -374,9 +489,12 @@ export class GameSession {
       { order: -900, system: { name: 'environment', run: () => this.env.update(this.clock.simTime) } },
       { order: -800, system: { name: 'colliders', run: () => this.updateColliders() } },
       { order: -700, system: { name: 'dispatch', run: (_world, dt) => this.stepDispatch(dt) } },
+      { order: -690, system: { name: 'scene', run: (_world, dt) => this.stepScene(dt) } },
+      { order: -680, system: { name: 'contact', run: (_world, dt) => this.contact.step(dt, this.syncCadTime()) } },
       { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
       { order: 40, system: { name: 'vehicles.pre', run: (_world, dt) => this.preStepVehicles(dt) } },
       { order: 50, system: { name: 'traffic', run: (_world, dt) => this.stepTraffic(dt) } },
+      { order: 60, system: { name: 'npc', run: (_world, dt) => this.npc.step(dt, this.clock.simTime, this.syncFocus()) } },
       { order: 110, system: { name: 'vehicles.post', run: (_world, dt) => this.postStepVehicles(dt) } },
     ];
   }
@@ -612,7 +730,9 @@ export class GameSession {
     const service = this.pumpService();
     if (service) return service;
     if (this.enterableVehicle()) return 'enter';
+    if (this.cageCarIndex() >= 0) return 'cage';
     if (this.atStoppedDriver()) return 'driver';
+    if (this.talkTarget() !== null) return 'talk';
     return this.trunkVehicle() ? 'trunk' : null;
   }
 
@@ -633,8 +753,65 @@ export class GameSession {
     }
     const vehicle = this.enterableVehicle();
     if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
-    if (this.atStoppedDriver()) return 'contact';
+    const cage = this.cageCarIndex();
+    if (cage >= 0) {
+      this.contact.request({ kind: 'cage', vehicleIndex: cage });
+      return 'cage';
+    }
+    const stop = this.cad.trafficStop;
+    if (stop && this.atStoppedDriver()) {
+      // The driver (seat 0) of the stopped car; the dialogue opens when the contact module's next step applies this.
+      this.contact.request({ kind: 'open', target: { kind: 'occupant', vehicleId: stop.vehicleId, seat: 0 } });
+      return 'contact';
+    }
+    const pick = this.talkTarget();
+    if (pick) {
+      this.contact.request({ kind: 'open', target: pickTarget(pick) });
+      return 'talk';
+    }
     return this.trunkVehicle() ? 'trunk' : 'none';
+  }
+
+  /** On foot: the person in front of the officer within `TALK_DISTANCE` (scratch, valid until the next call); null when none. */
+  talkTarget(): PersonPick | null {
+    if (this.driving || this.playerEid === 0) return null;
+    const f = this.syncFocus();
+    return this.npc.nearestPerson(f.x, f.z, f.yaw, TALK_DISTANCE, TALK_CONE_COS, scratchPick);
+  }
+
+  /**
+   * The index (into `vehicles`) of the patrol car whose empty cage the escorted prisoner can be put into: the
+   * prisoner follows within `CAGE_PRISONER_DISTANCE` and the officer stands within `CAGE_DOOR_DISTANCE` of a
+   * rear door. -1 when nobody is escorted or no car qualifies.
+   */
+  cageCarIndex(): number {
+    if (this.driving || this.playerEid === 0) return -1;
+    const id = this.contact.escorting();
+    if (id <= 0) return -1;
+    const actor = this.npc.actor(id, scratchActor);
+    if (!actor) return -1;
+    const at = this.playerPosition(scratchPoint);
+    if (Math.hypot(actor.x - at.x, actor.z - at.z) > CAGE_PRISONER_DISTANCE) return -1;
+    for (let i = 0; i < this.vehicleList.length; i++) {
+      const eq = this.equipmentList[i];
+      if (!eq || !eq.spec.partition || eq.prisoner >= 0) continue;
+      const v = this.vehicleList[i] as DrivableVehicle;
+      const eid = v.eid;
+      const yaw = this.yawOf(eid);
+      const sin = Math.sin(yaw);
+      const cos = Math.cos(yaw);
+      // Rear doors: just behind the centre, on both sides (local +Z is the rear, +X the right).
+      const back = v.model.body.length * 0.15;
+      const side = v.model.body.width / 2 + 0.2;
+      const cx = (Transform.x[eid] ?? 0) + sin * back;
+      const cz = (Transform.z[eid] ?? 0) + cos * back;
+      for (const sign of [-1, 1] as const) {
+        const dx = cx + cos * side * sign;
+        const dz = cz - sin * side * sign;
+        if (Math.hypot(at.x - dx, at.z - dz) <= CAGE_DOOR_DISTANCE) return i;
+      }
+    }
+    return -1;
   }
 
   // --- patrol interactions (design §13.4) -----------------------------------------------
@@ -859,6 +1036,7 @@ export class GameSession {
     }
     this.colliders.prime(x, z);
     this.traffic.clear(true);
+    this.npc.clearPeds();
     this.updateFocus();
     this.traffic.populate(this.focus, this.env.time);
   }
@@ -894,7 +1072,10 @@ export class GameSession {
     });
   }
 
-  /** Snapshot of the session (v4 save): officer, vehicles and their equipment, traffic, environment, CAD, dispatch, records, radio, clock and RNG. */
+  /**
+   * Snapshot of the session (v5 save): officer, vehicles and their equipment, traffic, environment, CAD, dispatch, records,
+   * radio, clock and RNG, plus the touched people, pedestrians and actors, open contacts and the scene block.
+   */
   serialize(): SaveGame {
     const clock = this.clock.toJSON();
     const entities: SerializedEntity[] = [];
@@ -928,6 +1109,10 @@ export class GameSession {
       equipment: this.equipmentList.map((eq) => eq?.serialize() ?? null),
       officerKit: this.kit.serialize(),
       speeding: [...this.speedLog].map(([id, s]): [number, number, number] => [id, s.speedMph, s.limitMph]),
+      people: this.people.serialize(),
+      npc: this.npc.serialize(),
+      contacts: this.contact.serialize(),
+      scenes: this.scene.serialize(),
     };
   }
 
@@ -936,6 +1121,9 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.contact.dispose();
+    this.scene.dispose();
+    this.npc.dispose();
     this.radio.dispose();
     this.dispatcher.dispose();
     this.traffic.dispose();
@@ -1011,6 +1199,55 @@ export class GameSession {
     const driven = this.drivenVehicle;
     p.speed = driven ? driven.telemetry.groundSpeed : 0;
     p.inPoliceVehicle = driven !== null && driven.model.equipment !== null;
+  }
+
+  /** The officer as the NPC system and the scene see them (updated in place): position, heading, speed, weapon, lights, backup. */
+  private syncFocus(): NpcFocus {
+    const f = this.npcFocus;
+    const at = this.playerPosition(scratchPoint);
+    f.x = at.x;
+    f.z = at.z;
+    const driven = this.drivenVehicle;
+    f.onFoot = driven === null;
+    if (driven) {
+      f.yaw = this.yawOf(driven.eid);
+      f.speed = driven.telemetry.groundSpeed;
+    } else {
+      f.yaw = this.controller.yaw;
+      const v = this.ctx.physics.getBody(this.playerEid)?.linvel(scratchVel);
+      f.speed = v ? Math.hypot(v.x, v.z) : 0;
+    }
+    const presence = this.scene.presence;
+    f.weapon = this.scene.officerWeapon;
+    f.lights = presence.lights;
+    f.backup = presence.backup;
+    return f;
+  }
+
+  /** The station's patrol cars with equipment (the scene's presence scan); one reused list. */
+  private patrolCars(): readonly { eid: number; lightbar: boolean; siren: boolean }[] {
+    const out = this.patrolInfo;
+    let n = 0;
+    for (let i = 0; i < this.vehicleList.length; i++) {
+      const eq = this.equipmentList[i];
+      if (!eq) continue;
+      const v = this.vehicleList[i] as DrivableVehicle;
+      let e = out[n];
+      if (!e) {
+        e = { eid: 0, lightbar: false, siren: false };
+        out.push(e);
+      }
+      e.eid = v.eid;
+      e.lightbar = v.lightbar;
+      e.siren = eq.sirenOn;
+      n++;
+    }
+    out.length = n;
+    return out;
+  }
+
+  private stepScene(dt: number): void {
+    this.scene.step(dt, this.syncCadTime(), this.syncFocus());
   }
 
   private stepDispatch(dt: number): void {
@@ -1285,7 +1522,8 @@ export class GameSession {
     const half = { x: PLAYER_SIZE.x / 2, y: PLAYER_SIZE.y / 2, z: PLAYER_SIZE.z / 2 };
     const body = this.ctx.physics.addBox(eid, position, half, { kinematic: true, friction: 0.2 });
     try {
-      this.ctx.meshes.addBox(eid, { size: PLAYER_SIZE, color: PLAYER_COLOR });
+      // The officer is drawn as a humanoid figure (PeopleRenderer); the pool box is a hidden placeholder for the pool slot.
+      this.ctx.meshes.addBox(eid, { size: OFFICER_MESH_SIZE, color: PLAYER_COLOR });
     } catch (error) {
       this.ctx.physics.removeBody(eid);
       throw error;
@@ -1397,6 +1635,13 @@ export class GameSession {
   }
 }
 
+/** The contact target of a `nearestPerson` pick. */
+function pickTarget(pick: PersonPick): { kind: 'actor'; actorId: number } | { kind: 'ped'; slot: number } | { kind: 'occupant'; vehicleId: number; seat: number } {
+  if (pick.kind === 'actor') return { kind: 'actor', actorId: pick.id };
+  if (pick.kind === 'ped') return { kind: 'ped', slot: pick.id };
+  return { kind: 'occupant', vehicleId: pick.id, seat: pick.seat };
+}
+
 /** Fuel pumps of the city: the station's own pump (counted in `station`) first, then the four around each fuel POI. */
 function fuelPumps(city: City): { xz: Float64Array; station: number } {
   const out: number[] = [];
@@ -1451,7 +1696,7 @@ function serializeEntity(physics: PhysicsWorld, eid: EntityId): SerializedEntity
   };
 }
 
-/** Snapshot of the session as a v4 save (see `GameSession.serialize`). */
+/** Snapshot of the session as a v5 save (see `GameSession.serialize`). */
 export function serializeGame(session: GameSession): SaveGame {
   return session.serialize();
 }
@@ -1524,7 +1769,7 @@ export function startNewGame(ctx: GameContext, seed: number | string): GameSessi
 }
 
 /**
- * Rebuilds a session from a v4 save into `ctx` (use a fresh physics world, see
+ * Rebuilds a session from a v5 save into `ctx` (use a fresh physics world, see
  * `createScenePhysics`): the city is regenerated from the seed, bodies, vehicles and their
  * equipment get their saved state, traffic, the environment, CAD, records, the dispatcher and
  * the radio continue where they were (an empty vehicle list re-parks the patrol cars, missing
@@ -1573,6 +1818,14 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     if (data.dispatch) session.dispatcher.restore(data.dispatch, session.now());
     else session.startDispatch();
     if (!data.traffic) session.populateTraffic();
+    // Phase 3 (design §16): people after records (identities regenerate from the viewed record), then the
+    // pedestrians and actors (they read people and the traffic view), the scenes (and the calls of a
+    // migrated save), then the open contacts.
+    session.people.restore(data.people);
+    if (data.npc) session.npc.restore(data.npc);
+    session.scene.restore(data.scenes, session.now());
+    session.scene.adoptOpenCalls(session.now());
+    session.contact.restore(data.contacts);
     session.radio.restore(data.radio);
     // Every body was just created with its saved state, so reading them back gives exactly that state.
     primeContacts(ctx.physics, sessionBodies(session));

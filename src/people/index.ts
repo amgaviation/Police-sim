@@ -6,5 +6,5 @@ export { SALT, generateIdentity, describePerson, riskOf, type PersonDescription 
 export { familyOf, nameIndexFor } from './family';
 export { baseIntoxication, intoxicationLevel, weekdayOfEpochDay } from './intoxication';
 export { occupantsOf } from './occupants';
-export { Population, isPeopleSave, PEOPLE_CAP, PER_PERSON_CAP, IDENTITY_CACHE, type PopulationDeps } from './population';
+export { Population, isPeopleSave, emptyPeopleSave, PEOPLE_CAP, PER_PERSON_CAP, IDENTITY_CACHE, type PopulationDeps } from './population';
 export { createPeopleCommands } from './commands';

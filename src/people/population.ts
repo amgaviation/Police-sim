@@ -426,6 +426,11 @@ export class Population {
     return this.deltas.get(id)?.flags?.includes(flag) === true;
   }
 
+  /** How many persons have a stored delta (the save size; capped at `PEOPLE_CAP` unless everyone is protected). */
+  get touchedCount(): number {
+    return this.deltas.size;
+  }
+
   /** True when the person has a stored delta. */
   isTouched(id: number): boolean {
     return this.deltas.has(id);
@@ -549,6 +554,11 @@ function isNum(x: unknown): x is number {
 /** Structural check of the save envelope: the version tags and a `persons` array (entries are validated one by one on restore). */
 export function isPeopleSave(x: unknown): x is PeopleSave {
   return isObj(x) && x.version === 1 && x.identityVersion === 1 && Array.isArray(x.persons);
+}
+
+/** A save without any touched person (migrated v4 saves, new games). */
+export function emptyPeopleSave(): PeopleSave {
+  return { version: 1, identityVersion: 1, persons: [] };
 }
 
 function isStatement(x: unknown): x is Statement {
