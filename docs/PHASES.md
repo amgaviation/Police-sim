@@ -134,7 +134,7 @@ Status: ✅ complete. Screenshots: `docs/screenshots/phase2.png` (cockpit view w
 - ✅ **Integration** (`game/`, `app.ts`): session wiring (CAD → records → dispatcher → radio, equipment per patrol car with `PoliceLights`, fixed-step order of design §15, traffic focus heading / lights / siren, interactions), app wiring (audio unlock on the first gesture, pause rule for non-pausing overlays, Escape order, police input, radio controller, 10 Hz target pick, cockpit + MDT screen, siren emitters and listener, HUD / minimap feed, settings, perf extras, console commands). Integration fix in `radio/compose.ts`: the player's new radio line now waits for their own transmission still on the air instead of stepping on it (the automatic traffic-stop call-out blocked the first plate run), with a test.
 - ✅ **Save schema v4** (CAD with documents and the traffic stop, dispatcher, records, radio, per-vehicle equipment, officer kit, last speeding readings) with a v3 → v4 migration; every older version migrates; each malformed block is rejected.
 - ✅ **Determinism**: a scripted patrol (calls, AI units, a traffic stop with the light bar, a radio plate run, a citation, the emergency button and code 4) replays to bit-identical v4 saves, and a loaded mid-shift save continues exactly (CAD, dispatcher, records, radio, traffic, equipment) (`test/game/session.test.ts`).
-- ✅ 1 357 unit/integration tests (129 files); the browser smoke test covers Phases 0-2.
+- ✅ 1 442 unit/integration tests (138 files); the browser smoke test covers Phases 0-2.
 
 ### How to run
 ```
@@ -180,7 +180,7 @@ Every action can be rebound under *Settings > Controls*. In the MDT: 1-9 or ←/
 ### Performance
 - Fixed step in Node (seed 42, 192 ambient cars + 6 fleet cars, driving at the station, 3 600 steps): 0.46-0.49 ms per step on average; dispatch 0.010 ms (warm worst step 1.65 ms; the first call of a session can take up to ~5 ms in one step: cold code paths plus A* for its units), radio 0.002-0.003 ms (worst 0.4 ms), traffic 0.19-0.21 ms, vehicles.pre with the equipment writes 0.025 ms, physics 0.19 ms. Design §18 budgets: dispatch 0.05 ms average / 2 ms spike, radio 0.02 ms, traffic +0.05 ms, writeLook 0.005 ms.
 - Presentation: the Phase 1 + 2 HUD feed with minimap markers costs ~0.007 ms per 10 Hz tick in Node; the in-car MDT screen model is rebuilt only on CAD changes (~0.001 ms) and painted at most at 2 Hz; the MDT overlay refreshes at most at 4 Hz and only on CAD revision changes.
-- Headless Chromium with SwiftShader (1280x720, see `npm run smoke`): ~1.1-1.8 fps, dominated by software rasterisation as in Phase 1 (per frame: sim 1.7-4.9 ms for the 5 capped steps, update 0.8-1.4 ms, render 1.1-2.5 ms; the rest, 540-875 ms, is the GPU process). Draw calls 60-76 (cars 22, cockpit 6 in cockpit view); the cockpit view frame is cheaper than the street view (less city in sight). The MDT and the action panels sit on a light, blur-free layer, so the live world behind them is not re-filtered every frame.
+- Headless Chromium with SwiftShader (1280x720, see `npm run smoke`): ~1-5 fps, dominated by software rasterisation as in Phase 1 (per frame: sim 1.6-4.9 ms for the 5 capped steps, update 0.8-1.4 ms, render 0.8-2.5 ms; the rest, 540-875 ms, is the GPU process). Draw calls 60-76 (cars 22, cockpit 6 in cockpit view); the cockpit view frame is cheaper than the street view (less city in sight). The MDT and the action panels sit on a light, blur-free layer, so the live world behind them is not re-filtered every frame.
 - A v4 save is ~75-80 KiB of JSON.
 
 ### Known limitations
@@ -194,4 +194,4 @@ Every action can be rebound under *Settings > Controls*. In the MDT: 1-9 or ←/
 - A traffic stop needs the patrol car moving behind the car with the light bar on and the siren off (lights + siren only make traffic yield; a parked car with scene lights stops no one); while the player is on another call a pull-over is refused (the car drives on, the MDT shows why).
 - Radio-menu requests wait for a clear dispatch channel and key up first when it clears; voice push-to-talk keys up at once and can step on traffic. During an emergency, routine unit traffic is not voiced (radio silence) and "resume normal traffic" goes out first after Code 4.
 - The dispatcher assigns all pending calls in one step, so a burst of calls can spike a single step to a few milliseconds (first call of a session up to ~5 ms).
-- Under software GL (SwiftShader) the game runs at about 1-2 fps and the loop hits its 5-sub-step cap; on a real GPU it runs at the display rate.
+- Under software GL (SwiftShader) the game runs at about 1-5 fps and the loop hits its 5-sub-step cap; on a real GPU it runs at the display rate.
