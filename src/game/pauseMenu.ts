@@ -33,6 +33,8 @@ export class PauseMenu implements Menu {
       el('p', { class: 'hint' }, 'On foot: WASD move · Shift sprint · mouse look · E enter a car or refuel at a pump'),
       el('p', { class: 'hint' }, 'Driving: W/S throttle and brake (hold S to reverse) · A/D steer · Space handbrake · E get out'),
       el('p', { class: 'hint' }, 'V camera · H headlights · L light bar · M map zoom · F3 perf · ` console · Esc resume'),
+      el('p', { class: 'hint' }, 'Patrol car: Q siren · R tone · G horn · F manual · K light pattern · J spotlight (hold right mouse to aim) · X equipment · Tab MDT · P run plate'),
+      el('p', { class: 'hint' }, 'Radio: T menu, then 1-9 · B push-to-talk · hold Z emergency · [ ] channel · \\ scan · E at a trunk or a stopped driver'),
     );
   }
 

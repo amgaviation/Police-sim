@@ -35,7 +35,7 @@ src/
     actions.ts            action ids with kind and label
   save/
     db.ts                 IndexedDB wrapper (open, get, put, delete, list) with versioned object stores
-    schema.ts             SaveGame (v3) type, nested validators + CURRENT_SAVE_VERSION
+    schema.ts             SaveGame (v4) type, nested validators + CURRENT_SAVE_VERSION
     migrations.ts         ordered migration functions vN -> vN+1
     saveManager.ts        save/load/list/delete slots, autosave, validates & migrates
   settings/
@@ -84,16 +84,36 @@ src/
   workers/
     protocol.ts           typed message protocol for worker RPC
     sim.worker.ts         Phase 0 worker (ping, RNG check) — proves the worker pipeline
+  records/                persons, registrations, plates, VINs, BOLOs: pure functions of (seed, id) + a saved overlay (RecordsDb)
+  cad/                    CAD core: shared types, call-type / statute / ten-code / disposition tables, addresses, CadState
+                          (calls, units, AVL, documents, traffic-stop context), bus topics (cad:*, dispatch:*, unit:request)
+  dispatch/               Dispatcher: call generator, offers, AI unit FSMs on fleet cars, backup, emergency, status checks
+  radio/                  RadioSystem (channels, scan, composer, ambient chatter, RadioNet scheduling), RadioPlayer (FX + TTS),
+                          RadioController (keys, menu, push-to-talk), voice grammar, spoken text
+  police/                 PatrolEquipment (siren, light-bar pattern, spotlight, rack, trunk, cage), OfficerKit, PoliceLights store
+  audio/                  AudioEngine (lazy AudioContext), SirenBank (4 positional synthesized voices), RadioFx (synthesized FX)
+  speech/                 SpeechOut (speechSynthesis wrapper, per-speaker voices), SpeechIn (SpeechRecognition wrapper)
+  render/police/          CockpitRenderer (patrol-car interior, <= 6 draw calls), MdtScreen (in-car laptop canvas), spotlight pose
+  ui/mdt/                 MdtOverlay: the full-screen keyboard-first MDT (queue, call, units, map, person, vehicle, BOLO, reports, stop)
+  ui/panels/              ActionPanel (non-pausing option list), RadioPanel (log, channel strip, caption), RadioMenuView
   game/
-    session.ts            GameSession: one shift in the city (officer, patrol cars, colliders, traffic, environment), save/load
+    session.ts            GameSession: one shift in the city (officer, patrol cars and their equipment, colliders, traffic,
+                          environment, CAD, records, dispatcher, radio), interactions, save/load
     worldView.ts          render side of a session's city (chunk streamer, signal heads, streetlights, minimap)
     hudFeed.ts            fills the HUD snapshot from the session at 10 Hz
-    commands.ts           Phase 0 console commands; pauseMenu.ts, playerController.ts, sceneLayout.ts
-  data/                   JSON content: world/, environment/, crime/, vehicles/, physics/, traffic/
+    policeFeed.ts         Phase 2 presentation: HUD police/unit/call/offer/target/carried lines, minimap markers,
+                          in-car MDT screen model, cockpit state, radio menu context (never touches records)
+    panels.ts             trunk / equipment / driver-contact panels on one ActionPanel
+    target.ts             TargetTracker: the 10 Hz reticle pick for plate runs
+    mdtDeps.ts            what the MDT reads from the session; patrolCommands.ts: cad / lookup / lights / radio shortcuts
+    commands.ts           Phase 0 console commands; pauseMenu.ts, playerController.ts, sceneLayout.ts, route.ts
+  data/                   JSON content: world/, environment/, crime/, vehicles/, physics/, traffic/, records/, cad/,
+                          dispatch/, radio/, police/, audio/
 test/                     vitest unit tests, one folder per src module (node environment, no DOM/WebGL)
 docs/
   ARCHITECTURE.md         this file
   phase1-design.md        Phase 1 design: data formats and the full module APIs
+  phase2-design.md        Phase 2 design (police vehicle, MDT, CAD, radio): data formats, module APIs, topics, save v4
   ASSETS.md               third-party asset license tracking
   PHASES.md               per-phase completion log: what was done, how to run, what to test
 ```
@@ -126,12 +146,25 @@ Simulation work is registered in the `SystemRegistry` (timed in the perf overlay
 | 100 | `physics` | `physics.step()`, `syncToEcs` |
 | 110 | `vehicles.post` | `postStep(dt, bus)` (damage, fuel, lights, events); the driving officer's Transform follows the seat |
 
-Per frame (`App.update`): input -> toggles -> mode actions (interact: enter / exit / refuel; camera, headlights, light bar, map zoom) -> on-foot look/move or `readDriverInput` (stored for the next fixed steps) -> `CameraRig` -> `EnvironmentRenderer.update` -> `WorldView.update` (chunk streaming at the fog distance, signal heads, streetlights) -> `CarRenderer.update` -> HUD and minimap (10 Hz). Render: `meshes.syncFromEcs`, `renderer.render()`, perf sample (draw calls, triangles, entities, extras `chunks`, `traffic`, `cars`).
+Phase 2 adds (design §15):
+
+| Order | System | Work |
+|---|---|---|
+| -700 | `dispatch` | `dispatcher.step(dt, {sim, game}, player)`: queued requests and bus events, call generator, offers, assignment, AI unit FSMs (fleet state of the previous step), status checks, AVL (2 Hz), fleet `PoliceLights` |
+| -650 | `radio` | `radio.step(dt, {sim, game}, player)`: ambient chatter, `RadioNet` start / end / overlap (stepped-on) of transmissions |
+| 40 | `vehicles.pre` | + `PatrolEquipment.writeLook(eid, lightbar)` for every patrol car (`PoliceLights`: pattern, siren tone, horn / manual held by the driver, spotlight) |
+| 50 | `traffic` | the focus now carries the driven patrol car's `heading`, `lights` and `siren`: traffic stops, yielding, fleet cars |
+
+Per frame (`App.update`): input -> toggles (Escape: console, then the radio menu, then pause; the MDT and action panels close themselves on Escape) -> mode actions (interact: enter / exit / refuel / trunk / driver contact; camera, headlights, light bar, map zoom, MDT, plate run, siren / tone / pattern / spotlight / equipment panel) -> on-foot look/move or `readDriverInput` and the held horn / manual (stored for the next fixed steps), spotlight aim -> `RadioController` (only while gameplay controls are active) -> `CameraRig` (spotlight aim zeroes the look) -> target pick (10 Hz, `pickTrafficCar` from the camera) -> MDT and action panels -> `EnvironmentRenderer.update` -> `WorldView.update` (chunk streaming at the fog distance, signal heads, streetlights) -> `CarRenderer.update` (+ spotlight target) -> `CockpitRenderer` + `MdtScreen` paint (cockpit view, <= 2 Hz) -> audio (listener from the camera, siren emitters from `PoliceLights`) -> HUD, minimap with markers and the route to the assigned call (10 Hz) -> radio channel strip (4 Hz). Radio lines and captions are written on `radio:start` / `radio:blocked`. Render: `meshes.syncFromEcs`, `renderer.render()`, perf sample (draw calls, triangles, entities, extras `chunks`, `traffic`, `cars`, `dispatch`, `radio`, `audio`, `cockpit`).
+
+Pause rule (`App.refreshPause`): paused while the console `pause` is on or any menu whose `pausesGame !== false` is open. The MDT overlay and the action panels are non-pausing: the world keeps running behind them (`UIRoot` gives their layer the light, blur-free `menu-layer-live` style), gameplay controls are off while they are open (the car coasts). Audio is suspended and speech paused with the game.
 
 ### Determinism across sessions
 Rapier does not return to a pristine state after bodies are removed, so `App` disposes the physics world and clears the ECS world before every new or loaded session (`createScenePhysics`: gravity, one ground slab of half size `WORLD_HALF_SIZE + 64` and four boundary walls `WORLD_WALL.offset` outside the world edge, which edge chunks draw along with the outer half of the perimeter roads). The session advances `world.time` and its `GameClock` once per fixed step; both are rewound when a session starts and restored from `clock.simTime` on load. The city is rebuilt from the seed (`generateCity` is pure; the app caches the last one). City, colliders, vehicles, traffic and weather depend only on the seed, the input sequence and sim time; every draw comes from a named stream (`'traffic'`, `'vehicle:<slot>'`, `'colors'`, `'world:*'`, `'registry:<id>'`, `'weather'`); worker, streaming and render state never feed back into the simulation. `test/game/session.test.ts` replays a scripted 1200-step shift twice and compares the saves.
 
-Session teardown order: traffic, drivable vehicles, colliders, the officer and boxes (`GameSession.dispose`), then the render side (`WorldView.dispose`: streamer, signal heads, streetlights, minimap), then the physics world is replaced.
+Phase 2 keeps the same contract: everything that changes simulation state runs in fixed steps and draws only from named streams (`'dispatch'` with children `'calls'` / `'units'`, `'radio'`, `'traffic'` for fleet cars, `'lights:<slot>'` for light-bar phases; records from `'records:person:<id>'`, `'records:vehicle:<id>'`, `'records:bolo:<day>'` off `createRng(seed)`). Player input from the MDT, the radio menu, voice and keys becomes `UnitRequest`s that the dispatcher queues and applies at the start of its next step; bus handlers only enqueue. TTS / audio timing, the DOM, speech recognition and the 10 Hz target pick never feed back (presentation reads records through pure identities only, so the saved records snapshot is not touched by the HUD). `test/game/session.test.ts` replays a scripted patrol (calls, AI units, a light-bar traffic stop, radio plate run, citation, emergency button) to bit-identical v4 saves and checks that a loaded mid-shift save continues exactly.
+
+Session teardown order: radio, dispatcher, traffic (fleet cars included), drivable vehicles, colliders, the officer and boxes (`GameSession.dispose`), then the render side (`WorldView.dispose`: streamer, signal heads, streetlights, minimap) and the per-session presentation (MDT overlay, radio log, radio controller, HUD feed), then the physics world is replaced.
 
 ### Event bus
 ```ts
@@ -140,6 +173,8 @@ bus.on('topic', handler): () => void  // returns unsubscribe
 bus.emit('topic', payload)
 ```
 Phase 1 modules add topics by declaration merging in their own `events.ts`: `env:hour`, `env:weather` (environment), `vehicle:damaged`, `vehicle:tireBurst`, `vehicle:engineStalled`, `vehicle:engineFailed`, `vehicle:fuelEmpty` (vehicles), `traffic:spawned`, `traffic:despawned`, `traffic:collision`, `traffic:violation` (traffic), `player:mode`, `camera:mode` (player). Payloads are emitted on rare events only.
+
+Phase 2 topics (design §14): `cad:callCreated`, `cad:callUpdated`, `cad:callClosed`, `cad:unitAssigned`, `cad:unitStatus`, `cad:documentSaved`, `cad:trafficStop` (CadState), `unit:request` (radio, app), `dispatch:offer`, `dispatch:plateResult`, `dispatch:personResult`, `dispatch:backup`, `dispatch:emergency`, `dispatch:statusCheck`, `dispatch:location`, `dispatch:ack`, `dispatch:arrest` (dispatcher; declared in `cad/events.ts`), `traffic:pullingOver`, `traffic:pulledOver`, `traffic:released`, `traffic:fleetArrived` (traffic), `radio:start`, `radio:end`, `radio:blocked`, `radio:channel` (radio). The dispatcher consumes `unit:request`, `traffic:pulledOver` / `released` / `fleetArrived` and `cad:documentSaved`; the radio composer consumes `cad:*`, `dispatch:*` and `traffic:pullingOver`; the session seats the prisoner on `dispatch:arrest`; the app writes the radio log / captions and plays the plate-hit tone.
 
 ### RNG
 ```ts
@@ -164,14 +199,18 @@ A drivable vehicle is an entity with `Transform`, `PrevTransform`, `PhysicsBody`
 ```ts
 interface SaveEnvelope<T> { version: number; createdAt: number; updatedAt: number; slot: string; data: T }
 ```
-The object-store key is the slot; `list()` names rows by key and `load()` repairs a disagreeing `slot` field. `migrateEnvelope(envelope)` applies `migrations[version]` until `CURRENT_SAVE_VERSION` (3), then validates with `isSaveGame`; `save()` validates before writing so a save that would not load is never stored. v2 stores each body's transform, linear/angular velocity and sleep state plus the camera pitch (v1 saves migrate with bodies at rest). v3 (Phase 1) adds `player { mode, vehicle, lastVehicle }` (`lastVehicle` is the last-driven vehicle for refuelling and its parked headlights, -1 for none), `camera.mode`, `vehicles` (each `SerializedVehicle` plus its colour and RNG stream), `traffic` (snapshot or null), `violations` (the observed-violation log, `[vehicleId, counts]` pairs) and `environment` (`timeOffset`, weather override); `lastVehicle` and `violations` are optional (absent in early v3 saves); v2 saves migrate on foot with the patrol cars re-parked and fresh traffic. Loading regenerates the city from the seed. Tests assert every version from 1..current migrates.
+The object-store key is the slot; `list()` names rows by key and `load()` repairs a disagreeing `slot` field. `migrateEnvelope(envelope)` applies `migrations[version]` until `CURRENT_SAVE_VERSION` (4), then validates with `isSaveGame`; `save()` validates before writing so a save that would not load is never stored. v2 stores each body's transform, linear/angular velocity and sleep state plus the camera pitch (v1 saves migrate with bodies at rest). v3 (Phase 1) adds `player { mode, vehicle, lastVehicle }` (`lastVehicle` is the last-driven vehicle for refuelling and its parked headlights, -1 for none), `camera.mode`, `vehicles` (each `SerializedVehicle` plus its colour and RNG stream), `traffic` (snapshot or null), `violations` (the observed-violation log, `[vehicleId, counts]` pairs) and `environment` (`timeOffset`, weather override); `lastVehicle` and `violations` are optional (absent in early v3 saves); v2 saves migrate on foot with the patrol cars re-parked and fresh traffic. v4 (Phase 2, current) adds `cad` (calls: open + the last 200 closed, units with AVL, documents, the traffic stop, counters), `dispatch` (the dispatcher's RNG states, timers, AI unit FSMs, offers, status checks, queued events and requests; null in migrated saves: a fresh roster and fleet start at load), `records` (touched person / registration snapshots, contacts, served warrants, added BOLOs, query log), `radio` (channel, scan list, log, queue with on-air entries, holds, ambient timers, RNG, composer state), `equipment` (one `EquipmentSave` or null per `vehicles` entry), `officerKit` and the optional `speeding` readings (citation prefill); the traffic snapshot stays version 1 with the optional fleet / stop / curb fields. Load order: environment, entities, vehicles and their equipment (+ `PoliceLights`), traffic, CAD, records, dispatcher (or `start` when null), radio. `migrateV3ToV4` fills empty CAD and records, a null dispatcher, the default radio with the seed's `'radio'` stream, null equipment and an empty kit. Loading regenerates the city from the seed. Tests assert every version from 1..current migrates and that each malformed block is rejected.
 
 ### Input
-Actions are abstract (`'move.forward'`, `'vehicle.steer'`, `'vehicle.handbrake'`...). Bindings map device inputs → actions. Rebinding UI edits bindings and persists through Settings; new actions appear in it automatically.
+Actions are abstract (`'move.forward'`, `'vehicle.steer'`, `'vehicle.handbrake'`...). Bindings map device inputs → actions. Rebinding UI edits bindings and persists through Settings; new actions appear in it automatically. Phase 2 actions: `vehicle.sirenTone`, `vehicle.horn`, `vehicle.manual`, `vehicle.lightPattern`, `vehicle.spotlight`, `vehicle.spotAim`, `vehicle.equipment`, `mdt.toggle`, `target.runPlate`, `radio.menu`, `radio.option1..9`, `radio.ptt`, `radio.emergency`, `radio.channelPrev`, `radio.channelNext`, `radio.scan` (defaults in `input/bindings.ts`, design §11.5).
 
 ### Debug console commands
 Phase 0: `help`, `clear`, `echo`, `seed [n]`, `timescale [x]`, `pause`, `save [slot]`, `load [slot]`, `saves`, `perf`, `fps`, `spawn box [n]`, `entities`, `settings get <path> | set <path> <value> | list`, `worker ping`, `debugcam`.
 Phase 1: `time [HH:MM]`, `weather [kind [intensity] | auto]`, `tp <x> <z> | <poi kind> | <district>`, `route <poi kind> | <x> <z> | off`, `road`, `car info | refuel | repair | spawn <modelId>`, `traffic stats | list [n] | density <x> | clear`, `plate <ABC 1234>`, `chunks`.
+Phase 2: `cad call <type> [here] | calls | show <id> | units | clear [disposition] | docs [kind]`, `lookup plate <p> | person <id|last [first]>`, `lights <pattern|on|off|next>`, `radio say [channel] <text> | channel [id] | scan | log [n]` (integrator shortcuts, `game/patrolCommands.ts`); module commands `calls`, `call <id>`, `units`, `docs` (cad), `person`, `runplate`, `vin`, `dl`, `platestates`, `bolos` (records), `dispatch call|backup|emergency|stats|units`, `pullover [release|abandon]`, `fleet` (traffic), `equip`, `pattern`, `siren <tone|off>` (police), `voices`, `sirentest <tone|horn|off>` (audio).
+
+### Patrol job (Phase 2)
+`CadState` is the single CAD object (calls, units with AVL positions, documents, the traffic-stop context); the `Dispatcher` owns the behaviour (generator, AI unit FSMs that drive traffic fleet cars, offers, backup, emergency, status checks) and its own save block; `RecordsDb` answers plate / VIN / person queries from pure generators plus a saved overlay. The `RadioSystem` composes radio traffic from the bus and schedules it on six channels; `RadioPlayer` (FX + TTS) and the radio panel present it. The MDT (`ui/mdt`) reads `CadState` / `RecordsDb` and sends CAD changes as requests; documents are written to the CAD store directly. Each patrol car has a `PatrolEquipment` (siren, light-bar pattern, spotlight, rack, trunk, cage) that writes the `PoliceLights` store read by the car renderer, the cockpit and the siren audio. The session wires them in the order CAD → records → dispatcher → radio and handles the interactions (trunk, driver contact, MDT reach, arrest → cage → booking at the station).
 
 ## Workers
 Protocol: `{ id, type, payload }` request/response with transferables where possible (`workers/workerClient.ts`). Main thread never blocks on a worker. The Phase 0 `sim.worker.ts` answers pings and checks the RNG. The chunk worker (`world/render/chunk.worker.ts`) generates its own copy of the city from the seed and returns chunk mesh buffers as transferables; it is render-only, so its timing never touches the simulation. Traffic stays on the main thread because a worker would deliver results with timing jitter and break "same seed + same inputs = same shift".

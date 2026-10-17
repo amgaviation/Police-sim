@@ -116,3 +116,80 @@ npm run smoke      # headless browser test + docs/screenshots/phase1.png, phase1
 - `time HH:MM` only moves forward (an earlier hour means the next day); the weather override lasts until `weather auto`.
 - The plotted route is drawn on the minimap only, with no in-world guidance; the light bar does not light the surroundings (only the headlights have spot lights); four pooled point lights (two with shadows off) light the streetlights nearest the camera, the rest are emissive only.
 - Under software GL (SwiftShader) the game runs at about 1.5 fps and the loop hits its 5-sub-step cap, so the simulation (and the car) runs slower than real time there; on a real GPU it runs at the display rate.
+
+## Phase 2 — Police Vehicle, MDT, CAD, Radio
+
+Status: ✅ complete. Screenshots: `docs/screenshots/phase2.png` (cockpit view with the in-car MDT laptop, radio log and caption) and `docs/screenshots/phase2-mdt.png` (the MDT overlay, AVL map tab), both taken by the smoke test. Design and module contracts: `docs/phase2-design.md`.
+
+### Completed
+- ✅ **Patrol car equipment** (`police/`, data in `src/data/police/*.json` and the vehicle models' `equipment` section): siren controller (wail, yelp, phaser, hi-lo, air horn, manual wind-up), six data-driven light-bar patterns with a reduced-flash mode, an aimable spotlight (a real three.js spot light), push bumper (sturdier front zone in the damage model), rear partition / prisoner cage, a lockable shotgun / rifle rack (unlocks only when stopped) and a trunk loadout of eight items; what the officer carries (`OfficerKit`) is saved.
+- ✅ **Cockpit** (`render/police/`): first-person interior of the patrol car (dash, wheel, laptop with a live CAD screen, radio head with channel / TX / RX / SCAN / EMERG display, siren controller LEDs, partition cage, gun rack with the racked guns), ≤ 6 draw calls, only in cockpit view; light-bar segments per pattern on every police car, push-bumper trim, spotlight on the driven (or last driven) car.
+- ✅ **MDT / CAD** (`ui/mdt/`, `cad/`): full-screen, keyboard-first, non-pausing overlay (Tab in a patrol car or within 3 m of its driver door; Escape closes): call queue (P1-P4, nature, address, caller, status, units, age) with accept / decline / self-assign / en route / on scene / clear, call detail with timestamped narrative, unit roster with statuses, AVL map with live AI units and calls, person and vehicle (plate / VIN) queries, BOLOs and the query history, reports (incident report, citation from a statute table, booking, evidence with chain of custody, supplements) and the traffic-stop tab. Addresses with block numbers, cross streets and "near" text from the road graph.
+- ✅ **Records** (`records/`): 100 000 persons and 60 000 registered vehicles generated deterministically from the seed and the id (licence, warrants, supervision, gang, mental-health and officer-safety notes, firearms, protective orders, priors; owner, VIN, expiry, insurance, flags), plate states stolen / cloned / mismatched / expired / flagged with VIN checks, daily BOLOs; touched records, contacts from the shift, served warrants and the query log are saved.
+- ✅ **Dispatch** (`dispatch/`): data-driven procedural call generator (8 generated call types, crime time-of-day and district weights), offers to the player (25 s), six AI units (callsigns 21-33) driving fleet cars on the road network with code 2 / code 3 urgency, statuses, on-scene timers, breaks and beat returns, backup (code 2 / code 3), the emergency button, status checks with escalation to a welfare call, 10-20 answers, plate / person runs, traffic-stop context, records upkeep (citations and bookings become priors; a PC-220 booking serves the warrants).
+- ✅ **Traffic** (`traffic/`): light bar behind a car → it pulls to the curb and stops (hazards, pinned, a `trafficStop` CAD call), release / abandon, cars yield to lights + siren, fleet cars (routes, code-3 junction rules, curb parking on arrival), the reticle target pick (`pickTrafficCar`).
+- ✅ **Radio** (`radio/`, `audio/`, `speech/`): six channels (dispatch, tactical, car-to-car, fire/EMS, county, state) with selection and scan, composed traffic from every CAD / dispatch event in ten-code or plain language, ambient chatter, stepped-on (blocked) transmissions with a heterodyne, the emergency button (hold Z, channel hold + priority tone), status checks, 10-20, number-key radio menu, optional push-to-talk voice commands (off by default), text-to-speech with per-speaker voices (falls back to captions), synthesized key-up / squelch / static / alert tones, positional synthesized sirens (4 voices, nearest first, in-cabin filter). No audio files: `docs/ASSETS.md` stays empty.
+- ✅ **HUD and panels** (`ui/hud/`, `ui/panels/`): police status line, unit chip (status, EMERGENCY, STATUS CHECK), call strip with distance, offer line, reticle target with plate / description / run result, carried items, minimap call / unit / stop markers and the route to the assigned call (re-planned every 10 s or 60 m off route), radio log (6 lines) + channel strip, caption line (`accessibility.subtitles`), radio menu, and action panels for the trunk (take / stow), the equipment (rack lock, long guns, spotlight, rear seat) and the traffic-stop driver (licence, VIN, write citation, warn and release, release, arrest).
+- ✅ **Player actions**: set status (10-8 / 10-7 / en route / on scene / busy / transporting) from the radio menu or the MDT, accept / decline offers, self-assign, get routed, run the targeted (or stopped) car's plate with P, run persons and DL numbers, traffic stops, citations, incident reports, arrests (cuffs → rear seat → booking at the station), evidence, siren tones, light patterns, spotlight, trunk, gun rack, radio channels and scan, the emergency button, 10-20 requests, status-check answers, voice commands where the browser supports them.
+- ✅ **Integration** (`game/`, `app.ts`): session wiring (CAD → records → dispatcher → radio, equipment per patrol car with `PoliceLights`, fixed-step order of design §15, traffic focus heading / lights / siren, interactions), app wiring (audio unlock on the first gesture, pause rule for non-pausing overlays, Escape order, police input, radio controller, 10 Hz target pick, cockpit + MDT screen, siren emitters and listener, HUD / minimap feed, settings, perf extras, console commands). Integration fix in `radio/compose.ts`: the player's new radio line now waits for their own transmission still on the air instead of stepping on it (the automatic traffic-stop call-out blocked the first plate run), with a test.
+- ✅ **Save schema v4** (CAD with documents and the traffic stop, dispatcher, records, radio, per-vehicle equipment, officer kit, last speeding readings) with a v3 → v4 migration; every older version migrates; each malformed block is rejected.
+- ✅ **Determinism**: a scripted patrol (calls, AI units, a traffic stop with the light bar, a radio plate run, a citation, the emergency button and code 4) replays to bit-identical v4 saves, and a loaded mid-shift save continues exactly (CAD, dispatcher, records, radio, traffic, equipment) (`test/game/session.test.ts`).
+- ✅ 1 357 unit/integration tests (129 files); the browser smoke test covers Phases 0-2.
+
+### How to run
+```
+npm install
+npm run dev        # http://localhost:5173
+npm run check      # tsc + eslint + vitest
+npm run build      # production bundle in dist/
+npm run smoke      # headless browser test + docs/screenshots/phase1*.png, phase2.png, phase2-mdt.png
+```
+
+### Controls (Phase 2 additions)
+| | Keyboard / mouse | Gamepad |
+|---|---|---|
+| Siren on/off · tone (wail → yelp → phaser → hi-lo) | Q · R | Y · LB |
+| Air horn (hold) · manual wind-up (hold) | G · F | R3 · - |
+| Light bar · next pattern | L · K | X · - |
+| Spotlight · aim it (hold, move the mouse) | J · right mouse button | - |
+| Equipment panel (rack, long guns, spotlight, rear seat) | X (in a patrol car) | - |
+| MDT | Tab (in a patrol car or at its driver door); Esc closes | - |
+| Run the targeted (else the stopped) car's plate | P | D-pad right |
+| Trunk / talk to the stopped driver | E at a patrol car's rear / at the stopped car's driver window | A |
+| Radio menu · options | T · 1-9 | D-pad left |
+| Push-to-talk (voice commands, if enabled) | B (hold) | RB |
+| Emergency button | Z (hold 1.2 s) | - |
+| Radio channel · scan | [ / ] · \ | - |
+
+Every action can be rebound under *Settings > Controls*. In the MDT: 1-9 or ←/→ switch tabs, ↑/↓ move in lists, Enter opens, Esc cancels a form or closes the MDT. In the action panels: 1-9 or ↑/↓ + Enter select, Esc closes.
+
+### Manual test checklist
+1. **New game** with seed `42`: as in Phase 1, plus the radio log (left, above the minimap) starts filling with chatter and the HUD shows the unit chip `12 · 10-8 AVAILABLE`. The minimap shows AI units (green dots) and, once calls come in, call markers coloured by priority.
+2. Get into a patrol car, press **Tab**: the MDT opens over the world (which keeps running: the clock and the queue ages advance). Walk through the tabs with 1-9 / ←→: Queue, Call, Units (roster with statuses), Map (AVL: units move, calls), Person (search a last name, e.g. `Smith`), Vehicle (type a plate), BOLO, Reports, Stop. **Esc** closes it (no pause menu).
+3. Wait for a call (1-2 min; or console `cad call noiseComplaint here`): when one is near, the offer line and the radio offer it to unit 12 — **T 7** (or the MDT's Accept) accepts it: the call strip shows it, the minimap draws the route, `12 · 10-76 EN ROUTE`. Otherwise an AI unit is assigned; follow it on the MDT map. Arriving: **T 1 3** (on scene); clearing: MDT Queue → disposition → *Clear call*.
+4. **Q** / **R** / **G** / **F**: siren on and its tones, air horn, manual wind-up (hear the siren from the cabin; outside the car it pans and fades with distance); **L** / **K**: light bar and patterns (*Reduce flashing lights* slows and dims them); **J** and hold the right mouse button to aim the spotlight (best at night, `time 22:00`); **V** to the cockpit: the laptop shows the CAD summary, the radio head the channel, the siren controller LEDs light up.
+5. Traffic stop: drive behind a car and switch the light bar on (siren off): after about 1.5 s it signals, pulls to the curb and stops with hazards; the radio calls the stop out (`12, 10-38, ABC 1234, ...`) and a `trafficStop` call appears with unit 12 on scene. Aim at it and press **P**: the plate result appears on the HUD and in the MDT (Stop tab).
+6. Get out (**E**), walk to its driver window, press **E**: the contact panel. *Request licence* identifies the driver (person result on the MDT), *Check VIN* compares the VIN with the plate (cloned plates show here), *Write citation* opens the MDT citation form prefilled from the stop (observed violations, recorded speed, plate issues; add violations from the statute list, *Issue citation*), *Release* lets the car merge back and closes the call as citation issued / warning / handled.
+7. Arrest: on a stop with a free patrol car cage within 40 m, *Arrest* cuffs the driver and seats them in the cage (equipment panel **X** shows the rear seat). Drive to the station; in the MDT write a booking (Reports → Bookings → new; prisoner prefilled, charges e.g. PC-220 for a warrant) and *Complete booking*: the prisoner is handed over and the person's record gets the arrest.
+8. Trunk: on foot at the rear of a patrol car, **E**: take / stow cones, flares, the first-aid kit...; the HUD's carried line follows. In the car, **X**: unlock the rack (only when stopped), check out the shotgun, lock it again.
+9. Radio: **T** opens the menu (status, run plate, location (10-20), backup code 2 / 3, code 4, traffic stop, accept / decline, say again); **[ ]** change channel, **\\** scan (the strip shows SCAN; scanned channels are quieter); hold **Z** for the emergency button: priority tone, dispatch holds the channel, three units come code 3; **T 5** (code 4) ends it. Leave the officer on scene for 5 min (`timescale 8`): a status check comes; answer with any request (e.g. **T 5**), or ignore it twice to see the escalation.
+10. Settings > Audio: master / effects / radio volume, spoken radio on/off, the dispatcher voice (console `voices` lists them), ten-code / plain radio language, voice commands (push-to-talk B; Chromium sends audio to its speech service); Accessibility: radio captions.
+11. Console: `cad call alarm`, `cad units`, `cad calls`, `cad clear`, `lookup plate ABC 1234`, `lookup person 17` / `lookup person smith`, `radio say Testing`, `radio channel tac`, `siren yelp`, `lights takedown`, `platestates`, `bolos`, `dispatch stats`, `pullover`, `fleet`, `equip`, `docs`.
+12. **Esc** → *Quick save* mid-stop with a prisoner in the cage and the siren on, then *Quit to title* and load `quicksave`: calls, units, documents, the stop, records, radio channel / scan / log, equipment (siren, pattern, spotlight, rack, trunk, prisoner) and the officer's kit are back; AI units carry on. A Phase 1 (v3) save loads with a fresh roster and fleet.
+
+### Performance
+- Fixed step in Node (seed 42, 192 ambient cars + 6 fleet cars, driving at the station, 3 600 steps): 0.46-0.49 ms per step on average; dispatch 0.010 ms (warm worst step 1.65 ms; the first call of a session can take up to ~5 ms in one step: cold code paths plus A* for its units), radio 0.002-0.003 ms (worst 0.4 ms), traffic 0.19-0.21 ms, vehicles.pre with the equipment writes 0.025 ms, physics 0.19 ms. Design §18 budgets: dispatch 0.05 ms average / 2 ms spike, radio 0.02 ms, traffic +0.05 ms, writeLook 0.005 ms.
+- Presentation: the Phase 1 + 2 HUD feed with minimap markers costs ~0.007 ms per 10 Hz tick in Node; the in-car MDT screen model is rebuilt only on CAD changes (~0.001 ms) and painted at most at 2 Hz; the MDT overlay refreshes at most at 4 Hz and only on CAD revision changes.
+- Headless Chromium with SwiftShader (1280x720, see `npm run smoke`): ~1.1-1.8 fps, dominated by software rasterisation as in Phase 1 (per frame: sim 1.7-4.9 ms for the 5 capped steps, update 0.8-1.4 ms, render 1.1-2.5 ms; the rest, 540-875 ms, is the GPU process). Draw calls 60-76 (cars 22, cockpit 6 in cockpit view); the cockpit view frame is cheaper than the street view (less city in sight). The MDT and the action panels sit on a light, blur-free layer, so the live world behind them is not re-filtered every frame.
+- A v4 save is ~75-80 KiB of JSON.
+
+### Known limitations
+- No people meshes: the stopped driver, the prisoner and callers are records only; calls have no scene content beyond CAD, radio and the location (Phase 3 adds NPCs, dialogue and 150+ call types as data rows).
+- Traffic never changes lanes: a car pulled over from an inner lane slides across the lanes to its right; cars only yield in their own direction of travel; a car in an inner lane pulling to the curb does not check the outer lanes.
+- Fleet cars drive through a red junction under code 3 only when no other approach holds it, and wait behind queued traffic instead of weaving around it (ambient cars ahead yield to the curb).
+- Time compression (30x) makes CAD timestamps advance quickly relative to driving times.
+- Speech output depends on the browser's voices (headless Chromium has none: captions only); recognition is browser-provided (Chromium sends audio to a vendor service unless on-device recognition is available) and is off by default.
+- Trunk items have no world use yet (deployables are Phase 3) and the rack's guns cannot be fired; the booking is a form at the station (no transport or jail scene).
+- The reticle target wins over the stopped car for **P** and the radio menu's plate run; the MDT closes with Escape only (Tab moves focus between its fields).
+- The dispatcher assigns all pending calls in one step, so a burst of calls can spike a single step to a few milliseconds (first call of a session up to ~5 ms).
+- Under software GL (SwiftShader) the game runs at about 1-2 fps and the loop hits its 5-sub-step cap; on a real GPU it runs at the display rate.

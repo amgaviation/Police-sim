@@ -48,7 +48,8 @@ canvas#game {
 .ui-hud { position: absolute; inset: 0; pointer-events: none; }
 .ui-hud > * { pointer-events: auto; }
 
-.ui-menus { position: absolute; inset: 0; }
+/* Menus (pause, settings, the full-screen MDT, action panels) cover the HUD (z-index 900) but stay under the perf overlay and console. */
+.ui-menus { position: absolute; inset: 0; z-index: 950; }
 
 .menu-layer {
   position: absolute;
@@ -62,6 +63,9 @@ canvas#game {
   pointer-events: auto;
 }
 .menu-layer:not(:last-child) { display: none; }
+/* Non-pausing overlays (MDT, action panels: Menu.pausesGame === false): the world keeps running behind them, so it stays
+   visible: a light dim and no backdrop blur (which would also re-filter the live canvas every frame). */
+.menu-layer-live { background: rgba(4, 8, 12, 0.25); backdrop-filter: none; }
 
 .panel {
   background: var(--panel);

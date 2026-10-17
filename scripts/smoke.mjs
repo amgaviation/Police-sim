@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 /**
- * Browser smoke test (Phase 1).
+ * Browser smoke test (Phases 0-2).
  *
  * Starts the Vite dev server (unless SMOKE_URL points at a running one), drives
  * the game in headless Chromium with SwiftShader: a new shift in the city, chunk
  * streaming and traffic, getting into the patrol car and driving it, weather and
  * night, the world console commands, a save/load round trip, settings, and the perf
- * numbers (including a per-frame cost breakdown under software GL).
- * Writes docs/screenshots/phase1.png and docs/screenshots/phase1-night.png.
+ * numbers (including a per-frame cost breakdown under software GL). Phase 2: the CAD
+ * roster and AI fleet, a generated call reaching the MDT queue and an AI unit driving
+ * to it, the MDT opening and closing without pausing, siren / tone / lights / pattern /
+ * spotlight keys, a traffic stop (lights behind a car), its plate run (P), the driver
+ * contact panel, a citation issued from the MDT, the radio log, the Phase 2 console
+ * commands and a v4 save/load keeping CAD, records, radio and equipment.
+ * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
+ * in-car MDT) and phase2-mdt.png (the MDT overlay).
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
-/* global window, document, getComputedStyle, MouseEvent, KeyboardEvent -- functions passed to page.evaluate run in the browser */
+/* global window, document, getComputedStyle, MouseEvent, KeyboardEvent, requestAnimationFrame -- functions passed to page.evaluate run in the browser */
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -194,6 +200,385 @@ function perfSnapshot() {
     entities: s ? s.entityCount : 0,
     systemsMs: timings,
   };
+}
+
+/** Runs `n` fixed steps right now through the app's own loop hook (sim, systems, events), like the loop does. */
+function stepSim(n) {
+  const app = window.patrol;
+  const fixed = app.loop.hooks.fixedUpdate; // private in TypeScript, a plain property at runtime
+  for (let i = 0; i < n; i++) fixed(1 / 60, 0);
+}
+
+/** Presses `key` (a KeyboardEvent.code) and waits for a frame or two to see it. */
+async function press(page, key, holdMs = 0) {
+  await page.keyboard.down(key);
+  await sleep(holdMs);
+  await page.keyboard.up(key);
+  await waitFrames(page, 2);
+}
+
+/** Waits for `n` animation frames in the page (the game loop updates once per frame, before these callbacks). */
+async function waitFrames(page, n) {
+  await page.evaluate(
+    (count) =>
+      new Promise((resolve) => {
+        let left = count;
+        const tick = () => (--left <= 0 ? resolve() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+      }),
+    n,
+  );
+}
+
+/**
+ * Phase 2 checks on the running (loaded, driving) session. Returns the perf numbers taken on the way.
+ */
+async function phase2(page, hasRenderer) {
+  // --- Shift state: CAD roster, AI fleet, equipped patrol cars, radio log ---------------------
+  await page.evaluate(async () => {
+    const app = window.patrol;
+    app.ui.closeAll();
+    app.perf.setVisible(false); // the Phase 2 screenshots show the MDT and the cockpit unobstructed
+    await app.console.execute('time 10:00');
+    await app.console.execute('weather clear');
+  });
+  const roster = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    let fleet = 0;
+    for (let i = 0; i < 16; i++) if (s.traffic.fleetEntity(i) !== 0) fleet++;
+    return {
+      units: s.cad.units().map((u) => `${u.callsign}:${u.status}`),
+      fleet,
+      equipped: s.vehicles.map((v) => s.equipmentOf(v) !== null),
+      driving: s.driving,
+      mdt: app.mdt !== null,
+      radioPanel: app.radioPanel !== null,
+    };
+  });
+  console.log('patrol roster:', JSON.stringify(roster));
+  check(roster.units.length === 7 && roster.units[0]?.startsWith('12:'), `CAD roster: player unit 12 and six AI units (${roster.units.join(', ')})`);
+  check(roster.fleet === 6, `AI units drive fleet cars (${roster.fleet})`);
+  check(roster.equipped.every(Boolean), 'both patrol cars carry equipment (siren, light bar, spotlight, rack, cage, trunk, MDT)');
+
+  // --- A generated call reaches the queue and an AI unit drives to it ------------------------
+  const callFlow = await page.evaluate((stepSrc) => {
+    const step = new Function(`return ${stepSrc}`)();
+    const app = window.patrol;
+    const s = app.session;
+    const before = s.dispatcher.stats.generated;
+    let steps = 0;
+    while (s.dispatcher.stats.generated === before && steps < 60 * 400) {
+      step(60);
+      steps += 60;
+    }
+    const generated = s.cad.calls().filter((c) => !c.selfInitiated && c.status !== 'closed');
+    const call = generated[generated.length - 1];
+    if (!call) return { generated: s.dispatcher.stats.generated - before, simSeconds: steps / 60 };
+    let unit = null;
+    for (let k = 0; k < 200 && unit === null; k++) {
+      const c = s.cad.call(call.id);
+      if (!c || c.status === 'closed') break;
+      // Offers to the player go to the AI units once declined (here through the MDT's own request).
+      if (c.offeredTo === s.dispatcher.playerCallsign) app.mdt.declineCall(c.id);
+      unit = c.units.find((u) => u !== s.dispatcher.playerCallsign) ?? null;
+      if (unit === null) step(30);
+    }
+    const u0 = unit ? s.cad.unit(unit) : null;
+    const from = u0 ? { x: u0.x, z: u0.z } : null;
+    const fs = { eid: 0, x: 0, z: 0, yaw: 0, speed: 0, edge: 0, mode: 'patrol', arrived: false, parked: false, routeLeftM: -1 };
+    const left0 = u0 ? (s.traffic.fleetState(u0.fleetIndex, fs)?.routeLeftM ?? -1) : -1;
+    step(60 * 20);
+    const u1 = unit ? s.cad.unit(unit) : null;
+    const left1 = u1 ? (s.traffic.fleetState(u1.fleetIndex, fs)?.routeLeftM ?? -1) : -1;
+    return {
+      generated: s.dispatcher.stats.generated - before,
+      simSeconds: Math.round(steps / 60),
+      call: `${call.number} P${call.priority} ${call.nature} at ${call.location.text}`,
+      callNumber: call.number,
+      unit,
+      status: u1?.status ?? null,
+      mode: fs.mode,
+      moved: from && u1 ? Math.round(Math.hypot(u1.x - from.x, u1.z - from.z)) : 0,
+      left0: Math.round(left0),
+      left1: Math.round(left1),
+    };
+  }, stepSim.toString());
+  console.log('call flow:', JSON.stringify(callFlow));
+  check(callFlow.generated > 0 && typeof callFlow.callNumber === 'string', `the generator created a call (${callFlow.call ?? 'none'}, after ${callFlow.simSeconds} sim s)`);
+  check(callFlow.unit !== null && callFlow.unit !== undefined, `an AI unit was dispatched to it (${callFlow.unit ?? 'none'}, ${callFlow.status ?? '-'})`);
+  check(
+    callFlow.moved > 30 && (callFlow.left1 < callFlow.left0 || callFlow.status === 'onScene'),
+    `the AI unit drove towards the call (${callFlow.mode}, moved ${callFlow.moved} m, route left ${callFlow.left0} m -> ${callFlow.left1} m)`,
+  );
+
+  // --- The MDT opens with Tab (driving a patrol car), shows the queue, and closes with Escape without pausing ---
+  await press(page, 'Tab');
+  await waitFor(page, () => window.patrol.mdt?.isOpen === true, null, 10000);
+  const mdtOpen = await page.evaluate(async (callNumber) => {
+    const app = window.patrol;
+    const steps0 = app.loop.step;
+    await new Promise((r) => setTimeout(r, 2500));
+    const root = app.mdt.element;
+    return {
+      open: app.mdt.isOpen,
+      paused: app.loop.paused,
+      advanced: app.loop.step - steps0,
+      tab: app.mdt.tab,
+      queueHasCall: callNumber !== null && root.textContent.includes(callNumber),
+      covered: getComputedStyle(root).display !== 'none',
+      // Non-pausing overlays get the light, blur-free layer (Menu.pausesGame === false).
+      live: root.closest('.menu-layer')?.classList.contains('menu-layer-live') === true,
+    };
+  }, callFlow.callNumber ?? null);
+  console.log('MDT open:', JSON.stringify(mdtOpen));
+  check(mdtOpen.open && mdtOpen.tab === 'queue', 'Tab opens the MDT on the Queue tab');
+  check(
+    !mdtOpen.paused && mdtOpen.advanced > 0 && mdtOpen.live,
+    `the world keeps running behind the MDT (not paused, ${mdtOpen.advanced} steps, ${mdtOpen.live ? 'live layer' : 'dimmed layer'})`,
+  );
+  check(mdtOpen.queueHasCall, `the generated call is in the MDT queue (${callFlow.callNumber ?? '-'})`);
+  await page.evaluate(() => window.patrol.mdt.setTab('map'));
+  await sleep(1200);
+  await mkdir(SHOTS, { recursive: true });
+  await page.screenshot({ path: path.join(SHOTS, 'phase2-mdt.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase2-mdt.png')}`);
+  const frameMdt = await page.evaluate(frameBreakdown, 5);
+  await page.evaluate(() => window.patrol.mdt.setTab('queue'));
+  await press(page, 'Escape');
+  await waitFor(page, () => window.patrol.mdt?.isOpen === false, null, 10000);
+  const mdtClosed = await page.evaluate(() => ({ open: window.patrol.mdt.isOpen, paused: window.patrol.loop.paused, stack: window.patrol.ui.menuStack.map((m) => m.id) }));
+  check(!mdtClosed.open && !mdtClosed.paused && mdtClosed.stack.length === 0, `Escape closes the MDT without opening the pause menu (stack: ${mdtClosed.stack.join(',') || 'empty'})`);
+
+  // --- Siren, tone, lights, pattern and spotlight keys ------------------------------------------
+  await press(page, 'KeyQ');
+  await press(page, 'KeyR');
+  await press(page, 'KeyL');
+  await press(page, 'KeyK');
+  await press(page, 'KeyJ');
+  await waitFor(page, () => /SIREN YELP/.test(document.querySelector('#hud')?.textContent ?? ''), null, 8000);
+  const kit = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const eq = s.drivenEquipment;
+    const hud = document.querySelector('#hud')?.textContent ?? document.body.textContent;
+    return {
+      siren: eq.sirenOn,
+      tone: eq.tone,
+      lights: s.drivenVehicle.lightbar,
+      pattern: eq.pattern,
+      spot: eq.spotOn,
+      hudPolice: /SIREN YELP/.test(hud) && /SPOT/.test(hud),
+      audio: { available: app.audio.available, unlocked: app.audio.unlocked, voices: app.audio.stats.voices, active: app.audio.stats.active },
+    };
+  });
+  console.log('equipment keys:', JSON.stringify(kit));
+  check(kit.siren && kit.tone === 'yelp', `Q switches the siren on, R cycles the tone (${kit.tone})`);
+  check(kit.lights && kit.pattern === 1, `L switches the light bar on, K cycles the pattern (index ${kit.pattern})`);
+  check(kit.spot, 'J switches the spotlight on');
+  check(kit.hudPolice, 'HUD police line shows the siren tone and the spotlight');
+  check(!kit.audio.available || (kit.audio.unlocked && kit.audio.active >= 1), `siren audio plays in the cabin (${kit.audio.active}/${kit.audio.voices} voices)`);
+  await press(page, 'KeyQ'); // siren off: lights alone stop a car (lights + siren make traffic yield)
+
+  // --- Traffic stop: lights behind a car ------------------------------------------------------
+  const stop = await page.evaluate((stepSrc) => {
+    const step = new Function(`return ${stepSrc}`)();
+    const app = window.patrol;
+    const s = app.session;
+    const car = s.drivenVehicle;
+    car.lightbar = false;
+    const g = s.city.graph;
+    const lane = 58 * 16; // laneRef(58, 0, 0): a straight arterial curb lane
+    const s0 = g.laneStart(lane) + 40;
+    const p = g.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+    app.teleport(p.x, p.z, p.yaw);
+    step(30);
+    const slot = s.traffic.spawnAt(lane, s0 + 14, { speed: 6, behavior: 0, desiredFactor: 1 });
+    const vehicleId = s.traffic.view.vehicleId[slot];
+    car.lightbar = true;
+    let n = 0;
+    while (s.cad.trafficStop === null && n < 900) {
+      step(1);
+      n++;
+    }
+    const st = s.cad.trafficStop;
+    return { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1 };
+  }, stepSim.toString());
+  console.log('traffic stop:', JSON.stringify(stop));
+  check(stop.active && stop.stopVehicle === stop.vehicleId, `the car ahead pulled over for the light bar (${stop.plate}, ${stop.seconds} s)`);
+
+  // Get out and stand behind the stopped car looking at it: the reticle locks it and P runs its plate.
+  await page.evaluate((stepSrc) => {
+    const step = new Function(`return ${stepSrc}`)();
+    const s = window.patrol.session;
+    s.driverInput.brake = 1;
+    for (let i = 0; i < 300 && s.drivenVehicle.telemetry.groundSpeed > 0.3; i++) step(1);
+    s.driverInput.brake = 0;
+  }, stepSim.toString());
+  await press(page, 'KeyE');
+  await waitFor(page, () => window.patrol.session.driving === false, null, 10000);
+  await page.evaluate((stepSrc) => {
+    const step = new Function(`return ${stepSrc}`)();
+    const s = window.patrol.session;
+    const st = s.traffic.stopState({ vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 });
+    // 7 m behind the car (its rear is +z in its frame), facing the way it faces.
+    s.physics.getBody(s.player).setTranslation({ x: st.x + 7 * Math.sin(st.yaw), y: 0.9, z: st.z + 7 * Math.cos(st.yaw) }, true);
+    s.controller.yaw = st.yaw;
+    s.controller.pitch = 0.15;
+    step(2);
+  }, stepSim.toString());
+  const locked = await waitFor(page, (id) => window.patrol.target?.vehicleId === id, stop.vehicleId, 10000);
+  check(Boolean(locked), `the reticle locks the stopped car (${await page.evaluate(() => window.patrol.target?.plate ?? 'none')})`);
+  await press(page, 'KeyP');
+  await waitFor(page, () => window.patrol.session.cad.trafficStop?.plateRun === true, null, 15000);
+  const plateRun = await page.evaluate((id) => {
+    const app = window.patrol;
+    const run = app.policeFeed.plateRun(id);
+    return { plateRun: app.session.cad.trafficStop?.plateRun ?? false, result: run?.result ?? '', severity: run?.severity ?? 'none' };
+  }, stop.vehicleId);
+  console.log('plate run:', JSON.stringify(plateRun));
+  check(plateRun.plateRun && plateRun.result !== '', `P ran the stopped car's plate (${plateRun.result}, ${plateRun.severity})`);
+  await waitFor(page, (plate) => (document.querySelector('#hud')?.textContent ?? '').includes(plate), stop.plate, 5000);
+  const hudTarget = await page.evaluate((plate) => (document.querySelector('#hud')?.textContent ?? '').includes(plate), stop.plate);
+  check(hudTarget, `HUD target line shows the plate and its result (${stop.plate})`);
+
+  // Walk to the driver window and use the contact panel: licence, then write a citation in the MDT.
+  const atWindow = await page.evaluate((stepSrc) => {
+    const step = new Function(`return ${stepSrc}`)();
+    const s = window.patrol.session;
+    const st = s.traffic.stopState({ vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 });
+    // Driver door / window: left side (local -x), a third back from the front, just outside the body (sedan-sized).
+    const lx = -(0.95 + 0.4);
+    const lz = -2.3 / 3;
+    const x = st.x + lx * Math.cos(st.yaw) + lz * Math.sin(st.yaw);
+    const z = st.z - lx * Math.sin(st.yaw) + lz * Math.cos(st.yaw);
+    s.physics.getBody(s.player).setTranslation({ x, y: 0.9, z }, true);
+    step(2);
+    return { hint: s.interactHint(), phase: st.phase };
+  }, stepSim.toString());
+  check(atWindow.hint === 'driver', `on foot at the stopped car's window the prompt offers the driver (${atWindow.hint ?? 'none'})`);
+  await press(page, 'KeyE');
+  await waitFor(page, () => window.patrol.panels.kind === 'contact', null, 10000);
+  const contact = await page.evaluate(() => ({ kind: window.patrol.panels.kind, text: document.querySelector('.panel-action')?.textContent ?? '' }));
+  check(contact.kind === 'contact' && contact.text.includes('Request licence'), 'E opens the driver contact panel');
+  await press(page, 'Digit1'); // Request licence
+  await waitFor(page, () => (window.patrol.session.cad.trafficStop?.driverId ?? -1) >= 0, null, 15000);
+  await press(page, 'Digit3'); // Write citation -> MDT citation form
+  await waitFor(page, () => window.patrol.mdt?.isOpen === true && window.patrol.mdt.formKind === 'citation', null, 10000);
+  await page.getByRole('button', { name: 'Add violation' }).click();
+  await page.getByRole('button', { name: 'Issue citation' }).click();
+  await waitFor(page, () => window.patrol.session.cad.docs.list('citation').some((d) => d.status === 'final'), null, 10000);
+  await waitFor(page, () => (window.patrol.session.cad.trafficStop?.citations.length ?? 0) > 0, null, 15000);
+  const citation = await page.evaluate(() => {
+    const app = window.patrol;
+    const doc = app.session.cad.docs.list('citation').find((d) => d.status === 'final');
+    return { id: doc?.id ?? '', total: doc?.totalFine ?? 0, violations: doc?.violations.map((v) => v.statuteId) ?? [], person: doc?.personId ?? -1, message: app.mdt.message, onStop: app.session.cad.trafficStop?.citations ?? [] };
+  });
+  console.log('citation:', JSON.stringify(citation));
+  check(citation.id !== '' && citation.violations.length > 0 && citation.onStop.includes(citation.id), `citation ${citation.id} issued from the MDT ($${citation.total}, ${citation.violations.join(', ')})`);
+  await press(page, 'Escape');
+  await waitFor(page, () => window.patrol.ui.isMenuOpen() === false, null, 10000);
+  // Release the driver from the contact panel.
+  await press(page, 'KeyE');
+  await waitFor(page, () => window.patrol.panels.kind === 'contact', null, 10000);
+  await press(page, 'Digit5');
+  await waitFor(page, () => window.patrol.session.cad.trafficStop?.outcome === 'released', null, 15000);
+  const released = await page.evaluate((callId) => {
+    const s = window.patrol.session;
+    return { outcome: s.cad.trafficStop?.outcome ?? '', disposition: s.cad.call(callId)?.disposition ?? null, menus: window.patrol.ui.menuStack.length };
+  }, stop.callId);
+  check(released.outcome === 'released' && released.disposition === 'citationIssued', `released: the stop call closed as ${released.disposition}`);
+
+  // --- Radio log ------------------------------------------------------------------------------
+  const radio = await page.evaluate(() => {
+    const app = window.patrol;
+    return {
+      lines: app.radioPanel.lines.length,
+      shown: document.querySelectorAll('.radio-line:not([hidden])').length,
+      log: app.session.radio.log.length,
+      sample: app.radioPanel.lines.slice(-3).map((l) => `${l.clock} ${l.channel} ${l.speaker}: ${l.text}`),
+    };
+  });
+  console.log('radio:', JSON.stringify(radio));
+  check(radio.lines > 0 && radio.shown > 0 && radio.log > 0, `radio log has lines (${radio.lines} in the panel, ${radio.log} in the log)`);
+
+  // --- Phase 2 console commands -----------------------------------------------------------------
+  const commands = await page.evaluate(async () => {
+    const app = window.patrol;
+    const c = app.console;
+    const run = async (line) => {
+      const before = c.lines.length;
+      await c.execute(line);
+      return c.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    const out = [];
+    const plate = app.session.records.registration(4711).plate;
+    for (const line of ['cad call alarm', 'cad units', 'cad calls', `lookup plate ${plate}`, 'lookup person 17', 'radio say Smoke test, radio check', 'radio channel tac', 'radio channel dispatch', 'siren wail', 'siren off', 'lights quad', 'equip', 'platestates 1', 'dispatch stats', 'dispatch units', 'fleet', 'docs']) {
+      out.push(...(await run(line)));
+    }
+    return out;
+  });
+  console.log('phase 2 console commands:\n  ' + commands.join('\n  '));
+  check(!commands.some((l) => l.startsWith('error:')), 'Phase 2 console commands ran without errors');
+
+  // --- Save / load v4 keeps CAD, records, radio and equipment -----------------------------------
+  const saveLoad = await page.evaluate(async () => {
+    const app = window.patrol;
+    const snap = () => {
+      const s = app.session;
+      return {
+        calls: s.cad.calls().map((c) => `${c.number}:${c.status}`).join(','),
+        docs: s.cad.docs.list().map((d) => `${d.id}:${d.status}`).join(','),
+        records: JSON.stringify(s.records.serialize()),
+        radio: `${s.radio.selected}:${s.radio.scanning}:${s.radio.log.length}`,
+        equipment: JSON.stringify(s.vehicles.map((v) => s.equipmentOf(v)?.serialize() ?? null)),
+        kit: JSON.stringify(s.officerKit.serialize()),
+        units: s.cad.units().map((u) => `${u.callsign}:${u.status}`).join(','),
+      };
+    };
+    app.session.radio.toggleScan();
+    const before = snap();
+    await app.saveGame('smoke-phase2');
+    const list = await app.saves.list();
+    await app.loadGame('smoke-phase2');
+    const after = snap();
+    return { before, after, slot: list.find((x) => x.slot === 'smoke-phase2')?.version ?? -1 };
+  });
+  const same = (k) => saveLoad.before[k] === saveLoad.after[k];
+  console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
+  check(saveLoad.slot === 4, `saved as v4 (${saveLoad.slot})`);
+  check(same('calls') && same('docs') && same('units'), 'save/load v4 keeps the CAD (calls, units, documents)');
+  check(same('records'), 'save/load v4 keeps the records (touched persons and vehicles, contacts, query log)');
+  check(same('radio'), `save/load v4 keeps the radio (${saveLoad.after.radio})`);
+  check(same('equipment') && same('kit'), 'save/load v4 keeps the patrol car equipment, trunk and the officer kit');
+
+  // --- Cockpit with the in-car MDT --------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    if (!app.session.driving) app.enterVehicle(0);
+    app.rig.setVehicleMode(3); // CAMERA_MODE.cockpit
+    app.session.cameraMode = 3;
+    app.rig.orbitYaw.value = -0.42; // look right, at the laptop (private in TypeScript)
+    app.rig.orbitPitch.value = 0.12;
+  });
+  await sleep(4000);
+  const cockpit = await page.evaluate(() => ({
+    mode: window.patrol.rig.mode,
+    drawCalls: window.patrol.cockpit?.stats.drawCalls ?? 0,
+    screen: window.patrol.mdtScreen.canvas !== null,
+  }));
+  if (hasRenderer) check(cockpit.mode === 3 && cockpit.drawCalls > 0 && cockpit.drawCalls <= 6, `cockpit interior drawn in cockpit view (${cockpit.drawCalls} draw calls)`);
+  await page.screenshot({ path: path.join(SHOTS, 'phase2.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase2.png')}`);
+  const perf = await page.evaluate(perfSnapshot);
+  const frameCockpit = await page.evaluate(frameBreakdown, 5);
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.rig.setVehicleMode(1);
+    app.session.cameraMode = 1;
+    app.perf.setVisible(true);
+  });
+  return { perf, frameCockpit, frameMdt };
 }
 
 async function run() {
@@ -427,7 +812,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v3'), "slot 'smoke' listed as a v3 save");
+    check(saveLoad.slots.includes('smoke v4'), "slot 'smoke' listed as a v4 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);
@@ -485,6 +870,8 @@ async function run() {
       check(fixes.viewShort < fixes.viewDefault, `draw distance drives the view/streaming distance (${fixes.viewShort} m < ${fixes.viewDefault} m)`);
     }
 
+    const phase2Perf = await phase2(page, hasRenderer);
+
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
     console.log('perf night/rain:', JSON.stringify(perfNight));
@@ -495,6 +882,9 @@ async function run() {
     console.log(describe('on foot, day:', frameOnFoot));
     console.log(describe('driving, night + rain:', frameNight));
     console.log(describe('driving, night + rain, scale 0.5:', frameHalfScale));
+    console.log(describe('cockpit + in-car MDT, day:', phase2Perf.frameCockpit));
+    console.log(describe('MDT overlay open, day:', phase2Perf.frameMdt));
+    console.log('perf phase 2 (cockpit):', JSON.stringify(phase2Perf.perf));
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
   } finally {

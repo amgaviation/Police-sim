@@ -209,7 +209,8 @@ export class UIRoot {
   private layerFor(menu: Menu): HTMLElement {
     let layer = this.layers.get(menu);
     if (!layer) {
-      layer = el('div', { class: 'menu-layer', dataset: { menu: menu.id } }, menu.element);
+      const live = menu.pausesGame === false ? ' menu-layer-live' : '';
+      layer = el('div', { class: `menu-layer${live}`, dataset: { menu: menu.id } }, menu.element);
       this.layers.set(menu, layer);
     }
     return layer;
