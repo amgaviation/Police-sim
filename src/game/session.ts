@@ -727,10 +727,11 @@ export class GameSession {
   interactHint(): InteractHint {
     const driven = this.drivenVehicle;
     if (driven) return driven.telemetry.groundSpeed <= EXIT_MAX_SPEED ? 'exit' : null;
+    // An escorted prisoner at a rear door comes first: the door is often within reach of the driver door.
+    if (this.cageCarIndex() >= 0) return 'cage';
     const service = this.pumpService();
     if (service) return service;
     if (this.enterableVehicle()) return 'enter';
-    if (this.cageCarIndex() >= 0) return 'cage';
     if (this.atStoppedDriver()) return 'driver';
     if (this.talkTarget() !== null) return 'talk';
     return this.trunkVehicle() ? 'trunk' : null;
@@ -744,6 +745,11 @@ export class GameSession {
   interact(): InteractResult {
     this.assertLive();
     if (this.driving) return this.exitVehicle();
+    const cage = this.cageCarIndex();
+    if (cage >= 0) {
+      this.contact.request({ kind: 'cage', vehicleIndex: cage });
+      return 'cage';
+    }
     const service = this.pumpService();
     const target = this.lastVehicle;
     if (service && target) {
@@ -753,11 +759,6 @@ export class GameSession {
     }
     const vehicle = this.enterableVehicle();
     if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
-    const cage = this.cageCarIndex();
-    if (cage >= 0) {
-      this.contact.request({ kind: 'cage', vehicleIndex: cage });
-      return 'cage';
-    }
     const stop = this.cad.trafficStop;
     if (stop && this.atStoppedDriver()) {
       // The driver (seat 0) of the stopped car; the dialogue opens when the contact module's next step applies this.
