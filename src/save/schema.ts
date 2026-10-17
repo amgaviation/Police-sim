@@ -1,15 +1,21 @@
+import { isCadSave, type CadSave } from '../cad/cadState';
 import type { RngState } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
+import { isDispatchSave, type DispatchSave } from '../dispatch/save';
 import { isEnvironmentSave, type EnvironmentSave } from '../environment/environment';
 import { CAMERA_MODE } from '../player/cameraRig';
 import type { PlayerModeName } from '../player/events';
+import { isEquipmentSave, type EquipmentSave } from '../police/equipment';
+import { isOfficerKitSave, type OfficerKitSave } from '../police/inventory';
+import { isRadioSave, type RadioSave } from '../radio/save';
+import { isRecordsSave, type RecordsSave } from '../records/db';
 import type { TrafficViolationKind } from '../traffic/events';
 import { isTrafficSnapshot, type TrafficSnapshot } from '../traffic/trafficSystem';
 import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 3;
+export const CURRENT_SAVE_VERSION = 4;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -99,8 +105,28 @@ export interface SaveGameV3 {
   environment: EnvironmentSave;
 }
 
+/** Last speeding reading per observed vehicle: [vehicleId, speedMph, limitMph] (citation prefill). */
+export type SavedSpeeding = Array<[number, number, number]>;
+
+/**
+ * v4 (Phase 2): the patrol job. CAD (calls, units, documents, traffic stop), the dispatcher (null in
+ * migrated saves: a fresh roster and fleet start at load), touched records with the shift's overlay,
+ * the radio, each drivable vehicle's patrol equipment (`equipment[i]` belongs to `vehicles[i]`; null
+ * for a car without equipment, or defaults) and what the officer carries.
+ */
+export interface SaveGameV4 extends SaveGameV3 {
+  cad: CadSave;
+  dispatch: DispatchSave | null;
+  records: RecordsSave;
+  radio: RadioSave;
+  equipment: (EquipmentSave | null)[];
+  officerKit: OfficerKitSave;
+  /** Last speeding readings (citation prefill); optional. */
+  speeding?: SavedSpeeding;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV3;
+export type SaveGame = SaveGameV4;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -255,8 +281,32 @@ export function isSaveGameV3(x: unknown): x is SaveGameV3 {
   );
 }
 
+/** One `[vehicleId, speedMph, limitMph]` entry of `SaveGameV4.speeding`. */
+function isSpeedingEntry(x: unknown): boolean {
+  return Array.isArray(x) && x.length === 3 && isUint32(x[0]) && inRange(x[1], 0, Number.MAX_VALUE) && inRange(x[2], 0, Number.MAX_VALUE);
+}
+
+/** Structural check for the v4 payload: v3 plus every Phase 2 block (each module's own validator). */
+export function isSaveGameV4(x: unknown): x is SaveGameV4 {
+  if (!isSaveGameV3(x)) return false;
+  const v4 = x as unknown as Record<string, unknown>;
+  const equipment = v4['equipment'];
+  const speeding = v4['speeding'];
+  return (
+    isCadSave(v4['cad']) &&
+    (v4['dispatch'] === null || isDispatchSave(v4['dispatch'])) &&
+    isRecordsSave(v4['records']) &&
+    isRadioSave(v4['radio']) &&
+    Array.isArray(equipment) &&
+    equipment.length === x.vehicles.length &&
+    equipment.every((e) => e === null || isEquipmentSave(e)) &&
+    isOfficerKitSave(v4['officerKit']) &&
+    (speeding === undefined || (Array.isArray(speeding) && speeding.every(isSpeedingEntry)))
+  );
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV3;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV4;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

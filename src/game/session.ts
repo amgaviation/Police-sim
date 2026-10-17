@@ -1,9 +1,14 @@
 import RAPIER, { type Collider, type KinematicCharacterController, type RigidBody } from '@dimforge/rapier3d-compat';
 import type { EntityId } from 'bitecs';
+import { addressOnEdge } from '../cad/address';
+import { CadState } from '../cad/cadState';
+import '../cad/events';
+import type { RadioMode } from '../cad/types';
 import type { EventMap } from '../core/event-map';
 import { EventBus } from '../core/events';
 import { createRng, normalizeSeed, rngFromState, type Rng } from '../core/rng';
 import { GameClock } from '../core/time';
+import { Dispatcher, type PlayerUnitState } from '../dispatch/dispatcher';
 import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
 import type { System, SystemRegistry } from '../ecs/systems';
 import { advanceTime, despawn, spawn, type GameWorld } from '../ecs/world';
@@ -11,13 +16,27 @@ import { Environment } from '../environment/environment';
 import { PhysicsWorld, type Vec3 } from '../physics/physics';
 import { CAMERA_MODE, type VehicleCameraModeId } from '../player/cameraRig';
 import type { DriverInput } from '../player/driverInput';
-import { EXIT_MAX_SPEED, PLAYER_MODE, PLAYER_MODE_NAMES, PlayerModeMachine, exitPoint, findEnterable } from '../player/mode';
+import { EXIT_MAX_SPEED, PLAYER_MODE, PLAYER_MODE_NAMES, PlayerModeMachine, driverDoorPoint, exitPoint, findEnterable } from '../player/mode';
+import { attachPoliceLights } from '../police/components';
+import { PatrolEquipment, type EquipmentSave } from '../police/equipment';
+import { OfficerKit, type OfficerKitSave } from '../police/inventory';
+import { RadioSystem } from '../radio/radioSystem';
+import { epochDayOfGameSeconds } from '../records/calendar';
+import { RecordsDb, homeEdgesOf } from '../records/db';
 import type { MeshRegistry } from '../render/meshSync';
-import type { SaveEnvelope, SaveGame, SavedVehicle, SavedViolations, SerializedEntity } from '../save/schema';
+import type { SaveEnvelope, SaveGame, SavedSpeeding, SavedVehicle, SavedViolations, SerializedEntity } from '../save/schema';
 import type { TrafficViolationEvent, TrafficViolationKind } from '../traffic/events';
 import { vehicleRecord } from '../traffic/registry';
 import { DENSITY } from '../traffic/data';
-import { MAX_PARKED_OBSTACLES, TRAFFIC_STATE, TrafficSystem, type TrafficFocus, type TrafficParked } from '../traffic/trafficSystem';
+import {
+  MAX_PARKED_OBSTACLES,
+  TRAFFIC_STATE,
+  TrafficSystem,
+  isFleetVehicleId,
+  type StopState,
+  type TrafficFocus,
+  type TrafficParked,
+} from '../traffic/trafficSystem';
 import { VehicleLook, attachDrivable, attachVehicleLook } from '../vehicles/components';
 import { mapDriverInput, type DriverControls } from '../vehicles/controls';
 import { DrivableVehicle, type VehicleEnvironment, type VehiclePose } from '../vehicles/drivableVehicle';
@@ -27,6 +46,7 @@ import { WorldColliders } from '../world/colliders';
 import { MPH, WORLD_HALF_SIZE, WORLD_WALL } from '../world/constants';
 import { LANDMARKS } from '../world/data';
 import { generateCity } from '../world/generate';
+import { DISTRICT_NAMES } from '../world/ids';
 import { stationLayout } from '../world/stationLayout';
 import { PlayerController, moveVelocity, yawFromQuaternion, yawQuaternion, type MoveInput } from './playerController';
 import { BOX_SIZE, layoutDropLattice, nextBoxColor } from './sceneLayout';
@@ -40,6 +60,8 @@ export interface GameContext {
   bus?: EventBus<EventMap>;
   /** The city for this seed when the caller already has it (`generateCity` is pure); generated otherwise. */
   city?: City;
+  /** Radio language (settings `audio.radioMode`), read when the radio composes; ten-codes without it. */
+  radioMode?: () => RadioMode;
 }
 
 /** Rigid-body motion state restored onto a spawned body (saves). */
@@ -55,10 +77,13 @@ export interface SessionSystem {
   readonly order: number;
 }
 
-/** Outcome of `GameSession.interact()`. */
-export type InteractResult = 'none' | 'entered' | 'exited' | 'refuelled' | 'repaired' | 'exitBlocked' | 'tooFast';
+/**
+ * Outcome of `GameSession.interact()`. `trunk` and `contact` ask the caller to open the trunk panel of
+ * `trunkVehicle()` or the traffic-stop driver contact panel (design §13.4).
+ */
+export type InteractResult = 'none' | 'entered' | 'exited' | 'refuelled' | 'repaired' | 'exitBlocked' | 'tooFast' | 'trunk' | 'contact';
 /** What `interact` would do right now (HUD prompt). */
-export type InteractHint = 'enter' | 'exit' | 'refuel' | 'repair' | null;
+export type InteractHint = 'enter' | 'exit' | 'refuel' | 'repair' | 'trunk' | 'driver' | null;
 
 /** One ambient traffic car for the `traffic list` command. */
 export interface TrafficCarRow {
@@ -126,6 +151,18 @@ const SEAT_X = -0.22;
 const SEAT_Z = -0.05;
 /** An unoccupied vehicle holds its handbrake. */
 const PARKED: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: true };
+/** On foot within this distance (m) of a patrol car's rear centre: the trunk (design §13.4). */
+export const TRUNK_DISTANCE = 1.6;
+/** On foot within this distance (m) of the stopped car's driver window: driver contact. */
+export const DRIVER_CONTACT_DISTANCE = 1.8;
+/** On foot within this distance (m) of a patrol car's driver door: its MDT. */
+export const MDT_REACH_DISTANCE = 3;
+/** An arrest needs a patrol car with an empty cage within this distance (m). */
+export const ARREST_CAR_DISTANCE = 40;
+/** The station counts from this far outside its block (m) (booking). */
+const STATION_MARGIN = 8;
+/** Below this speed (m/s) the driven car counts as stopped (rack lock). */
+export const STOPPED_SPEED = 0.5;
 
 /** Officer placeholder until a later phase has a character setup screen. */
 const DEFAULT_OFFICER = { name: 'Officer Doe', badge: '4071' };
@@ -134,6 +171,8 @@ const scratchVel: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchVec: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchQuat: Quat = { x: 0, y: 0, z: 0, w: 1 };
 const scratchPoint = { x: 0, z: 0 };
+const scratchDoor = { x: 0, z: 0 };
+const scratchStop: StopState = { vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 };
 
 /** Heading (yaw about +Y, 0 = facing -Z) of a rotation's forward axis, ignoring pitch and roll. */
 export function headingOf(qx: number, qy: number, qz: number, qw: number): number {
@@ -177,8 +216,20 @@ export class GameSession {
   readonly traffic: TrafficSystem;
   readonly modes: PlayerModeMachine;
   readonly bus: EventBus<EventMap>;
+  /** Calls, units (AVL), documents and the traffic-stop context (design §6). */
+  readonly cad: CadState;
+  /** Persons, registrations, plates and BOLOs (design §5). */
+  readonly records: RecordsDb;
+  /** Call generator, AI units, requests, status checks (design §8); fixed step -700. */
+  readonly dispatcher: Dispatcher;
+  /** Channels, composer, ambient chatter (design §9); fixed step -650. */
+  readonly radio: RadioSystem;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
+  /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
+  readonly sirenHeld = { horn: false, manual: false };
+  /** The player as the dispatcher sees it (updated every fixed step). */
+  readonly playerUnit: PlayerUnitState = { x: 0, z: 0, speed: 0, inPoliceVehicle: false };
   /** Fixed-step systems to register next to the app's (environment, colliders, vehicles, traffic). */
   readonly systems: readonly SessionSystem[];
   /** Camera mode used while driving (saved as `camera.mode`). */
@@ -192,6 +243,16 @@ export class GameSession {
   private readonly vehicleList: DrivableVehicle[] = [];
   /** Each vehicle's own `'vehicle:<slot>'` stream (same index as `vehicleList`). */
   private readonly vehicleRngs: Rng[] = [];
+  /** Patrol equipment of each vehicle (same index as `vehicleList`; null for a model without `equipment`). */
+  private readonly equipmentList: (PatrolEquipment | null)[] = [];
+  /** What the officer carries (trunk items, a checked-out long gun). */
+  private kit = new OfficerKit();
+  /** Sim and game time of the current fixed step (dispatch, radio). */
+  private readonly cadTime = { sim: 0, game: 0 };
+  /** Last speeding reading per vehicle id (citation prefill). */
+  private readonly speedLog = new Map<number, { speedMph: number; limitMph: number }>();
+  /** The station's block, grown by `STATION_MARGIN` (booking); null without a station. */
+  private readonly stationRect: readonly [number, number, number, number] | null;
   private lastVehicleEid: EntityId = 0;
   /** H toggle; null follows the automatic headlights until they switch. */
   private headlightOverride: boolean | null = null;
@@ -257,11 +318,49 @@ export class GameSession {
       bus: this.bus,
     });
     const city = this.city;
+    const graph = city.graph;
+    // Phase 2 (design §21): CAD first, then records, the dispatcher and the radio on top of it.
+    this.cad = new CadState(this.bus);
+    const districtOf = (x: number, z: number): string => DISTRICT_NAMES[city.districtAt(x, z)] ?? '';
+    this.records = new RecordsDb(seed, {
+      homeEdges: homeEdgesOf(city),
+      // `t` is a 0..1 fraction along the edge; the address formatter takes metres.
+      formatAddress: (edge, t) => addressOnEdge(graph, edge, t * (graph.edges[edge]?.length ?? 0), districtOf).text,
+      today: () => epochDayOfGameSeconds(this.env.time.totalSeconds),
+    });
+    this.dispatcher = new Dispatcher({
+      seed,
+      city,
+      cad: this.cad,
+      records: this.records,
+      traffic: this.traffic,
+      world: ctx.world,
+      bus: this.bus,
+      rng: rng.stream('dispatch'),
+    });
+    const radioMode = ctx.radioMode ?? ((): RadioMode => 'tenCode');
+    this.radio = new RadioSystem({
+      seed,
+      rng: rng.stream('radio'),
+      bus: this.bus,
+      cad: this.cad,
+      graph,
+      playerCallsign: this.dispatcher.playerCallsign,
+      mode: radioMode,
+    });
+    this.stationRect = stationRectOf(city);
     this.vehicleEnv = { surfaceAt: (x, z) => city.surfaceAt(x, z), wetness: 0, snowCover: 0, ambientC: 20 };
     const pumps = fuelPumps(city);
     this.pumps = pumps.xz;
     this.stationPumps = pumps.station;
-    this.unsubscribe = this.bus.on('traffic:violation', (e) => this.logViolation(e));
+    const offViolation = this.bus.on('traffic:violation', (e) => this.logViolation(e));
+    const offArrest = this.bus.on('dispatch:arrest', (e) => {
+      this.seatPrisoner(e.personId);
+    });
+    this.unsubscribe = () => {
+      offViolation();
+      offArrest();
+    };
     this.mover = ctx.physics.raw.createCharacterController(OFFICER_SKIN);
     this.mover.disableSnapToGround();
     this.mover.setApplyImpulsesToDynamicBodies(false);
@@ -273,6 +372,8 @@ export class GameSession {
     this.systems = [
       { order: -900, system: { name: 'environment', run: () => this.env.update(this.clock.simTime) } },
       { order: -800, system: { name: 'colliders', run: () => this.updateColliders() } },
+      { order: -700, system: { name: 'dispatch', run: (_world, dt) => this.stepDispatch(dt) } },
+      { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
       { order: 40, system: { name: 'vehicles.pre', run: (_world, dt) => this.preStepVehicles(dt) } },
       { order: 50, system: { name: 'traffic', run: (_world, dt) => this.stepTraffic(dt) } },
       { order: 110, system: { name: 'vehicles.post', run: (_world, dt) => this.postStepVehicles(dt) } },
@@ -315,6 +416,49 @@ export class GameSession {
   /** The vehicle the officer drove last (or is driving); refuelling and the headlight spots use it. */
   get lastVehicle(): DrivableVehicle | null {
     return this.vehicleOf(this.lastVehicleEid);
+  }
+
+  /** What the officer carries on foot (trunk items, a checked-out long gun). */
+  get officerKit(): OfficerKit {
+    return this.kit;
+  }
+
+  /** Patrol equipment of `vehicle`, null for a model without `equipment` (or a vehicle of another session). */
+  equipmentOf(vehicle: DrivableVehicle | null): PatrolEquipment | null {
+    if (!vehicle) return null;
+    const i = this.vehicleList.indexOf(vehicle);
+    return i < 0 ? null : (this.equipmentList[i] ?? null);
+  }
+
+  /** Equipment of the driven patrol car, null on foot or in a car without equipment. */
+  get drivenEquipment(): PatrolEquipment | null {
+    return this.equipmentOf(this.drivenVehicle);
+  }
+
+  /** Equipment of the driven (else the last-driven) patrol car: console commands, HUD, panels. */
+  get lastEquipment(): PatrolEquipment | null {
+    return this.equipmentOf(this.drivenVehicle ?? this.lastVehicle);
+  }
+
+  /** The driven car is a patrol car (its model has `equipment`). */
+  get inPatrolCar(): boolean {
+    return this.drivenVehicle?.model.equipment != null;
+  }
+
+  /** Sim and game time now (CAD timestamps). */
+  now(): { sim: number; game: number } {
+    return { sim: this.clock.simTime, game: this.env.time.totalSeconds };
+  }
+
+  /** Last speeding reading the player observed for `vehicleId` (citation prefill), null when none. */
+  observedSpeed(vehicleId: number): { speedMph: number; limitMph: number } | null {
+    const s = this.speedLog.get(vehicleId);
+    return s ? { speedMph: s.speedMph, limitMph: s.limitMph } : null;
+  }
+
+  /** Violations the player observed for `vehicleId`: kind -> count. */
+  observedViolations(vehicleId: number): Partial<Record<TrafficViolationKind, number>> {
+    return { ...this.violationLog.get(vehicleId) };
   }
 
   /** Boxes that can still be spawned before the render pool is full; a slot stays free for the officer while driving. */
@@ -399,7 +543,7 @@ export class GameSession {
     this.assertLive();
     const rng = this.rng.stream(`vehicle:${String(this.vehicleList.length)}`);
     const color = pickModelColor(model, rng.next());
-    return this.addVehicle(model, color, rng, (eid) => DrivableVehicle.create(this.ctx.physics, eid, model, pose, rng));
+    return this.addVehicle(model, color, rng, null, (eid) => DrivableVehicle.create(this.ctx.physics, eid, model, pose, rng));
   }
 
   /** @internal After a load: the vehicle the officer drove last (`vehicles` index, -1 for none). */
@@ -466,12 +610,15 @@ export class GameSession {
     if (driven) return driven.telemetry.groundSpeed <= EXIT_MAX_SPEED ? 'exit' : null;
     const service = this.pumpService();
     if (service) return service;
-    return this.enterableVehicle() ? 'enter' : null;
+    if (this.enterableVehicle()) return 'enter';
+    if (this.atStoppedDriver()) return 'driver';
+    return this.trunkVehicle() ? 'trunk' : null;
   }
 
   /**
    * The `interact` action: get out, refuel at a pump or repair and refuel at the station's pump
-   * (first, since the driver door is often beside the pump), or get in at a driver door.
+   * (first, since the driver door is often beside the pump), get in at a driver door, or ask the
+   * caller to open the stopped driver's contact panel or a patrol car's trunk panel.
    */
   interact(): InteractResult {
     this.assertLive();
@@ -485,7 +632,150 @@ export class GameSession {
     }
     const vehicle = this.enterableVehicle();
     if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
-    return 'none';
+    if (this.atStoppedDriver()) return 'contact';
+    return this.trunkVehicle() ? 'trunk' : 'none';
+  }
+
+  // --- patrol interactions (design §13.4) -----------------------------------------------
+
+  /** On foot within `TRUNK_DISTANCE` of the rear centre of a patrol car with a trunk: that car. */
+  trunkVehicle(): DrivableVehicle | null {
+    if (this.driving) return null;
+    const at = this.playerPosition(scratchPoint);
+    let best: DrivableVehicle | null = null;
+    let bestD = TRUNK_DISTANCE;
+    for (let i = 0; i < this.vehicleList.length; i++) {
+      const v = this.vehicleList[i] as DrivableVehicle;
+      if (!this.equipmentList[i]?.spec.trunk) continue;
+      const eid = v.eid;
+      const yaw = this.yawOf(eid);
+      const half = v.model.body.length / 2;
+      // Local +Z is the rear: (x, z) + half * (sin yaw, cos yaw).
+      const rx = (Transform.x[eid] ?? 0) + half * Math.sin(yaw);
+      const rz = (Transform.z[eid] ?? 0) + half * Math.cos(yaw);
+      const d = Math.hypot(at.x - rx, at.z - rz);
+      if (d <= bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  /** On foot at the stopped car's driver window (the car is stopped at the curb, the CAD stop is active). */
+  atStoppedDriver(): boolean {
+    if (this.driving) return false;
+    const stop = this.cad.trafficStop;
+    if (!stop || stop.outcome !== 'active') return false;
+    const st = this.traffic.stopState(scratchStop);
+    if (!st || st.phase !== 'stopped' || st.vehicleId !== stop.vehicleId) return false;
+    const model = VEHICLE_MODELS[VehicleLook.model[st.eid] ?? 0];
+    if (!model) return false;
+    const c = this.candidate;
+    c.eid = st.eid;
+    c.x = st.x;
+    c.z = st.z;
+    c.yaw = st.yaw;
+    c.halfWidth = model.body.width / 2;
+    c.halfLength = model.body.length / 2;
+    c.speed = 0;
+    const window = driverDoorPoint(c, scratchDoor);
+    const at = this.playerPosition(scratchPoint);
+    return Math.hypot(at.x - window.x, at.z - window.z) <= DRIVER_CONTACT_DISTANCE;
+  }
+
+  /** The MDT is in reach: driving a patrol car with one, or on foot within `MDT_REACH_DISTANCE` of such a car's driver door. */
+  mdtReachable(): boolean {
+    const driven = this.drivenVehicle;
+    if (driven) return this.equipmentOf(driven)?.spec.mdt === true;
+    const at = this.playerPosition(scratchPoint);
+    for (let i = 0; i < this.vehicleList.length; i++) {
+      if (this.equipmentList[i]?.spec.mdt !== true) continue;
+      const door = driverDoorPoint(this.candidateOf(this.vehicleList[i] as DrivableVehicle, this.candidate), scratchDoor);
+      if (Math.hypot(at.x - door.x, at.z - door.z) <= MDT_REACH_DISTANCE) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The patrol car an arrested person is seated in: the last-driven car when its cage is free and it is
+   * within `ARREST_CAR_DISTANCE`, else the nearest such car; null when none.
+   */
+  arrestVehicle(): DrivableVehicle | null {
+    const at = this.playerPosition(scratchPoint);
+    const usable = (v: DrivableVehicle, i: number): number => {
+      const eq = this.equipmentList[i];
+      if (!eq || !eq.spec.partition || eq.prisoner >= 0) return Infinity;
+      const d = Math.hypot((Transform.x[v.eid] ?? 0) - at.x, (Transform.z[v.eid] ?? 0) - at.z);
+      return d <= ARREST_CAR_DISTANCE ? d : Infinity;
+    };
+    const last = this.lastVehicle;
+    if (last && usable(last, this.vehicleList.indexOf(last)) < Infinity) return last;
+    let best: DrivableVehicle | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < this.vehicleList.length; i++) {
+      const v = this.vehicleList[i] as DrivableVehicle;
+      const d = usable(v, i);
+      if (d < bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    return best;
+  }
+
+  /** `dispatch:arrest`: seats `personId` in `arrestVehicle()`'s cage; false when no car can take them. */
+  seatPrisoner(personId: number): boolean {
+    return this.equipmentOf(this.arrestVehicle())?.seatPrisoner(personId) ?? false;
+  }
+
+  /** The person in a patrol car's cage (the last-driven car first), -1 when every cage is empty. */
+  prisoner(): number {
+    const last = this.equipmentOf(this.lastVehicle);
+    if (last && last.prisoner >= 0) return last.prisoner;
+    for (const eq of this.equipmentList) if (eq && eq.prisoner >= 0) return eq.prisoner;
+    return -1;
+  }
+
+  /** Booking completed: releases `personId` from the cage holding them (any prisoner when -1); returns who was released, -1 none. */
+  releasePrisoner(personId = -1): number {
+    for (const eq of this.equipmentList) {
+      if (!eq || eq.prisoner < 0) continue;
+      if (personId >= 0 && eq.prisoner !== personId) continue;
+      return eq.releasePrisoner();
+    }
+    return -1;
+  }
+
+  /** The officer is at the police station (its block, with a small margin): bookings can be completed. */
+  atStation(): boolean {
+    const r = this.stationRect;
+    if (!r) return false;
+    const at = this.playerPosition(scratchPoint);
+    return at.x >= r[0] && at.x <= r[2] && at.z >= r[1] && at.z <= r[3];
+  }
+
+  /** The driven car is (nearly) standing still (rack lock); true on foot. */
+  get stopped(): boolean {
+    const v = this.drivenVehicle;
+    return !v || v.telemetry.groundSpeed < STOPPED_SPEED;
+  }
+
+  /** @internal New game, or a save without dispatcher state: roster into CAD, fleet cars at their beats (before traffic populate). */
+  startDispatch(): void {
+    this.syncPlayerUnit();
+    this.dispatcher.start(this.syncCadTime(), this.playerUnit);
+  }
+
+  /** @internal After a load: the officer's kit. */
+  restoreOfficerKit(save: OfficerKitSave): void {
+    this.kit = OfficerKit.restore(save);
+  }
+
+  /** @internal After a load: the last speeding readings. */
+  restoreSpeeding(saved: SavedSpeeding): void {
+    this.speedLog.clear();
+    for (const [id, speedMph, limitMph] of saved) this.speedLog.set(id, { speedMph, limitMph });
   }
 
   /** Seats the officer in `vehicle` (no distance check: scripts, loads); false unless on foot. */
@@ -572,11 +862,12 @@ export class GameSession {
     this.traffic.populate(this.focus, this.env.time);
   }
 
-  /** Traffic cars nearest the officer first, with their registry record and observed violations. */
+  /** Ambient traffic cars (not the AI patrol units) nearest the officer first, with their registry record and observed violations. */
   trafficCars(limit: number): TrafficCarRow[] {
     const view = this.traffic.view;
     const at = this.playerPosition(scratchPoint);
-    const slots = Array.from({ length: view.count }, (_, i) => i);
+    const slots: number[] = [];
+    for (let i = 0; i < view.count; i++) if (!isFleetVehicleId(view.vehicleId[i] ?? 0)) slots.push(i);
     const dist = (i: number): number => Math.hypot((view.x[i] ?? 0) - at.x, (view.z[i] ?? 0) - at.z);
     slots.sort((a, b) => dist(a) - dist(b));
     return slots.slice(0, Math.max(0, limit)).map((i) => {
@@ -599,7 +890,7 @@ export class GameSession {
     });
   }
 
-  /** Snapshot of the session (v3 save): officer, vehicles, traffic, environment, clock and RNG. */
+  /** Snapshot of the session (v4 save): officer, vehicles and their equipment, traffic, environment, CAD, dispatch, records, radio, clock and RNG. */
   serialize(): SaveGame {
     const clock = this.clock.toJSON();
     const entities: SerializedEntity[] = [];
@@ -626,6 +917,13 @@ export class GameSession {
       traffic: this.traffic.snapshot(),
       violations: [...this.violationLog].map(([id, counts]) => [id, { ...counts }]),
       environment: this.env.serialize(),
+      cad: this.cad.serialize(),
+      dispatch: this.dispatcher.serialize(),
+      records: this.records.serialize(),
+      radio: this.radio.serialize(),
+      equipment: this.equipmentList.map((eq) => eq?.serialize() ?? null),
+      officerKit: this.kit.serialize(),
+      speeding: [...this.speedLog].map(([id, s]): [number, number, number] => [id, s.speedMph, s.limitMph]),
     };
   }
 
@@ -634,6 +932,8 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.radio.dispose();
+    this.dispatcher.dispose();
     this.traffic.dispose();
     if (!this.ctx.physics.isDisposed) this.ctx.physics.raw.removeCharacterController(this.mover);
     for (const vehicle of this.vehicleList) {
@@ -642,6 +942,7 @@ export class GameSession {
     }
     this.vehicleList.length = 0;
     this.vehicleRngs.length = 0;
+    this.equipmentList.length = 0;
     if (!this.ctx.physics.isDisposed) this.colliders.dispose();
     const all = this.playerEid === 0 ? this.boxEids : [this.playerEid, ...this.boxEids];
     for (const eid of all) this.removeEntity(eid);
@@ -652,12 +953,12 @@ export class GameSession {
 
   // --- loading (module functions below) ----------------------------------------------
 
-  /** @internal Restores a saved vehicle with its colour and RNG stream. */
-  restoreVehicle(saved: SavedVehicle): DrivableVehicle {
+  /** @internal Restores a saved vehicle with its colour, RNG stream and patrol equipment (new-car equipment when null). */
+  restoreVehicle(saved: SavedVehicle, equipment: EquipmentSave | null = null): DrivableVehicle {
     this.assertLive();
     const model = vehicleModel(saved.modelId);
     const rng = rngFromState(saved.rng);
-    return this.addVehicle(model, saved.color, rng, (eid) => DrivableVehicle.restore(this.ctx.physics, eid, saved, rng));
+    return this.addVehicle(model, saved.color, rng, equipment, (eid) => DrivableVehicle.restore(this.ctx.physics, eid, saved, rng));
   }
 
   /**
@@ -689,6 +990,34 @@ export class GameSession {
     this.colliders.update(at.x, at.z);
   }
 
+  /** Sim and game time of this step into the reused `cadTime` (nothing stores the reference; CAD copies times). */
+  private syncCadTime(): { sim: number; game: number } {
+    const t = this.cadTime;
+    t.sim = this.clock.simTime;
+    t.game = this.env.time.totalSeconds;
+    return t;
+  }
+
+  /** The player as the dispatcher sees it: position (the seat while driving), speed, in a patrol car. */
+  private syncPlayerUnit(): void {
+    const at = this.playerPosition(scratchPoint);
+    const p = this.playerUnit;
+    p.x = at.x;
+    p.z = at.z;
+    const driven = this.drivenVehicle;
+    p.speed = driven ? driven.telemetry.groundSpeed : 0;
+    p.inPoliceVehicle = driven !== null && driven.model.equipment !== null;
+  }
+
+  private stepDispatch(dt: number): void {
+    this.syncPlayerUnit();
+    this.dispatcher.step(dt, this.syncCadTime(), this.playerUnit);
+  }
+
+  private stepRadio(dt: number): void {
+    this.radio.step(dt, this.syncCadTime(), this.playerUnit);
+  }
+
   private preStepVehicles(dt: number): void {
     const w = this.env.weather;
     const env = this.vehicleEnv;
@@ -701,7 +1030,9 @@ export class GameSession {
       this.headlightOverride = null;
     }
     const driven = this.modes.vehicle;
-    for (const vehicle of this.vehicleList) {
+    const list = this.vehicleList;
+    for (let i = 0; i < list.length; i++) {
+      const vehicle = list[i] as DrivableVehicle;
       const isDriven = vehicle.eid === driven;
       if (isDriven) vehicle.headlights = this.headlightOverride ?? auto;
       // A parked car drops reverse (no reverse lamps or gear -1 for a car left in reverse).
@@ -709,6 +1040,13 @@ export class GameSession {
       mapDriverInput(isDriven ? this.driverInput : PARKED, t.speed, t.groundSpeed, isDriven && vehicle.reversing, this.controls);
       vehicle.setControls(this.controls);
       vehicle.preStep(dt, env);
+      const eq = this.equipmentList[i];
+      if (eq) {
+        // Horn and manual wind-up are held by the driver only.
+        eq.horn = isDriven && this.sirenHeld.horn;
+        eq.manual = isDriven && this.sirenHeld.manual;
+        eq.writeLook(vehicle.eid, vehicle.lightbar);
+      }
     }
   }
 
@@ -871,6 +1209,16 @@ export class GameSession {
       p.halfWidth = v.model.body.width / 2;
     }
     f.parkedCount = n;
+    // Traffic stops and yielding follow the driven patrol car's heading, light bar and siren (design §7.2-7.3).
+    if (vehicle) {
+      f.heading = this.yawOf(vehicle.eid);
+      f.lights = vehicle.model.lightbar && vehicle.lightbar;
+      f.siren = this.equipmentOf(vehicle)?.sirenOn ?? false;
+    } else {
+      f.heading = this.controller.yaw;
+      f.lights = false;
+      f.siren = false;
+    }
     const body = this.ctx.physics.getBody(vehicle ? vehicle.eid : this.playerEid);
     f.obstacle = body !== undefined;
     if (!body) return;
@@ -896,6 +1244,7 @@ export class GameSession {
     const counts = this.violationLog.get(e.vehicleId) ?? {};
     counts[e.kind] = (counts[e.kind] ?? 0) + 1;
     this.violationLog.set(e.vehicleId, counts);
+    if (e.kind === 'speeding') this.speedLog.set(e.vehicleId, { speedMph: e.speedMph, limitMph: e.limitMph });
   }
 
   /** The officer's save entity: its body on foot, the seat pose (at rest) while driving. */
@@ -946,15 +1295,33 @@ export class GameSession {
     this.officerCollider = null;
   }
 
-  /** Entity + `VehicleLook` + `Drivable`, then the chassis from `create`; nothing is left behind if it throws. */
-  private addVehicle(model: VehicleModel, color: number, rng: Rng, create: (eid: EntityId) => DrivableVehicle): DrivableVehicle {
+  /**
+   * Entity + `VehicleLook` + `Drivable` (+ `PoliceLights` and its `PatrolEquipment` for a model with
+   * `equipment`, from `equipment` when given), then the chassis from `create`; nothing is left behind if it throws.
+   */
+  private addVehicle(
+    model: VehicleModel,
+    color: number,
+    rng: Rng,
+    equipment: EquipmentSave | null,
+    create: (eid: EntityId) => DrivableVehicle,
+  ): DrivableVehicle {
     const world = this.ctx.world;
+    const slot = this.vehicleList.length;
     const eid = spawn(world, Transform, PrevTransform, PhysicsBody);
     let vehicle: DrivableVehicle;
+    let eq: PatrolEquipment | null = null;
     try {
       EntityKind.kind[eid] = KIND.Vehicle;
       attachVehicleLook(world, eid, model.index, color);
       attachDrivable(world, eid);
+      const spec = model.equipment;
+      if (spec) {
+        eq = equipment ? PatrolEquipment.restore(spec, equipment) : new PatrolEquipment(spec);
+        // Light-bar clock offset from a named stream: the same for this slot in every run and after a load.
+        attachPoliceLights(world, eid, this.rng.stream(`lights:${String(slot)}`).next());
+        eq.writeLook(eid, false);
+      }
       vehicle = create(eid);
     } catch (error) {
       this.ctx.physics.removeBody(eid);
@@ -965,6 +1332,7 @@ export class GameSession {
     vehicle.engineOn = false;
     this.vehicleList.push(vehicle);
     this.vehicleRngs.push(rng);
+    this.equipmentList.push(eq);
     this.writeInitialTransform(eid);
     return vehicle;
   }
@@ -1043,6 +1411,14 @@ function fuelPumps(city: City): { xz: Float64Array; station: number } {
   return { xz: Float64Array.from(out), station };
 }
 
+/** The station's block grown by `STATION_MARGIN` as [minX, minZ, maxX, maxZ]; null without a station. */
+function stationRectOf(city: City): readonly [number, number, number, number] | null {
+  const poi = city.pois.find((p) => p.kind === 'station');
+  const block = poi ? city.blocks[poi.block] : undefined;
+  if (!block) return null;
+  return [block.minX - STATION_MARGIN, block.minZ - STATION_MARGIN, block.maxX + STATION_MARGIN, block.maxZ + STATION_MARGIN];
+}
+
 /** Reads the entity's state from its rigid body (the per-world source of truth). */
 function serializeEntity(physics: PhysicsWorld, eid: EntityId): SerializedEntity {
   const kind = EntityKind.kind[eid] ?? KIND.None;
@@ -1071,7 +1447,7 @@ function serializeEntity(physics: PhysicsWorld, eid: EntityId): SerializedEntity
   };
 }
 
-/** Snapshot of the session as a v3 save (see `GameSession.serialize`). */
+/** Snapshot of the session as a v4 save (see `GameSession.serialize`). */
 export function serializeGame(session: GameSession): SaveGame {
   return session.serialize();
 }
@@ -1119,9 +1495,10 @@ function sessionBodies(session: GameSession): Array<readonly [EntityId, Serializ
 }
 
 /**
- * Starts a shift for `seed`: the officer on foot at the station door, the patrol cars in
- * the station lot, colliders around the station and traffic around it. The same seed
- * always yields the same city and the same run for the same inputs.
+ * Starts a shift for `seed`: the officer on foot at the station door, the equipped patrol cars
+ * in the station lot, colliders around the station, the CAD roster with the AI units' fleet
+ * cars at their beats, and traffic around the officer. The same seed always yields the same
+ * city and the same run for the same inputs.
  */
 export function startNewGame(ctx: GameContext, seed: number | string): GameSession {
   const normalized = normalizeSeed(seed);
@@ -1131,6 +1508,8 @@ export function startNewGame(ctx: GameContext, seed: number | string): GameSessi
     session.spawnPlayer({ x: spawnAt.x, y: PLAYER_SIZE.y / 2, z: spawnAt.z }, spawnAt.yaw);
     session.parkPatrolCars();
     session.primeColliders();
+    // Fleet cars take their lanes before ambient traffic fills the rest (design §21).
+    session.startDispatch();
     session.populateTraffic();
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {
@@ -1141,11 +1520,13 @@ export function startNewGame(ctx: GameContext, seed: number | string): GameSessi
 }
 
 /**
- * Rebuilds a session from a v3 save into `ctx` (use a fresh physics world, see
- * `createScenePhysics`): the city is regenerated from the seed, bodies and vehicles get
- * their saved state, traffic and the environment continue where they were (an empty
- * vehicle list re-parks the patrol cars, missing traffic is populated afresh). Nothing
- * is left behind if it throws.
+ * Rebuilds a session from a v4 save into `ctx` (use a fresh physics world, see
+ * `createScenePhysics`): the city is regenerated from the seed, bodies, vehicles and their
+ * equipment get their saved state, traffic, the environment, CAD, records, the dispatcher and
+ * the radio continue where they were (an empty vehicle list re-parks the patrol cars, missing
+ * traffic is populated afresh, a save without dispatcher state starts a fresh roster and fleet).
+ * Load order (design §17): environment, entities, vehicles and equipment, traffic, CAD, records,
+ * dispatch, radio. Nothing is left behind if it throws.
  */
 export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): GameSession {
   const data = envelope.data;
@@ -1173,15 +1554,22 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
       session.spawnPlayer({ x: spawnAt.x, y: PLAYER_SIZE.y / 2, z: spawnAt.z }, spawnAt.yaw);
     }
     if (data.vehicles.length === 0) session.parkPatrolCars();
-    for (const saved of data.vehicles) session.restoreVehicle(saved);
+    data.vehicles.forEach((saved, i) => session.restoreVehicle(saved, data.equipment[i] ?? null));
     const driven = data.player.mode === 'driving' ? session.vehicles[data.player.vehicle] : undefined;
     session.restoreLastVehicle(data.player.lastVehicle ?? -1);
     if (driven) session.enterVehicle(driven);
     session.restoreViolations(data.violations ?? []);
+    session.restoreSpeeding(data.speeding ?? []);
+    session.restoreOfficerKit(data.officerKit);
     session.restoreHeadlightOverride();
     session.primeColliders();
     if (data.traffic) session.traffic.restore(data.traffic);
-    else session.populateTraffic();
+    session.cad.restore(data.cad);
+    session.records.restore(data.records);
+    if (data.dispatch) session.dispatcher.restore(data.dispatch);
+    else session.startDispatch();
+    if (!data.traffic) session.populateTraffic();
+    session.radio.restore(data.radio);
     // Every body was just created with its saved state, so reading them back gives exactly that state.
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {

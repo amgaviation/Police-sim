@@ -19,7 +19,7 @@ import { LANDMARKS } from '../../src/world/data';
 import { generateCity } from '../../src/world/generate';
 import { laneRef } from '../../src/world/roadGraph';
 import { stationLayout } from '../../src/world/stationLayout';
-import { MAX_PARKED_OBSTACLES, type TrafficFocus } from '../../src/traffic/trafficSystem';
+import { MAX_PARKED_OBSTACLES, isFleetVehicleId, type TrafficFocus } from '../../src/traffic/trafficSystem';
 import { Harness, roundTrip } from './harness';
 
 const SEED = 42;
@@ -115,13 +115,15 @@ describe('GameSession (city)', () => {
     expect(h.physics.raw.colliders.len()).toBeGreaterThan(50);
   });
 
-  it('registers its systems in the design §13 order', () => {
+  it('registers its systems in the design order (Phase 1 §13, Phase 2 §15)', () => {
     const h = fresh();
     h.start(SEED);
     expect(h.registry.systems.map((s) => s.name)).toEqual([
       'copyPrevTransform',
       'environment',
       'colliders',
+      'dispatch',
+      'radio',
       'integrateVelocity',
       'vehicles.pre',
       'traffic',
@@ -482,8 +484,12 @@ describe('GameSession (city)', () => {
   it('saves the observed violations with the game', () => {
     const h = fresh();
     const session = h.start(SEED);
-    const id = session.traffic.view.vehicleId[0] ?? -1;
-    const eid = session.traffic.view.eid[0] ?? 0;
+    const view = session.traffic.view;
+    // The first ambient car (AI patrol units are fleet cars in the same view).
+    let slot = 0;
+    while (slot < view.count && isFleetVehicleId(view.vehicleId[slot] ?? 0)) slot++;
+    const id = view.vehicleId[slot] ?? -1;
+    const eid = view.eid[slot] ?? 0;
     h.bus.emit('traffic:violation', { eid, vehicleId: id, kind: 'speeding', x: 0, z: 0, speedMph: 50, limitMph: 35 });
     h.bus.emit('traffic:violation', { eid, vehicleId: id, kind: 'speeding', x: 0, z: 0, speedMph: 50, limitMph: 35 });
     h.bus.emit('traffic:violation', { eid, vehicleId: id, kind: 'redLight', x: 0, z: 0, speedMph: 20, limitMph: 35 });
@@ -559,11 +565,15 @@ describe('GameSession (city)', () => {
     expect(Math.hypot((Transform.x[session.player] ?? 0) - target.x, (Transform.z[session.player] ?? 0) - target.z)).toBeLessThan(1);
     const view = session.traffic.view;
     expect(view.count).toBeGreaterThan(0);
+    // Ambient cars only: the AI units' fleet cars stay where they patrol (and emit no spawn events).
+    let ambient = 0;
     for (let i = 0; i < view.count; i++) {
+      if (isFleetVehicleId(view.vehicleId[i] ?? 0)) continue;
+      ambient++;
       expect(Math.hypot((view.x[i] ?? 0) - target.x, (view.z[i] ?? 0) - target.z)).toBeLessThan(440);
     }
     // Every car dropped by the teleport was reported as despawned.
-    expect(live.size).toBe(view.count);
+    expect(live.size).toBe(ambient);
     h.step(session, 60);
     expect(car.telemetry.airborne).toBe(false);
   });

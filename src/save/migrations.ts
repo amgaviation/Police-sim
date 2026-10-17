@@ -1,14 +1,21 @@
+import { emptyCadSave } from '../cad/cadState';
+import { createRng } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { CAMERA_MODE } from '../player/cameraRig';
+import { emptyOfficerKit } from '../police/inventory';
+import { defaultRadioSave } from '../radio/save';
+import { emptyRecordsSave } from '../records/db';
 import {
   CURRENT_SAVE_VERSION,
   isSaveGame,
   isSaveGameV1,
   isSaveGameV2,
+  isSaveGameV3,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
   type SaveGameV3,
+  type SaveGameV4,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -60,8 +67,28 @@ export function migrateV2ToV3(data: unknown): unknown {
   return v3;
 }
 
+/**
+ * v3 -> v4: a Phase 1 city session becomes a patrol shift. Everything is kept; the new blocks get
+ * defaults: an empty CAD, no dispatcher state (loading adds a fresh roster and fleet), no touched
+ * records, the radio at its defaults with the seed's own 'radio' stream, new-car equipment for every
+ * vehicle (null entries) and an empty officer kit.
+ */
+export function migrateV3ToV4(data: unknown): unknown {
+  if (!isSaveGameV3(data)) return data;
+  const v4: SaveGameV4 = {
+    ...data,
+    cad: emptyCadSave(),
+    dispatch: null,
+    records: emptyRecordsSave(),
+    radio: defaultRadioSave(createRng(data.seed).stream('radio').state()),
+    equipment: data.vehicles.map(() => null),
+    officerKit: emptyOfficerKit(),
+  };
+  return v4;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
-export const migrations: MigrationTable = { 1: migrateV1ToV2, 2: migrateV2ToV3 };
+export const migrations: MigrationTable = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4 };
 
 export const MIGRATION_FAILURES = {
   missingStep: 'missing-step',
