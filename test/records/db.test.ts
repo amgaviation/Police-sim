@@ -507,3 +507,28 @@ describe.each(SEEDS)('RecordsDb search and BOLOs (seed %i)', (seed) => {
     expect((performance.now() - t0) / n).toBeLessThan(0.5);
   });
 });
+
+describe('Phase 3 records additions', () => {
+  it('peekPerson equals person() but does not touch the snapshot', () => {
+    for (const seed of SEEDS) {
+      const db = new RecordsDb(seed, fakeCtx());
+      const peeked = [5, 77, 4321].map((id) => db.peekPerson(id));
+      expect(db.serialize().persons).toHaveLength(0);
+      [5, 77, 4321].forEach((id, i) => expect(db.person(id)).toEqual(peeked[i]));
+      expect(db.serialize().persons).toHaveLength(3);
+    }
+  });
+
+  it('peekPerson shows the overlay and rejects ids outside the population', () => {
+    const db = new RecordsDb(42, fakeCtx());
+    let id = 0;
+    while (db.peekPerson(id).warrants.length === 0) id++;
+    const w = db.peekPerson(id).warrants[0];
+    expect(w).toBeDefined();
+    if (!w) return;
+    db.serveWarrant(id, w.id);
+    expect(db.peekPerson(id).warrants.some((x) => x.id === w.id)).toBe(false);
+    expect(() => db.peekPerson(PERSON_POPULATION)).toThrow(RangeError);
+    expect(() => db.peekPerson(-1)).toThrow(RangeError);
+  });
+});

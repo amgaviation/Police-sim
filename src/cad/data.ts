@@ -7,6 +7,7 @@ import callTypesJson from '../data/cad/callTypes.json';
 import dispositionsJson from '../data/cad/dispositions.json';
 import statutesJson from '../data/cad/statutes.json';
 import tenCodesJson from '../data/cad/tenCodes.json';
+import { catalogCadRows } from '../calls/cadRows';
 import { CRIME_CATEGORIES } from '../environment/crime';
 import {
   fail,
@@ -352,6 +353,17 @@ export function validateAddressConfig(data: unknown, file = 'address.json'): Cad
   return { metresPerHundred, intersectionRadius, agency: readString(root.agency, file, 'agency') };
 }
 
+/** Concatenates the two row lists; a duplicate id across them throws. */
+function mergeCallTypes(base: readonly CallType[], catalog: readonly CallType[]): CallType[] {
+  const ids = new Set<string>();
+  for (const t of base) ids.add(t.id);
+  for (const t of catalog) {
+    if (ids.has(t.id)) throw new Error(`calls/types/*.json: call type id ${show(t.id)} duplicates a callTypes.json row`);
+    ids.add(t.id);
+  }
+  return [...base, ...catalog];
+}
+
 // --- Tables ---------------------------------------------------------------------------------
 
 export const DISPOSITIONS: readonly Disposition[] = validateDispositions(dispositionsJson);
@@ -360,10 +372,16 @@ const STATUTE_TABLE = validateStatutes(statutesJson);
 export const STATUTES: readonly Statute[] = STATUTE_TABLE.statutes;
 export const VIOLATION_MAP: Readonly<Record<string, string>> = STATUTE_TABLE.violationMap;
 export const PLATE_MAP: Readonly<Record<PlateIssue, string>> = STATUTE_TABLE.plateMap;
-export const CALL_TYPES: readonly CallType[] = validateCallTypes(callTypesJson, {
+const CALL_TYPE_CONTEXT: CallTypeContext = {
   dispositions: DISPOSITIONS.map((d) => d.id),
   codeKeys: Object.keys(TEN_CODES.codes),
-});
+};
+
+/** Phase 2 rows (`callTypes.json`) followed by the Phase 3 catalog rows (`calls/types/*.json`, design §6.1). */
+export const CALL_TYPES: readonly CallType[] = mergeCallTypes(
+  validateCallTypes(callTypesJson, CALL_TYPE_CONTEXT),
+  validateCallTypes({ version: 1, types: catalogCadRows() }, CALL_TYPE_CONTEXT, 'calls/types/*.json'),
+);
 export const CAD_CONFIG: CadConfig = validateAddressConfig(addressJson);
 
 const CALL_TYPE_BY_ID = new Map(CALL_TYPES.map((t) => [t.id, t]));

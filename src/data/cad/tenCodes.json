@@ -19,7 +19,11 @@
     "hazard": { "code": "10-49", "plain": "traffic hazard" },
     "collision": { "code": "10-50", "plain": "collision" },
     "suspiciousVehicle": { "code": "10-37", "plain": "suspicious vehicle" },
-    "alarm": { "code": "10-90", "plain": "alarm call" }
+    "alarm": { "code": "10-90", "plain": "alarm call" },
+    "pursuit": { "code": "10-80", "plain": "pursuit" },
+    "shotsFired": { "code": "10-71", "plain": "shots fired" },
+    "ems": { "code": "10-52", "plain": "ambulance" },
+    "custody": { "code": "10-15", "plain": "subject in custody" }
   },
   "statusKeys": {
     "available": "available",

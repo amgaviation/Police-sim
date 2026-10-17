@@ -107,6 +107,28 @@ export type PullId = (typeof PULL)[keyof typeof PULL];
 
 export type FleetUrgency = 'respond' | 'emergency';
 
+/** Why a flee ended (`traffic:fleeEnded`). */
+export type FleeEndReason = 'crashed' | 'escaped' | 'gaveUp' | 'stopped';
+
+/** Options of `TrafficSystem.spawnSubjectCar`. */
+export interface SubjectCarOptions {
+  /** `BEHAVIOR` bits (default 0: no violations rolled). */
+  readonly behavior?: number;
+  /** driving: normal flow; parked: standing at the curb (`PULL.parked`); crashed: at the curb, `TRAFFIC_STATE.crashed`. */
+  readonly mode: 'driving' | 'parked' | 'crashed';
+  /** Hazard lights for a parked car (a crashed car always has them). */
+  readonly hazards?: boolean;
+}
+
+/** `TrafficSystem.fleeState` output. */
+export interface FleeState {
+  x: number;
+  z: number;
+  yaw: number;
+  speed: number;
+  edge: number;
+}
+
 /** Explicit look of a fleet car: `VehicleModel.index` and body colour 0xRRGGBB. */
 export interface FleetLook {
   readonly modelIndex: number;
@@ -205,6 +227,13 @@ export interface TrafficCarSave {
   pullTimer?: number;
   /** 1 when never despawned by distance. */
   pinned?: number;
+  // Phase 3, written only while fleeing:
+  /** 1 while fleeing. */
+  flee?: number;
+  /** Seconds since the flee started. */
+  fleeTimer?: number;
+  /** Seconds continuously farther than `flee.loseDistanceM` from the focus. */
+  fleeLost?: number;
 }
 
 export interface TrafficSnapshot {
@@ -249,10 +278,16 @@ export interface SpawnOptions {
   weavePeriod?: number;
 }
 
+/** Zone time of subject cars (their behaviour bits are explicit, so only the limit lookup reads it). */
+const SUBJECT_TIME: ZoneTime = { hour: 12, isWeekday: true };
+
 const CONTROL = { none: 0, signal: 1, stop: 2, yield: 3 } as const;
 const STOP_PHASE = { approach: 0, waiting: 1, cleared: 2 } as const;
-/** `fullStop`: stopped at the current stop sign; `merge`: the next lane is shared with a sibling lane (lane drop). */
-const CAR_FLAG = { fullStop: 1, merge: 2 } as const;
+/**
+ * `fullStop`: stopped at the current stop sign; `merge`: the next lane is shared with a sibling lane (lane drop);
+ * `noHazard`: a parked subject car without hazard lights.
+ */
+const CAR_FLAG = { fullStop: 1, merge: 2, noHazard: 4 } as const;
 const VIOLATION_BIT: Readonly<Record<TrafficViolationKind, number>> = {
   speeding: 1,
   redLight: 2,
@@ -328,7 +363,7 @@ const CAR_SAVE_KEYS: readonly (keyof TrafficCarSave)[] = [
 /** Optional Phase 2 number fields of a car save. */
 const CAR_OPTIONAL_KEYS: readonly (keyof TrafficCarSave)[] = [
   'model', 'color', 'fleet', 'routePos', 'destX', 'destZ', 'destEdge', 'destS', 'urgency', 'arrived', 'pull',
-  'shoulder', 'pullTimer', 'pinned',
+  'shoulder', 'pullTimer', 'pinned', 'flee', 'fleeTimer', 'fleeLost',
 ];
 const SNAPSHOT_OPTIONAL_KEYS: readonly (keyof TrafficSnapshot)[] = ['stopVehicleId', 'stopCandidate', 'stopTimer'];
 
@@ -352,6 +387,10 @@ const MERGE_CLEAR_S = 2.5;
 /** An emergency fleet car crossing against a signal or sign waits while another approach has a car this close (m / s). */
 const EMERGENCY_CLEAR_M = 15;
 const EMERGENCY_CLEAR_S = 1.5;
+/** A fleeing car merging back from the curb moves sideways this many times faster than a released stop. */
+const FLEE_MERGE_BOOST = 2.5;
+/** A subject car may be placed this far from the requested point (m). */
+const SUBJECT_SNAP = 200;
 
 function isFiniteNumber(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value);
@@ -408,6 +447,9 @@ export class TrafficSystem {
   private readonly registryOffset: number;
   private headlights = false;
   private simTime = 0;
+  /** The focus of the last `step` / `populate` (flee exit choice and subject car eviction look away from it). */
+  private focusX = 0;
+  private focusZ = 0;
 
   // --- SoA (slot-indexed) -------------------------------------------------------------
   private readonly eid: Int32Array;
@@ -456,6 +498,10 @@ export class TrafficSystem {
   private readonly pinned: Uint8Array;
   /** Fleet index, -1 for ambient cars. */
   private readonly fleetIndex: Int16Array;
+  /** 1 while fleeing (Phase 3 §7.1), with the seconds since it started and the seconds spent beyond loseDistanceM. */
+  private readonly fleeing: Uint8Array;
+  private readonly fleeTimer: Float64Array;
+  private readonly fleeLost: Float64Array;
   /** Derived from shoulder/pull: 1 when the body is clear of its lane (cars behind pass it). */
   private readonly aside: Uint8Array;
   /** Per-step scratch: gap to the car/obstacle ahead (for the hard no-overlap clamp). */
@@ -575,6 +621,9 @@ export class TrafficSystem {
     this.pullTimer = f64();
     this.pinned = new Uint8Array(cap);
     this.fleetIndex = new Int16Array(cap);
+    this.fleeing = new Uint8Array(cap);
+    this.fleeTimer = f64();
+    this.fleeLost = f64();
     this.aside = new Uint8Array(cap);
     this.hardGap = f64();
     this.pullHold = new Uint8Array(cap);
@@ -585,7 +634,7 @@ export class TrafficSystem {
       this.c2z, this.clen, this.behavior, this.desiredFactor, this.headway, this.weaveAmp, this.weavePeriod,
       this.weavePhase, this.lateral, this.stopPhase, this.stopTimer, this.holding, this.reported, this.flags,
       this.hx, this.hz, this.limitMph, this.shoulder, this.pull, this.pullTimer, this.pinned, this.fleetIndex,
-      this.aside,
+      this.aside, this.fleeing, this.fleeTimer, this.fleeLost,
     ];
     this.fleetEid = new Int32Array(fleetCars);
     this.urgency = new Uint8Array(fleetCars);
@@ -655,6 +704,8 @@ export class TrafficSystem {
 
   /** Fills the target number of cars around the focus at once (session start, after a teleport). */
   populate(focus: TrafficFocus, time: ZoneTime): void {
+    this.focusX = focus.x;
+    this.focusZ = focus.z;
     this.sortOrder();
     const target = this.targetCount(focus, time);
     const { initialMin, spawnMax } = DENSITY.radii;
@@ -666,11 +717,14 @@ export class TrafficSystem {
   /** One fixed step (system order 50: after copyPrevTransform, before physics). */
   step(dt: number, simTime: number, time: ZoneTime, focus: TrafficFocus): void {
     this.simTime = simTime;
+    this.focusX = focus.x;
+    this.focusZ = focus.z;
     this.sortOrder();
     const tickS = DENSITY.tickS;
     if (Math.floor(simTime / tickS) !== Math.floor((simTime - dt) / tickS)) this.tick(focus, time);
     this.updateStop(dt, focus);
     this.updateYield(dt, focus);
+    this.updateFlee(dt, focus);
     const n = this.count;
     for (let k = 0; k < n; k++) this.computeAccel(this.order[k] ?? 0, k, dt, time, focus);
     for (let slot = 0; slot < n; slot++) this.integrate(slot, dt, focus);
@@ -759,7 +813,7 @@ export class TrafficSystem {
     if (this.stopId >= 0) return false;
     for (let slot = 0; slot < this.count; slot++) {
       if (this.vehicleId[slot] !== vehicleId) continue;
-      if ((this.fleetIndex[slot] ?? -1) >= 0 || this.state[slot] === TRAFFIC_STATE.crashed) return false;
+      if ((this.fleetIndex[slot] ?? -1) >= 0 || this.fleeing[slot] === 1 || this.state[slot] === TRAFFIC_STATE.crashed) return false;
       this.beginStop(slot);
       return true;
     }
@@ -866,6 +920,219 @@ export class TrafficSystem {
     return out;
   }
 
+  // --- Subject cars and pursuits (Phase 3 design §7) ------------------------------------------------
+
+  /**
+   * Spawns registry vehicle `vehicleId` (even one whose plates are reported stolen) on the lane nearest to
+   * (x, z) within 200 m: driving in normal flow, or standing at the curb (`PULL.parked`; crashed adds
+   * `TRAFFIC_STATE.crashed` and hazards). The car is pinned and emits 'traffic:spawned'. At capacity the
+   * ambient car farthest from the focus is removed. Returns the entity id, 0 when nothing fits or the id is
+   * invalid or already active.
+   */
+  spawnSubjectCar(vehicleId: number, x: number, z: number, options: SubjectCarOptions): number {
+    if (!Number.isInteger(vehicleId) || vehicleId < 0 || vehicleId >= REGISTRY_POPULATION || this.onRoad[vehicleId] === 1) return 0;
+    const behavior = options.behavior ?? 0;
+    if (!Number.isInteger(behavior) || behavior < 0 || behavior > 255 || this.count >= this.slotCap) return 0;
+    const g = this.graph;
+    const hl = MODEL_HALF_LEN[vehicleRecord(this.seed, vehicleId).modelIndex] ?? 2;
+    const hit = g.nearestEdge(x, z, SUBJECT_SNAP, this.hit);
+    if (!hit) return 0;
+    let lane = this.subjectSpot(hit.edge, x, z, hl);
+    if (lane < 0) {
+      const near = g.edgesNear(x, z, SUBJECT_SNAP, this.nearEdges);
+      for (let i = 0; i < near.length && lane < 0; i++) lane = this.subjectSpot(near[i] ?? 0, x, z, hl);
+    }
+    if (lane < 0) return 0;
+    const spotS = this.spotS;
+    if (this.ambientCount >= this.capacity && !this.evictFarthest()) return 0;
+    const driving = options.mode === 'driving';
+    const limit = g.effectiveSpeedLimitMph(laneEdge(lane), SUBJECT_TIME) * MPH;
+    const speed = driving ? Math.min(limit * 0.8, Math.sqrt(3 * Math.max(0, g.laneEnd(lane) - spotS - hl))) : 0;
+    const slot = this.spawnCar(vehicleId, lane, spotS, speed, SUBJECT_TIME, behavior);
+    this.pinned[slot] = 1;
+    if (!driving) {
+      this.pull[slot] = PULL.parked;
+      this.shoulder[slot] = this.curbTarget(slot);
+      this.state[slot] = options.mode === 'crashed' ? TRAFFIC_STATE.crashed : TRAFFIC_STATE.parked;
+      if (options.mode === 'parked' && options.hazards !== true) this.flags[slot] = (this.flags[slot] ?? 0) | CAR_FLAG.noHazard;
+      this.updateAside(slot);
+    }
+    this.pose(slot);
+    this.writeEcs(slot);
+    copyTransformSlot(Transform, PrevTransform, this.eid[slot] ?? 0);
+    return this.eid[slot] ?? 0;
+  }
+
+  /** Pins / unpins an active ambient car by vehicle id (pinned cars are never despawned by distance). False when not active. */
+  pin(vehicleId: number, pinned: boolean): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0) return false;
+    this.pinned[slot] = pinned ? 1 : 0;
+    return true;
+  }
+
+  /** Removes an active ambient car by vehicle id with 'traffic:despawned' (scene cleanup, tow); false when not active. */
+  removeVehicle(vehicleId: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0) return false;
+    this.despawnSlot(slot, true);
+    return true;
+  }
+
+  /** Active slot of a vehicle id (index into `view`), -1 when not active. */
+  slotOfVehicle(vehicleId: number): number {
+    for (let slot = 0; slot < this.count; slot++) if (this.vehicleId[slot] === vehicleId) return slot;
+    return -1;
+  }
+
+  /** Sets the behaviour bits (`BEHAVIOR`) of an active ambient car and rolls the trip parameters they imply (DUI subject). */
+  setBehavior(vehicleId: number, bits: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0 || !Number.isInteger(bits) || bits < 0 || bits > 255) return false;
+    if (bits !== this.behavior[slot]) this.rollBehavior(slot, bits);
+    return true;
+  }
+
+  /**
+   * Starts a pursuit (§7.1) with an ambient car: a driving car, the stop target (the stop ends with
+   * 'traffic:released' { reason: 'fled' }) or a car standing at the curb, which merges back at once. Emits
+   * 'traffic:fleeing'. False when absent, a fleet car, crashed or already fleeing.
+   */
+  flee(vehicleId: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0 || this.fleeing[slot] === 1 || this.state[slot] === TRAFFIC_STATE.crashed) return false;
+    const eid = this.eid[slot] ?? 0;
+    if (vehicleId === this.stopId) {
+      this.stopId = -1;
+      this.stopEid = 0;
+      this.bus?.emit('traffic:released', { eid, vehicleId, reason: 'fled' });
+    }
+    this.fleeing[slot] = 1;
+    this.fleeTimer[slot] = 0;
+    this.fleeLost[slot] = 0;
+    this.pinned[slot] = 1;
+    this.pullTimer[slot] = 0;
+    this.flags[slot] = (this.flags[slot] ?? 0) & ~CAR_FLAG.noHazard;
+    this.leaveCurb(slot);
+    // Not yet committed to the junction: pick the exit away from the focus.
+    if ((this.s[slot] ?? 0) <= this.graph.laneEnd(this.lane[slot] ?? 0) && (this.holding[slot] ?? -1) < 0) this.chooseNextLane(slot);
+    this.bus?.emit('traffic:fleeing', { eid, vehicleId });
+    return true;
+  }
+
+  /** Ends a pursuit: the car pulls to the curb and stops, still pinned (reason 'stopped'). False when it is not fleeing. */
+  stopFlee(vehicleId: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || this.fleeing[slot] !== 1) return false;
+    this.endFlee(slot, 'stopped');
+    return true;
+  }
+
+  /** Number of fleeing cars. */
+  get fleeingCount(): number {
+    let n = 0;
+    for (let slot = 0; slot < this.count; slot++) if (this.fleeing[slot] === 1) n++;
+    return n;
+  }
+
+  /** Fills `out` with the pose of fleeing car `vehicleId`; false when it is not fleeing. */
+  fleeState(vehicleId: number, out: FleeState): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || this.fleeing[slot] !== 1) return false;
+    out.x = this.x[slot] ?? 0;
+    out.z = this.z[slot] ?? 0;
+    out.yaw = this.yaw[slot] ?? 0;
+    out.speed = this.v[slot] ?? 0;
+    out.edge = laneEdge(this.lane[slot] ?? 0);
+    return true;
+  }
+
+  /**
+   * Pursuit upkeep: a crash ends it ('crashed', the wreck stays pinned for the scene), so does staying beyond
+   * loseDistanceM of the focus for loseS ('escaped', the car despawns), and after minFleeS each whole
+   * second gives up with probability giveUpPerMin / 60 ('gaveUp').
+   */
+  private updateFlee(dt: number, focus: TrafficFocus): void {
+    const fl = PULLOVER.flee;
+    const lose2 = fl.loseDistanceM * fl.loseDistanceM;
+    const giveUp = fl.giveUpPerMin / 60;
+    for (let slot = this.count - 1; slot >= 0; slot--) {
+      if (this.fleeing[slot] !== 1) continue;
+      if (this.state[slot] === TRAFFIC_STATE.crashed) {
+        this.endFlee(slot, 'crashed');
+        continue;
+      }
+      const t = (this.fleeTimer[slot] ?? 0) + dt;
+      this.fleeTimer[slot] = t;
+      const dx = (this.x[slot] ?? 0) - focus.x, dz = (this.z[slot] ?? 0) - focus.z;
+      const lost = dx * dx + dz * dz > lose2 ? (this.fleeLost[slot] ?? 0) + dt : 0;
+      this.fleeLost[slot] = lost;
+      if (lost >= fl.loseS) this.endFlee(slot, 'escaped');
+      else if (t >= fl.minFleeS && Math.floor(t) !== Math.floor(t - dt) && this.rng.chance(giveUp)) this.endFlee(slot, 'gaveUp');
+    }
+  }
+
+  private endFlee(slot: number, reason: FleeEndReason): void {
+    const eid = this.eid[slot] ?? 0;
+    const vehicleId = this.vehicleId[slot] ?? 0;
+    this.fleeing[slot] = 0;
+    this.fleeTimer[slot] = 0;
+    this.fleeLost[slot] = 0;
+    this.bus?.emit('traffic:fleeEnded', { eid, vehicleId, reason, x: this.x[slot] ?? 0, z: this.z[slot] ?? 0 });
+    if (reason === 'escaped') this.despawnSlot(slot, true);
+    else if (reason !== 'crashed') {
+      // Pulls to the curb and parks there with hazards, pinned.
+      this.pull[slot] = PULL.pulling;
+      this.pullTimer[slot] = 0;
+    }
+  }
+
+  /** Removes the unpinned ambient car farthest from the focus (a subject car needs the room); false when there is none. */
+  private evictFarthest(): boolean {
+    let best = -1;
+    let bestD = -1;
+    for (let slot = 0; slot < this.count; slot++) {
+      if (this.pinned[slot] === 1 || (this.fleetIndex[slot] ?? -1) >= 0) continue;
+      const dx = (this.x[slot] ?? 0) - this.focusX, dz = (this.z[slot] ?? 0) - this.focusZ;
+      const d = dx * dx + dz * dz;
+      if (d > bestD) {
+        bestD = d;
+        best = slot;
+      }
+    }
+    if (best < 0) return false;
+    this.despawnSlot(best, true);
+    return true;
+  }
+
+  /** Free spot on `edge` nearest (x, z): the curb lane of either direction at the projection; sets `spotS`. */
+  private subjectSpot(edge: number, x: number, z: number, hl: number): number {
+    const g = this.graph;
+    const e = g.edges[edge] as RoadEdge;
+    const hit = g.projectOnEdge(edge, x, z, this.hit);
+    let best = -1;
+    let bestD = Infinity;
+    let bestS = 0;
+    for (let d = 0; d < 2; d++) {
+      const dir = d as 0 | 1;
+      if (g.laneCount(edge, dir) === 0) continue;
+      const lane = laneRef(edge, dir, 0);
+      const lo = g.laneStart(lane) + hl + 1, hi = g.laneEnd(lane) - hl - 1;
+      if (lo > hi) continue;
+      const s = Math.min(hi, Math.max(lo, dir === 0 ? hit.s : e.length - hit.s));
+      if (this.laneOccupied(lane, s)) continue;
+      const p = g.lanePoint(lane, s, this.lp);
+      const dist = (p.x - x) * (p.x - x) + (p.z - z) * (p.z - z);
+      if (dist < bestD) {
+        bestD = dist;
+        best = lane;
+        bestS = s;
+      }
+    }
+    this.spotS = bestS;
+    return best;
+  }
+
   snapshot(): TrafficSnapshot {
     const cars: TrafficCarSave[] = [];
     for (let i = 0; i < this.count; i++) {
@@ -894,6 +1161,11 @@ export class TrafficSystem {
       if (this.shoulder[i] !== 0) car.shoulder = this.shoulder[i] ?? 0;
       if (this.pullTimer[i] !== 0) car.pullTimer = this.pullTimer[i] ?? 0;
       if (this.pinned[i] !== 0) car.pinned = this.pinned[i] ?? 0;
+      if (this.fleeing[i] === 1) {
+        car.flee = 1;
+        car.fleeTimer = this.fleeTimer[i] ?? 0;
+        car.fleeLost = this.fleeLost[i] ?? 0;
+      }
       const f = this.fleetIndex[i] ?? -1;
       if (f >= 0) this.saveFleet(f, i, car);
     }
@@ -929,15 +1201,20 @@ export class TrafficSystem {
       } else {
         if (this.ambientCount >= this.capacity) continue;
         if (c.vehicleId < 0 || c.vehicleId >= REGISTRY_POPULATION || this.onRoad[c.vehicleId] === 1) continue;
-        // Older saves (Phase 1) may hold cars kept off the road now (their own plates reported stolen).
-        if (!canBeOnRoad(this.seed, c.vehicleId)) continue;
+        // Older saves (Phase 1) may hold cars kept off the road now (their own plates reported stolen);
+        // pinned cars (stop target, scene subject cars) are placed on purpose and may be such vehicles.
+        if ((c.pinned ?? 0) === 0 && !canBeOnRoad(this.seed, c.vehicleId)) continue;
         slot = this.createEntity(c.vehicleId, c.lane, c.s, c.speed);
       }
       const pull = c.pull ?? PULL.none;
       this.pull[slot] = Number.isInteger(pull) && pull >= PULL.none && pull <= PULL.parked ? pull : PULL.none;
       this.shoulder[slot] = c.shoulder ?? 0;
       this.pullTimer[slot] = c.pullTimer ?? 0;
-      this.pinned[slot] = (c.pinned ?? 0) !== 0 || isFleetVehicleId(c.vehicleId) ? 1 : 0;
+      const flee = (c.flee ?? 0) !== 0 && !isFleetVehicleId(c.vehicleId);
+      this.fleeing[slot] = flee ? 1 : 0;
+      this.fleeTimer[slot] = flee ? (c.fleeTimer ?? 0) : 0;
+      this.fleeLost[slot] = flee ? (c.fleeLost ?? 0) : 0;
+      this.pinned[slot] = (c.pinned ?? 0) !== 0 || flee || isFleetVehicleId(c.vehicleId) ? 1 : 0;
       this.accel[slot] = c.accel;
       this.state[slot] = c.state;
       this.behavior[slot] = c.behavior;
@@ -1134,6 +1411,17 @@ export class TrafficSystem {
       const hour = Math.floor(time.hour) % 24;
       if (rng.chance(t.duiRisk * (b.dui.hourMultiplier[hour] ?? 1))) bits |= BEHAVIOR.dui;
     } else bits = behavior;
+    this.rollBehavior(slot, bits);
+    this.chooseNextLane(slot);
+    this.stats.spawned++;
+    this.bus?.emit('traffic:spawned', { eid: this.eid[slot] ?? 0, vehicleId: id });
+    return slot;
+  }
+
+  /** Sets the behaviour bits and rolls the trip parameters they imply (speed factor, headway, DUI weave). */
+  private rollBehavior(slot: number, bits: number): void {
+    const rng = this.rng;
+    const b = VIOLATIONS.behaviors;
     this.behavior[slot] = bits;
     const factor = bits & BEHAVIOR.speeding ? b.speeding.speedFactor : NORMAL_FACTOR;
     this.desiredFactor[slot] = rng.nextFloat(factor[0], factor[1]);
@@ -1143,11 +1431,7 @@ export class TrafficSystem {
       this.weaveAmp[slot] = rng.nextFloat(b.dui.weaveAmplitude[0], b.dui.weaveAmplitude[1]);
       this.weavePeriod[slot] = rng.nextFloat(b.dui.weavePeriodS[0], b.dui.weavePeriodS[1]);
       this.weavePhase[slot] = rng.next() * TWO_PI;
-    }
-    this.chooseNextLane(slot);
-    this.stats.spawned++;
-    this.bus?.emit('traffic:spawned', { eid: this.eid[slot] ?? 0, vehicleId: id });
-    return slot;
+    } else this.weaveAmp[slot] = 0;
   }
 
   /** Allocates a slot and its ECS entity with the record's look; trip fields are reset. */
@@ -1337,7 +1621,10 @@ export class TrafficSystem {
       this.clen[slot] = 0;
       return;
     }
-    let pick = options > 1 ? this.rng.nextInt(0, options - 1) : 0;
+    let pick: number;
+    if (options > 1 && this.fleeing[slot] === 1 && this.rng.next() < PULLOVER.flee.awayBias) {
+      pick = this.farthestExit(conns, mode, index, inner);
+    } else pick = options > 1 ? this.rng.nextInt(0, options - 1) : 0;
     for (const c of conns) {
       if (!this.exitAllowed(mode, index, inner, c)) continue;
       if (pick-- > 0) continue;
@@ -1348,6 +1635,26 @@ export class TrafficSystem {
       this.setNextLane(slot, laneRef(c.edge, c.dir, idx), c.turn);
       return;
     }
+  }
+
+  /** Position (among the exits allowed in `mode`) of the exit whose far node is farthest from the focus; the first on a tie. */
+  private farthestExit(conns: readonly LaneConnection[], mode: number, index: number, inner: number): number {
+    let best = 0;
+    let bestD = -1;
+    let k = 0;
+    for (let i = 0; i < conns.length; i++) {
+      const c = conns[i] as LaneConnection;
+      if (!this.exitAllowed(mode, index, inner, c)) continue;
+      const e = this.graph.edges[c.edge] as RoadEdge;
+      const node = this.graph.nodes[c.dir === 0 ? e.to : e.from] as RoadNode;
+      const d = (node.x - this.focusX) * (node.x - this.focusX) + (node.z - this.focusZ) * (node.z - this.focusZ);
+      if (d > bestD) {
+        bestD = d;
+        best = k;
+      }
+      k++;
+    }
+    return best;
   }
 
   /** Whether exit `c` is a choice for lane `index` in `chooseNextLane`'s `mode`. */
@@ -1530,8 +1837,7 @@ export class TrafficSystem {
     const a = edge * 2 + laneDir(lane);
     const ctrl = this.control[a] ?? 0;
     const node = g.nodes[g.laneEndNode(lane)] as RoadNode;
-    const f = this.fleetIndex[slot] ?? -1;
-    if (f >= 0 && this.urgency[f] === URGENCY.emergency && this.againstControl(a, node)) return this.emergencyGate(slot, a, d, node);
+    if (this.crossesControl(slot) && this.againstControl(a, node)) return this.emergencyGate(slot, a, d, node);
     if (ctrl === CONTROL.none) {
       // Major road through a junction: no stop, but left turns yield to oncoming cars, nobody enters
       // the box behind a full exit (that would block the cross traffic), as on a green, and nobody
@@ -1650,6 +1956,7 @@ export class TrafficSystem {
     this.limitMph[slot] = limitMph;
     let v0: number;
     if (f >= 0) v0 = this.fleetSpeed(f, limitMph);
+    else if (this.fleeing[slot] === 1) v0 = Math.min(limitMph * MPH * PULLOVER.flee.speedFactor, PULLOVER.flee.maxSpeed);
     else {
       v0 = limitMph * MPH * (this.desiredFactor[slot] ?? 1);
       if (bits & BEHAVIOR.dui) {
@@ -1667,10 +1974,10 @@ export class TrafficSystem {
     }
     // Code 3 against a red or a sign: slow to the crossing speed at the line (`crossBrake` below).
     let crossLine = -1;
-    if (f >= 0 && this.urgency[f] === URGENCY.emergency && s <= end) {
+    if (s <= end && this.crossesControl(slot)) {
       const ap = edge * 2 + laneDir(lane);
       if (this.control[ap] !== CONTROL.none && this.againstControl(ap, g.nodes[g.laneEndNode(lane)] as RoadNode)) {
-        const vc = PULLOVER.fleet.crossSpeed;
+        const vc = this.crossSpeedOf(slot);
         crossLine = Math.max(0, end - s - hl);
         v0 = Math.min(v0, Math.sqrt(vc * vc + 2 * b * crossLine));
       }
@@ -1774,7 +2081,7 @@ export class TrafficSystem {
     let a = idmAccel(v, v0, gap, v - vLead, aMax, b, this.headway[slot] ?? 1.4);
     if (crossLine >= 0) {
       // Brake on the profile that reaches crossSpeed at the line once it needs the comfortable decel.
-      const vc = PULLOVER.fleet.crossSpeed;
+      const vc = this.crossSpeedOf(slot);
       const need = (v * v - vc * vc) / (2 * Math.max(crossLine, 0.5));
       if (need >= b) a = Math.min(a, -need);
     }
@@ -1965,7 +2272,7 @@ export class TrafficSystem {
     let lights = this.headlights ? LIGHT.head : 0;
     const p = this.pull[slot];
     if (this.state[slot] === TRAFFIC_STATE.crashed) lights |= LIGHT.hazard;
-    else if ((p === PULL.stopped || p === PULL.parked) && PULLOVER.curb.hazards) lights |= LIGHT.hazard;
+    else if ((p === PULL.stopped || p === PULL.parked) && PULLOVER.curb.hazards && !((this.flags[slot] ?? 0) & CAR_FLAG.noHazard)) lights |= LIGHT.hazard;
     else if ((this.accel[slot] ?? 0) < -BRAKE_LIGHT_DECEL || (this.v[slot] ?? 0) < 0.05) lights |= LIGHT.brake;
     const f = this.fleetIndex[slot] ?? -1;
     if (f >= 0 && this.urgency[f] === URGENCY.emergency) lights |= LIGHT.lightbar;
@@ -2034,6 +2341,7 @@ export class TrafficSystem {
     this.pinned[slot] = 1;
     this.pull[slot] = PULL.pulling;
     this.pullTimer[slot] = 0;
+    this.flags[slot] = (this.flags[slot] ?? 0) & ~CAR_FLAG.noHazard;
     // An abandoned car parked at the curb is already there: it finishes the pull at once.
     if (this.state[slot] === TRAFFIC_STATE.parked) this.state[slot] = TRAFFIC_STATE.waiting;
     this.bus?.emit('traffic:pullingOver', { eid, vehicleId: id });
@@ -2084,7 +2392,7 @@ export class TrafficSystem {
     let best = -1;
     let bestLon = Infinity;
     for (let slot = 0; slot < this.count; slot++) {
-      if ((this.fleetIndex[slot] ?? -1) >= 0 || this.state[slot] === TRAFFIC_STATE.crashed) continue;
+      if ((this.fleetIndex[slot] ?? -1) >= 0 || this.fleeing[slot] === 1 || this.state[slot] === TRAFFIC_STATE.crashed) continue;
       if (this.pull[slot] !== PULL.none) continue;
       const dx = (this.x[slot] ?? 0) - focus.ox, dz = (this.z[slot] ?? 0) - focus.oz;
       const lon = dx * fx + dz * fz;
@@ -2158,7 +2466,7 @@ export class TrafficSystem {
           this.pullTimer[slot] = Math.min(0, t + dt);
           continue;
         }
-        if (n === 0 || (this.fleetIndex[slot] ?? -1) >= 0) continue;
+        if (n === 0 || (this.fleetIndex[slot] ?? -1) >= 0 || this.fleeing[slot] === 1) continue;
         const st = this.state[slot];
         if (st === TRAFFIC_STATE.crashed || st === TRAFFIC_STATE.parked) continue;
         if (this.yieldSource(slot, true)) {
@@ -2262,7 +2570,7 @@ export class TrafficSystem {
     let sh = this.shoulder[slot] ?? 0;
     const hold = this.pullHold[slot];
     if (p === PULL.merging) {
-      if (hold !== 2) sh = Math.max(0, sh - PULLOVER.release.lateralSpeed * dt);
+      if (hold !== 2) sh = Math.max(0, sh - PULLOVER.release.lateralSpeed * (this.fleeing[slot] === 1 ? FLEE_MERGE_BOOST : 1) * dt);
       this.shoulder[slot] = sh;
       if (sh <= 0) this.pull[slot] = PULL.none;
     } else if ((p === PULL.pulling || p === PULL.yielding || p === PULL.parking) && hold !== 3) {
@@ -2572,6 +2880,18 @@ export class TrafficSystem {
     return ctrl === CONTROL.stop || ctrl === CONTROL.yield;
   }
 
+  /** True when the car crosses reds and signs as yields: a code 3 fleet car or a fleeing car. */
+  private crossesControl(slot: number): boolean {
+    if (this.fleeing[slot] === 1) return true;
+    const f = this.fleetIndex[slot] ?? -1;
+    return f >= 0 && this.urgency[f] === URGENCY.emergency;
+  }
+
+  /** Speed (m/s) a car crossing against the control slows to at the line. */
+  private crossSpeedOf(slot: number): number {
+    return this.fleeing[slot] === 1 ? PULLOVER.flee.crossSpeed : PULLOVER.fleet.crossSpeed;
+  }
+
   /**
    * Code 3 against a red or a sign: at the line (slowed to crossSpeed) the car crosses when nobody holds
    * the node, its exit has room and no other approach has a car about to enter; it stops at the line otherwise.
@@ -2582,7 +2902,7 @@ export class TrafficSystem {
       return false;
     }
     const busy = (this.nodeHold[node.id] ?? 0) > 0;
-    const vc = PULLOVER.fleet.crossSpeed;
+    const vc = this.crossSpeedOf(slot);
     const decide = STOP_ZONE + (vc * vc) / (2 * (MODEL_B[this.model[slot] ?? 0] ?? 2));
     if (d > decide) return busy && d < NEAR_LINE;
     if (busy || this.exitBlocked(slot)) return true;

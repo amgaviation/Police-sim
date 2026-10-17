@@ -80,6 +80,8 @@ export interface CadCall {
   vehicles: number[];
   /** Document ids linked to the call (documents created with this `callId`). */
   documents: string[];
+  /** Ids of linked calls (duplicate reports, a pursuit and its stop); symmetric. */
+  links: number[];
 }
 
 export type UnitKind = 'player' | 'ai';
@@ -118,7 +120,8 @@ export type UnitRequest =
   | { readonly kind: 'emergency' }
   /** Announce / confirm the current stop. */
   | { readonly kind: 'trafficStop' }
-  | { readonly kind: 'stopContact'; readonly action: StopAction }
+  /** `personId` = the identity the driver claimed (-1 / absent: none), handled by the dispatcher. */
+  | { readonly kind: 'stopContact'; readonly action: StopAction; readonly personId?: number }
   | { readonly kind: 'repeat' };
 
 export type ReadbackSeverity = 'clear' | 'caution' | 'alert';

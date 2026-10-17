@@ -6,7 +6,7 @@ import { DISPATCH_CONFIG } from '../../src/dispatch/data';
 import { clockParts } from '../../src/dispatch/generator';
 import { mountedPlate } from '../../src/records/vehicle';
 import { DISTRICT, DISTRICT_NAMES } from '../../src/world/ids';
-import { makeHarness, run, type Harness } from './helpers';
+import { GAME0, makeHarness, run, type Harness } from './helpers';
 
 const GENERATED = new Set(CALL_TYPES.filter((t) => t.generated).map((t) => t.id));
 
@@ -119,7 +119,7 @@ describe('generator helpers', () => {
     const g = h.dispatcher.generator;
     const rng = createRng(5);
     for (let i = 0; i < 40; i++) {
-      const c = g.generate(rng, h.player.x, h.player.z, '12');
+      const c = g.generate(rng, h.player.x, h.player.z, '12', GAME0);
       if (!c) continue;
       expect(GENERATED.has(c.typeId)).toBe(true);
       expect(c.narrative).not.toMatch(/[{}]/);

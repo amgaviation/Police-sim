@@ -12,5 +12,6 @@
     "maxEmergencySpeed": 30,
     "crossSpeed": 5,
     "arriveDistance": 25
-  }
+  },
+  "flee": { "speedFactor": 1.45, "maxSpeed": 34, "crossSpeed": 7, "loseDistanceM": 450, "loseS": 20, "giveUpPerMin": 0.12, "minFleeS": 20, "awayBias": 0.75 }
 }

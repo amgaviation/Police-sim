@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "family": "crisis",
+  "types": [
+    {
+      "id": "suicidalSubject",
+      "label": "Suicidal subject",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a person threatening to commit suicide at {address}.",
+        "{caller} reports a family member talking about ending their life near {near}."
+      ],
+      "branchWeights": {"suicidal": 6}
+    },
+    {
+      "id": "mentalHealthCrisis",
+      "label": "Mental health crisis",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a subject in a mental health crisis at {address}.",
+        "Caller advises a person acting irrationally and talking to themselves near {near}."
+      ]
+    },
+    {
+      "id": "suicidalSubjectArmed",
+      "label": "Suicidal subject with a weapon",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports a person threatening suicide while holding a knife at {address}.",
+        "Caller advises a distraught subject with a weapon saying they want to die near {near}."
+      ],
+      "priority": {"1": 1},
+      "branchWeights": {"armed": 6}
+    },
+    {
+      "id": "personOnLedge",
+      "label": "Person on a ledge",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports a person standing on the edge of a pier near {near}.",
+        "Passerby advises a person climbing over a railing at {near}."
+      ],
+      "location": "poi:harbor",
+      "priority": {"1": 1},
+      "branchWeights": {"suicidal": 6}
+    },
+    {
+      "id": "erraticBehavior",
+      "label": "Erratic behavior",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a subject behaving erratically in the roadway near {near}.",
+        "Caller advises a person yelling at traffic and acting confused on {street}."
+      ],
+      "location": "road"
+    },
+    {
+      "id": "crisisThirdParty",
+      "label": "Crisis reported by a third party",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "{caller} reports a friend sent worrying messages and may harm themselves at {address}.",
+        "RP advises a coworker said they cannot go on and is not answering at {address}."
+      ]
+    },
+    {
+      "id": "threatsOfSelfHarm",
+      "label": "Threats of self-harm",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a subject threatening to hurt themselves at {address}.",
+        "Caller advises a family member is making threats of self-harm near {near}."
+      ],
+      "branchWeights": {"suicidal": 4, "talkDown": 2}
+    }
+  ]
+}

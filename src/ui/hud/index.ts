@@ -54,3 +54,15 @@ export {
   type TargetSeverity,
   type TargetText,
 } from './police';
+export {
+  SCENE_LINES,
+  contactChipText,
+  createSceneText,
+  sceneText,
+  weaponChipText,
+  type HudContact,
+  type HudObjective,
+  type HudOfficer,
+  type HudScene,
+  type SceneText,
+} from './scene';

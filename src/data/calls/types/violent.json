@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "family": "violent",
+  "types": [
+    {
+      "id": "robbery",
+      "label": "Robbery",
+      "category": "robbery",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports being robbed at {address} by a subject who fled {dir}.",
+        "Victim reports a robbery near {near}, suspect took {item}."
+      ],
+      "fill": {"item": ["a wallet", "a phone", "cash", "a bag"]}
+    },
+    {
+      "id": "armedRobbery",
+      "label": "Armed robbery",
+      "category": "robbery",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports an armed robbery at {address}, suspect displayed a weapon.",
+        "Employee reports a subject with a gun demanded money at {address}."
+      ],
+      "priority": {"1": 1},
+      "branchWeights": {"armed": 5}
+    },
+    {
+      "id": "strongArmRobbery",
+      "label": "Strong-arm robbery",
+      "category": "robbery",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "Victim reports being shoved to the ground and robbed near {near}.",
+        "RP reports a subject grabbed a purse and ran toward {cross}."
+      ]
+    },
+    {
+      "id": "assaultInProgress",
+      "label": "Assault in progress",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a man attacking another person at {address}.",
+        "Caller reports a physical assault underway near {near}."
+      ],
+      "branchWeights": {"suspectNearby": 4}
+    },
+    {
+      "id": "fightInProgress",
+      "label": "Fight in progress",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports a fight in the street near {near}, several people involved.",
+        "Multiple callers report a brawl outside {address}."
+      ],
+      "branchWeights": {"fightCrowd": 6, "suspectNearby": 0}
+    },
+    {
+      "id": "stabbingReported",
+      "label": "Stabbing reported",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a person stabbed at {address}, victim bleeding.",
+        "Caller advises someone was cut with a knife near {near}, suspect fled."
+      ],
+      "priority": {"1": 1},
+      "branchWeights": {"injured": 6}
+    },
+    {
+      "id": "assaultCold",
+      "label": "Assault report",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports being assaulted earlier at {address}, suspect gone.",
+        "Victim at {near} wants to report a battery that just occurred."
+      ],
+      "priority": {"3": 1},
+      "branchWeights": {"suspectFled": 6}
+    },
+    {
+      "id": "carjacking",
+      "label": "Carjacking",
+      "category": "robbery",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports a carjacking at {near}, the suspect took a {vehicle} and fled {dir}.",
+        "Victim reports being forced out of their vehicle at gunpoint near {cross}."
+      ],
+      "location": "road",
+      "priority": {"1": 1},
+      "branchWeights": {"armed": 3}
+    }
+  ]
+}

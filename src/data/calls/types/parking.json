@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "family": "parking",
+  "types": [
+    {
+      "id": "blockedDriveway",
+      "label": "Blocked driveway",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, blocking the driveway at {address}.",
+        "Resident at {address} advises a car, plate {plate}, is parked across the driveway."
+      ]
+    },
+    {
+      "id": "abandonedVehicle",
+      "label": "Abandoned vehicle",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, abandoned on {street} for over a week.",
+        "Caller reports an apparently abandoned {vehicle}, plate {plate}, near {near}."
+      ],
+      "branchWeights": {"abandoned": 6}
+    },
+    {
+      "id": "fireLaneViolation",
+      "label": "Fire lane violation",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "Business reports a {vehicle}, plate {plate}, parked in the fire lane at {address}.",
+        "Manager at {near} advises a car, plate {plate}, is blocking the fire lane."
+      ]
+    },
+    {
+      "id": "disabledParkingViolation",
+      "label": "Disabled parking violation",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, parked in a disabled space without a permit at {address}.",
+        "Business reports a car, plate {plate}, misusing the accessible parking near {near}."
+      ]
+    },
+    {
+      "id": "doubleParked",
+      "label": "Double parked vehicle",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, double parked on {street}.",
+        "Caller reports a car, plate {plate}, double parked near {cross} blocking a lane."
+      ],
+      "branchWeights": {"ownerReturns": 4}
+    },
+    {
+      "id": "vehicleBlockingTraffic",
+      "label": "Vehicle blocking traffic",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, stopped and blocking traffic {dir} on {street}.",
+        "Caller reports a parked car, plate {plate}, partially in the lane near {near}."
+      ],
+      "priority": {"3": 1},
+      "branchWeights": {"ownerReturns": 3}
+    }
+  ]
+}

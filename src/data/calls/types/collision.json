@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "family": "collision",
+  "types": [
+    {
+      "id": "injuryCollision",
+      "label": "Collision with injuries",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports a collision with injuries at {near}, {count} vehicles involved.",
+        "Multiple callers report a crash with an injured driver at {near}."
+      ],
+      "fill": {"count": ["two", "two", "three"]},
+      "priority": {"1": 0.2, "2": 0.8},
+      "branchWeights": {"injuries": 6}
+    },
+    {
+      "id": "hitAndRunCollision",
+      "label": "Hit and run collision",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a vehicle struck a parked {vehicle} at {near} and left the scene {dir}.",
+        "RP advises a {vehicle}, plate {plate}, hit another car near {cross} and drove off."
+      ],
+      "branchWeights": {"hitAndRun": 6}
+    },
+    {
+      "id": "pedestrianStruck",
+      "label": "Pedestrian struck",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports a pedestrian was struck by a vehicle at {near}.",
+        "Caller advises a person is down in the roadway after being hit by a car at {near}."
+      ],
+      "priority": {"1": 0.7, "2": 0.3},
+      "branchWeights": {"pedestrian": 1, "propertyOnly": 0, "injuries": 0, "duiDriver": 0, "hitAndRun": 0, "singleVehicle": 0}
+    },
+    {
+      "id": "singleVehicleCrash",
+      "label": "Single vehicle crash",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a car off the roadway into a {obstacle} near {near}.",
+        "Caller advises a single vehicle crashed into a {obstacle} at {near}, driver still inside."
+      ],
+      "fill": {"obstacle": ["utility pole", "fence", "retaining wall", "tree", "road sign"]},
+      "branchWeights": {"singleVehicle": 3, "duiDriver": 1, "propertyOnly": 0, "injuries": 0, "hitAndRun": 0}
+    },
+    {
+      "id": "motorcycleCrash",
+      "label": "Motorcycle crash",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a motorcycle down with the rider injured at {near}.",
+        "Caller advises a motorcyclist went down in the roadway near {cross}."
+      ],
+      "branchWeights": {"injuries": 4, "singleVehicle": 2, "propertyOnly": 0, "hitAndRun": 0, "duiDriver": 0}
+    },
+    {
+      "id": "parkingLotCollision",
+      "label": "Parking lot collision",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a minor collision in the parking lot at {address}.",
+        "Caller advises two vehicles collided in the lot near {near}, no injuries reported."
+      ],
+      "location": "block",
+      "priority": {"3": 0.3, "4": 0.7},
+      "branchWeights": {"propertyOnly": 6, "hitAndRun": 2}
+    },
+    {
+      "id": "collisionBlockingLanes",
+      "label": "Collision blocking lanes",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a collision blocking {lanes} at {near}.",
+        "Vehicles disabled in the roadway after a crash near {cross}, traffic backing up {dir}."
+      ],
+      "fill": {"lanes": ["two lanes", "all lanes", "the left lane", "the right lane"]}
+    },
+    {
+      "id": "rolloverCrash",
+      "label": "Rollover crash",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports a vehicle rolled over at {near}, occupants may be trapped.",
+        "Caller advises an overturned car near {cross}, driver not moving."
+      ],
+      "priority": {"1": 0.6, "2": 0.4},
+      "branchWeights": {"singleVehicle": 3, "injuries": 2, "propertyOnly": 0, "hitAndRun": 0, "duiDriver": 0}
+    }
+  ]
+}

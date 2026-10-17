@@ -47,18 +47,22 @@ describe('cad data tables', () => {
     expect(CAD_CONFIG).toEqual({ metresPerHundred: 100, intersectionRadius: 40, agency: 'City Police' });
     expect(DISPOSITIONS.map((d) => d.id)).toEqual([
       'handled', 'reportTaken', 'citationIssued', 'warningIssued', 'arrestMade', 'goneOnArrival', 'unfounded', 'referred', 'cancelled',
+      'transported', 'duplicate',
     ]);
     for (const key of REQUIRED_CODE_KEYS) expect(TEN_CODES.codes[key]).toBeDefined();
-    expect(STATUTES.length).toBeGreaterThanOrEqual(16);
+    expect(STATUTES.length).toBeGreaterThanOrEqual(46);
   });
 
-  it('ships the 8 generated and 4 non-generated call types', () => {
-    const generated = CALL_TYPES.filter((t) => t.generated).map((t) => t.id);
-    const manual = CALL_TYPES.filter((t) => !t.generated).map((t) => t.id);
+  it('ships the 8 generated and 4 non-generated Phase 2 call types first, then the catalog rows', () => {
+    const phase2 = validateCallTypes(callTypesJson, ctx);
+    expect(CALL_TYPES.slice(0, phase2.length).map((t) => t.id)).toEqual(phase2.map((t) => t.id));
+    const generated = phase2.filter((t) => t.generated).map((t) => t.id);
+    const manual = phase2.filter((t) => !t.generated).map((t) => t.id);
     expect(generated.sort()).toEqual(
       ['alarm', 'minorCollision', 'noiseComplaint', 'parkingComplaint', 'suspiciousPerson', 'suspiciousVehicle', 'trafficHazard', 'welfareCheck'],
     );
     expect(manual.sort()).toEqual(['officerAssist', 'officerEmergency', 'officerWelfare', 'trafficStop']);
+    expect(CALL_TYPES.length).toBeGreaterThanOrEqual(175);
     for (const t of CALL_TYPES) {
       expect((CRIME_CATEGORIES as readonly string[]).includes(t.category)).toBe(true);
       expect(t.narratives.length).toBeGreaterThanOrEqual(2);
@@ -128,7 +132,7 @@ describe('cad data tables', () => {
   it('names the file and field of broken statutes, codes, dispositions and config', () => {
     const s1 = clone(statutesJson) as unknown as { statutes: Json[]; violationMap: Json; plateMap: Json };
     s1.statutes.push(clone(s1.statutes[0] as Json));
-    expect(() => validateStatutes(s1)).toThrow(/statutes\.json: statutes\[18\]\.id duplicates/);
+    expect(() => validateStatutes(s1)).toThrow(new RegExp(`statutes\\.json: statutes\\[${s1.statutes.length - 1}\\]\\.id duplicates`));
     const s2 = clone(statutesJson) as unknown as { violationMap: Json };
     s2.violationMap.speeding = 'TR-999';
     expect(() => validateStatutes(s2)).toThrow(/statutes\.json: violationMap\.speeding references unknown statute/);
@@ -154,7 +158,7 @@ describe('cad data tables', () => {
 
     const d1 = clone(dispositionsJson) as unknown as { dispositions: Json[] };
     d1.dispositions.push({ id: 'handled', label: 'Again' });
-    expect(() => validateDispositions(d1)).toThrow(/dispositions\.json: dispositions\[9\]\.id duplicates/);
+    expect(() => validateDispositions(d1)).toThrow(new RegExp(`dispositions\\.json: dispositions\\[${d1.dispositions.length - 1}\\]\\.id duplicates`));
 
     const a1 = clone(addressJson) as unknown as Json;
     a1.metresPerHundred = 0;

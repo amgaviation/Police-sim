@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "services": [
+    { "id": "ems", "label": "EMS", "arriveS": [60, 150], "effect": "transportInjured", "sets": [],
+      "radio": "{unit}, requesting EMS to {near}.", "ack": "Copy, EMS en route to {near}.", "arrivedText": "EMS on scene." },
+    { "id": "fire", "label": "Fire department", "arriveS": [90, 180], "effect": "none", "sets": ["fireOnScene"],
+      "radio": "{unit}, requesting the fire department to {near}.", "ack": "Copy, fire department en route to {near}.", "arrivedText": "Fire department on scene." },
+    { "id": "hazmat", "label": "Hazmat team", "arriveS": [120, 240], "effect": "none", "sets": ["hazmatHandled"],
+      "radio": "{unit}, requesting the hazmat team to {near}.", "ack": "Copy, hazmat team en route to {near}.", "arrivedText": "Hazmat team on scene." },
+    { "id": "swat", "label": "Tactical team", "arriveS": [150, 300], "effect": "resolveBarricade", "sets": [],
+      "radio": "{unit}, requesting the tactical team to {near}.", "ack": "Copy, tactical team activated, responding to {near}.", "arrivedText": "Tactical team on scene." },
+    { "id": "k9", "label": "K9 unit", "arriveS": [90, 180], "effect": "revealHidden", "sets": [],
+      "radio": "{unit}, requesting a K9 unit to {near}.", "ack": "Copy, K9 unit en route to {near}.", "arrivedText": "K9 unit on scene." },
+    { "id": "coroner", "label": "Coroner", "arriveS": [180, 300], "effect": "removeDeceased", "sets": [],
+      "radio": "{unit}, requesting the coroner to {address}.", "ack": "Copy, coroner notified, en route to {address}.", "arrivedText": "Coroner on scene." },
+    { "id": "interpreter", "label": "Interpreter", "arriveS": [60, 120], "effect": "interpreter", "sets": [],
+      "radio": "{unit}, requesting an interpreter at {near}.", "ack": "Copy, interpreter line connecting for {near}.", "arrivedText": "Interpreter available." },
+    { "id": "animalControl", "label": "Animal control", "arriveS": [120, 240], "effect": "secureAnimal", "sets": [],
+      "radio": "{unit}, requesting animal control to {near}.", "ack": "Copy, animal control en route to {near}.", "arrivedText": "Animal control on scene." },
+    { "id": "bombSquad", "label": "Bomb squad", "arriveS": [180, 360], "effect": "none", "sets": ["areaCleared"],
+      "radio": "{unit}, requesting the bomb squad to {near}.", "ack": "Copy, bomb squad en route to {near}.", "arrivedText": "Bomb squad on scene." },
+    { "id": "tow", "label": "Tow truck", "arriveS": [120, 240], "effect": "towVehicles", "sets": [],
+      "radio": "{unit}, requesting a tow truck to {near}.", "ack": "Copy, tow truck en route to {near}.", "arrivedText": "Tow truck on scene." },
+    { "id": "supervisor", "label": "Supervisor", "arriveS": [90, 180], "effect": "none", "sets": [],
+      "radio": "{unit}, requesting a supervisor to {near}.", "ack": "Copy, supervisor en route to {near}.", "arrivedText": "Supervisor on scene." }
+  ]
+}

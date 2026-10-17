@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "family": "domestic",
+  "types": [
+    {
+      "id": "domesticDisturbance",
+      "label": "Domestic disturbance",
+      "category": "domestic",
+      "generated": true,
+      "weight": 1.0,
+      "narratives": [
+        "RP reports {noise} coming from {address}.",
+        "Neighbor reports a couple {noise} near {near}."
+      ],
+      "fill": {"noise": ["yelling and screaming", "loud arguing", "things being thrown"]}
+    },
+    {
+      "id": "domesticViolenceInjury",
+      "label": "Domestic violence with injury",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a woman screaming for help and a man hitting her at {address}.",
+        "Caller reports a physical fight between partners with someone bleeding at {address}."
+      ],
+      "priority": {"1": 0.4, "2": 0.6},
+      "branchWeights": {"assault": 6}
+    },
+    {
+      "id": "protectiveOrderViolation",
+      "label": "Protective order violation",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports her ex-partner is at {address} despite a protective order.",
+        "Caller advises a subject under a protective order is outside the residence at {address}."
+      ],
+      "branchWeights": {"suspectGone": 2, "verbal": 2}
+    },
+    {
+      "id": "familyDispute",
+      "label": "Family dispute",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports an argument between family members at {address}.",
+        "{caller} reports relatives shouting over {matter} at {address}."
+      ],
+      "fill": {"matter": ["money", "a car", "who stays in the house", "a family event"]},
+      "branchWeights": {"verbal": 6}
+    },
+    {
+      "id": "childCustodyDispute",
+      "label": "Child custody dispute",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a parent refusing to hand over a child at {address}.",
+        "Parent advises the other parent is not returning the children at {near}."
+      ],
+      "priority": {"3": 0.7, "4": 0.3},
+      "branchWeights": {"verbal": 6},
+      "dispositions": ["handled", "unfounded", "arrestMade", "reportTaken", "referred"]
+    },
+    {
+      "id": "elderAbuseReport",
+      "label": "Elder abuse report",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports an elderly relative may be mistreated at {address}.",
+        "Caregiver reports signs of abuse of an elderly resident at {address}."
+      ],
+      "branchWeights": {"elderVerbal": 2, "elderAssault": 2, "verbal": 0, "assault": 0, "suspectGone": 0, "weapon": 0}
+    },
+    {
+      "id": "domesticWithWeapon",
+      "label": "Domestic with a weapon",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a man threatening his partner with a weapon at {address}.",
+        "Caller reports a domestic argument and a person holding a weapon at {address}."
+      ],
+      "priority": {"1": 1},
+      "branchWeights": {"weapon": 6}
+    }
+  ]
+}

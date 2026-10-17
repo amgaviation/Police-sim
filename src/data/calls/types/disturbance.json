@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "family": "disturbance",
+  "types": [
+    {
+      "id": "loudParty",
+      "label": "Loud party",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 1.0,
+      "narratives": [
+        "RP reports a loud party at {address}, music and shouting past quiet hours.",
+        "{caller} reports a large gathering with loud music near {near}."
+      ]
+    },
+    {
+      "id": "neighborDispute",
+      "label": "Neighbor dispute",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.7,
+      "narratives": [
+        "RP reports an ongoing dispute with a neighbor over {matter} at {address}.",
+        "Two neighbors arguing loudly about {matter} near {near}."
+      ],
+      "fill": {"matter": ["a fence line", "a shared driveway", "trash bins", "a barking dog", "parking spaces"]}
+    },
+    {
+      "id": "intoxicatedPerson",
+      "label": "Intoxicated person",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.7,
+      "narratives": [
+        "RP reports an intoxicated person stumbling in the roadway near {near}.",
+        "Caller advises a visibly drunk subject bothering passers-by on {street}."
+      ],
+      "location": "road",
+      "branchWeights": {"intoxicated": 6}
+    },
+    {
+      "id": "disorderlyPerson",
+      "label": "Disorderly person",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports a disorderly subject yelling at customers at {address}.",
+        "Business owner advises a subject is causing a scene near {near}."
+      ]
+    },
+    {
+      "id": "panhandling",
+      "label": "Aggressive panhandling",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a subject aggressively asking people for money near {near}.",
+        "Business owner advises a subject is following customers asking for cash at {address}."
+      ],
+      "priority": {"4": 1}
+    },
+    {
+      "id": "verbalDispute",
+      "label": "Verbal dispute",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports two people in a heated argument in front of {address}.",
+        "Caller advises a verbal altercation that may turn physical near {near}."
+      ]
+    },
+    {
+      "id": "landlordTenantDispute",
+      "label": "Landlord and tenant dispute",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "Landlord reports a tenant is refusing to leave {address}.",
+        "{caller} reports a dispute with a tenant over {issue} at {address}."
+      ],
+      "fill": {"issue": ["unpaid rent", "a lockout", "belongings left in the unit", "the lease terms"]},
+      "priority": {"4": 1},
+      "dispositions": ["handled", "goneOnArrival", "arrestMade", "transported", "warningIssued", "referred"]
+    },
+    {
+      "id": "customerDispute",
+      "label": "Customer dispute",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "Business reports a customer refusing to leave or pay at {address}.",
+        "Clerk advises an angry customer is arguing about {issue} near {near}."
+      ],
+      "fill": {"issue": ["a refund", "a bill", "a damaged item", "the wait time"]}
+    },
+    {
+      "id": "roadRageReport",
+      "label": "Road rage incident",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports two drivers confronting each other in the roadway near {near}.",
+        "Motorist reports a driver got out of a {vehicle}, plate {plate}, and is yelling at another driver on {street}."
+      ],
+      "location": "road",
+      "priority": {"2": 0.3, "3": 0.7}
+    },
+    {
+      "id": "fireworksComplaint",
+      "label": "Fireworks complaint",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports fireworks being set off near {address}.",
+        "Several callers report fireworks and loud explosions in the {near} area."
+      ],
+      "priority": {"4": 1},
+      "branchWeights": {"noisy": 6}
+    },
+    {
+      "id": "loudMusicVehicle",
+      "label": "Loud music from a vehicle",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a vehicle parked with extremely loud music near {near}.",
+        "Caller advises a {vehicle}, plate {plate}, blasting music outside {address}."
+      ],
+      "location": "road",
+      "priority": {"4": 1},
+      "branchWeights": {"noisy": 6}
+    }
+  ]
+}

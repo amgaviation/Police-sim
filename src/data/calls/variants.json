@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "rates": { "escalation": 0.12, "deescalation": 0.08, "false": 0.1, "duplicate": 0.15, "swatting": 0.02, "ambush": 0.01 },
+  "escalation": { "delayS": [40, 180], "priorityDelta": -1 },
+  "deescalation": { "delayS": [40, 180], "priorityDelta": 1 },
+  "duplicate": { "callers": [1, 3], "delayS": [10, 90], "linkedCallChance": 0.5 },
+  "ambush": { "triggerDistanceM": 20, "delayS": [3, 12] },
+  "dispatchErrors": { "wrongAddress": 0.12, "wrongDescription": 0.15, "missingWeapon": 0.3, "addressShiftM": [40, 120], "correctionDelayS": [30, 150] }
+}

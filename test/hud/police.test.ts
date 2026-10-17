@@ -256,6 +256,18 @@ describe('Minimap markers (headless)', () => {
   it('creates zeroed marker arrays of the requested capacity', () => {
     const m = createMinimapMarkers(5);
     expect([m.count, m.x.length, m.z.length, m.kind.length]).toEqual([0, 5, 5, 5]);
-    expect(MARKER).toEqual({ callP1: 1, callP2: 2, callP3: 3, callP4: 4, unitAvailable: 5, unitBusy: 6, unitEmergency: 7, stop: 8 });
+    expect(MARKER).toEqual({
+      callP1: 1,
+      callP2: 2,
+      callP3: 3,
+      callP4: 4,
+      unitAvailable: 5,
+      unitBusy: 6,
+      unitEmergency: 7,
+      stop: 8,
+      suspect: 9,
+      person: 10,
+      pursuit: 11,
+    });
   });
 });

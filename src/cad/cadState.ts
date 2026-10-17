@@ -263,6 +263,7 @@ export class CadState {
       persons: c.persons ? [...c.persons] : [],
       vehicles: c.vehicles ? [...c.vehicles] : [],
       documents: [],
+      links: [],
     };
     this.callList.push(call);
     this.callMap.set(id, call);
@@ -293,6 +294,24 @@ export class CadState {
     const entry: NarrativeEntry = { sim: t.sim, game: t.game, source, text };
     call.narrative.push(entry);
     this.changed(call, 'narrative');
+  }
+
+  /**
+   * Links two calls (symmetric, no duplicates): each id joins the other's `links` and both get a
+   * "Linked to C-xxxxx" narrative line; emits `cad:callUpdated { change: 'links' }` for each call that
+   * changed. Unknown ids, the same call twice and an existing link are ignored (false).
+   */
+  linkCalls(a: number, b: number, t: CadTime): boolean {
+    const ca = this.callMap.get(a);
+    const cb = this.callMap.get(b);
+    if (!ca || !cb || a === b || ca.links.includes(b)) return false;
+    ca.links.push(b);
+    if (!cb.links.includes(a)) cb.links.push(a);
+    ca.narrative.push({ sim: t.sim, game: t.game, source: 'CAD', text: `Linked to ${cb.number}` });
+    cb.narrative.push({ sim: t.sim, game: t.game, source: 'CAD', text: `Linked to ${ca.number}` });
+    this.changed(ca, 'links');
+    this.changed(cb, 'links');
+    return true;
   }
 
   setPriority(callId: number, p: Priority, _t: CadTime): void {
@@ -425,7 +444,11 @@ export class CadState {
   restore(save: CadSave): void {
     this.callList = structuredClone(save.calls);
     this.callMap.clear();
-    for (const c of this.callList) this.callMap.set(c.id, c);
+    for (const c of this.callList) {
+      // Saves before Phase 3 have no links.
+      (c as { links?: number[] }).links ??= [];
+      this.callMap.set(c.id, c);
+    }
     this.unitList = structuredClone(save.units);
     this.unitMap.clear();
     for (const u of this.unitList) this.unitMap.set(u.callsign, u);
@@ -534,6 +557,7 @@ function isPriority(x: unknown): x is Priority {
   return x === 1 || x === 2 || x === 3 || x === 4;
 }
 
+/** A saved call; `links` may be missing (saves before Phase 3: restore fills `[]`). */
 function isCall(x: unknown): x is CadCall {
   return isObj(x) && isInt(x.id, 1) && isStr(x.number) && isStr(x.typeId) && isPriority(x.priority) &&
     isStr(x.nature) && isLocation(x.location) && isCaller(x.caller) && isArrayOf(x.narrative, isNarrative) &&
@@ -541,7 +565,7 @@ function isCall(x: unknown): x is CadCall {
     isNullOr(x.offeredTo, isStr) && isNum(x.offerExpires) && isCadTime(x.created) &&
     isNullOr(x.dispatched, isCadTime) && isNullOr(x.firstOnScene, isCadTime) && isNullOr(x.closed, isCadTime) &&
     isNullOr(x.disposition, isStr) && isBool(x.selfInitiated) && isIntArray(x.persons) &&
-    isIntArray(x.vehicles) && isStrArray(x.documents);
+    isIntArray(x.vehicles) && isStrArray(x.documents) && (x.links === undefined || isIntArray(x.links));
 }
 
 function isUnit(x: unknown): x is CadUnit {

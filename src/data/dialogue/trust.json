@@ -1,0 +1,1 @@
+{ "version": 1, "districts": { "downtown": 0.45, "suburbs": 0.65, "industrial": 0.5, "rural": 0.6, "campus": 0.5, "hospital": 0.6, "airport": 0.6, "harbor": 0.45, "park": 0.55, "highway": 0.5, "water": 0.5 } }

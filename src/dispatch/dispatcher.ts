@@ -183,6 +183,8 @@ export class Dispatcher {
   private backupTargetX = 0;
   private backupTargetZ = 0;
   private stopWarned = false;
+  /** Scene hook: does open call `callId` own the stopped vehicle (a scenario's subject car or a pursuit)? */
+  private stopOwner: ((callId: number, vehicleId: number) => boolean) | null = null;
   /** Player state of the current step (requests and helpers read it). */
   private player: PlayerUnitState = { x: 0, z: 0, speed: 0, inPoliceVehicle: false };
 
@@ -311,11 +313,54 @@ export class Dispatcher {
     this.requests.push({ callsign, request: r, via });
   }
 
+  /**
+   * Scene hook (design §11.1): when the player pulls over a car that the call they are on owns (the subject
+   * vehicle of a DUI scenario, a pursuit), the stop attaches to that call instead of being refused.
+   */
+  setStopOwner(fn: ((callId: number, vehicleId: number) => boolean) | null): void {
+    this.stopOwner = fn;
+  }
+
+  /**
+   * Opens a self-initiated call at `at` (field contact, pursuit): the player is assigned (by 'self') and
+   * on scene at once, no AI unit is planned. A call the player leaves for it without other units is not
+   * handed to the AI units.
+   */
+  openSelfInitiated(
+    typeId: string,
+    priority: Priority,
+    at: { x: number; z: number },
+    narrative: string,
+    t: CadTime,
+    persons: readonly number[] = [],
+    vehicles: readonly number[] = [],
+  ): CadCall {
+    const { cad } = this.deps;
+    const pc = this.playerCallsign;
+    const location = this.generator.locate(at.x, at.z);
+    const call = this.openCall(typeId, priority, location, this.officerCaller(), narrative, t, true, persons, vehicles);
+    this.plans.set(call.id, 0);
+    this.withdrawOffer(t);
+    this.makeAssignable(t);
+    const prevId = cad.unit(pc)?.callId ?? null;
+    cad.assign(call.id, pc, t, 'self');
+    cad.setUnitStatus(pc, 'onScene', t, 'auto');
+    if (prevId !== null && prevId !== call.id) {
+      const prev = cad.call(prevId);
+      if (prev && prev.status !== 'closed' && prev.units.length === 0) {
+        this.declined.add(prevId);
+        this.plans.set(prevId, 0);
+      }
+    }
+    this.assignDirty = true;
+    return call;
+  }
+
   /** Debug/tests: creates a call of `typeId` now (at `at`, else a generated location); null when impossible. */
   createCall(typeId: string, t: CadTime, at?: { x: number; z: number }): CadCall | null {
     const type = findCallType(typeId);
     if (!type) return null;
-    const g = this.generator.generate(this.callsRng, this.player.x, this.player.z, this.playerCallsign, type, at);
+    const g = this.generator.generate(this.callsRng, this.player.x, this.player.z, this.playerCallsign, t.game, type, at);
     if (!g) return null;
     return this.openCall(g.typeId, g.priority, g.location, g.caller, g.narrative, t, false, g.persons, g.vehicles);
   }
@@ -530,24 +575,34 @@ export class Dispatcher {
     const current = pcall !== null ? cad.call(pcall) : null;
     const cur = cad.trafficStop;
     const activeStopCall = current !== null && current.typeId === 'trafficStop' && cur?.callId === current.id && cur.outcome === 'active';
-    if (current && current.status !== 'closed' && !activeStopCall) {
+    const owned = current !== null && current.status !== 'closed' && !activeStopCall && this.stopOwner !== null && this.stopOwner(current.id, vehicleId);
+    if (current && current.status !== 'closed' && !activeStopCall && !owned) {
       this.deps.traffic.releaseStop();
       this.ack(this.playerCallsign, 'trafficStop', false, `Clear ${current.number} first`);
       return;
     }
     const prev = cad.trafficStop;
     if (prev && prev.outcome === 'active') this.endStop('lost', 'handled', t);
-    const type = findCallType('trafficStop');
-    const location = this.generator.locate(x, z);
-    const caller = this.officerCaller();
-    const vehicles = [vehicleId];
-    const narrative = type ? this.generator.narrative(type, this.callsRng, location, caller, vehicles, vehicleId) : `Traffic stop at ${location.near}.`;
-    const call = this.openCall('trafficStop', 4, location, caller, narrative, t, true, [], vehicles);
     const pc = this.playerCallsign;
-    this.withdrawOffer(t);
-    this.makeAssignable(t);
-    cad.assign(call.id, pc, t, 'self');
-    cad.setUnitStatus(pc, 'onScene', t, 'auto');
+    let call: CadCall;
+    if (owned && current) {
+      // The stopped car belongs to the call the player is on: the stop runs on that call.
+      call = current;
+      cad.addNarrative(call.id, pc, `Vehicle stopped, plate ${mountedPlate(seed, vehicleId).plate}.`, t);
+      if (!call.vehicles.includes(vehicleId)) call.vehicles.push(vehicleId);
+      cad.setUnitStatus(pc, 'onScene', t, 'auto');
+    } else {
+      const type = findCallType('trafficStop');
+      const location = this.generator.locate(x, z);
+      const caller = this.officerCaller();
+      const vehicles = [vehicleId];
+      const narrative = type ? this.generator.narrative(type, this.callsRng, location, caller, vehicles, vehicleId) : `Traffic stop at ${location.near}.`;
+      call = this.openCall('trafficStop', 4, location, caller, narrative, t, true, [], vehicles);
+      this.withdrawOffer(t);
+      this.makeAssignable(t);
+      cad.assign(call.id, pc, t, 'self');
+      cad.setUnitStatus(pc, 'onScene', t, 'auto');
+    }
     cad.setTrafficStop(
       {
         callId: call.id,
@@ -571,20 +626,21 @@ export class Dispatcher {
     records.registration(vehicleId);
   }
 
-  private onReleased(vehicleId: number, reason: 'released' | 'abandoned' | 'lost', t: CadTime): void {
+  private onReleased(vehicleId: number, reason: 'released' | 'abandoned' | 'lost' | 'fled', t: CadTime): void {
     const stop = this.deps.cad.trafficStop;
     if (!stop || stop.outcome !== 'active' || stop.vehicleId !== vehicleId) return;
     if (reason === 'released') this.endStop('released', this.stopDisposition(), t);
+    else if (reason === 'fled') this.endStop('lost', 'reportTaken', t, 'Stopped vehicle fled from the stop.');
     else this.endStop('lost', 'handled', t);
   }
 
   /** Ends the active stop with `outcome` and closes its call with `disposition`. */
-  private endStop(outcome: 'released' | 'lost', disposition: string, t: CadTime): void {
+  private endStop(outcome: 'released' | 'lost', disposition: string, t: CadTime, note?: string): void {
     const { cad } = this.deps;
     const stop = cad.trafficStop;
     if (!stop) return;
     cad.updateTrafficStop({ outcome }, t);
-    cad.addNarrative(stop.callId, this.playerCallsign, outcome === 'released' ? 'Vehicle released.' : 'Stopped vehicle left the scene.', t);
+    cad.addNarrative(stop.callId, this.playerCallsign, note ?? (outcome === 'released' ? 'Vehicle released.' : 'Stopped vehicle left the scene.'), t);
     this.closeOwnCall(stop.callId, disposition, t);
   }
 
@@ -687,7 +743,7 @@ export class Dispatcher {
         this.reqTrafficStop();
         break;
       case 'stopContact':
-        this.reqStopContact(r.action, t);
+        this.reqStopContact(r.action, t, r.personId);
         break;
       case 'repeat':
         break;
@@ -1019,7 +1075,7 @@ export class Dispatcher {
     this.ack(pc, 'trafficStop', true, `Traffic stop, plate ${stop.plate}, ${call ? call.location.near : 'location unknown'}`);
   }
 
-  private reqStopContact(action: StopAction, t: CadTime): void {
+  private reqStopContact(action: StopAction, t: CadTime, claimedId?: number): void {
     const { cad, records, seed, traffic, bus } = this.deps;
     const pc = this.playerCallsign;
     const stop = cad.trafficStop;
@@ -1031,7 +1087,8 @@ export class Dispatcher {
     const subject = stop.driverId >= 0 ? stop.driverId : stop.trueDriverId;
     switch (action) {
       case 'license': {
-        const driverId = stop.trueDriverId;
+        // The identity the driver claimed (when the officer ran that name) else the true driver.
+        const driverId = claimedId !== undefined && Number.isInteger(claimedId) && claimedId >= 0 && claimedId < PERSON_POPULATION ? claimedId : stop.trueDriverId;
         cad.updateTrafficStop({ driverId }, t);
         const readback = records.personSummary(driverId);
         if (call && !call.persons.includes(driverId)) call.persons.push(driverId);
@@ -1109,7 +1166,7 @@ export class Dispatcher {
     const calls = this.deps.cad.calls();
     for (let i = 0; i < calls.length; i++) if (calls[i]?.status !== 'closed') open++;
     if (open >= g.maxOpenCalls) return;
-    const c = this.generator.generate(this.callsRng, p.x, p.z, this.playerCallsign);
+    const c = this.generator.generate(this.callsRng, p.x, p.z, this.playerCallsign, t.game);
     if (!c) return;
     this.openCall(c.typeId, c.priority, c.location, c.caller, c.narrative, t, false, c.persons, c.vehicles);
     this.generated++;

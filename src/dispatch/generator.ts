@@ -12,7 +12,7 @@ import { crimeWeight } from '../environment/crime';
 import { TIME_CONFIG } from '../environment/time';
 import type { RecordsDb } from '../records/db';
 import { PERSON_POPULATION } from '../records/ids';
-import { mountedPlate, vehicleDescription } from '../records/vehicle';
+import { canBeOnRoad, mountedPlate, vehicleDescription } from '../records/vehicle';
 import { REGISTRY_POPULATION } from '../traffic/registry';
 import { BLOCK_KIND, type City } from '../world/city';
 import { DISTRICT, DISTRICT_NAMES } from '../world/ids';
@@ -21,6 +21,10 @@ import type { DispatchConfig } from './data';
 
 /** Location attempts per call before the generator gives up (design §8). */
 export const LOCATION_TRIES = 20;
+/** Redraws of the call type when the drawn one has no location. */
+const TYPE_REDRAWS = 4;
+/** Tries to find a registry vehicle that can be on the road for a `{plate}` / `{vehicle}` placeholder (design §11.8). */
+const VEHICLE_TRIES = 20;
 /** A block is snapped to a road within this distance (m). */
 const BLOCK_SNAP = 400;
 /** `locationOf` fallback radius when the point is farther than the default 60 m from a road (m). */
@@ -136,14 +140,23 @@ export class CallGenerator {
     return Math.min(3, Math.max(0.25, m));
   }
 
-  /** A generated type by weight x the district multiplier at (x, z) (plain weights when all are 0). */
-  pickType(rng: Rng, x: number, z: number): CallType | null {
+  /**
+   * A generated type by weight x the district factor x the crime weight of its category at the game time
+   * and district (design §11.8); plain weight x district factor when every product is 0.
+   */
+  pickType(rng: Rng, x: number, z: number, gameSeconds: number): CallType | null {
     const district = this.districtOf(x, z);
+    const { hour, weekday } = clockParts(gameSeconds);
     const w = this.scratchW;
     w.length = 0;
-    for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district));
+    for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district) * crimeWeight(t.category, hour, weekday, district));
     const u = rng.next();
     let i = weightedIndex(w, u);
+    if (i < 0) {
+      w.length = 0;
+      for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district));
+      i = weightedIndex(w, u);
+    }
     if (i < 0) {
       w.length = 0;
       for (const t of this.generatedTypes) w.push(t.weight);
@@ -219,7 +232,10 @@ export class CallGenerator {
     const picked = new Map<string, string>();
     let vehicle = vehicleId;
     const ensureVehicle = (): number => {
-      if (vehicle < 0) vehicle = rng.nextInt(0, REGISTRY_POPULATION - 1);
+      if (vehicle < 0) {
+        vehicle = rng.nextInt(0, REGISTRY_POPULATION - 1);
+        for (let tries = 1; tries < VEHICLE_TRIES && !canBeOnRoad(this.seed, vehicle); tries++) vehicle = rng.nextInt(0, REGISTRY_POPULATION - 1);
+      }
       if (!vehicles.includes(vehicle)) vehicles.push(vehicle);
       return vehicle;
     };
@@ -267,10 +283,24 @@ export class CallGenerator {
   }
 
   /** A full generated call (null when no type or location fits). */
-  generate(rng: Rng, px: number, pz: number, officerCallsign: string, typeOverride?: CallType, at?: { x: number; z: number }): GeneratedCall | null {
-    const type = typeOverride ?? this.pickType(rng, px, pz);
+  generate(
+    rng: Rng,
+    px: number,
+    pz: number,
+    officerCallsign: string,
+    gameSeconds: number,
+    typeOverride?: CallType,
+    at?: { x: number; z: number },
+  ): GeneratedCall | null {
+    // A drawn type with no usable location (a point of interest the city lacks) is redrawn, not lost.
+    let type = typeOverride ?? this.pickType(rng, px, pz, gameSeconds);
     if (!type) return null;
-    const location = at ? this.locate(at.x, at.z) : this.pickLocation(type, rng, px, pz);
+    let location = at ? this.locate(at.x, at.z) : this.pickLocation(type, rng, px, pz);
+    for (let again = 0; !location && !typeOverride && again < TYPE_REDRAWS; again++) {
+      type = this.pickType(rng, px, pz, gameSeconds);
+      if (!type) return null;
+      location = this.pickLocation(type, rng, px, pz);
+    }
     if (!location) return null;
     const priority = this.pickPriority(type, rng);
     const caller = this.pickCaller(type, rng, officerCallsign);

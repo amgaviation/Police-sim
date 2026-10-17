@@ -1,0 +1,1020 @@
+{
+  "version": 1,
+  "families": [
+    {
+      "id": "trafficStop",
+      "label": "Traffic stop",
+      "anchor": "vehicle",
+      "derived": true,
+      "defaults": {"codeKey": "trafficStop", "priority": {"4": 1}, "location": "road", "units": [1, 1], "onSceneS": [180, 420], "callers": {"officer": 1}, "districts": {"water": 0}, "dispositions": ["handled", "arrestMade", "citationIssued", "warningIssued", "reportTaken"]},
+      "roles": [
+        {"role": "driver", "count": [1, 1], "person": "given", "spot": "vehicle", "profile": "driverCooperative"},
+        {"role": "passenger", "count": [0, 3], "person": "given", "spot": "vehicle", "profile": "passenger"}
+      ],
+      "vehicles": [
+        {"role": "subjectVehicle", "count": [1, 1], "mode": "driving"}
+      ],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "stolenVehicle", "weight": 1},
+        {"id": "wanted", "weight": 1},
+        {"id": "dui", "weight": 1},
+        {"id": "contraband", "weight": 1},
+        {"id": "suspended", "weight": 1},
+        {"id": "clean", "weight": 1}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0, "duplicate": 0, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["photograph", "requestTow", "requestSupervisor", "requestInterpreter", "writeReport"],
+      "objectives": [
+        {"text": "Contact the driver", "done": "contacted:driver"},
+        {"text": "Identify the driver", "done": "identified:driver"},
+        {"text": "Resolve the stop", "done": {"any": ["custody:driver", "cited", "warned:driver", "released:driver"]}}
+      ],
+      "outcomes": [
+        {"id": "arrest", "when": {"any": ["custody:driver", "custody:passenger"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "cited", "when": "cited", "disposition": "citationIssued", "grade": "good"},
+        {"id": "warned", "when": "warned:driver", "disposition": "warningIssued", "grade": "good"},
+        {"id": "fled", "when": "escaped:driver", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "missedDui", "when": {"all": ["branch:dui", "!custody:driver"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "contact",
+      "label": "Field contact",
+      "anchor": "curb",
+      "derived": true,
+      "defaults": {"priority": {"4": 1}, "location": "road", "units": [1, 1], "onSceneS": [120, 300], "callers": {"officer": 1}, "districts": {"water": 0}, "dispositions": ["handled", "arrestMade", "citationIssued"]},
+      "roles": [
+        {"role": "subject", "count": [1, 1], "person": "given", "spot": "curb", "profile": "suspectCalm"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "wanted", "weight": 1},
+        {"id": "contraband", "weight": 1},
+        {"id": "clean", "weight": 1}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0, "duplicate": 0, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["photograph", "writeReport", "requestInterpreter"],
+      "objectives": [
+        {"text": "Contact the subject", "done": "contacted:subject"},
+        {"text": "Identify the subject", "done": "identified:subject"}
+      ],
+      "outcomes": [
+        {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "good"},
+        {"id": "cited", "when": "cited", "disposition": "citationIssued", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "dui",
+      "label": "Impaired driver",
+      "anchor": "roadside",
+      "defaults": {"priority": {"2": 0.5, "3": 0.5}, "location": "road", "units": [1, 1], "onSceneS": [300, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 1.4, "campus": 1.2, "highway": 1.3, "rural": 0.6, "industrial": 0.5, "water": 0}, "dispositions": ["handled", "goneOnArrival", "arrestMade", "transported"]},
+      "roles": [
+        {"role": "driver", "count": [1, 1], "person": "driver", "spot": "vehicle", "profile": "subjectIntoxicated", "intoxication": {"chance": 1, "bac": [0.08, 0.22]}, "items": [{"item": "openContainer", "chance": 0.3}]},
+        {"role": "passenger", "count": [0, 1], "person": {"minAge": 16}, "spot": "vehicle", "profile": "passenger"}
+      ],
+      "vehicles": [
+        {"role": "subjectVehicle", "count": [1, 1], "mode": "driving", "behavior": "dui", "reported": true, "flee": 0.1}
+      ],
+      "evidence": [],
+      "describe": "driver",
+      "branches": [
+        {"id": "drunk", "weight": 6},
+        {"id": "drugged", "weight": 2, "roleOverrides": {"driver": {"intoxication": {"chance": 1, "bac": [0, 0.03], "drug": "depressant"}}}},
+        {"id": "medical", "weight": 1, "flags": ["medicalEmergency"], "roleOverrides": {"driver": {"profile": "subjectConfused", "intoxication": null}}},
+        {"id": "tired", "weight": 1, "roleOverrides": {"driver": {"intoxication": null, "profile": "driverNervous"}}},
+        {"id": "asleepParked", "weight": 0, "roleOverrides": {"driver": {"profile": "subjectIntoxicated"}}, "vehicleOverrides": {"subjectVehicle": {"mode": "parked"}}}
+      ],
+      "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 1, "duplicate": 1, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller now reports the vehicle is swerving across lanes and nearly struck another car."], "roleOverrides": {"driver": {"profile": "suspectAgitated"}}},
+      "deescalation": {"narratives": ["Caller advises the vehicle has stopped and the driver is sitting inside."], "roleOverrides": {"driver": {"profile": "driverNervous"}}},
+      "actions": ["requestTow", "requestEms", "photograph", "writeReport"],
+      "objectives": [
+        {"text": "Locate and stop the vehicle", "done": "vehicleStopped"},
+        {"text": "Contact the driver", "done": "contacted:driver"},
+        {"text": "Test the driver for impairment", "done": {"any": ["pbt:driver", "sfst:driver"]}},
+        {"text": "Possible medical emergency: request EMS", "done": "service:ems", "show": "branch:medical"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "goneOnArrival", "grade": "good"},
+        {"id": "duiArrest", "when": {"all": ["custody:driver", {"any": ["bacOver", "sfstFail"]}]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "medicalTransport", "when": {"all": ["branch:medical", "transported:driver"]}, "disposition": "transported", "grade": "good"},
+        {"id": "medicalMissed", "when": {"all": ["branch:medical", "custody:driver"]}, "disposition": "arrestMade", "grade": "bad"},
+        {"id": "released", "when": {"all": [{"any": ["pbt:driver", "sfst:driver"]}, "!bacOver", "!sfstFail"]}, "disposition": "handled", "grade": "good"},
+        {"id": "fled", "when": "escaped:driver", "disposition": "goneOnArrival", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "collision",
+      "label": "Collision",
+      "anchor": "intersection",
+      "defaults": {"codeKey": "collision", "priority": {"2": 0.3, "3": 0.7}, "location": "intersection", "units": [1, 2], "onSceneS": [300, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"highway": 1.5, "downtown": 1.2, "industrial": 0.8, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade", "transported"]},
+      "roles": [
+        {"role": "driverA", "count": [1, 1], "person": {"minAge": 18}, "spot": "street", "profile": "driverCooperative", "vehicle": "vehicleA"},
+        {"role": "driverB", "count": [1, 1], "person": {"minAge": 18}, "spot": "street", "profile": "driverNervous", "vehicle": "vehicleB"},
+        {"role": "passenger", "count": [0, 2], "person": {}, "spot": "curb", "profile": "passenger"},
+        {"role": "witness", "count": [0, 2], "person": {}, "spot": "curb", "profile": "bystander"}
+      ],
+      "vehicles": [
+        {"role": "vehicleA", "count": [1, 1], "mode": "crashed"},
+        {"role": "vehicleB", "count": [1, 1], "mode": "crashed"}
+      ],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "propertyOnly", "weight": 5},
+        {"id": "injuries", "weight": 3, "flags": ["injury:driverB"], "roleOverrides": {"driverB": {"injured": 1, "profile": "victimInjured"}}},
+        {"id": "duiDriver", "weight": 2, "roleOverrides": {"driverB": {"intoxication": {"chance": 1, "bac": [0.09, 0.2]}, "profile": "subjectIntoxicated"}}},
+        {"id": "hitAndRun", "weight": 2, "flags": ["hitAndRun"], "remove": ["driverB", "vehicleB"]},
+        {"id": "singleVehicle", "weight": 0, "remove": ["driverB", "vehicleB"]},
+        {"id": "pedestrian", "weight": 0, "flags": ["injury:driverB"], "remove": ["vehicleB"], "roleOverrides": {"driverB": {"spot": "curb", "injured": 1, "profile": "victimInjured"}}}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.3, "duplicate": 2, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller now reports the drivers are arguing and one is shouting at the other."], "roleOverrides": {"driverB": {"profile": "suspectAgitated"}}},
+      "deescalation": {"narratives": ["Caller advises the drivers have calmed down and are exchanging information."], "roleOverrides": {"driverB": {"profile": "driverCooperative"}}},
+      "actions": ["trafficControl", "requestEms", "requestTow", "requestFire", "photograph", "canvass", "writeReport"],
+      "objectives": [
+        {"text": "Contact the drivers", "done": "contacted:driverA"},
+        {"text": "Control traffic at the scene", "done": "trafficControl"},
+        {"text": "Get a statement from the driver", "done": "statement:driverA"},
+        {"text": "Injuries reported: request EMS", "done": "service:ems", "show": "injury:driverB"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "duiArrest", "when": {"all": ["branch:duiDriver", "custody:driverB"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "duiMissed", "when": "branch:duiDriver", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "injuriesNoEms", "when": {"all": ["injury:driverB", "!service:ems"]}, "disposition": "reportTaken", "grade": "bad"},
+        {"id": "transported", "when": "transported:driverB", "disposition": "transported", "grade": "good"},
+        {"id": "hitAndRun", "when": {"all": ["branch:hitAndRun", "statement:driverA"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "exchange", "when": {"all": ["statement:driverA", "trafficControl"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "disturbance",
+      "label": "Disturbance",
+      "anchor": "curb",
+      "defaults": {"priority": {"3": 0.5, "4": 0.5}, "location": "block", "units": [1, 1], "onSceneS": [180, 420], "callers": {"citizen": 0.7, "anonymous": 0.3}, "districts": {"downtown": 1.4, "campus": 1.8, "industrial": 0.3, "airport": 0.2, "highway": 0, "water": 0}, "dispositions": ["handled", "goneOnArrival", "arrestMade", "transported", "warningIssued"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "distance", "profile": "callerUpset"},
+        {"role": "subject", "count": [1, 2], "person": {"minAge": 18}, "spot": "curb", "profile": "suspectAgitated", "intoxication": {"chance": 0.4, "bac": [0.05, 0.16]}},
+        {"role": "bystander", "count": [0, 3], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "subject",
+      "branches": [
+        {"id": "noisy", "weight": 4, "roleOverrides": {"subject": {"profile": "suspectCalm"}}},
+        {"id": "argument", "weight": 3},
+        {"id": "intoxicated", "weight": 2, "roleOverrides": {"subject": {"intoxication": {"chance": 1, "bac": [0.12, 0.25]}, "profile": "subjectIntoxicated"}}},
+        {"id": "gone", "weight": 1, "remove": ["subject"]}
+      ],
+      "variants": {"escalation": 1, "deescalation": 1, "false": 1, "duplicate": 1, "swatting": 0, "ambush": 0.2},
+      "escalation": {"narratives": ["Caller now reports the subject is shouting threats and shoving people."], "roleOverrides": {"subject": {"profile": "suspectHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the subject has quieted down and is sitting on the curb."], "roleOverrides": {"subject": {"profile": "suspectCalm"}}},
+      "actions": ["separateParties", "canvass", "photograph", "requestEms", "requestInterpreter", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
+        {"text": "Contact the subject", "done": "contacted:subject", "show": "role:subject"},
+        {"text": "Resolve the disturbance", "done": {"any": ["warned:subject", "custody:subject", "transported:subject", "left:subject"]}, "show": "role:subject"}
+      ],
+      "outcomes": [
+        {"id": "gone", "when": {"any": ["branch:gone", "variant:false"]}, "disposition": "goneOnArrival", "grade": "good"},
+        {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "ok"},
+        {"id": "transported", "when": "transported:subject", "disposition": "transported", "grade": "good"},
+        {"id": "warned", "when": "warned:subject", "disposition": "warningIssued", "grade": "good"},
+        {"id": "handled", "when": "contacted:subject", "disposition": "handled", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "domestic",
+      "label": "Domestic disturbance",
+      "anchor": "door",
+      "defaults": {"priority": {"2": 0.6, "3": 0.4}, "location": "block", "units": [1, 2], "onSceneS": [240, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"industrial": 0.3, "highway": 0, "water": 0}, "dispositions": ["handled", "unfounded", "arrestMade", "reportTaken", "referred"]},
+      "roles": [
+        {"role": "caller", "count": [1, 1], "person": "caller", "spot": "curb", "profile": "callerUpset"},
+        {"role": "victim", "count": [1, 1], "person": {"minAge": 18}, "spot": "door", "profile": "victimDistraught"},
+        {"role": "suspect", "count": [1, 1], "person": {"minAge": 18, "risk": true}, "spot": "inside", "profile": "suspectAgitated", "items": [{"item": "knife", "chance": 0.08}], "intoxication": {"chance": 0.5, "bac": [0.06, 0.18], "drug": "none"}}
+      ],
+      "vehicles": [],
+      "evidence": [
+        {"item": "brokenGlass", "spot": "door", "chance": 0.3}
+      ],
+      "describe": "suspect",
+      "branches": [
+        {"id": "verbal", "weight": 4},
+        {"id": "assault", "weight": 3, "flags": ["injury:victim"], "roleOverrides": {"victim": {"injured": 1, "profile": "victimInjured"}}},
+        {"id": "suspectGone", "weight": 2, "remove": ["suspect"]},
+        {"id": "weapon", "weight": 1, "roleOverrides": {"suspect": {"weapon": "knife", "profile": "suspectArmedHostile"}}},
+        {"id": "elderVerbal", "weight": 0, "roleOverrides": {"victim": {"person": {"minAge": 70}}}},
+        {"id": "elderAssault", "weight": 0, "flags": ["injury:victim"], "roleOverrides": {"victim": {"person": {"minAge": 70}, "injured": 1, "profile": "victimInjured"}}}
+      ],
+      "variants": {"escalation": 1, "deescalation": 1, "false": 0.5, "duplicate": 1, "swatting": 0, "ambush": 0.2},
+      "escalation": {"narratives": ["Caller now reports the suspect is breaking things inside."], "roleOverrides": {"suspect": {"profile": "suspectHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the suspect has calmed down and is sitting outside."], "roleOverrides": {"suspect": {"profile": "suspectCalm", "spot": "curb"}}},
+      "actions": ["knock", "separateParties", "requestEms", "photograph", "collectEvidence", "canvass", "requestInterpreter", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
+        {"text": "Locate and separate the parties", "done": {"any": ["separated", "custody:suspect"]}},
+        {"text": "Get a statement from the victim", "done": "statement:victim", "show": "role:victim"},
+        {"text": "Victim injured: request EMS", "done": "service:ems", "show": "injury:victim"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": {"any": ["variant:false", "variant:swatting"]}, "disposition": "unfounded", "grade": "good"},
+        {"id": "arrestSuspect", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
+        {"id": "suspectFled", "when": {"any": ["escaped:suspect", "branch:suspectGone"]}, "disposition": "reportTaken", "grade": "ok"},
+        {"id": "assaultNoArrest", "when": {"any": ["branch:assault", "branch:elderAssault"]}, "disposition": "reportTaken", "grade": "bad"},
+        {"id": "verbalHandled", "when": {"all": ["statement:victim", "separated"]}, "disposition": "handled", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "welfare",
+      "label": "Welfare check",
+      "anchor": "door",
+      "defaults": {"priority": {"3": 0.7, "4": 0.3}, "location": "block", "units": [1, 1], "onSceneS": [180, 420], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"suburbs": 1.3, "highway": 0, "water": 0}, "dispositions": ["handled", "transported", "reportTaken", "referred", "goneOnArrival"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "curb", "profile": "callerHelpful"},
+        {"role": "subject", "count": [1, 1], "person": {"minAge": 18}, "spot": "inside", "profile": "residentInnocent"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "fine", "weight": 5},
+        {"id": "confused", "weight": 2, "roleOverrides": {"subject": {"person": {"minAge": 70}, "profile": "subjectConfused"}}},
+        {"id": "medical", "weight": 2, "flags": ["injury:subject"], "roleOverrides": {"subject": {"profile": "subjectUnconscious", "injured": 1}}},
+        {"id": "deceased", "weight": 1, "flags": ["deceased:subject"], "roleOverrides": {"subject": {"deceased": true, "profile": "subjectDeceased"}}},
+        {"id": "notHome", "weight": 2, "remove": ["subject"]},
+        {"id": "inVehicle", "weight": 0, "flags": ["injury:subject"], "roleOverrides": {"subject": {"spot": "curb", "profile": "subjectUnconscious", "injured": 1}}},
+        {"id": "confusedOutside", "weight": 0, "roleOverrides": {"subject": {"person": {"minAge": 70}, "spot": "curb", "profile": "subjectConfused"}}},
+        {"id": "stranded", "weight": 0, "roleOverrides": {"subject": {"spot": "roadside", "profile": "callerHelpful"}}}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["knock", "requestEms", "requestCoroner", "notifyGuardian", "canvass", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
+        {"text": "Check on the occupant", "done": {"any": ["contacted:subject", "found:subject"]}, "show": "role:subject"},
+        {"text": "Occupant needs medical help: request EMS", "done": "service:ems", "show": "injury:subject"}
+      ],
+      "outcomes": [
+        {"id": "fine", "when": {"all": ["branch:fine", "contacted:subject"]}, "disposition": "handled", "grade": "good"},
+        {"id": "transported", "when": "transported:subject", "disposition": "transported", "grade": "good"},
+        {"id": "medicalMissed", "when": {"all": ["injury:subject", "!service:ems"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "deceased", "when": {"all": ["deceased:subject", "service:coroner"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "confusedHelped", "when": {"all": ["branch:confused", "guardianNotified"]}, "disposition": "referred", "grade": "good"},
+        {"id": "notHome", "when": "branch:notHome", "disposition": "goneOnArrival", "grade": "ok"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "crisis",
+      "label": "Behavioral crisis",
+      "anchor": "curb",
+      "defaults": {"priority": {"2": 0.7, "1": 0.3}, "location": "block", "units": [1, 2], "onSceneS": [600, 1200], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 1.2, "hospital": 1.2, "park": 1.3, "highway": 0.2, "water": 0}, "dispositions": ["handled", "transported", "referred", "arrestMade", "reportTaken"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "distance", "profile": "callerUpset"},
+        {"role": "subject", "count": [1, 1], "person": {"minAge": 16, "mentalHealth": true}, "spot": "curb", "profile": "subjectCrisis"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "subject",
+      "branches": [
+        {"id": "talkDown", "weight": 5},
+        {"id": "suicidal", "weight": 3, "roleOverrides": {"subject": {"profile": "subjectSuicidal"}}},
+        {"id": "armed", "weight": 1, "roleOverrides": {"subject": {"weapon": "knife", "profile": "subjectSuicidal"}}},
+        {"id": "flees", "weight": 1, "roleOverrides": {"subject": {"profile": "suspectFleeRisk"}}}
+      ],
+      "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.3, "duplicate": 0.5, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller advises the subject is now threatening to hurt themselves."], "roleOverrides": {"subject": {"profile": "subjectSuicidal"}}},
+      "deescalation": {"narratives": ["Caller advises the subject is calmer and talking with a family member."], "roleOverrides": {"subject": {"profile": "subjectConfused"}}},
+      "actions": ["requestEms", "requestSupervisor", "perimeter", "requestInterpreter", "notifyGuardian", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
+        {"text": "Make contact with the subject", "done": "contacted:subject"},
+        {"text": "Calm the subject", "done": {"any": ["calmed:subject", "custody:subject", "transported:subject"]}},
+        {"text": "Request EMS for transport", "done": "service:ems"}
+      ],
+      "outcomes": [
+        {"id": "transported", "when": "transported:subject", "disposition": "transported", "grade": "good"},
+        {"id": "calmedReferred", "when": "calmed:subject", "disposition": "referred", "grade": "good"},
+        {"id": "forced", "when": {"all": ["custody:subject", "forceUsed"]}, "disposition": "arrestMade", "grade": "bad"},
+        {"id": "custody", "when": "custody:subject", "disposition": "referred", "grade": "ok"},
+        {"id": "escaped", "when": "escaped:subject", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "medical",
+      "label": "Medical emergency",
+      "anchor": "curb",
+      "defaults": {"codeKey": "ems", "priority": {"2": 0.6, "1": 0.2, "3": 0.2}, "location": "block", "units": [1, 1], "onSceneS": [300, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 1.2, "campus": 1.2, "park": 1.2, "hospital": 1.3, "highway": 0.3, "water": 0}, "dispositions": ["handled", "transported"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "curb", "profile": "callerUpset"},
+        {"role": "patient", "count": [1, 1], "person": {"minAge": 16}, "spot": "curb", "profile": "subjectUnconscious", "injured": 1},
+        {"role": "bystander", "count": [0, 2], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "overdose", "weight": 4, "flags": ["injury:patient"], "roleOverrides": {"patient": {"intoxication": {"chance": 1, "bac": [0, 0.02], "drug": "opioid"}, "items": [{"item": "syringe", "chance": 0.5}, {"item": "pills", "chance": 0.3}]}}},
+        {"id": "collapse", "weight": 3, "flags": ["injury:patient"]},
+        {"id": "intoxicated", "weight": 2, "flags": ["injury:patient"], "roleOverrides": {"patient": {"intoxication": {"chance": 1, "bac": [0.25, 0.35]}, "profile": "subjectIntoxicated"}}},
+        {"id": "refuses", "weight": 1, "roleOverrides": {"patient": {"profile": "subjectIntoxicated", "injured": 0}}}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 1, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["firstAid", "requestEms", "requestFire", "canvass", "writeReport"],
+      "objectives": [
+        {"text": "Reach the patient", "done": {"any": ["contacted:patient", "found:patient"]}},
+        {"text": "Render first aid", "done": "firstAid", "show": "injury:patient"},
+        {"text": "Request EMS", "done": "service:ems"}
+      ],
+      "outcomes": [
+        {"id": "transported", "when": "transported:patient", "disposition": "transported", "grade": "good"},
+        {"id": "firstAidOnly", "when": {"all": ["firstAid", "!service:ems"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "refused", "when": "branch:refuses", "disposition": "handled", "grade": "good"},
+        {"id": "noEms", "when": "!service:ems", "disposition": "handled", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "property",
+      "label": "Property report",
+      "anchor": "door",
+      "defaults": {"priority": {"4": 0.8, "3": 0.2}, "location": "block", "units": [1, 1], "onSceneS": [300, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"suburbs": 1.4, "industrial": 0.8, "highway": 0, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade"]},
+      "roles": [
+        {"role": "victim", "count": [1, 1], "person": "caller", "spot": "door", "profile": "callerHelpful"},
+        {"role": "witness", "count": [0, 1], "person": {}, "spot": "curb", "profile": "witnessReluctant"},
+        {"role": "suspect", "count": [0, 1], "person": {"minAge": 18, "risk": true}, "spot": "hidden", "profile": "suspectEvasive", "items": [{"item": "stolenGoods", "chance": 0.6}]}
+      ],
+      "vehicles": [],
+      "evidence": [
+        {"item": "brokenGlass", "spot": "door", "chance": 0.4}
+      ],
+      "describe": "suspect",
+      "branches": [
+        {"id": "reportOnly", "weight": 6, "remove": ["suspect"]},
+        {"id": "suspectNearby", "weight": 1},
+        {"id": "insuranceFraud", "weight": 1, "flags": ["fraudSuspected"], "remove": ["suspect"]}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 0.5, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["photograph", "collectEvidence", "canvass", "searchArea", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:victim"},
+        {"text": "Photograph and collect evidence", "done": "evidenceCollected"},
+        {"text": "Write the report", "done": "report"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "ok"},
+        {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
+        {"id": "report", "when": {"all": ["statement:victim", "report"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "noReport", "when": "!report", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "retail",
+      "label": "Retail theft",
+      "anchor": "door",
+      "defaults": {"priority": {"3": 0.7, "2": 0.3}, "location": "block", "units": [1, 1], "onSceneS": [300, 600], "callers": {"business": 0.6, "citizen": 0.3, "anonymous": 0.1}, "districts": {"downtown": 2, "campus": 1.3, "suburbs": 0.8, "rural": 0.3, "industrial": 0.2, "highway": 0, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade", "citationIssued", "handled"]},
+      "roles": [
+        {"role": "guard", "count": [1, 1], "person": {}, "spot": "door", "profile": "securityGuard"},
+        {"role": "suspect", "count": [1, 1], "person": {"minAge": 18}, "spot": "door", "profile": "suspectNervous", "items": [{"item": "stolenGoods", "chance": 1}, {"item": "cashRoll", "chance": 0.1}, {"item": "fakeId", "chance": 0.1}]}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "suspect",
+      "branches": [
+        {"id": "detained", "weight": 5},
+        {"id": "fled", "weight": 3, "roleOverrides": {"suspect": {"spot": "hidden", "profile": "suspectFleeRisk"}}},
+        {"id": "combative", "weight": 1, "roleOverrides": {"suspect": {"profile": "suspectHostile"}}}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.2, "duplicate": 0.3, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Store security advises the suspect is now trying to push past staff to leave."], "roleOverrides": {"suspect": {"profile": "suspectHostile"}}},
+      "deescalation": {"narratives": ["Store security advises the suspect is cooperating and waiting in the office."], "roleOverrides": {"suspect": {"profile": "suspectCalm"}}},
+      "actions": ["photograph", "collectEvidence", "searchArea", "writeReport"],
+      "objectives": [
+        {"text": "Contact store security", "done": "contacted:guard"},
+        {"text": "Locate the suspect", "done": {"any": ["contacted:suspect", "found:suspect", "custody:suspect"]}},
+        {"text": "Resolve the theft", "done": {"any": ["custody:suspect", "citation:suspect", "escaped:suspect"]}}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "ok"},
+        {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
+        {"id": "cited", "when": "citation:suspect", "disposition": "citationIssued", "grade": "good"},
+        {"id": "fledReport", "when": "escaped:suspect", "disposition": "reportTaken", "grade": "ok"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "trespass",
+      "label": "Trespass",
+      "anchor": "door",
+      "defaults": {"priority": {"3": 0.6, "4": 0.4}, "location": "block", "units": [1, 1], "onSceneS": [180, 420], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"industrial": 1.6, "suburbs": 1.1, "highway": 0, "water": 0}, "dispositions": ["handled", "goneOnArrival", "arrestMade", "warningIssued"]},
+      "roles": [
+        {"role": "caller", "count": [1, 1], "person": "caller", "spot": "door", "profile": "callerUpset"},
+        {"role": "subject", "count": [1, 2], "person": {"minAge": 18}, "spot": "yard", "profile": "suspectEvasive", "intoxication": {"chance": 0.3, "bac": [0.05, 0.15]}}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "subject",
+      "branches": [
+        {"id": "leaves", "weight": 5},
+        {"id": "refuses", "weight": 3, "roleOverrides": {"subject": {"profile": "suspectAgitated"}}},
+        {"id": "wanted", "weight": 1, "roleOverrides": {"subject": {"person": {"minAge": 18, "warrant": true}}}},
+        {"id": "gone", "weight": 1, "remove": ["subject"]},
+        {"id": "teen", "weight": 0, "roleOverrides": {"subject": {"person": {"minAge": 16, "maxAge": 19}}}}
+      ],
+      "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0.1},
+      "escalation": {"narratives": ["Caller advises the subject is now refusing to leave and is becoming aggressive."], "roleOverrides": {"subject": {"profile": "suspectAgitated"}}},
+      "deescalation": {"narratives": ["Caller advises the subject has started to walk away."], "roleOverrides": {"subject": {"profile": "suspectCalm"}}},
+      "actions": ["searchArea", "photograph", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller"},
+        {"text": "Contact the subject", "done": "contacted:subject", "show": "role:subject"},
+        {"text": "Remove or warn the subject", "done": {"any": ["warned:subject", "custody:subject", "left:subject"]}, "show": "role:subject"}
+      ],
+      "outcomes": [
+        {"id": "gone", "when": {"any": ["branch:gone", "variant:false"]}, "disposition": "goneOnArrival", "grade": "good"},
+        {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "good"},
+        {"id": "warned", "when": "warned:subject", "disposition": "warningIssued", "grade": "good"},
+        {"id": "left", "when": "left:subject", "disposition": "handled", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "inProgress",
+      "label": "Crime in progress",
+      "anchor": "door",
+      "defaults": {"priority": {"2": 0.6, "3": 0.4}, "location": "block", "units": [1, 2], "onSceneS": [300, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"suburbs": 1.3, "industrial": 1.3, "highway": 0.1, "water": 0}, "dispositions": ["handled", "unfounded", "arrestMade", "reportTaken"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "distance", "profile": "callerHelpful"},
+        {"role": "suspect", "count": [1, 2], "person": {"minAge": 18, "risk": true}, "spot": "hidden", "profile": "suspectFleeRisk", "items": [{"item": "burglaryTools", "chance": 0.5}, {"item": "stolenGoods", "chance": 0.4}, {"item": "knife", "chance": 0.1}]}
+      ],
+      "vehicles": [],
+      "evidence": [
+        {"item": "brokenGlass", "spot": "door", "chance": 0.5}
+      ],
+      "describe": "suspect",
+      "branches": [
+        {"id": "caught", "weight": 3, "roleOverrides": {"suspect": {"spot": "yard", "profile": "suspectNervous"}}},
+        {"id": "hiding", "weight": 3},
+        {"id": "fled", "weight": 3, "flags": ["suspectFled"], "remove": ["suspect"]},
+        {"id": "nothing", "weight": 2, "remove": ["suspect"]}
+      ],
+      "variants": {"escalation": 1, "deescalation": 0.5, "false": 1, "duplicate": 1, "swatting": 0, "ambush": 0.2},
+      "escalation": {"narratives": ["Caller now reports the suspect has forced entry and a second person is with them."], "roleOverrides": {"suspect": {"profile": "suspectHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the person has stopped trying the doors and is walking away."], "roleOverrides": {"suspect": {"profile": "suspectNervous"}}},
+      "actions": ["perimeter", "searchArea", "requestK9", "photograph", "collectEvidence", "canvass", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
+        {"text": "Set a perimeter", "done": "perimeter"},
+        {"text": "Locate the suspect", "done": {"any": ["found:suspect", "custody:suspect", "escaped:suspect", "areaSearched"]}},
+        {"text": "Write the report", "done": "report"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": {"any": ["branch:nothing", "variant:false"]}, "disposition": "unfounded", "grade": "good"},
+        {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
+        {"id": "escaped", "when": "escaped:suspect", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "fledReport", "when": {"all": ["branch:fled", "report"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "violent",
+      "label": "Violent crime",
+      "anchor": "curb",
+      "defaults": {"priority": {"1": 0.5, "2": 0.5}, "location": "block", "units": [2, 3], "onSceneS": [420, 900], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 1.5, "campus": 1.2, "suburbs": 0.8, "industrial": 0.8, "highway": 0.2, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade"]},
+      "roles": [
+        {"role": "victim", "count": [1, 1], "person": {"minAge": 18}, "spot": "curb", "profile": "victimDistraught"},
+        {"role": "suspect", "count": [1, 1], "person": {"minAge": 18, "risk": true}, "spot": "hidden", "profile": "suspectFleeRisk", "weapon": null, "items": [{"item": "cashRoll", "chance": 0.5}, {"item": "stolenGoods", "chance": 0.3}]},
+        {"role": "witness", "count": [0, 2], "person": {}, "spot": "curb", "profile": "witnessReluctant"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "suspect",
+      "branches": [
+        {"id": "suspectFled", "weight": 4, "flags": ["suspectFled"]},
+        {"id": "suspectNearby", "weight": 3},
+        {"id": "injured", "weight": 2, "flags": ["injury:victim"], "roleOverrides": {"victim": {"injured": 1, "profile": "victimInjured"}}},
+        {"id": "armed", "weight": 1, "roleOverrides": {"suspect": {"weapon": "handgun", "profile": "suspectArmedHostile"}}},
+        {"id": "fightCrowd", "weight": 0, "roleOverrides": {"witness": {"count": [2, 4]}}}
+      ],
+      "variants": {"escalation": 1, "deescalation": 0.5, "false": 0.3, "duplicate": 1.5, "swatting": 0.3, "ambush": 0.3},
+      "escalation": {"narratives": ["Caller now reports the suspect has pulled a weapon."], "roleOverrides": {"suspect": {"weapon": "knife", "profile": "suspectArmedHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the suspect has run off and is no longer at the scene."], "remove": ["suspect"]},
+      "actions": ["perimeter", "searchArea", "requestK9", "requestEms", "canvass", "photograph", "collectEvidence", "writeReport"],
+      "objectives": [
+        {"text": "Contact the victim", "done": "contacted:victim"},
+        {"text": "Victim injured: request EMS", "done": "service:ems", "show": "injury:victim"},
+        {"text": "Locate the suspect", "done": {"any": ["custody:suspect", "escaped:suspect", "areaSearched", "perimeter"]}},
+        {"text": "Write the report", "done": "report"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": {"any": ["variant:false", "variant:swatting"]}, "disposition": "unfounded", "grade": "good"},
+        {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
+        {"id": "injuredNoEms", "when": {"all": ["injury:victim", "!service:ems"]}, "disposition": "reportTaken", "grade": "bad"},
+        {"id": "report", "when": {"all": ["statement:victim", "report"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "weapons",
+      "label": "Weapons call",
+      "anchor": "curb",
+      "defaults": {"codeKey": null, "priority": {"1": 0.7, "2": 0.3}, "location": "block", "units": [2, 3], "onSceneS": [420, 900], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 1.5, "suburbs": 0.8, "rural": 0.5, "highway": 0.2, "water": 0}, "dispositions": ["reportTaken", "unfounded", "handled", "arrestMade", "goneOnArrival"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "distance", "profile": "callerUpset"},
+        {"role": "subject", "count": [1, 1], "person": {"minAge": 18, "risk": true}, "spot": "curb", "profile": "suspectArmedHostile", "weapon": "handgun"},
+        {"role": "bystander", "count": [0, 3], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [
+        {"item": "shellCasing", "spot": "curb", "chance": 0.5}
+      ],
+      "describe": "subject",
+      "branches": [
+        {"id": "brandishing", "weight": 3},
+        {"id": "surrenders", "weight": 2, "roleOverrides": {"subject": {"profile": "suspectNervous"}}},
+        {"id": "gone", "weight": 3, "remove": ["subject"]},
+        {"id": "knife", "weight": 1, "roleOverrides": {"subject": {"weapon": "knife"}}},
+        {"id": "misidentified", "weight": 1, "flags": ["misidentified"], "roleOverrides": {"subject": {"weapon": null, "items": [{"item": "phone", "chance": 1}], "profile": "residentInnocent"}}}
+      ],
+      "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.5, "duplicate": 1.5, "swatting": 1, "ambush": 0.5},
+      "escalation": {"narratives": ["Caller now reports the subject fired a shot into the air."], "roleOverrides": {"subject": {"profile": "suspectArmedHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the subject put the weapon away and is sitting down."], "roleOverrides": {"subject": {"profile": "suspectNervous"}}},
+      "actions": ["perimeter", "evacuate", "searchArea", "requestK9", "requestSwat", "requestSupervisor", "photograph", "collectEvidence", "canvass", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
+        {"text": "Set a perimeter", "done": "perimeter"},
+        {"text": "Locate the subject", "done": {"any": ["found:subject", "custody:subject", "escaped:subject", "areaSearched"]}},
+        {"text": "Secure the weapon", "done": "weaponFound", "show": "role:subject"}
+      ],
+      "outcomes": [
+        {"id": "swatting", "when": "variant:swatting", "disposition": "unfounded", "grade": "good"},
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "misidentifiedForce", "when": {"all": ["branch:misidentified", "forceUsed"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "good"},
+        {"id": "gone", "when": "branch:gone", "disposition": "goneOnArrival", "grade": "ok"},
+        {"id": "escaped", "when": "escaped:subject", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "activeAssailant",
+      "label": "Active assailant",
+      "anchor": "door",
+      "defaults": {"codeKey": "shotsFired", "priority": {"1": 1}, "location": "block", "units": [3, 4], "onSceneS": [600, 1200], "callers": {"citizen": 0.9, "anonymous": 0.1}, "districts": {"downtown": 1.4, "campus": 1.5, "hospital": 1.2, "industrial": 0.5, "rural": 0.1, "highway": 0, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade"]},
+      "roles": [
+        {"role": "assailant", "count": [1, 1], "person": {"minAge": 18, "risk": true}, "spot": "hidden", "profile": "suspectArmedHostile", "weapon": "handgun"},
+        {"role": "victim", "count": [1, 3], "person": {"minAge": 18}, "spot": "curb", "profile": "victimInjured", "injured": 0.7},
+        {"role": "bystander", "count": [2, 6], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "assailant",
+      "branches": [
+        {"id": "engaged", "weight": 5},
+        {"id": "surrenders", "weight": 2, "roleOverrides": {"assailant": {"profile": "suspectNervous"}}},
+        {"id": "fled", "weight": 2, "roleOverrides": {"assailant": {"profile": "suspectFleeRisk"}}}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0, "false": 0.2, "duplicate": 2, "swatting": 1, "ambush": 0},
+      "escalation": {"narratives": ["Callers now report additional shots and more people running from the building."], "roleOverrides": {"assailant": {"profile": "suspectArmedHostile"}}},
+      "deescalation": null,
+      "actions": ["perimeter", "evacuate", "searchArea", "requestEms", "requestSwat", "requestK9", "requestSupervisor", "writeReport"],
+      "objectives": [
+        {"text": "Set a perimeter", "done": "perimeter"},
+        {"text": "Stop the assailant", "done": {"any": ["custody:assailant", "escaped:assailant"]}},
+        {"text": "Request EMS for the victims", "done": "service:ems"},
+        {"text": "Write the report", "done": "report"}
+      ],
+      "outcomes": [
+        {"id": "swatting", "when": "variant:swatting", "disposition": "unfounded", "grade": "good"},
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "stopped", "when": "custody:assailant", "disposition": "arrestMade", "grade": "good"},
+        {"id": "escaped", "when": "escaped:assailant", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "victimsNoEms", "when": "!service:ems", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "barricade",
+      "label": "Barricaded subject",
+      "anchor": "door",
+      "defaults": {"priority": {"1": 1}, "location": "block", "units": [3, 4], "onSceneS": [900, 1800], "callers": {"citizen": 0.9, "anonymous": 0.1}, "districts": {"suburbs": 1.4, "downtown": 0.8, "industrial": 0.2, "rural": 0.5, "highway": 0, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade"]},
+      "roles": [
+        {"role": "subject", "count": [1, 1], "person": {"minAge": 18, "risk": true}, "spot": "inside", "profile": "barricaded", "weapon": "handgun"},
+        {"role": "hostage", "count": [0, 1], "person": {"minAge": 18}, "spot": "inside", "profile": "victimDistraught"},
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "distance", "profile": "callerUpset"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "subject",
+      "branches": [
+        {"id": "barricaded", "weight": 5, "remove": ["hostage"]},
+        {"id": "hostage", "weight": 3, "roleOverrides": {"hostage": {"count": [1, 1]}}},
+        {"id": "surrenders", "weight": 2, "remove": ["hostage"], "roleOverrides": {"subject": {"profile": "suspectNervous"}}}
+      ],
+      "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.3, "duplicate": 1, "swatting": 1.5, "ambush": 0},
+      "escalation": {"narratives": ["Caller now reports the subject has threatened to shoot anyone who approaches."], "roleOverrides": {"subject": {"profile": "suspectArmedHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the subject has stopped shouting and the house is quiet."], "roleOverrides": {"subject": {"profile": "suspectNervous"}}},
+      "actions": ["contain", "perimeter", "evacuate", "requestSwat", "requestSupervisor", "requestEms", "writeReport"],
+      "objectives": [
+        {"text": "Contain the location", "done": "contained"},
+        {"text": "Evacuate nearby residents", "done": "evacuated"},
+        {"text": "Request the tactical team", "done": "service:swat"},
+        {"text": "Resolve the standoff", "done": {"any": ["custody:subject", "escaped:subject"]}}
+      ],
+      "outcomes": [
+        {"id": "swatting", "when": "variant:swatting", "disposition": "unfounded", "grade": "good"},
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "resolved", "when": {"all": ["custody:subject", "contained"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "resolvedUncontained", "when": "custody:subject", "disposition": "arrestMade", "grade": "ok"},
+        {"id": "noSwat", "when": "!service:swat", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "wanted",
+      "label": "Wanted person",
+      "anchor": "door",
+      "defaults": {"priority": {"2": 0.5, "3": 0.5}, "location": "block", "units": [1, 2], "onSceneS": [300, 600], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 1.2, "highway": 0.2, "water": 0}, "dispositions": ["handled", "unfounded", "arrestMade", "goneOnArrival", "reportTaken"]},
+      "roles": [
+        {"role": "subject", "count": [1, 1], "person": {"minAge": 18, "warrant": true}, "spot": "inside", "profile": "suspectFleeRisk"},
+        {"role": "resident", "count": [0, 1], "person": {"minAge": 18}, "spot": "door", "profile": "residentInnocent"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "subject",
+      "branches": [
+        {"id": "home", "weight": 4},
+        {"id": "flees", "weight": 3, "roleOverrides": {"subject": {"spot": "hidden"}}},
+        {"id": "notHome", "weight": 2, "remove": ["subject"]},
+        {"id": "armed", "weight": 1, "roleOverrides": {"subject": {"weapon": "handgun", "profile": "suspectArmedHostile"}}},
+        {"id": "street", "weight": 0, "roleOverrides": {"subject": {"spot": "curb"}}}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.5, "duplicate": 0.3, "swatting": 0, "ambush": 0.1},
+      "escalation": {"narratives": ["Caller advises the subject has become agitated and says they will not go back."], "roleOverrides": {"subject": {"profile": "suspectHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the subject appears to be getting ready to leave quietly."], "roleOverrides": {"subject": {"profile": "suspectCalm"}}},
+      "actions": ["knock", "perimeter", "searchArea", "requestK9", "writeReport"],
+      "objectives": [
+        {"text": "Locate the subject", "done": {"any": ["contacted:subject", "found:subject", "custody:subject", "escaped:subject"]}},
+        {"text": "Take the subject into custody", "done": {"any": ["custody:subject", "escaped:subject"]}, "show": "role:subject"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "good"},
+        {"id": "notHome", "when": "branch:notHome", "disposition": "goneOnArrival", "grade": "good"},
+        {"id": "escaped", "when": "escaped:subject", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "vehicleWanted",
+      "label": "Wanted vehicle",
+      "anchor": "roadside",
+      "defaults": {"priority": {"2": 0.6, "1": 0.4}, "location": "road", "units": [2, 3], "onSceneS": [300, 600], "callers": {"citizen": 0.6, "anonymous": 0.2, "alarm": 0.2}, "districts": {"highway": 1.5, "rural": 0.6, "industrial": 0.8, "water": 0}, "dispositions": ["handled", "unfounded", "arrestMade", "reportTaken", "goneOnArrival"]},
+      "roles": [
+        {"role": "driver", "count": [1, 1], "person": {"minAge": 18, "risk": true}, "spot": "vehicle", "profile": "suspectNervous", "vehicle": "subjectVehicle"},
+        {"role": "passenger", "count": [0, 2], "person": {"minAge": 18, "risk": true}, "spot": "vehicle", "profile": "suspectNervous", "vehicle": "subjectVehicle"}
+      ],
+      "vehicles": [
+        {"role": "subjectVehicle", "count": [1, 1], "mode": "driving", "reported": true, "flee": 0.35}
+      ],
+      "evidence": [],
+      "describe": "driver",
+      "branches": [
+        {"id": "stolen", "weight": 5},
+        {"id": "armed", "weight": 2, "roleOverrides": {"driver": {"weapon": "handgun", "profile": "suspectArmedHostile"}, "passenger": {"weapon": "handgun"}}},
+        {"id": "parked", "weight": 2, "remove": ["passenger"], "roleOverrides": {"driver": {"spot": "hidden"}}, "vehicleOverrides": {"subjectVehicle": {"mode": "parked"}}},
+        {"id": "notFound", "weight": 1, "remove": ["driver", "passenger", "subjectVehicle"]}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller advises the vehicle is moving again and the occupants are watching for patrol cars."], "roleOverrides": {"driver": {"profile": "suspectFleeRisk"}}},
+      "deescalation": null,
+      "actions": ["requestTow", "requestK9", "photograph", "writeReport"],
+      "objectives": [
+        {"text": "Locate the vehicle", "done": {"any": ["vehicleStopped", "found:driver", "branch:notFound"]}},
+        {"text": "Detain the occupants", "done": {"any": ["custody:driver", "escaped:driver"]}},
+        {"text": "Recover the vehicle", "done": "service:tow", "show": "branch:parked"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "arrest", "when": "custody:driver", "disposition": "arrestMade", "grade": "good"},
+        {"id": "recovered", "when": {"all": ["branch:parked", "service:tow"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "escaped", "when": "escaped:driver", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "notFound", "when": "branch:notFound", "disposition": "goneOnArrival", "grade": "ok"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "pursuit",
+      "label": "Pursuit",
+      "anchor": "roadside",
+      "defaults": {"codeKey": "pursuit", "priority": {"1": 1}, "location": "road", "units": [2, 3], "onSceneS": [300, 600], "callers": {"officer": 1}, "districts": {"water": 0}, "dispositions": ["handled", "arrestMade", "goneOnArrival"]},
+      "roles": [
+        {"role": "driver", "count": [1, 1], "person": "given", "spot": "vehicle", "profile": "suspectFleeRisk"}
+      ],
+      "vehicles": [
+        {"role": "subjectVehicle", "count": [1, 1], "mode": "driving", "flee": 1}
+      ],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "chase", "weight": 1},
+        {"id": "footOnly", "weight": 1, "remove": ["subjectVehicle"], "roleOverrides": {"driver": {"spot": "curb"}}}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0, "duplicate": 0, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["requestK9", "requestSupervisor", "requestTow", "writeReport"],
+      "objectives": [
+        {"text": "Pursue the subject", "done": {"any": ["custody:driver", "escaped:driver", "pursuitLost"]}},
+        {"text": "Take the subject into custody", "done": "custody:driver"}
+      ],
+      "outcomes": [
+        {"id": "arrest", "when": "custody:driver", "disposition": "arrestMade", "grade": "good"},
+        {"id": "escaped", "when": {"any": ["escaped:driver", "pursuitLost"]}, "disposition": "goneOnArrival", "grade": "ok"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "missing",
+      "label": "Missing person",
+      "anchor": "curb",
+      "defaults": {"priority": {"2": 0.5, "3": 0.5}, "location": "block", "units": [1, 2], "onSceneS": [600, 1200], "callers": {"citizen": 0.95, "anonymous": 0.05}, "districts": {"suburbs": 1.5, "campus": 1.2, "park": 1.2, "highway": 0, "water": 0}, "dispositions": ["reportTaken", "unfounded", "handled"]},
+      "roles": [
+        {"role": "reporter", "count": [1, 1], "person": "caller", "spot": "door", "profile": "guardianWorried"},
+        {"role": "missing", "count": [1, 1], "person": {"minAge": 16}, "spot": "distance", "profile": "juvenileScared"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "missing",
+      "branches": [
+        {"id": "foundNearby", "weight": 4},
+        {"id": "returnedHome", "weight": 2, "roleOverrides": {"missing": {"spot": "door", "profile": "bystander"}}},
+        {"id": "notFound", "weight": 2, "roleOverrides": {"missing": {"spot": "hidden"}}},
+        {"id": "elderly", "weight": 2, "roleOverrides": {"missing": {"person": {"minAge": 70}, "profile": "subjectConfused"}}},
+        {"id": "juvenileNearby", "weight": 0, "roleOverrides": {"missing": {"person": {"minAge": 16, "maxAge": 17}}}},
+        {"id": "juvenileHidden", "weight": 0, "roleOverrides": {"missing": {"person": {"minAge": 16, "maxAge": 17}, "spot": "hidden"}}}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.3, "duplicate": 0.3, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Reporting party now advises the missing person left a worrying message."]},
+      "deescalation": {"narratives": ["Reporting party advises the missing person has phoned and may be heading home."]},
+      "actions": ["canvass", "searchArea", "requestK9", "notifyGuardian", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:reporter"},
+        {"text": "Locate the missing person", "done": {"any": ["found:missing", "branch:returnedHome"]}},
+        {"text": "Notify the family", "done": "guardianNotified"},
+        {"text": "Write the report", "done": "report"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "reunited", "when": {"all": ["found:missing", "guardianNotified"]}, "disposition": "handled", "grade": "good"},
+        {"id": "foundNoGuardian", "when": {"all": ["found:missing", "juvenile:missing", "!guardianNotified"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "found", "when": "found:missing", "disposition": "handled", "grade": "good"},
+        {"id": "report", "when": "report", "disposition": "reportTaken", "grade": "ok"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "crowd",
+      "label": "Crowd and event",
+      "anchor": "street",
+      "defaults": {"priority": {"2": 0.5, "3": 0.5}, "location": "road", "units": [2, 3], "onSceneS": [600, 1200], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"downtown": 2, "campus": 2, "park": 1.5, "rural": 0.1, "industrial": 0.2, "highway": 0, "water": 0}, "dispositions": ["handled", "unfounded", "arrestMade"]},
+      "roles": [
+        {"role": "organizer", "count": [0, 1], "person": {"minAge": 18}, "spot": "street", "profile": "protester"},
+        {"role": "protester", "count": [4, 12], "person": {"minAge": 16}, "spot": "crowd", "profile": "protester"},
+        {"role": "agitator", "count": [0, 2], "person": {"minAge": 18, "risk": true}, "spot": "crowd", "profile": "suspectAgitated"},
+        {"role": "bystander", "count": [0, 3], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": "agitator",
+      "branches": [
+        {"id": "peaceful", "weight": 5, "remove": ["agitator"]},
+        {"id": "unruly", "weight": 3},
+        {"id": "fight", "weight": 2, "flags": ["fight"], "roleOverrides": {"agitator": {"count": [2, 2]}}}
+      ],
+      "variants": {"escalation": 1, "deescalation": 1, "false": 0.3, "duplicate": 1.5, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller now reports some participants are blocking the roadway and shouting at drivers."], "roleOverrides": {"agitator": {"profile": "suspectHostile"}}},
+      "deescalation": {"narratives": ["Caller advises the crowd is thinning out and most people are leaving."], "roleOverrides": {"protester": {"profile": "crowdMember"}}},
+      "actions": ["trafficControl", "perimeter", "disperseCrowd", "requestSupervisor", "requestEms", "writeReport"],
+      "objectives": [
+        {"text": "Contact the organizer", "done": "contacted:organizer", "show": "role:organizer"},
+        {"text": "Control traffic around the crowd", "done": "trafficControl"},
+        {"text": "Keep the situation peaceful", "done": {"any": ["crowdDispersed", "custody:agitator", "trafficControl"]}}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "managedPeaceful", "when": {"all": ["branch:peaceful", "trafficControl", "!forceUsed"]}, "disposition": "handled", "grade": "good"},
+        {"id": "dispersed", "when": "crowdDispersed", "disposition": "handled", "grade": "good"},
+        {"id": "arrests", "when": {"any": ["custody:agitator", "custody:protester"]}, "disposition": "arrestMade", "grade": "ok"},
+        {"id": "forcePeaceful", "when": {"all": ["branch:peaceful", "forceUsed"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "hazard",
+      "label": "Hazard",
+      "anchor": "roadside",
+      "defaults": {"codeKey": "hazard", "priority": {"2": 0.5, "3": 0.5}, "location": "road", "units": [1, 2], "onSceneS": [300, 900], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"highway": 1.6, "industrial": 1.3, "rural": 1.3, "harbor": 1.2, "water": 0}, "dispositions": ["handled", "unfounded"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "distance", "profile": "callerHelpful"},
+        {"role": "bystander", "count": [0, 4], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "debris", "weight": 4, "flags": ["roadHazard"]},
+        {"id": "spill", "weight": 2, "flags": ["hazmat"]},
+        {"id": "gasLeak", "weight": 2, "flags": ["hazmat"]},
+        {"id": "package", "weight": 2, "flags": ["package"]},
+        {"id": "downedLines", "weight": 1, "flags": ["hazmat"]}
+      ],
+      "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.5, "duplicate": 1, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller now reports a strong odor and people feeling ill nearby."]},
+      "deescalation": {"narratives": ["Caller advises the situation looks stable and traffic is moving around it."]},
+      "actions": ["trafficControl", "perimeter", "evacuate", "requestFire", "requestHazmat", "requestBombSquad", "requestTow", "writeReport"],
+      "objectives": [
+        {"text": "Secure the area", "done": {"any": ["perimeter", "trafficControl"]}},
+        {"text": "Evacuate people nearby", "done": "evacuated", "show": {"any": ["hazmat", "package"]}},
+        {"text": "Bring in the right service", "done": {"any": ["arrived:hazmat", "arrived:fire", "arrived:bombSquad", "arrived:tow"]}}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "hazmatHandled", "when": {"all": ["hazmat", "perimeter", {"any": ["arrived:hazmat", "arrived:fire"]}]}, "disposition": "handled", "grade": "good"},
+        {"id": "packageCleared", "when": {"all": ["package", "evacuated", "arrived:bombSquad"]}, "disposition": "handled", "grade": "good"},
+        {"id": "hazmatNoPerimeter", "when": {"all": ["hazmat", "!perimeter"]}, "disposition": "handled", "grade": "bad"},
+        {"id": "debrisCleared", "when": {"all": ["roadHazard", "trafficControl"]}, "disposition": "handled", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "animal",
+      "label": "Animal call",
+      "anchor": "curb",
+      "defaults": {"priority": {"3": 0.6, "4": 0.4}, "location": "block", "units": [1, 1], "onSceneS": [180, 420], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"suburbs": 1.5, "park": 1.5, "rural": 1.5, "downtown": 0.5, "industrial": 0.5, "highway": 0.2, "water": 0}, "dispositions": ["handled", "unfounded", "warningIssued", "referred"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "door", "profile": "callerHelpful"},
+        {"role": "animal", "count": [1, 1], "person": {}, "spot": "yard", "profile": "animalDog", "body": "dog"},
+        {"role": "owner", "count": [0, 1], "person": {"minAge": 18}, "spot": "door", "profile": "bystander"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "stray", "weight": 4, "remove": ["owner"]},
+        {"id": "aggressive", "weight": 2, "roleOverrides": {"animal": {"profile": "animalAggressiveDog"}}},
+        {"id": "owned", "weight": 3},
+        {"id": "injured", "weight": 1, "remove": ["owner"], "roleOverrides": {"animal": {"injured": 1}}}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0},
+      "escalation": {"narratives": ["Caller now reports the animal has bitten someone."], "roleOverrides": {"animal": {"profile": "animalAggressiveDog"}}},
+      "deescalation": {"narratives": ["Caller advises the animal has calmed down and is lying in the yard."], "roleOverrides": {"animal": {"profile": "animalDog"}}},
+      "actions": ["secureAnimal", "requestAnimalControl", "writeReport"],
+      "objectives": [
+        {"text": "Locate the animal", "done": {"any": ["found:animal", "near:animal"]}},
+        {"text": "Secure the animal", "done": {"any": ["animalSecured", "arrived:animalControl"]}}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "secured", "when": {"any": ["animalSecured", "arrived:animalControl"]}, "disposition": "handled", "grade": "good"},
+        {"id": "ownerWarned", "when": {"all": ["branch:owned", "warned:owner"]}, "disposition": "warningIssued", "grade": "good"},
+        {"id": "referred", "when": "service:animalControl", "disposition": "referred", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "parking",
+      "label": "Parking",
+      "anchor": "roadside",
+      "defaults": {"priority": {"4": 1}, "location": "road", "units": [1, 1], "onSceneS": [120, 300], "callers": {"citizen": 0.7, "anonymous": 0.3}, "districts": {"downtown": 1.6, "campus": 1.8, "industrial": 0.3, "rural": 0.2, "highway": 0, "water": 0}, "dispositions": ["handled", "unfounded", "citationIssued"]},
+      "roles": [
+        {"role": "caller", "count": [0, 1], "person": "caller", "spot": "door", "profile": "callerUpset"},
+        {"role": "owner", "count": [0, 1], "person": {"minAge": 18}, "spot": "distance", "profile": "driverCooperative"}
+      ],
+      "vehicles": [
+        {"role": "parkedVehicle", "count": [1, 1], "mode": "parked", "reported": true}
+      ],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "cite", "weight": 5, "remove": ["owner"]},
+        {"id": "ownerReturns", "weight": 3},
+        {"id": "abandoned", "weight": 2, "flags": ["abandoned"], "remove": ["owner"]}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0.5, "duplicate": 0.3, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["citeVehicle", "requestTow", "photograph", "writeReport"],
+      "objectives": [
+        {"text": "Locate the vehicle", "done": {"any": ["arrived", "near:owner"]}},
+        {"text": "Photograph the vehicle", "done": "photographed"},
+        {"text": "Cite or remove the vehicle", "done": {"any": ["vehicleCited", "service:tow", "contacted:owner"]}}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "towed", "when": {"all": ["abandoned", "service:tow"]}, "disposition": "handled", "grade": "good"},
+        {"id": "cited", "when": "vehicleCited", "disposition": "citationIssued", "grade": "good"},
+        {"id": "moved", "when": {"all": ["branch:ownerReturns", "contacted:owner"]}, "disposition": "handled", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "investigation",
+      "label": "Investigation",
+      "anchor": "door",
+      "defaults": {"priority": {"3": 0.6, "2": 0.4}, "location": "block", "units": [1, 2], "onSceneS": [600, 1200], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"suburbs": 1.2, "highway": 0, "water": 0}, "dispositions": ["reportTaken", "unfounded", "arrestMade", "handled"]},
+      "roles": [
+        {"role": "reporter", "count": [1, 1], "person": "caller", "spot": "door", "profile": "callerHelpful"},
+        {"role": "victim", "count": [0, 1], "person": {"minAge": 18}, "spot": "door", "profile": "victimDistraught"},
+        {"role": "suspect", "count": [0, 1], "person": {"minAge": 18, "risk": true}, "spot": "distance", "profile": "suspectEvasive"},
+        {"role": "deceased", "count": [0, 1], "person": {"minAge": 18}, "spot": "inside", "profile": "subjectDeceased", "deceased": true}
+      ],
+      "vehicles": [],
+      "evidence": [
+        {"item": "bloodEvidence", "spot": "door", "chance": 0.2},
+        {"item": "threatNote", "spot": "door", "chance": 0.2}
+      ],
+      "describe": "suspect",
+      "branches": [
+        {"id": "report", "weight": 5, "remove": ["suspect", "deceased"]},
+        {"id": "suspectPresent", "weight": 2, "remove": ["deceased"]},
+        {"id": "death", "weight": 0, "flags": ["deceased:deceased"], "remove": ["suspect", "victim"], "roleOverrides": {"deceased": {"count": [1, 1]}}},
+        {"id": "assaultScene", "weight": 0, "flags": ["injury:victim", "sceneEvidence"], "remove": ["deceased"], "roleOverrides": {"victim": {"injured": 1}}},
+        {"id": "studentPresent", "weight": 0, "remove": ["deceased"], "roleOverrides": {"suspect": {"person": {"minAge": 16, "maxAge": 17}}}}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 0.3, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["preserveScene", "perimeter", "photograph", "collectEvidence", "canvass", "requestEms", "requestCoroner", "requestSupervisor", "notifyGuardian", "writeReport"],
+      "objectives": [
+        {"text": "Contact the reporting party", "done": "contacted:reporter"},
+        {"text": "Preserve the scene", "done": "scenePreserved", "show": {"any": ["deceased:deceased", "sceneEvidence"]}},
+        {"text": "Photograph and collect evidence", "done": "evidenceCollected"},
+        {"text": "Write the report", "done": "report"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "deathHandled", "when": {"all": ["deceased:deceased", "scenePreserved", "service:coroner"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "deathUnpreserved", "when": {"all": ["deceased:deceased", "!scenePreserved"]}, "disposition": "reportTaken", "grade": "bad"},
+        {"id": "sceneHandled", "when": {"all": ["sceneEvidence", "scenePreserved", "transported:victim"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
+        {"id": "report", "when": {"all": ["statement:reporter", "report"]}, "disposition": "reportTaken", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "service",
+      "label": "Service call",
+      "anchor": "curb",
+      "defaults": {"priority": {"4": 0.7, "3": 0.3}, "location": "road", "units": [1, 1], "onSceneS": [180, 420], "callers": {"citizen": 0.85, "anonymous": 0.15}, "districts": {"suburbs": 1.2, "water": 0}, "dispositions": ["handled", "unfounded", "arrestMade", "reportTaken"]},
+      "roles": [
+        {"role": "requester", "count": [1, 1], "person": "caller", "spot": "curb", "profile": "callerHelpful"},
+        {"role": "subject", "count": [0, 1], "person": {"minAge": 18, "risk": true}, "spot": "hidden", "profile": "suspectFleeRisk"}
+      ],
+      "vehicles": [],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "routine", "weight": 6, "remove": ["subject"]},
+        {"id": "k9Track", "weight": 0, "flags": ["k9Needed"], "roleOverrides": {"subject": {"count": [1, 1]}}}
+      ],
+      "variants": {"escalation": 0, "deescalation": 0, "false": 0.2, "duplicate": 0.2, "swatting": 0, "ambush": 0},
+      "escalation": null,
+      "deescalation": null,
+      "actions": ["requestK9", "requestTow", "searchArea", "writeReport"],
+      "objectives": [
+        {"text": "Contact the requester", "done": "contacted:requester"},
+        {"text": "Track the subject with a K9 unit", "done": "service:k9", "show": "k9Needed"}
+      ],
+      "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "k9Found", "when": {"all": ["k9Needed", "custody:subject"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "k9NoDog", "when": {"all": ["k9Needed", "!service:k9"]}, "disposition": "reportTaken", "grade": "bad"},
+        {"id": "assisted", "when": "contacted:requester", "disposition": "handled", "grade": "good"},
+        {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    }
+  ]
+}

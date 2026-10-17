@@ -100,6 +100,22 @@ export interface PulloverData {
     readonly crossSpeed: number;
     readonly arriveDistance: number;
   };
+  /**
+   * Vehicle pursuits (Phase 3 design §7.1): desired speed is `min(limit * speedFactor, maxSpeed)` (m/s), reds and
+   * signs are crossed at `crossSpeed` (m/s), the car escapes once farther than `loseDistanceM` from the focus
+   * for `loseS` seconds, and after `minFleeS` it gives up with probability `giveUpPerMin / 60` per second;
+   * `awayBias` is the chance an exit choice takes the exit leading farthest from the focus.
+   */
+  readonly flee: {
+    readonly speedFactor: number;
+    readonly maxSpeed: number;
+    readonly crossSpeed: number;
+    readonly loseDistanceM: number;
+    readonly loseS: number;
+    readonly giveUpPerMin: number;
+    readonly minFleeS: number;
+    readonly awayBias: number;
+  };
 }
 
 // --- Readers --------------------------------------------------------------------------
@@ -236,6 +252,7 @@ export function validatePullover(data: unknown, file = 'pullover.json'): Pullove
   const release = section('release');
   const yld = section('yield');
   const fleet = section('fleet');
+  const flee = section('flee');
   const result: PulloverData = {
     detect: {
       minDistance: num(detect, 'detect', 'minDistance', 0, 500),
@@ -272,6 +289,16 @@ export function validatePullover(data: unknown, file = 'pullover.json'): Pullove
       maxEmergencySpeed: num(fleet, 'fleet', 'maxEmergencySpeed', 1, 100),
       crossSpeed: num(fleet, 'fleet', 'crossSpeed', 0.5, 30),
       arriveDistance: num(fleet, 'fleet', 'arriveDistance', 1, 1000),
+    },
+    flee: {
+      speedFactor: num(flee, 'flee', 'speedFactor', 0.1, 5),
+      maxSpeed: num(flee, 'flee', 'maxSpeed', 1, 100),
+      crossSpeed: num(flee, 'flee', 'crossSpeed', 0.5, 30),
+      loseDistanceM: num(flee, 'flee', 'loseDistanceM', 10, 10000),
+      loseS: num(flee, 'flee', 'loseS', 0.1, 600),
+      giveUpPerMin: num(flee, 'flee', 'giveUpPerMin', 0, 3600),
+      minFleeS: num(flee, 'flee', 'minFleeS', 0, 3600),
+      awayBias: num(flee, 'flee', 'awayBias', 0, 1),
     },
   };
   if (result.detect.minDistance > result.detect.maxDistance) fail(file, 'detect.minDistance', 'must not exceed detect.maxDistance');

@@ -203,6 +203,15 @@ export class RecordsDb {
     return this.viewPerson(id);
   }
 
+  /**
+   * Person record with the overlay applied, WITHOUT marking it touched (ambient people must not grow the
+   * records snapshot); RangeError outside the population.
+   */
+  peekPerson(id: number): PersonRecord {
+    this.checkPerson(id, 'peekPerson');
+    return this.viewPerson(id);
+  }
+
   /** Registration record (expired once its expiry date has passed); RangeError outside the registry. */
   registration(vehicleId: number): RegistrationRecord {
     if (!inRange(vehicleId, REGISTRY_POPULATION)) {

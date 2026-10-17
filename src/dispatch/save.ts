@@ -47,7 +47,7 @@ export interface UnitFsmSave {
 
 export type QueuedEvent =
   | { type: 'pulledOver'; vehicleId: number; x: number; z: number }
-  | { type: 'released'; vehicleId: number; reason: 'released' | 'abandoned' | 'lost' }
+  | { type: 'released'; vehicleId: number; reason: 'released' | 'abandoned' | 'lost' | 'fled' }
   | { type: 'fleetArrived'; index: number }
   | { type: 'document'; id: string; kind: DocKind; final: boolean };
 
@@ -163,7 +163,7 @@ export function isUnitRequest(x: unknown): x is UnitRequest {
     case 'backup':
       return x.code === 2 || x.code === 3;
     case 'stopContact':
-      return isOneOf(x.action, STOP_ACTIONS);
+      return isOneOf(x.action, STOP_ACTIONS) && (x.personId === undefined || isInt(x.personId, -1));
     case 'location':
     case 'code4':
     case 'emergency':
@@ -181,7 +181,7 @@ function isQueuedEvent(x: unknown): x is QueuedEvent {
     case 'pulledOver':
       return isInt(x.vehicleId) && isNum(x.x) && isNum(x.z);
     case 'released':
-      return isInt(x.vehicleId) && isOneOf(x.reason, ['released', 'abandoned', 'lost'] as const);
+      return isInt(x.vehicleId) && isOneOf(x.reason, ['released', 'abandoned', 'lost', 'fled'] as const);
     case 'fleetArrived':
       return isInt(x.index, 0);
     case 'document':

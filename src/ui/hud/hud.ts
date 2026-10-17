@@ -18,6 +18,16 @@ import {
   type HudUnit,
   type TargetSeverity,
 } from './police';
+import {
+  SCENE_LINES,
+  contactChipText,
+  createSceneText,
+  sceneText,
+  weaponChipText,
+  type HudContact,
+  type HudOfficer,
+  type HudScene,
+} from './scene';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
 export interface HudSnapshot {
@@ -48,6 +58,15 @@ export interface HudSnapshot {
   offer?: string | null;
   /** Carried items, e.g. 'Flashlight · Cuffs ×2'. */
   carried?: string;
+  // Phase 3 (design §12.4): optional as well.
+  /** The officer's drawn weapon (chip 'SIDEARM' / 'TASER'). */
+  officer?: Readonly<HudOfficer> | null;
+  /** The person in contact (chip 'Name · state · 4 m'). */
+  contact?: Readonly<HudContact> | null;
+  /** The call scene: title and up to four objectives (done ones struck through). */
+  scene?: Readonly<HudScene> | null;
+  /** Pursuit line (red), e.g. 'PURSUIT  Foot  suspect fleeing north'; null hides it. */
+  pursuit?: string | null;
 }
 
 export interface HudOptions {
@@ -109,6 +128,17 @@ export interface HudText {
   targetSeverity: TargetSeverity;
   /** Carried items line; '' hides it. */
   carried: string;
+  /** Weapon chip ('SIDEARM' / 'TASER'); '' hides it. */
+  weapon: string;
+  /** Contact chip; '' hides it. */
+  contact: string;
+  /** Objective box title; '' hides the box. */
+  sceneTitle: string;
+  /** `SCENE_LINES` objective lines ('' = unused) and whether each is done. */
+  sceneLines: string[];
+  sceneDone: boolean[];
+  /** Red pursuit line; '' hides it. */
+  pursuit: string;
 }
 
 export function createHudText(): HudText {
@@ -146,12 +176,19 @@ export function createHudText(): HudText {
     targetResult: '',
     targetSeverity: 'none',
     carried: '',
+    weapon: '',
+    contact: '',
+    sceneTitle: '',
+    sceneLines: new Array<string>(SCENE_LINES).fill(''),
+    sceneDone: new Array<boolean>(SCENE_LINES).fill(false),
+    pursuit: '',
   };
 }
 
 // Scratch for the multi-line helpers (hudText runs on the main thread at the HUD rate).
 const CALL_SCRATCH = createCallStripText();
 const TARGET_SCRATCH = createTargetText();
+const SCENE_SCRATCH = createSceneText();
 
 function weatherText(w: Readonly<WeatherState>): string {
   const kind = w.kind.charAt(0).toUpperCase() + w.kind.slice(1);
@@ -199,6 +236,15 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
   out.targetResult = target.result;
   out.targetSeverity = target.severity;
   out.carried = s.carried ?? '';
+  out.weapon = weaponChipText(s.officer);
+  out.contact = contactChipText(s.contact);
+  const scene = sceneText(s.scene, SCENE_SCRATCH);
+  out.sceneTitle = scene.title;
+  for (let i = 0; i < SCENE_LINES; i++) {
+    out.sceneLines[i] = scene.lines[i] ?? '';
+    out.sceneDone[i] = scene.done[i] ?? false;
+  }
+  out.pursuit = s.pursuit ?? '';
   return out;
 }
 
@@ -255,6 +301,13 @@ const STYLES = {
   targetInfo: `position:absolute;left:50%;top:calc(50% + ${px(36)});transform:translateX(-50%);text-align:center;white-space:nowrap`,
   targetLabel: `${PANEL};position:relative;display:inline-block;padding:2px 8px;font:700 ${px(14)}/1.3 ui-monospace, Menlo, Consolas, monospace`,
   targetResult: `margin-top:4px;font-weight:700;font-size:${px(13)}`,
+  chipRow: 'display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap',
+  contact: `${PANEL};position:relative;padding:3px 8px;font-size:${px(13)};font-weight:600`,
+  scenePanel: `${PANEL};position:relative;border-left:4px solid #3b9eff;font-size:${px(13)}`,
+  sceneTitle: `font-weight:700;font-size:${px(14)};white-space:nowrap`,
+  sceneLine: 'display:flex;gap:6px;align-items:baseline',
+  sceneMark: `font-weight:700;min-width:${px(12)}`,
+  pursuit: `${PANEL};left:50%;top:16px;transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(15)};letter-spacing:0.05em;white-space:nowrap`,
 } as const;
 
 /** Corner bracket borders of the target reticle (top-left, top-right, bottom-left, bottom-right). */
@@ -306,6 +359,14 @@ interface HudView {
   targetInfo: HTMLDivElement;
   targetLabel: HTMLDivElement;
   targetResult: HTMLDivElement;
+  weapon: HTMLSpanElement;
+  contact: HTMLDivElement;
+  scenePanel: HTMLDivElement;
+  sceneTitle: HTMLDivElement;
+  sceneRows: HTMLDivElement[];
+  sceneMarks: HTMLSpanElement[];
+  sceneTexts: HTMLSpanElement[];
+  pursuit: HTMLDivElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -327,6 +388,10 @@ function buildView(parent: HTMLElement): HudView {
   root.id = 'hud';
 
   const bottomRight = node('div', STYLES.bottomRight, root);
+  const chipRow = node('div', STYLES.chipRow, bottomRight);
+  const contact = node('div', STYLES.contact, chipRow);
+  contact.style.display = 'none';
+  const weapon = chip('', '#ff9a3c', chipRow);
   const carried = node('div', STYLES.carried, bottomRight);
   carried.style.display = 'none';
   const unitRow = node('div', STYLES.unitRow, bottomRight);
@@ -362,6 +427,21 @@ function buildView(parent: HTMLElement): HudView {
   const callStatus = node('div', STYLES.callStatus, callPanel);
   const offer = node('div', STYLES.offer, topLeft);
   offer.style.display = 'none';
+  const scenePanel = node('div', STYLES.scenePanel, topLeft);
+  scenePanel.style.display = 'none';
+  const sceneTitle = node('div', STYLES.sceneTitle, scenePanel);
+  const sceneRows: HTMLDivElement[] = [];
+  const sceneMarks: HTMLSpanElement[] = [];
+  const sceneTexts: HTMLSpanElement[] = [];
+  for (let i = 0; i < SCENE_LINES; i++) {
+    const row = node('div', STYLES.sceneLine, scenePanel);
+    row.style.display = 'none';
+    sceneMarks.push(node('span', STYLES.sceneMark, row));
+    sceneTexts.push(node('span', '', row));
+    sceneRows.push(row);
+  }
+  const pursuit = node('div', STYLES.pursuit, root);
+  pursuit.style.display = 'none';
 
   const reticle = node('div', STYLES.reticle, root);
   for (const corner of CORNERS) node('div', `${STYLES.corner};${corner}`, reticle);
@@ -393,6 +473,7 @@ function buildView(parent: HTMLElement): HudView {
     clock, weather, roadPanel, road, sign, signCaption, signValue, workTag, prompt,
     police, unitRow, unit, unitEmergency, unitStatusCheck, carried, callPanel, callTitle, callAddress, callStatus,
     offer, reticle, targetInfo, targetLabel, targetResult,
+    weapon, contact, scenePanel, sceneTitle, sceneRows, sceneMarks, sceneTexts, pursuit,
   };
 }
 
@@ -556,6 +637,7 @@ export class Hud {
       }
     }
     this.applyPolice(all);
+    this.applyScene(all);
   }
 
   /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
@@ -638,6 +720,57 @@ export class Hud {
       if (v) {
         v.carried.textContent = n.carried;
         show(v.carried, n.carried !== '');
+      }
+    }
+  }
+
+  /** Phase 3 fields (weapon and contact chips, objective box, pursuit line). */
+  private applyScene(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    if (all || n.weapon !== o.weapon) {
+      o.weapon = n.weapon;
+      if (v) {
+        v.weapon.textContent = n.weapon;
+        show(v.weapon, n.weapon !== '', 'inline');
+      }
+    }
+    if (all || n.contact !== o.contact) {
+      o.contact = n.contact;
+      if (v) {
+        v.contact.textContent = n.contact;
+        show(v.contact, n.contact !== '');
+      }
+    }
+    if (all || n.sceneTitle !== o.sceneTitle) {
+      o.sceneTitle = n.sceneTitle;
+      if (v) {
+        v.sceneTitle.textContent = n.sceneTitle;
+        show(v.scenePanel, n.sceneTitle !== '');
+      }
+    }
+    for (let i = 0; i < SCENE_LINES; i++) {
+      const text = n.sceneLines[i] ?? '';
+      const done = n.sceneDone[i] ?? false;
+      if (!all && text === o.sceneLines[i] && done === o.sceneDone[i]) continue;
+      o.sceneLines[i] = text;
+      o.sceneDone[i] = done;
+      const row = v?.sceneRows[i];
+      const label = v?.sceneTexts[i];
+      const mark = v?.sceneMarks[i];
+      if (!row || !label || !mark) continue;
+      label.textContent = text;
+      label.style.textDecoration = done ? 'line-through' : 'none';
+      label.style.opacity = done ? '0.6' : '1';
+      mark.textContent = done ? '\u2713' : '\u2022';
+      show(row, text !== '', 'flex');
+    }
+    if (all || n.pursuit !== o.pursuit) {
+      o.pursuit = n.pursuit;
+      if (v) {
+        v.pursuit.textContent = n.pursuit;
+        show(v.pursuit, n.pursuit !== '');
       }
     }
   }

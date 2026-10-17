@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "family": "crowd",
+  "types": [
+    {
+      "id": "protest",
+      "label": "Protest",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports a protest gathering at {near}, crowd growing.",
+        "Organizer advises a demonstration is underway near {address}."
+      ]
+    },
+    {
+      "id": "crowdManagement",
+      "label": "Crowd management",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "Event staff request assistance with a large crowd at {near}.",
+        "RP reports a crowd blocking the sidewalk and street near {address}."
+      ]
+    },
+    {
+      "id": "specialEventTraffic",
+      "label": "Special event traffic",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "Event organizer requests traffic control for a gathering at {near}.",
+        "Traffic backing up from an event near {cross}, officer requested on {street}."
+      ],
+      "priority": {"3": 0.4, "4": 0.6},
+      "branchWeights": {"peaceful": 6}
+    },
+    {
+      "id": "largeFight",
+      "label": "Large fight",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a large group fighting in the street near {near}.",
+        "Multiple callers report a brawl involving a crowd at {near}."
+      ],
+      "branchWeights": {"fight": 6}
+    },
+    {
+      "id": "unrulyCrowd",
+      "label": "Unruly crowd",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports an unruly crowd throwing bottles near {near}.",
+        "Caller advises a rowdy group blocking traffic and shouting at {near}."
+      ],
+      "branchWeights": {"unruly": 6}
+    },
+    {
+      "id": "streetRacingGathering",
+      "label": "Street racing gathering",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports a crowd of cars and spectators gathered for street racing near {near}.",
+        "Caller reports engines revving and a large crowd watching racers on {street}."
+      ],
+      "districts": {"industrial": 2, "highway": 0.5, "downtown": 0.5, "water": 0},
+      "branchWeights": {"unruly": 4}
+    },
+    {
+      "id": "paradeTrafficControl",
+      "label": "Parade traffic control",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.05,
+      "narratives": [
+        "Parade organizers request traffic control along {street}.",
+        "Parade route needs road closures and traffic control near {near}."
+      ],
+      "priority": {"3": 0.3, "4": 0.7},
+      "branchWeights": {"peaceful": 6}
+    }
+  ]
+}

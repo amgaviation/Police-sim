@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "pbt": {
+    "noiseSd": 0.004,
+    "round": 0.001,
+    "minReportable": 0
+  },
+  "sfst": {
+    "promptWindowS": 2.5,
+    "promptGapS": 1.2,
+    "minHitShare": 0.75,
+    "tests": [
+      {
+        "id": "hgn",
+        "short": "HGN",
+        "label": "Horizontal gaze nystagmus",
+        "prompts": 6,
+        "maxClues": 6,
+        "threshold": 4,
+        "bacStart": 0.03,
+        "bacSpan": 0.07,
+        "instruction": "Follow the pen with your eyes only.",
+        "keys": [
+          "a",
+          "d"
+        ]
+      },
+      {
+        "id": "walkTurn",
+        "short": "Walk and turn",
+        "label": "Walk and turn",
+        "prompts": 9,
+        "maxClues": 8,
+        "threshold": 2,
+        "bacStart": 0.05,
+        "bacSpan": 0.12,
+        "instruction": "Nine heel-to-toe steps, turn, nine steps back.",
+        "keys": [
+          "w",
+          "space"
+        ]
+      },
+      {
+        "id": "oneLeg",
+        "short": "One-leg stand",
+        "label": "One-leg stand",
+        "prompts": 4,
+        "maxClues": 4,
+        "threshold": 2,
+        "bacStart": 0.06,
+        "bacSpan": 0.12,
+        "instruction": "Raise one foot and count out loud.",
+        "keys": [
+          "space"
+        ]
+      }
+    ],
+    "drugClues": {
+      "cannabis": {
+        "oneLeg": 1
+      },
+      "stimulant": {
+        "walkTurn": 1
+      },
+      "opioid": {
+        "hgn": 1,
+        "walkTurn": 2
+      },
+      "depressant": {
+        "hgn": 2,
+        "walkTurn": 1
+      }
+    },
+    "diabeticChance": 0.2,
+    "diabeticClues": {
+      "walkTurn": 2,
+      "oneLeg": 1
+    },
+    "clueSd": 0.7
+  },
+  "frisk": {
+    "weaponFindBase": 0.95,
+    "concealmentFactor": 0.5,
+    "largeItemFind": 0.6
+  },
+  "search": {
+    "findBase": 0.98,
+    "concealmentFactor": 0.35
+  },
+  "visual": {
+    "revealBelowConcealment": 0.3
+  },
+  "odor": {
+    "alcoholBac": 0.04,
+    "distanceM": 2.5
+  }
+}

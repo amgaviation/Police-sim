@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "family": "medical",
+  "types": [
+    {
+      "id": "overdose",
+      "label": "Possible overdose",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports a person unresponsive and not breathing normally at {address}, possible overdose.",
+        "Caller advises a friend collapsed after taking {substance} at {near}."
+      ],
+      "fill": {"substance": ["pills", "an unknown drug", "something injected"]},
+      "priority": {"1": 0.6, "2": 0.4},
+      "branchWeights": {"overdose": 6}
+    },
+    {
+      "id": "personDown",
+      "label": "Person down",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.7,
+      "narratives": [
+        "RP reports a person lying on the ground near {near}, not moving.",
+        "Passerby advises someone collapsed on the sidewalk at {near}."
+      ],
+      "location": "road"
+    },
+    {
+      "id": "unconsciousPerson",
+      "label": "Unconscious person",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports an unconscious person at {address}.",
+        "{caller} reports a person passed out and cannot be woken at {address}."
+      ]
+    },
+    {
+      "id": "injuredPerson",
+      "label": "Injured person",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a person with a {injury} near {near}.",
+        "Caller advises an injured person who fell and cannot get up at {near}."
+      ],
+      "fill": {"injury": ["head injury", "deep cut", "possible broken leg", "suspected broken arm"]},
+      "location": "road",
+      "branchWeights": {"collapse": 4}
+    },
+    {
+      "id": "medicalAssist",
+      "label": "Medical assist",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP requests an officer to assist with a medical call at {address}.",
+        "Caller advises a family member is having trouble breathing at {address}."
+      ],
+      "priority": {"2": 0.5, "3": 0.5}
+    },
+    {
+      "id": "seizureInPublic",
+      "label": "Seizure in public",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports a person having a seizure near {near}.",
+        "Passerby advises someone collapsed and is convulsing at {near}."
+      ],
+      "location": "road",
+      "branchWeights": {"collapse": 6}
+    },
+    {
+      "id": "intoxicatedUnconscious",
+      "label": "Intoxicated and unconscious",
+      "category": "medical",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a visibly intoxicated person passed out near {near}.",
+        "Caller advises a person lying unresponsive next to an empty bottle at {near}."
+      ],
+      "location": "road",
+      "branchWeights": {"intoxicated": 6}
+    }
+  ]
+}

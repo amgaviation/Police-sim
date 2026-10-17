@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "family": "retail",
+  "types": [
+    {
+      "id": "shopliftingDetained",
+      "label": "Shoplifting, suspect detained",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.8,
+      "narratives": [
+        "Store security reports a shoplifter detained at {address}.",
+        "Loss prevention at {address} is holding a subject who concealed merchandise."
+      ],
+      "branchWeights": {"detained": 6}
+    },
+    {
+      "id": "shopliftingFled",
+      "label": "Shoplifting, suspect fled",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "Store employee reports a subject ran out with merchandise and fled {dir} from {address}.",
+        "Business at {address} reports a shoplifter left on foot toward {cross}."
+      ],
+      "branchWeights": {"fled": 6}
+    },
+    {
+      "id": "shopliftingInProgress",
+      "label": "Shoplifting in progress",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "Store employee reports a subject concealing merchandise inside {address}.",
+        "Loss prevention advises a known shoplifter is in the store at {address}."
+      ],
+      "priority": {"2": 1}
+    },
+    {
+      "id": "dineAndDash",
+      "label": "Dine and dash",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "Restaurant at {address} reports a party left without paying the bill.",
+        "Server reports customers walked out without paying near {near}."
+      ],
+      "priority": {"3": 0.5, "4": 0.5},
+      "branchWeights": {"fled": 3, "detained": 2}
+    },
+    {
+      "id": "gasDriveOff",
+      "label": "Gas drive-off",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "Station attendant reports a {vehicle}, plate {plate}, drove off without paying for fuel.",
+        "Clerk at {address} reports a gas theft, plate {plate}, vehicle left {dir}."
+      ],
+      "location": "poi:fuel",
+      "priority": {"3": 0.4, "4": 0.6},
+      "branchWeights": {"fled": 6}
+    }
+  ]
+}

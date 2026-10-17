@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "family": "barricade",
+  "types": [
+    {
+      "id": "hostageSituation",
+      "label": "Hostage situation",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.03,
+      "narratives": [
+        "RP reports a person holding a family member against their will at {address}.",
+        "Caller hiding inside {address} reports an armed subject will not let anyone leave."
+      ],
+      "branchWeights": {"hostage": 6}
+    },
+    {
+      "id": "barricadedSubject",
+      "label": "Barricaded subject",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.05,
+      "narratives": [
+        "RP reports a subject who has locked himself inside {address} and is refusing to come out.",
+        "Family reports a subject barricaded in a residence at {address}, threatening officers."
+      ]
+    },
+    {
+      "id": "barricadedArmed",
+      "label": "Barricaded armed subject",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.03,
+      "narratives": [
+        "RP reports an armed subject barricaded inside {address}.",
+        "Caller reports a subject with a firearm refusing to leave a locked house at {address}."
+      ]
+    }
+  ]
+}

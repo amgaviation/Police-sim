@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "family": "wanted",
+  "types": [
+    {
+      "id": "wantedSubject",
+      "label": "Wanted subject sighted",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports seeing a subject they recognize as wanted near {near}.",
+        "Caller advises a known wanted person is walking {dir} on {street}."
+      ],
+      "location": "road",
+      "branchWeights": {"street": 1, "home": 0, "flees": 0, "notHome": 0, "armed": 0}
+    },
+    {
+      "id": "warrantService",
+      "label": "Warrant service",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "Unit requested to serve an arrest warrant at {address}.",
+        "Warrant service requested at {address}, subject believed to be home."
+      ]
+    },
+    {
+      "id": "probationViolatorSighted",
+      "label": "Probation violator sighted",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a subject who is violating probation conditions near {near}.",
+        "Probation officer requests assistance locating a subject at {near}."
+      ],
+      "location": "road"
+    },
+    {
+      "id": "paroleeAbsconder",
+      "label": "Parolee absconder",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "Supervising agent requests a check on a parolee who stopped reporting, at {address}.",
+        "Request to locate an absconder believed to be staying at {address}."
+      ]
+    },
+    {
+      "id": "boloPersonSighted",
+      "label": "BOLO person sighted",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports seeing a person matching a lookout description near {near}.",
+        "Caller believes a subject on a broadcast lookout is at {near}."
+      ],
+      "location": "road"
+    }
+  ]
+}

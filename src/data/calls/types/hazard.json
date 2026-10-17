@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "family": "hazard",
+  "types": [
+    {
+      "id": "hazmatSpill",
+      "label": "Hazardous material spill",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports a fluid spill with a strong chemical odor on {street}.",
+        "Driver reports a leaking tanker and a spreading spill near {near}."
+      ],
+      "branchWeights": {"spill": 6}
+    },
+    {
+      "id": "gasLeak",
+      "label": "Gas leak",
+      "category": "alarm",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports a strong smell of natural gas at {address}.",
+        "Caller advises a ruptured gas line outside {address}, hissing audible."
+      ],
+      "codeKey": null,
+      "location": "block",
+      "branchWeights": {"gasLeak": 6}
+    },
+    {
+      "id": "bombThreat",
+      "label": "Bomb threat",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.08,
+      "narratives": [
+        "Business reports a phone threat that a bomb is inside {address}.",
+        "Manager at {address} received a written bomb threat and has evacuated staff."
+      ],
+      "codeKey": null,
+      "location": "block",
+      "priority": {"1": 0.4, "2": 0.6},
+      "branchWeights": {"package": 6}
+    },
+    {
+      "id": "suspiciousPackage",
+      "label": "Suspicious package",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports an unattended package left near the entrance of {address}.",
+        "Caller reports an abandoned bag with wires visible near {near}."
+      ],
+      "codeKey": null,
+      "location": "block",
+      "branchWeights": {"package": 6}
+    },
+    {
+      "id": "downedPowerLines",
+      "label": "Downed power lines",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports power lines down across {street} near {cross}, sparking.",
+        "Caller reports a downed line across the roadway at {near}."
+      ],
+      "branchWeights": {"downedLines": 6}
+    },
+    {
+      "id": "roadwayFlooding",
+      "label": "Roadway flooding",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports water covering the roadway on {street} near {cross}.",
+        "Motorists stuck in deep water at {near}, flooding across the lanes."
+      ],
+      "branchWeights": {"debris": 6}
+    },
+    {
+      "id": "treeDownBlockingRoad",
+      "label": "Tree down blocking road",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports a fallen tree blocking {street} near {cross}.",
+        "Caller reports a large tree across the road at {near}, cars turning around."
+      ],
+      "branchWeights": {"debris": 6}
+    },
+    {
+      "id": "fireReportAssist",
+      "label": "Fire report assist",
+      "category": "alarm",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports smoke and a possible fire at {address}.",
+        "Caller reports flames visible near {near}, requesting units."
+      ],
+      "codeKey": null,
+      "location": "block",
+      "priority": {"1": 0.4, "2": 0.6},
+      "branchWeights": {"gasLeak": 3, "debris": 3}
+    }
+  ]
+}

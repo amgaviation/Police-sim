@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "families": {
+    "trafficHazard": "hazard",
+    "suspiciousVehicle": "inProgress",
+    "noiseComplaint": "disturbance",
+    "welfareCheck": "welfare",
+    "minorCollision": "collision",
+    "alarm": "inProgress",
+    "suspiciousPerson": "inProgress",
+    "parkingComplaint": "parking",
+    "trafficStop": "trafficStop"
+  }
+}

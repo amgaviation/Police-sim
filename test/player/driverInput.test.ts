@@ -51,7 +51,8 @@ describe('player input actions', () => {
     for (const [id] of added) {
       for (const b of DEFAULT_BINDINGS[id]) {
         for (const other of ACTION_IDS) {
-          if (other === id) continue;
+          // The on-foot officer actions deliberately share Space / G / pad buttons with driving (design §12.5).
+          if (other === id || other.startsWith('officer.')) continue;
           expect(DEFAULT_BINDINGS[other].some((o) => o.device === b.device && o.code === b.code), `${id} ${b.code} vs ${other}`).toBe(false);
         }
       }

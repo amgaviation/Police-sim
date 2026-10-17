@@ -84,6 +84,12 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'radio.channelPrev': [key('BracketLeft')],
   'radio.channelNext': [key('BracketRight')],
   'radio.scan': [key('Backslash')],
+  // Phase 3: shares Space / G / GamepadButton1 / GamepadButton7 with driving (on foot vs in a car), see design §12.5.
+  'officer.weapon': [key('KeyC'), pad('GamepadButton9')],
+  'officer.fire': [mouse('MouseButton0'), pad('GamepadButton7')],
+  'officer.tackle': [key('Space'), pad('GamepadButton1')],
+  'officer.shout': [key('KeyG')],
+  'scene.menu': [key('KeyY')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

@@ -53,4 +53,26 @@ describe('actions', () => {
       expect(ACTIONS[id]).toEqual({ kind: 'button', label });
     }
   });
+
+  it('adds the Phase 3 officer actions and the scene menu as buttons with labels', () => {
+    const expected: Record<string, string> = {
+      'officer.weapon': 'Cycle weapon',
+      'officer.fire': 'Fire / deploy weapon',
+      'officer.tackle': 'Tackle',
+      'officer.shout': 'Shout command',
+      'scene.menu': 'Scene menu',
+    };
+    for (const [id, label] of Object.entries(expected)) {
+      expect(isActionId(id), id).toBe(true);
+      if (!isActionId(id)) continue;
+      expect(ACTIONS[id]).toEqual({ kind: 'button', label });
+      expect(actionKind(id)).toBe('button');
+    }
+  });
+
+  it('has a distinct non-empty label for every action', () => {
+    const labels = ACTION_IDS.map((id) => ACTIONS[id].label);
+    expect(labels.every((l) => l.length > 0)).toBe(true);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
 });

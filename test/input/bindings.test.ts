@@ -12,7 +12,7 @@ import {
   withBindingSign,
   type Binding,
 } from '../../src/input/bindings';
-import { resolveActions } from '../../src/input/input';
+import { resolveActions, type RawInputState } from '../../src/input/input';
 
 describe('DEFAULT_BINDINGS', () => {
   it('binds every action to at least one valid binding', () => {
@@ -72,8 +72,12 @@ describe('Phase 2 default bindings', () => {
     }
   });
 
-  it('binds no keyboard code or gamepad button to two actions, except the shared driving/walking keys', () => {
-    const shared = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+  it('binds no keyboard code or gamepad button to two actions, except the intended shared ones', () => {
+    // Driving and walking share keys (design §11.5, §12.5): W/A/S/D and the arrows move on foot and drive,
+    // Space is the handbrake and the tackle, G the horn and the shout, GamepadButton1 and GamepadButton7 the
+    // handbrake / throttle and the tackle / fire. GamepadButton9 (Start) is both the menu and the weapon cycle
+    // as the design table says.
+    const shared = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyG', 'GamepadButton1', 'GamepadButton7']);
     const owners = new Map<string, string[]>();
     for (const id of ACTION_IDS) {
       for (const b of DEFAULT_BINDINGS[id]) {
@@ -85,9 +89,74 @@ describe('Phase 2 default bindings', () => {
     for (const [k, ids] of owners) {
       if (ids.length < 2) continue;
       const code = k.slice(k.indexOf(':') + 1);
+      if (code === 'GamepadButton9') {
+        expect(ids.sort(), k).toEqual(['menu.toggle', 'officer.weapon']);
+        continue;
+      }
       expect(shared.has(code), `${k} bound to ${ids.join(', ')}`).toBe(true);
-      expect(ids.every((id) => id.startsWith('move.') || id.startsWith('vehicle.')), k).toBe(true);
+      expect(
+        ids.every((id) => id.startsWith('move.') || id.startsWith('vehicle.') || id.startsWith('officer.')),
+        k,
+      ).toBe(true);
+      // Never two actions of the same context on one input: at most one on-foot (move./officer.) pairing with vehicle ones.
+      expect(ids.filter((id) => id.startsWith('vehicle.')).length, k).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('Phase 3 default bindings', () => {
+  const codes = (id: keyof typeof DEFAULT_BINDINGS): string[] => DEFAULT_BINDINGS[id].map((b) => b.code);
+
+  it('match the design table (§12.5)', () => {
+    expect(DEFAULT_BINDINGS['officer.weapon']).toEqual([
+      { device: 'keyboard', code: 'KeyC' },
+      { device: 'gamepad', code: 'GamepadButton9' },
+    ]);
+    expect(DEFAULT_BINDINGS['officer.fire']).toEqual([
+      { device: 'mouse', code: 'MouseButton0' },
+      { device: 'gamepad', code: 'GamepadButton7' },
+    ]);
+    expect(DEFAULT_BINDINGS['officer.tackle']).toEqual([
+      { device: 'keyboard', code: 'Space' },
+      { device: 'gamepad', code: 'GamepadButton1' },
+    ]);
+    expect(codes('officer.shout')).toEqual(['KeyG']);
+    expect(codes('scene.menu')).toEqual(['KeyY']);
+  });
+
+  it('are valid bindings that survive a serialize / parse round trip', () => {
+    for (const id of ['officer.weapon', 'officer.fire', 'officer.tackle', 'officer.shout', 'scene.menu'] as const) {
+      for (const b of DEFAULT_BINDINGS[id]) expect(isBinding(b), `${id}: ${b.code}`).toBe(true);
+    }
+    expect(parseBindings(JSON.parse(JSON.stringify(serializeBindings(DEFAULT_BINDINGS))))).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('are rebindable like the others, and an old save without them gets the defaults', () => {
+    const custom = parseBindings({ 'officer.shout': [{ device: 'keyboard', code: 'KeyH' }], interact: [{ device: 'keyboard', code: 'KeyF' }] });
+    expect(custom['officer.shout']).toEqual([{ device: 'keyboard', code: 'KeyH' }]);
+    expect(custom['officer.tackle']).toEqual(DEFAULT_BINDINGS['officer.tackle']);
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([id]) => !id.startsWith('officer.') && id !== 'scene.menu'));
+    const parsed = parseBindings({ version: BINDINGS_SCHEMA_VERSION, bindings: old });
+    expect(parsed).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('resolves Phase 3 actions from their default keys and mouse button', () => {
+    const raw = (keys: string[], mouseButtons: number[] = []): RawInputState => ({
+      keys: new Set(keys),
+      mouseButtons: new Set(mouseButtons),
+      mouse: { x: 0, y: 0, wheel: 0 },
+      gamepadButtons: [],
+      gamepadAxes: [],
+    });
+    const weapon = resolveActions(DEFAULT_BINDINGS, raw(['KeyC']));
+    expect(weapon['officer.weapon']).toBe(1);
+    expect(weapon['officer.tackle']).toBe(0);
+    // Space is both the handbrake and the tackle; the game picks by context.
+    const space = resolveActions(DEFAULT_BINDINGS, raw(['Space']));
+    expect([space['vehicle.handbrake'], space['officer.tackle']]).toEqual([1, 1]);
+    expect(resolveActions(DEFAULT_BINDINGS, raw([], [0]))['officer.fire']).toBe(1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['KeyY']))['scene.menu']).toBe(1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['KeyG']))['officer.shout']).toBe(1);
   });
 });
 

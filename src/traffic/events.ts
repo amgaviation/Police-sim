@@ -1,3 +1,5 @@
+import type { FleeEndReason } from './trafficSystem';
+
 /** A traffic car entered or left the simulation. */
 export interface TrafficCarEvent {
   eid: number;
@@ -37,13 +39,28 @@ export interface TrafficPulledOverEvent {
   yaw: number;
 }
 
-export type TrafficReleaseReason = 'released' | 'abandoned' | 'lost';
+export type TrafficReleaseReason = 'released' | 'abandoned' | 'lost' | 'fled';
 
-/** The stop target is no longer one: released (merges back), abandoned (stays parked) or lost (focus too far). */
+/** The stop target is no longer one: released (merges back), abandoned (stays parked), lost (focus too far) or fled (it drove off). */
 export interface TrafficReleasedEvent {
   eid: number;
   vehicleId: number;
   reason: TrafficReleaseReason;
+}
+
+/** A car started fleeing (`TrafficSystem.flee`). */
+export interface TrafficFleeingEvent {
+  eid: number;
+  vehicleId: number;
+}
+
+/** A flee ended: where the car was and why (crashed: stays as a wreck; escaped: already despawned; gaveUp / stopped: pulling to the curb). */
+export interface TrafficFleeEndedEvent {
+  eid: number;
+  vehicleId: number;
+  reason: FleeEndReason;
+  x: number;
+  z: number;
 }
 
 /** A fleet car reached its destination and parked at the curb. */
@@ -64,5 +81,7 @@ declare module '../core/event-map' {
     'traffic:pulledOver': TrafficPulledOverEvent;
     'traffic:released': TrafficReleasedEvent;
     'traffic:fleetArrived': TrafficFleetArrivedEvent;
+    'traffic:fleeing': TrafficFleeingEvent;
+    'traffic:fleeEnded': TrafficFleeEndedEvent;
   }
 }

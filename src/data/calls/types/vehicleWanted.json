@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "family": "vehicleWanted",
+  "types": [
+    {
+      "id": "stolenVehicleSighted",
+      "label": "Stolen vehicle sighted",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports seeing a stolen {vehicle}, plate {plate}, {dir} on {street}.",
+        "Plate reader hit on a stolen {vehicle}, plate {plate}, near {cross}."
+      ]
+    },
+    {
+      "id": "felonyStopVehicle",
+      "label": "Felony stop vehicle",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "Occupants of a {vehicle}, plate {plate}, are wanted in an armed incident, last seen {dir} on {street}.",
+        "Lookout for a {vehicle}, plate {plate}, with armed suspects heading {dir} near {cross}."
+      ],
+      "priority": {"1": 1},
+      "branchWeights": {"armed": 6}
+    },
+    {
+      "id": "boloVehicleSighted",
+      "label": "BOLO vehicle sighted",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, matching a broadcast lookout near {near}.",
+        "Caller believes the {vehicle} parked at {near} is the one in the lookout, plate {plate}."
+      ]
+    },
+    {
+      "id": "carjackedVehicleSighted",
+      "label": "Carjacked vehicle sighted",
+      "category": "robbery",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, taken in a carjacking, now {dir} on {street}.",
+        "Sighting of a carjacked {vehicle}, plate {plate}, near {cross}."
+      ],
+      "priority": {"1": 1},
+      "branchWeights": {"armed": 3}
+    },
+    {
+      "id": "stolenVehicleRecovered",
+      "label": "Stolen vehicle recovered",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, listed stolen is parked at {near}.",
+        "Owner located a stolen {vehicle}, plate {plate}, abandoned near {cross}."
+      ],
+      "priority": {"4": 1},
+      "branchWeights": {"parked": 6}
+    }
+  ]
+}

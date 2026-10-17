@@ -29,10 +29,14 @@ export const MARKER = {
   unitBusy: 6,
   unitEmergency: 7,
   stop: 8,
+  // Phase 3: a suspect of the player's scene (red), any other person of it (white), a fleeing car or runner.
+  suspect: 9,
+  person: 10,
+  pursuit: 11,
 } as const;
 export type MarkerKind = (typeof MARKER)[keyof typeof MARKER];
 
-/** Call, unit and stop markers (world x/z); the integrator reuses one set of arrays. */
+/** Call, unit, stop, suspect, person and pursuit markers (world x/z); the integrator reuses one set of arrays. */
 export interface MinimapMarkers {
   count: number;
   x: Float32Array;
@@ -84,6 +88,9 @@ export function markerProjection(
 const UNIT_FILL = '#4f8cff';
 const UNIT_BUSY_FILL = '#2a4f8f';
 const EMERGENCY_OUTLINE = '#ff3b3b';
+const SUSPECT_FILL = '#ff3b3b';
+const PERSON_FILL = '#ffffff';
+const PURSUIT_FILL = '#ff7a1a';
 
 /** Road colour and minimum stroke width (px) per `ROAD_CLASS` id, drawn minor classes first. */
 const ROAD_STYLE: readonly { readonly color: string; readonly minWidth: number }[] = [
@@ -288,8 +295,9 @@ export class Minimap {
   }
 
   /**
-   * Units (blue squares, busy darker, emergency with a red outline) and the stop (white ring)
-   * when on the map, then calls (diamonds by priority, P1 on top) with off-map calls on the rim.
+   * Units (blue squares, busy darker, emergency with a red outline), the stop (white ring), persons (white
+   * dots) and suspects (red dots) when on the map, then calls (diamonds by priority, P1 on top) with off-map
+   * calls on the rim, and last the pursuit (orange disc, red ring; pinned to the rim when off the map).
    */
   private drawMarkers(ctx: CanvasRenderingContext2D, x: number, z: number, yaw: number, m: MinimapMarkers, mpp: number): void {
     const p = this.mp;
@@ -297,11 +305,22 @@ export class Minimap {
     ctx.lineWidth = 1.5;
     for (let i = 0; i < n; i++) {
       const kind = m.kind[i] ?? 0;
-      if (kind < MARKER.unitAvailable || kind > MARKER.stop) continue;
+      if (kind < MARKER.unitAvailable || kind > MARKER.person) continue;
       markerProjection(x, z, yaw, m.x[i] ?? 0, m.z[i] ?? 0, mpp, HALF + 4, p);
       if (p.clamped) continue;
       const cx = HALF + p.x;
       const cy = HALF + p.y;
+      if (kind === MARKER.suspect || kind === MARKER.person) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, kind === MARKER.suspect ? 4 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = kind === MARKER.suspect ? SUSPECT_FILL : PERSON_FILL;
+        ctx.fill();
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        continue;
+      }
       if (kind === MARKER.stop) {
         ctx.beginPath();
         ctx.arc(cx, cy, 5, 0, Math.PI * 2);
@@ -337,6 +356,18 @@ export class Minimap {
         ctx.lineWidth = 1;
         ctx.stroke();
       }
+    }
+    // Pursuit last so it is on top; off the map it sits on the rim like a call.
+    for (let i = 0; i < n; i++) {
+      if (m.kind[i] !== MARKER.pursuit) continue;
+      markerProjection(x, z, yaw, m.x[i] ?? 0, m.z[i] ?? 0, mpp, MARKER_RIM, p);
+      ctx.beginPath();
+      ctx.arc(HALF + p.x, HALF + p.y, p.clamped ? 4 : 5.5, 0, Math.PI * 2);
+      ctx.fillStyle = PURSUIT_FILL;
+      ctx.fill();
+      ctx.strokeStyle = '#ff1a1a';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
   }
 

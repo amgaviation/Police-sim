@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "family": "welfare",
+  "types": [
+    {
+      "id": "welfareCheckElderly",
+      "label": "Welfare check on an elderly resident",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "{caller} requests a welfare check on an elderly neighbor at {address}, not seen in {days}.",
+        "RP has not been able to reach an elderly parent at {address} since {days}."
+      ],
+      "fill": {"days": ["two days", "three days", "since yesterday", "several days"]},
+      "branchWeights": {"confused": 4, "fine": 2}
+    },
+    {
+      "id": "slumpedInVehicle",
+      "label": "Person slumped in vehicle",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a person slumped over the wheel of a parked {vehicle}, plate {plate}, near {near}.",
+        "Passerby advises a driver appears unresponsive in a parked car at {near}."
+      ],
+      "location": "road",
+      "priority": {"1": 0.3, "2": 0.7},
+      "branchWeights": {"inVehicle": 1, "fine": 0, "confused": 0, "medical": 0, "deceased": 0, "notHome": 0}
+    },
+    {
+      "id": "foundPersonConfused",
+      "label": "Confused person found",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports an elderly person wandering and disoriented near {near}.",
+        "Caller advises a confused person who cannot say where they live at {near}."
+      ],
+      "location": "road",
+      "branchWeights": {"confusedOutside": 1, "fine": 0, "confused": 0, "medical": 0, "deceased": 0, "notHome": 0}
+    },
+    {
+      "id": "citizenAssist",
+      "label": "Citizen assist",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "Subject requests assistance at {near}, needs help with {issue}.",
+        "RP requests an officer to assist a person who {issue} near {cross}."
+      ],
+      "fill": {"issue": ["is locked out of a car", "lost a wallet", "cannot find a ride home", "needs directions to a clinic"]},
+      "location": "road",
+      "priority": {"4": 1},
+      "branchWeights": {"stranded": 1, "fine": 0, "confused": 0, "medical": 0, "deceased": 0, "notHome": 0}
+    },
+    {
+      "id": "welfareCheckNoAnswer",
+      "label": "Welfare check, no answer at door",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "{caller} requests a welfare check at {address}, no answer to calls or knocks.",
+        "RP advises a resident at {address} has not responded for {days} and the lights are on."
+      ],
+      "fill": {"days": ["a day", "two days", "three days"]},
+      "branchWeights": {"notHome": 3, "medical": 2, "deceased": 1, "fine": 0, "confused": 0}
+    },
+    {
+      "id": "strandedMotorist",
+      "label": "Stranded motorist",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "Motorist stranded with a disabled {vehicle} at {near}.",
+        "RP reports a stalled car with its hazard lights on near {cross}, driver waiting outside."
+      ],
+      "location": "road",
+      "priority": {"3": 0.4, "4": 0.6},
+      "branchWeights": {"stranded": 1, "fine": 0, "confused": 0, "medical": 0, "deceased": 0, "notHome": 0}
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "distances": {
+    "materializeM": 220,
+    "arriveM": 50,
+    "actionRangeM": 60,
+    "nearM": 3,
+    "propClearM": 150,
+    "sceneAtM": 80,
+    "hudM": 300,
+    "lightsM": 60,
+    "backupM": 80,
+    "driveAwayM": 120,
+    "vehicleGapM": 7,
+    "forceNearM": 25,
+    "shoutM": 25
+  },
+  "tactics": {
+    "shoutConeDeg": 60,
+    "taserConeDeg": 8,
+    "disperseShare": 0.7,
+    "ackDelayS": 3,
+    "revealChance": 0.6,
+    "foundEscapedChance": 0.5,
+    "crashFootFleeChance": 0.5,
+    "standoffResolveS": [60, 120]
+  },
+  "people": {
+    "pickTries": 120,
+    "riskMin": 0.3,
+    "injuryValue": 0.7
+  },
+  "ambientFlee": {
+    "base": 0.03,
+    "wanted": 0.25,
+    "stolen": 0.2,
+    "intoxicated": 0.1,
+    "contraband": 0.1,
+    "bacThreshold": 0.08
+  },
+  "limits": {
+    "closedCap": 200,
+    "propCap": 256
+  }
+}

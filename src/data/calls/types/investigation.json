@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "family": "investigation",
+  "types": [
+    {
+      "id": "deathInvestigation",
+      "label": "Death investigation",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports finding a person dead at {address}.",
+        "{caller} reports a family member found deceased at {address}."
+      ],
+      "priority": {"2": 1},
+      "branchWeights": {"death": 6}
+    },
+    {
+      "id": "unattendedDeath",
+      "label": "Unattended death",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports an elderly relative found deceased in bed at {address}.",
+        "Caregiver reports a resident has died at {address}, no signs of trauma."
+      ],
+      "branchWeights": {"death": 6}
+    },
+    {
+      "id": "sexualAssaultScene",
+      "label": "Sexual assault, scene",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.08,
+      "narratives": [
+        "RP reports a sexual assault just occurred at {address}, victim on scene.",
+        "Caller reports a victim of a sexual assault needing help near {near}."
+      ],
+      "priority": {"2": 1},
+      "branchWeights": {"assaultScene": 6}
+    },
+    {
+      "id": "sexualAssaultReport",
+      "label": "Sexual assault report",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "Subject at {address} wants to report a past sexual assault.",
+        "RP at {near} requests an officer to take a report of an assault that occurred earlier."
+      ],
+      "branchWeights": {"report": 6}
+    },
+    {
+      "id": "stalkingReport",
+      "label": "Stalking report",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports being followed and harassed by the same person for {span}, at {address}.",
+        "Subject at {address} reports a stalker who keeps appearing near their home."
+      ],
+      "fill": {"span": ["weeks", "several days", "months"]},
+      "branchWeights": {"suspectPresent": 2, "report": 4}
+    },
+    {
+      "id": "harassmentReport",
+      "label": "Harassment report",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports repeated harassing messages and visits, at {address}.",
+        "Subject at {near} reports ongoing harassment by a former acquaintance."
+      ]
+    },
+    {
+      "id": "criminalThreats",
+      "label": "Criminal threats",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports receiving threats to harm them or their family, at {address}.",
+        "Subject at {near} reports a person threatened to hurt them."
+      ]
+    },
+    {
+      "id": "schoolThreat",
+      "label": "School threat",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "School staff report a student threatened violence against other students at {near}.",
+        "Principal at {near} reports a written threat to harm students found on campus."
+      ],
+      "location": "poi:school",
+      "priority": {"1": 0.3, "2": 0.7},
+      "branchWeights": {"studentPresent": 4, "report": 2, "suspectPresent": 0}
+    },
+    {
+      "id": "extortionReport",
+      "label": "Extortion report",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports someone is demanding money in exchange for not releasing private information, at {address}.",
+        "Business owner at {near} reports threats unless a payment is made."
+      ]
+    }
+  ]
+}

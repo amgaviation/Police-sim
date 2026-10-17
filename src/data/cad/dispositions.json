@@ -9,6 +9,8 @@
     { "id": "goneOnArrival", "label": "Gone on arrival" },
     { "id": "unfounded", "label": "Unfounded" },
     { "id": "referred", "label": "Referred to another agency" },
-    { "id": "cancelled", "label": "Cancelled" }
+    { "id": "cancelled", "label": "Cancelled" },
+    { "id": "transported", "label": "Transported to hospital" },
+    { "id": "duplicate", "label": "Duplicate call" }
   ]
 }

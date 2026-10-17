@@ -35,6 +35,14 @@ export class NameIndex {
     this.starts = starts;
   }
 
+  /** Appends to `out` the ids whose last-name index is exactly `lastIndex`, ascending; `out` is returned. */
+  bucket(lastIndex: number, out: number[]): number[] {
+    if (!Number.isInteger(lastIndex) || lastIndex < 0 || lastIndex >= this.upperLast.length) return out;
+    const end = this.starts[lastIndex + 1] ?? 0;
+    for (let i = this.starts[lastIndex] ?? 0; i < end; i++) out.push(this.order[i] ?? 0);
+    return out;
+  }
+
   /** Appends to `out` the ids whose last name equals or starts with `query` (case-insensitive). */
   candidates(query: string, out: number[]): number[] {
     const q = query.trim().toUpperCase();

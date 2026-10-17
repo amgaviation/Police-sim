@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "family": "missing",
+  "types": [
+    {
+      "id": "missingPerson",
+      "label": "Missing person",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a family member missing since {since}, last seen near {near}.",
+        "{caller} reports a missing person, last seen {since} at {address}."
+      ],
+      "fill": {"since": ["this morning", "last night", "yesterday afternoon", "two days ago"]}
+    },
+    {
+      "id": "missingElderly",
+      "label": "Missing elderly person",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports an elderly relative with memory problems has wandered away from {address}.",
+        "Caregiver reports a confused senior missing since leaving {address}."
+      ],
+      "priority": {"1": 0.3, "2": 0.7},
+      "branchWeights": {"elderly": 6}
+    },
+    {
+      "id": "juvenileRunaway",
+      "label": "Juvenile runaway",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "Parent reports a teenager ran away from {address} after an argument.",
+        "RP reports their teen has not come home and is not answering messages, last seen near {near}."
+      ],
+      "branchWeights": {"juvenileNearby": 3, "juvenileHidden": 3, "foundNearby": 0, "returnedHome": 0, "notFound": 0, "elderly": 0}
+    },
+    {
+      "id": "missingAtRisk",
+      "label": "Missing at-risk person",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports a vulnerable person missing from {address} and may be in danger.",
+        "Caregiver reports an at-risk individual missing without medication since {since}."
+      ],
+      "fill": {"since": ["this morning", "last night", "yesterday"]},
+      "priority": {"1": 0.3, "2": 0.7}
+    },
+    {
+      "id": "foundJuvenile",
+      "label": "Juvenile found",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a young teen alone and upset near {near}, thought to be a runaway.",
+        "Caller advises a juvenile matching a missing person report is sitting at {near}."
+      ],
+      "location": "road",
+      "branchWeights": {"juvenileNearby": 6, "foundNearby": 0, "returnedHome": 0, "notFound": 0, "elderly": 0, "juvenileHidden": 0}
+    }
+  ]
+}

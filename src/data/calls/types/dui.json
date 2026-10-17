@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "family": "dui",
+  "types": [
+    {
+      "id": "impairedDriver",
+      "label": "Impaired driver",
+      "category": "dui",
+      "generated": true,
+      "weight": 1.0,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, {behaviour} on {street}.",
+        "{vehicle} plate {plate} {behaviour}, driver appears intoxicated, last seen {dir} near {cross}."
+      ],
+      "fill": {"behaviour": ["weaving between lanes", "drifting over the center line", "braking erratically", "driving very slowly and swerving"]}
+    },
+    {
+      "id": "wrongWayDriver",
+      "label": "Wrong-way driver",
+      "category": "dui",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, driving the wrong way {dir} on {street}.",
+        "Vehicle plate {plate} heading against traffic near {cross}, other cars swerving to avoid it."
+      ],
+      "priority": {"1": 0.5, "2": 0.5},
+      "districts": {"highway": 2, "downtown": 1.2, "rural": 0.8, "water": 0}
+    },
+    {
+      "id": "recklessDriver",
+      "label": "Reckless driver",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.8,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, {stunt} on {street}.",
+        "{vehicle} plate {plate} {stunt} near {cross}, nearly caused a collision."
+      ],
+      "fill": {"stunt": ["racing between cars", "tailgating and passing on the shoulder", "running red lights", "speeding well over the limit"]},
+      "branchWeights": {"tired": 3}
+    },
+    {
+      "id": "driverAsleepAtWheel",
+      "label": "Driver asleep at the wheel",
+      "category": "dui",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, stopped with the engine running and the driver slumped over at {near}.",
+        "Driver appears to be asleep behind the wheel of a {vehicle} at {address}."
+      ],
+      "branchWeights": {"asleepParked": 1, "drunk": 0, "drugged": 0, "medical": 0, "tired": 0}
+    },
+    {
+      "id": "erraticDriverHighway",
+      "label": "Erratic driver on highway",
+      "category": "dui",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a {vehicle}, plate {plate}, driving erratically {dir} on {street}.",
+        "Motorist advises {vehicle} plate {plate} is swerving across all lanes near {cross}."
+      ],
+      "districts": {"highway": 3, "rural": 1.2, "downtown": 0.4, "campus": 0.2, "industrial": 0.5, "water": 0}
+    },
+    {
+      "id": "intoxicatedDriverParkingLot",
+      "label": "Intoxicated driver in parking lot",
+      "category": "dui",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports an intoxicated driver trying to leave in a {vehicle}, plate {plate}, at {address}.",
+        "Clerk advises a customer who appears drunk is getting into a {vehicle}, plate {plate}, near {near}."
+      ],
+      "branchWeights": {"asleepParked": 1, "drunk": 1, "drugged": 0, "medical": 0, "tired": 0}
+    }
+  ]
+}

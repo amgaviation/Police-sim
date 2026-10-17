@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "family": "service",
+  "types": [
+    {
+      "id": "civilStandby",
+      "label": "Civil standby",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP requests an officer to stand by while they collect belongings from {address}.",
+        "Subject at {address} requests a civil standby during a property exchange."
+      ],
+      "location": "block"
+    },
+    {
+      "id": "propertyRetrieval",
+      "label": "Property retrieval",
+      "category": "domestic",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP requests assistance retrieving property from a former residence at {address}.",
+        "Subject at {near} requests an officer while they pick up their belongings."
+      ],
+      "location": "block"
+    },
+    {
+      "id": "vehicleLockout",
+      "label": "Vehicle lockout",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "Motorist locked keys inside a {vehicle} at {near}, requests assistance.",
+        "RP requests help getting into a locked car at {address}."
+      ]
+    },
+    {
+      "id": "k9TrackRequest",
+      "label": "K9 track request",
+      "category": "burglary",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "Unit on scene requests a K9 track for a subject who fled from {near}.",
+        "K9 requested to track a fleeing burglary suspect from {address}."
+      ],
+      "priority": {"2": 1},
+      "branchWeights": {"k9Track": 6}
+    },
+    {
+      "id": "motoristAssist",
+      "label": "Motorist assist",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "Motorist with a disabled vehicle requests assistance at {near}.",
+        "RP reports a stalled car with its hazards on near {cross}."
+      ]
+    },
+    {
+      "id": "funeralEscort",
+      "label": "Funeral escort",
+      "category": "traffic",
+      "generated": false,
+      "weight": 0,
+      "narratives": [
+        "Funeral home requests a traffic escort from {address}.",
+        "Escort requested for a procession leaving {near}."
+      ]
+    },
+    {
+      "id": "bankEscort",
+      "label": "Bank escort",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "Business requests an escort for a cash deposit from {address}.",
+        "Bank staff at {near} request an officer to accompany a money transfer."
+      ],
+      "location": "block"
+    }
+  ]
+}

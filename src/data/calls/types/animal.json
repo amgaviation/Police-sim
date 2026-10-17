@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "family": "animal",
+  "types": [
+    {
+      "id": "strayDog",
+      "label": "Stray dog",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a stray dog loose near {address}.",
+        "Caller reports a dog wandering without an owner near {near}."
+      ],
+      "branchWeights": {"stray": 6}
+    },
+    {
+      "id": "aggressiveDog",
+      "label": "Aggressive dog",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.25,
+      "narratives": [
+        "RP reports an aggressive dog growling at passersby at {address}.",
+        "Caller advises a dog is menacing people near {near}."
+      ],
+      "priority": {"2": 1},
+      "branchWeights": {"aggressive": 6}
+    },
+    {
+      "id": "animalBite",
+      "label": "Animal bite",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports being bitten by a dog at {address}.",
+        "Caller reports a child was bitten by a neighbor's dog near {near}."
+      ],
+      "branchWeights": {"aggressive": 4, "owned": 2}
+    },
+    {
+      "id": "injuredAnimal",
+      "label": "Injured animal",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports an injured animal lying in the road near {near}.",
+        "Caller reports a hurt dog by the roadside at {near}."
+      ],
+      "location": "road",
+      "branchWeights": {"injured": 6}
+    },
+    {
+      "id": "animalInHotVehicle",
+      "label": "Animal in a hot vehicle",
+      "category": "welfare",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports a dog left inside a parked {vehicle}, plate {plate}, near {near}.",
+        "Caller reports an animal panting in a hot car, plate {plate}, on {street}."
+      ],
+      "location": "road",
+      "priority": {"2": 0.6, "3": 0.4},
+      "branchWeights": {"owned": 6}
+    },
+    {
+      "id": "livestockOnRoadway",
+      "label": "Livestock on roadway",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports livestock loose on {street} near {cross}.",
+        "Motorists report cows wandering across the road at {near}."
+      ],
+      "location": "road",
+      "districts": {"rural": 4, "suburbs": 0.5, "downtown": 0.1, "highway": 0.5, "water": 0},
+      "branchWeights": {"stray": 6}
+    },
+    {
+      "id": "animalNoiseComplaint",
+      "label": "Animal noise complaint",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a dog barking constantly at {address}.",
+        "{caller} reports an animal noise problem from a neighbor near {near}."
+      ],
+      "priority": {"4": 1},
+      "branchWeights": {"owned": 6}
+    }
+  ]
+}

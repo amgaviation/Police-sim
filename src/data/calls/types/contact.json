@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "family": "contact",
+  "types": [
+    {
+      "id": "pedestrianStop",
+      "label": "Pedestrian stop",
+      "category": "suspicious",
+      "generated": false,
+      "weight": 0,
+      "narratives": [
+        "Officer stopped a pedestrian near {near}.",
+        "Unit contacting a pedestrian at {address}."
+      ]
+    },
+    {
+      "id": "fieldInterview",
+      "label": "Field interview",
+      "category": "suspicious",
+      "generated": false,
+      "weight": 0,
+      "narratives": [
+        "Officer conducting a field interview at {near}.",
+        "Unit interviewing a subject near {cross}."
+      ]
+    }
+  ]
+}

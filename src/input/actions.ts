@@ -59,6 +59,12 @@ export const ACTIONS = {
   'radio.channelPrev': { kind: 'button', label: 'Previous channel' },
   'radio.channelNext': { kind: 'button', label: 'Next channel' },
   'radio.scan': { kind: 'button', label: 'Radio scan' },
+  // Phase 3: on-foot officer actions and the scene menu (design §12.5).
+  'officer.weapon': { kind: 'button', label: 'Cycle weapon' },
+  'officer.fire': { kind: 'button', label: 'Fire / deploy weapon' },
+  'officer.tackle': { kind: 'button', label: 'Tackle' },
+  'officer.shout': { kind: 'button', label: 'Shout command' },
+  'scene.menu': { kind: 'button', label: 'Scene menu' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "family": "inProgress",
+  "types": [
+    {
+      "id": "burglaryInProgress",
+      "label": "Burglary in progress",
+      "category": "burglary",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a subject breaking into the residence at {address}.",
+        "{caller} reports hearing glass break and seeing someone inside {address}."
+      ],
+      "priority": {"1": 0.3, "2": 0.5, "3": 0.2}
+    },
+    {
+      "id": "prowler",
+      "label": "Prowler",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports a prowler in the yard of {address}.",
+        "Caller advises a subject looking into windows and trying door handles near {near}."
+      ],
+      "branchWeights": {"nothing": 4}
+    },
+    {
+      "id": "vehicleBreakInProgress",
+      "label": "Vehicle break-in in progress",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a subject breaking into parked cars on {street}.",
+        "Caller advises someone smashing a car window near {cross}, subject still on scene."
+      ],
+      "location": "road"
+    },
+    {
+      "id": "theftInProgress",
+      "label": "Theft in progress",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a subject taking items from {address} right now.",
+        "Caller reports a person loading {item} into a vehicle near {near}."
+      ],
+      "fill": {"item": ["equipment", "bicycles", "tools", "appliances"]}
+    },
+    {
+      "id": "commercialBurglaryInProgress",
+      "label": "Commercial burglary in progress",
+      "category": "burglary",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "Alarm company reports a break-in at the business at {address}, subject seen inside.",
+        "RP reports a subject forcing a rear door of the building at {address}."
+      ],
+      "districts": {"industrial": 2, "suburbs": 1.3, "highway": 0.1, "water": 0}
+    },
+    {
+      "id": "peepingPerson",
+      "label": "Peeping subject",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "RP reports a subject looking into a bedroom window at {address}.",
+        "Resident at {address} reports a person watching through the window and running when seen."
+      ],
+      "branchWeights": {"fled": 4}
+    }
+  ]
+}

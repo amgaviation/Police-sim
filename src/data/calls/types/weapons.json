@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "family": "weapons",
+  "types": [
+    {
+      "id": "shotsFired",
+      "label": "Shots fired",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports hearing several gunshots near {near}.",
+        "Multiple callers report shots fired in the {near} area."
+      ],
+      "codeKey": "shotsFired",
+      "branchWeights": {"gone": 5}
+    },
+    {
+      "id": "armedPerson",
+      "label": "Armed person",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports a person carrying a gun at {address}.",
+        "Caller advises a subject with a visible firearm near {near}."
+      ]
+    },
+    {
+      "id": "personWithKnife",
+      "label": "Person with a knife",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a subject waving a knife at {address}.",
+        "Caller reports a person with a large knife threatening others near {near}."
+      ],
+      "branchWeights": {"knife": 6}
+    },
+    {
+      "id": "brandishing",
+      "label": "Brandishing a weapon",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a subject displayed a weapon during an argument at {address}.",
+        "Caller reports a person pulling a weapon on a neighbor near {near}."
+      ]
+    },
+    {
+      "id": "personWithGun",
+      "label": "Person with a gun",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports a person with a gun in the waistband at {address}.",
+        "Caller advises a subject carrying a handgun and acting nervous near {near}."
+      ],
+      "branchWeights": {"misidentified": 2}
+    },
+    {
+      "id": "driveByShooting",
+      "label": "Drive-by shooting",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.1,
+      "narratives": [
+        "RP reports shots fired from a passing {vehicle} on {street}.",
+        "Caller reports a drive-by shooting near {cross}, vehicle fled {dir}."
+      ],
+      "codeKey": "shotsFired",
+      "location": "road",
+      "branchWeights": {"gone": 6}
+    },
+    {
+      "id": "firearmDischargeRural",
+      "label": "Firearm discharge, rural area",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "RP reports repeated gunshots from a nearby property at {near}.",
+        "Caller reports someone firing a gun near homes on {street}."
+      ],
+      "districts": {"rural": 3, "downtown": 0.3, "suburbs": 0.3, "industrial": 0.3, "highway": 0.3, "campus": 0.3, "hospital": 0.3, "airport": 0.3, "harbor": 0.3, "park": 0.3, "water": 0},
+      "branchWeights": {"gone": 4, "misidentified": 3}
+    }
+  ]
+}

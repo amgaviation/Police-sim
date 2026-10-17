@@ -104,6 +104,18 @@ export function lastNameIndex(seed: number, id: number): number {
   return hash3(seed, SALT.last, id) % NAMES.last.length;
 }
 
+/** Epoch-day date of birth of person `id` by integer hashing only (the DOB part of `personIdentity`). */
+export function personDob(seed: number, id: number): number {
+  checkId(id, 'personDob');
+  const [lo, hi] = PERSON_DATA.ageRange;
+  const core = hash3(seed, SALT.band, id) / TWO_POW_32 < CORE_AGE_SHARE;
+  const a = core ? Math.max(lo, CORE_AGE[0]) : lo;
+  const b = core ? Math.min(hi, CORE_AGE[1]) : hi;
+  const age = a + Math.floor((hash3(seed, SALT.age, id) / TWO_POW_32) * (b - a + 1));
+  // Born `age` years before the start date minus 0..364 days: exactly `age` on game day 0.
+  return epochDayFromYmd(CALENDAR_DATA.y - age, CALENDAR_DATA.m, CALENDAR_DATA.d) - (hash3(seed, SALT.dayOffset, id) % 365);
+}
+
 /** Sex, names and DOB of person `id` by integer hashing only (cheap; no RNG stream). */
 export function personIdentity(seed: number, id: number): PersonIdentity {
   checkId(id, 'personIdentity');
@@ -112,14 +124,7 @@ export function personIdentity(seed: number, id: number): PersonIdentity {
   const first = firstList[hash3(seed, SALT.first, id) % firstList.length] ?? '';
   const middle = NAMES.middleInitials.charAt(hash3(seed, SALT.middle, id) % NAMES.middleInitials.length);
   const last = NAMES.last[lastNameIndex(seed, id)] ?? '';
-  const [lo, hi] = PERSON_DATA.ageRange;
-  const core = hash3(seed, SALT.band, id) / TWO_POW_32 < CORE_AGE_SHARE;
-  const a = core ? Math.max(lo, CORE_AGE[0]) : lo;
-  const b = core ? Math.min(hi, CORE_AGE[1]) : hi;
-  const age = a + Math.floor((hash3(seed, SALT.age, id) / TWO_POW_32) * (b - a + 1));
-  // Born `age` years before the start date minus 0..364 days: exactly `age` on game day 0.
-  const dob = epochDayFromYmd(CALENDAR_DATA.y - age, CALENDAR_DATA.m, CALENDAR_DATA.d) - (hash3(seed, SALT.dayOffset, id) % 365);
-  return { id, first, middle, last, sex, dob };
+  return { id, first, middle, last, sex, dob: personDob(seed, id) };
 }
 
 function pickWeighted<T extends { readonly weight: number }>(items: readonly T[], u: number): T {

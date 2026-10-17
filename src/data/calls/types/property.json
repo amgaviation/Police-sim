@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "family": "property",
+  "types": [
+    {
+      "id": "burglaryCold",
+      "label": "Burglary report",
+      "category": "burglary",
+      "generated": true,
+      "weight": 0.7,
+      "narratives": [
+        "RP reports returning home to find the residence at {address} burglarized.",
+        "{caller} reports a break-in at {address} sometime during the {when}."
+      ],
+      "fill": {"when": ["morning", "afternoon", "night", "past few days"]}
+    },
+    {
+      "id": "vehicleBurglaryCold",
+      "label": "Vehicle burglary report",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports their vehicle was broken into overnight near {near}.",
+        "Owner reports a smashed window and missing items from a parked car at {near}."
+      ],
+      "location": "road"
+    },
+    {
+      "id": "theftReport",
+      "label": "Theft report",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.8,
+      "narratives": [
+        "RP reports {item} stolen from {address}.",
+        "{caller} reports a theft of {item} near {near}."
+      ],
+      "fill": {"item": ["a bicycle", "tools", "a wallet", "a phone", "lawn equipment", "a package"]}
+    },
+    {
+      "id": "vandalismReport",
+      "label": "Vandalism report",
+      "category": "vandalism",
+      "generated": true,
+      "weight": 0.6,
+      "narratives": [
+        "RP reports property damage and {damage} at {address}.",
+        "Business owner reports vandalism, {damage}, near {near}."
+      ],
+      "fill": {"damage": ["spray paint on the wall", "a smashed window", "slashed tires", "a damaged fence"]}
+    },
+    {
+      "id": "fraudReport",
+      "label": "Fraud report",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports being defrauded of money through {scheme}.",
+        "Subject at {address} wants to report a fraud involving {scheme}."
+      ],
+      "fill": {"scheme": ["a fake check", "a phone scam", "an online sale", "a contractor who never returned"]},
+      "branchWeights": {"insuranceFraud": 2}
+    },
+    {
+      "id": "identityTheftReport",
+      "label": "Identity theft report",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports someone opened accounts in their name, at {address}.",
+        "Subject at {address} reports fraudulent charges and stolen personal information."
+      ]
+    },
+    {
+      "id": "counterfeitCurrency",
+      "label": "Counterfeit currency",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "Business reports a customer passed a counterfeit bill at {address}.",
+        "Clerk advises a suspicious bill was received near {near}."
+      ]
+    },
+    {
+      "id": "foundProperty",
+      "label": "Found property",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports finding {item} and wants it turned in, at {address}.",
+        "Subject at {near} has found {item} and requests an officer."
+      ],
+      "fill": {"item": ["a wallet", "a set of keys", "a backpack", "a phone", "a bicycle"]},
+      "priority": {"4": 1},
+      "branchWeights": {"reportOnly": 6}
+    },
+    {
+      "id": "lostProperty",
+      "label": "Lost property",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.3,
+      "narratives": [
+        "RP reports losing {item} and wants a report, at {address}.",
+        "Subject near {near} reports {item} missing and would like it documented."
+      ],
+      "fill": {"item": ["a wallet", "a purse", "a phone", "a passport"]},
+      "priority": {"4": 1},
+      "branchWeights": {"reportOnly": 6}
+    },
+    {
+      "id": "packageTheft",
+      "label": "Package theft",
+      "category": "theft",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "RP reports a delivered package was taken from the porch at {address}.",
+        "{caller} reports someone just took a package from the doorstep at {address}."
+      ],
+      "branchWeights": {"suspectNearby": 1}
+    }
+  ]
+}

@@ -2,10 +2,12 @@ import type { Command } from '../debug/console';
 import { PULLOVER } from './data';
 import { isFleetVehicleId, TRAFFIC_STATE, type FleetState, type TrafficSystem } from './trafficSystem';
 
-/** Debug console commands of the traffic module: pullover, fleet. */
+/** Debug console commands of the traffic module: pullover, flee, fleet. */
 
 /** `pullover` looks for a car this close to the player (m). */
 const PULLOVER_RANGE = 60;
+/** `flee` looks for a car this close to the player (m). */
+const FLEE_RANGE = 100;
 
 export interface TrafficCommandDeps {
   traffic(): TrafficSystem | null;
@@ -61,6 +63,37 @@ export function createTrafficCommands(deps: TrafficCommandDeps): Command[] {
         const id = view.vehicleId[best] ?? 0;
         if (!traffic.forceStop(id)) return `Vehicle ${String(id)} cannot be stopped`;
         return `Vehicle ${String(id)} pulling over (${fmt(bestD)} m)`;
+      },
+    },
+    {
+      name: 'flee',
+      description: 'Make the nearest ambient car (within 100 m) flee, or stop every fleeing car',
+      usage: '[stop]',
+      run(args) {
+        const traffic = need(deps.traffic(), 'Traffic');
+        const view = traffic.view;
+        const pose = { x: 0, z: 0, yaw: 0, speed: 0, edge: 0 };
+        if (args[0] === 'stop') {
+          let n = 0;
+          for (let i = view.count - 1; i >= 0; i--) if (traffic.stopFlee(view.vehicleId[i] ?? 0)) n++;
+          return n === 0 ? 'No fleeing car' : `${String(n)} car${n === 1 ? '' : 's'} pulling over`;
+        }
+        if (args[0] !== undefined) throw new Error('Usage: flee [stop]');
+        const at = need(deps.playerPosition(), 'Player position');
+        let best = -1;
+        let bestD = FLEE_RANGE;
+        for (let i = 0; i < view.count; i++) {
+          const id = view.vehicleId[i] ?? 0;
+          if (isFleetVehicleId(id) || view.state[i] === TRAFFIC_STATE.crashed || traffic.fleeState(id, pose)) continue;
+          const d = Math.hypot((view.x[i] ?? 0) - at.x, (view.z[i] ?? 0) - at.z);
+          if (d < bestD) {
+            best = i;
+            bestD = d;
+          }
+        }
+        if (best < 0) return `No car within ${String(FLEE_RANGE)} m`;
+        const id = view.vehicleId[best] ?? 0;
+        return traffic.flee(id) ? `Vehicle ${String(id)} fleeing (${fmt(bestD)} m)` : `Vehicle ${String(id)} cannot flee`;
       },
     },
     {

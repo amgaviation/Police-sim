@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "family": "pursuit",
+  "types": [
+    {
+      "id": "vehiclePursuit",
+      "label": "Vehicle pursuit",
+      "category": "traffic",
+      "generated": false,
+      "weight": 0,
+      "narratives": [
+        "Unit in pursuit of a {vehicle}, plate {plate}, {dir} on {street}.",
+        "Vehicle pursuit in progress, {vehicle}, plate {plate}, near {cross}."
+      ],
+      "codeKey": "pursuit",
+      "branchWeights": {"footOnly": 0}
+    },
+    {
+      "id": "footPursuit",
+      "label": "Foot pursuit",
+      "category": "suspicious",
+      "generated": false,
+      "weight": 0,
+      "narratives": [
+        "Unit in foot pursuit of a subject {dir} from {near}.",
+        "Foot pursuit in progress near {cross}, subject on foot."
+      ],
+      "branchWeights": {"chase": 0}
+    }
+  ]
+}

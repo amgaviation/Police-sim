@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "family": "activeAssailant",
+  "types": [
+    {
+      "id": "activeAssailant",
+      "label": "Active assailant",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.03,
+      "narratives": [
+        "RP reports a person shooting at people inside {address}.",
+        "Multiple callers report gunfire and people fleeing {address}."
+      ]
+    },
+    {
+      "id": "activeAssailantBusiness",
+      "label": "Active assailant at a business",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.02,
+      "narratives": [
+        "Employee reports an armed person attacking customers at the business at {address}.",
+        "Caller hiding inside {address} reports shots fired in the store."
+      ],
+      "districts": {"downtown": 2, "campus": 1.5, "hospital": 1.2, "industrial": 0.5, "rural": 0.1, "highway": 0, "water": 0}
+    },
+    {
+      "id": "massCasualtyReport",
+      "label": "Mass casualty report",
+      "category": "assault",
+      "generated": true,
+      "weight": 0.02,
+      "narratives": [
+        "RP reports many people injured after an attack near {near}.",
+        "Callers report numerous victims and a fleeing suspect {dir} from {address}."
+      ],
+      "branchWeights": {"fled": 4}
+    }
+  ]
+}

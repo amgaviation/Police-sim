@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "family": "trespass",
+  "types": [
+    {
+      "id": "trespass",
+      "label": "Trespass",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.7,
+      "narratives": [
+        "Property owner reports an unwanted person on the property at {address}.",
+        "{caller} reports a trespasser refusing to leave {address}."
+      ]
+    },
+    {
+      "id": "trespassVacantBuilding",
+      "label": "Trespass in a vacant building",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "RP reports people entering a vacant building at {address}.",
+        "Neighbor reports lights and movement inside an abandoned structure near {near}."
+      ],
+      "districts": {"industrial": 2, "highway": 0, "water": 0}
+    },
+    {
+      "id": "unwantedGuest",
+      "label": "Unwanted guest",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.5,
+      "narratives": [
+        "Resident at {address} wants a person removed from their home.",
+        "{caller} reports a guest who will not leave {address} when asked."
+      ]
+    },
+    {
+      "id": "loiteringBusiness",
+      "label": "Loitering at a business",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.4,
+      "narratives": [
+        "Business owner reports subjects loitering and refusing to leave at {address}.",
+        "Manager advises people camped outside the entrance of {address} scaring customers."
+      ]
+    },
+    {
+      "id": "squatters",
+      "label": "Squatters",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "Owner reports people living inside an unoccupied property at {address}.",
+        "Neighbor reports squatters moving into the vacant house at {address}."
+      ],
+      "branchWeights": {"refuses": 4}
+    },
+    {
+      "id": "trespassSchoolGrounds",
+      "label": "Trespass on school grounds",
+      "category": "suspicious",
+      "generated": true,
+      "weight": 0.2,
+      "narratives": [
+        "School staff report unauthorized subjects on the grounds at {near}.",
+        "Custodian reports teenagers climbing the fence into the school yard near {near}."
+      ],
+      "location": "poi:school",
+      "branchWeights": {"teen": 1, "leaves": 0, "refuses": 0, "wanted": 0, "gone": 0}
+    }
+  ]
+}

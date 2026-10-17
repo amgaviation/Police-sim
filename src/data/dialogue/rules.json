@@ -1,0 +1,18 @@
+{ "version": 1, "rules": [
+  {"id":"nameVsId","topic":"name","a":"claim","b":"document","compare":"equal","severity":"alert","text":"Gave the name {a}, but the ID card reads {b}."},
+  {"id":"dobVsId","topic":"dob","a":"claim","b":"document","compare":"equal","severity":"alert","text":"Gave the date of birth {a}, but the ID card reads {b}."},
+  {"id":"nameNotOnFile","topic":"name","a":"claim","b":"record","compare":"notOnFile","severity":"alert","text":"No record exists for the name {a}."},
+  {"id":"dobVsRecord","topic":"dob","a":"claim","b":"record","compare":"equal","severity":"alert","text":"Gave the date of birth {a}, but the record shows {b}."},
+  {"id":"idNotOnFile","topic":"idCard","a":"document","b":"record","compare":"idCard","severity":"alert","text":"The ID card number does not match: {bDetail}."},
+  {"id":"appearanceVsRecord","topic":"appearance","a":"observation","b":"record","compare":"appearance","severity":"caution","text":"Appearance ({aDetail}) does not match the record ({bDetail})."},
+  {"id":"addressVsRecord","topic":"address","a":"claim","b":"record","compare":"equal","severity":"caution","text":"Gave the address {a}, but the record shows {b}."},
+  {"id":"storyDestination","topic":"destination","a":"claim","b":"claim","compare":"equal","severity":"caution","text":"Changed the story about the destination: first \"{a}\", then \"{b}\"."},
+  {"id":"storyOrigin","topic":"origin","a":"claim","b":"claim","compare":"equal","severity":"caution","text":"Changed the story about where they came from: first \"{a}\", then \"{b}\"."},
+  {"id":"storyAccount","topic":"account","a":"claim","b":"claim","compare":"equal","severity":"caution","text":"Changed their account of what happened: first \"{a}\", then \"{b}\"."},
+  {"id":"drinkingDenial","topic":"drinking","a":"claim","b":"evidence","compare":"denial","severity":"alert","text":"Said \"{a}\" about drinking, but {bDetail}."},
+  {"id":"drugsDenial","topic":"drugs","a":"claim","b":"evidence","compare":"denial","severity":"alert","text":"Said \"{a}\" about drugs, but {bDetail}."},
+  {"id":"weaponsDenial","topic":"weapons","a":"claim","b":"evidence","compare":"denial","severity":"alert","text":"Said \"{a}\" about weapons, but {bDetail}."},
+  {"id":"contentsDenial","topic":"vehicleContents","a":"claim","b":"evidence","compare":"denial","severity":"alert","text":"Said \"{a}\" about the vehicle contents, but {bDetail}."},
+  {"id":"ownerVsRecord","topic":"vehicleOwner","a":"claim","b":"record","compare":"equal","severity":"caution","text":"Claimed to know the vehicle owner ({a}), but the registration says {b}."},
+  {"id":"identityVsBooking","topic":"identity","a":"claim","b":"booking","compare":"equal","severity":"alert","text":"Claimed to be person {a}, but booking identified person {b}."}
+] }

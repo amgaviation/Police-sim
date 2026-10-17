@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "temperament": { "calm": 0.45, "timid": 0.2, "irritable": 0.25, "volatile": 0.1 },
+  "honesty": { "min": 0.35, "max": 1.0, "riskPenalty": 0.45 },
+  "attitude": { "min": -0.3, "max": 0.8, "perPrior": -0.06, "perArrestPrior": -0.15, "gang": -0.35, "minClamp": -1, "maxClamp": 1 },
+  "language": {
+    "englishShare": 0.9,
+    "others": [
+      { "id": "spanish", "label": "Spanish", "weight": 6 },
+      { "id": "vietnamese", "label": "Vietnamese", "weight": 2 },
+      { "id": "mandarin", "label": "Mandarin", "weight": 2 },
+      { "id": "arabic", "label": "Arabic", "weight": 1 },
+      { "id": "russian", "label": "Russian", "weight": 1 },
+      { "id": "tagalog", "label": "Tagalog", "weight": 1 },
+      { "id": "portuguese", "label": "Portuguese", "weight": 1 }
+    ],
+    "noEnglishShare": 0.4
+  },
+  "hearing": { "deaf": 0.006, "hardOfHearing": 0.025, "elderlyHardOfHearing": 0.15, "elderlyAge": 70 },
+  "dementia": { "minAge": 70, "rate": 0.1 },
+  "mental": {
+    "withRecordNote": { "depression": 2, "bipolar": 1, "schizophrenia": 1, "ptsd": 1 },
+    "baseRate": 0.04,
+    "base": { "anxiety": 2, "depression": 2 }
+  },
+  "health": { "diabetic": 0.06, "epilepsy": 0.01, "heart": { "rate": 0.08, "minAge": 50 }, "asthma": 0.05 },
+  "drinking": {
+    "propensityExponent": 2,
+    "weekday": [0.5, 0.5, 0.6, 0.7, 1.0, 1.3, 0.9],
+    "sessionRate": 0.6,
+    "startHour": [17, 23],
+    "durationH": [1.5, 5],
+    "peakBac": [0.02, 0.2],
+    "riseH": 1,
+    "eliminationPerHour": 0.015
+  },
+  "drugs": { "rate": 0.06, "riskFactor": 2.5, "kinds": { "cannabis": 6, "stimulant": 2, "opioid": 1, "depressant": 1 }, "dailyUseRate": 0.5 },
+  "employment": {
+    "employers": [
+      "Riverside Diner", "Northside Hardware", "City Hospital", "Metro Transit", "Elm Street Grocery",
+      "Harbor Freight Yard", "Lakeview School District", "Summit Construction", "Pinecrest Auto Repair", "Oak Valley Clinic",
+      "Central Library", "Bayside Warehouse", "Maple Street Bakery", "Westgate Mall Security", "City Sanitation",
+      "Granite Insurance Office", "Sunrise Daycare", "Coastal Shipping Office", "Midtown Hotel", "County Records Office"
+    ],
+    "unemployed": 0.08,
+    "retiredAge": 66,
+    "studentMaxAge": 22,
+    "studentShare": 0.5
+  },
+  "appearance": {
+    "skinTones": ["#f1c9a5", "#e0ac69", "#c68642", "#a26a42", "#8d5524", "#5c3a21"],
+    "hair": { "black": "#1b1b1b", "brown": "#4b3621", "blond": "#c9a54e", "red": "#8d3b1f", "gray": "#9c9c9c", "bald": null },
+    "tops": [
+      { "name": "black", "hex": "#1c1c1f" }, { "name": "white", "hex": "#e8e8e8" }, { "name": "gray", "hex": "#7a7a7a" },
+      { "name": "red", "hex": "#a3262a" }, { "name": "blue", "hex": "#2b4f9e" }, { "name": "green", "hex": "#2f6b3a" },
+      { "name": "yellow", "hex": "#d1b32c" }, { "name": "brown", "hex": "#6b4a2b" }, { "name": "navy", "hex": "#1d2a4a" },
+      { "name": "orange", "hex": "#c8642a" }
+    ],
+    "bottoms": [
+      { "name": "blue jeans", "hex": "#34507a" }, { "name": "black pants", "hex": "#1e1e22" }, { "name": "khaki pants", "hex": "#a8946a" },
+      { "name": "gray pants", "hex": "#5f6266" }, { "name": "dark shorts", "hex": "#2c2c30" }
+    ]
+  },
+  "items": {
+    "daily": { "phone": 0.92, "wallet": 0.85, "keys": 0.8, "cashRoll": 0.02, "backpack": 0.15 },
+    "driversLicenseCarry": 0.9,
+    "fakeIdIfRisk": 0.06,
+    "knife": 0.03,
+    "knifeIfSafetyNote": 0.3,
+    "handgunIfSafetyNote": 0.35,
+    "handgunIfRegistered": 0.06,
+    "brassKnucklesIfGang": 0.1,
+    "drugsIfUser": 0.5,
+    "paraphernaliaIfUser": 0.4,
+    "stolenGoodsIfRisk": 0.03,
+    "creditCardsIfRisk": 0.02
+  },
+  "vehicleItems": {
+    "openContainerIfDrinking": 0.35,
+    "liquorBottleIfDrinker": 0.08,
+    "drugsIfUser": 0.25,
+    "weaponIfCarrier": 0.3,
+    "stolenGoods": 0.01,
+    "burglaryToolsIfRisk": 0.03
+  },
+  "occupants": { "passengers": [0.6, 0.28, 0.09, 0.03] },
+  "family": { "clusterSize": 3 }
+}
