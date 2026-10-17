@@ -62,6 +62,8 @@ describe('records data', () => {
     ['person.json: license.classes.c must be a class letter', () => parsePersonData(edit(personJson, 'license.classes.c', 1))],
     ['person.json: gang.names must have at least 1 items', () => parsePersonData(edit(personJson, 'gang.names', []))],
     ['person.json: priors.kinds[1].kind must be a non-empty string', () => parsePersonData(edit(personJson, 'priors.kinds.1.kind', ''))],
+    ['person.json: warrants.kinds[2].requires must be "probation" or "parole"', () => parsePersonData(edit(personJson, 'warrants.kinds.2.requires', 'jail'))],
+    ['person.json: license.classMinAge.Z must name a class', () => parsePersonData(edit(personJson, 'license.classMinAge.Z', 18))],
     ['person.json: phonePrefix must be 3 digits', () => parsePersonData(edit(personJson, 'phonePrefix', '55'))],
     ['person.json: supervision.conditions must have at most 24 items', () => parsePersonData(edit(personJson, 'supervision.conditions', Array.from({ length: 30 }, (_, i) => `c${i}`)))],
     ['vehicle.json: plateAnomalies.cloned must be in [0, 1]', () => parseVehicleData(edit(vehicleJson, 'plateAnomalies.cloned', -1))],
@@ -72,7 +74,8 @@ describe('records data', () => {
     ['vehicle.json: driverIsOwner must be a finite number', () => parseVehicleData(edit(vehicleJson, 'driverIsOwner', 'yes'))],
     ['bolo.json: perDay must be [min, max]', () => parseBoloData(edit(boloJson, 'perDay', [6, 3]))],
     ['bolo.json: vehicleShare must be in [0, 1]', () => parseBoloData(edit(boloJson, 'vehicleShare', 3))],
-    ['bolo.json: personReasons must be an array', () => parseBoloData(edit(boloJson, 'personReasons'))],
+    ['bolo.json: personReasons.wanted must be an array', () => parseBoloData(edit(boloJson, 'personReasons.wanted'))],
+    ['bolo.json: missingShare must be in [0, 1]', () => parseBoloData(edit(boloJson, 'missingShare', 2))],
   ])('rejects bad data naming the file and field: %s', (message, run) => {
     expect(run).toThrow(message);
   });

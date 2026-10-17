@@ -5,6 +5,7 @@
  */
 import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
+import { PERSON_POPULATION } from '../records/ids';
 import { findStatute } from './data';
 import { isArrayOf, isCadTime, isInt, isNullOr, isNum, isObj, isOneOf, isStr, isStrArray, type Obj } from './guards';
 import type { CadDocumentSavedEvent } from './events';
@@ -177,6 +178,11 @@ const FIELD_KEYS: Readonly<Record<DocKind, readonly string[]>> = {
   supplement: Object.keys(defaultsFor('supplement', { sim: 0, game: 0 })),
 };
 
+/** A person id of the records population. */
+export function knownPerson(id: number): boolean {
+  return Number.isInteger(id) && id >= 0 && id < PERSON_POPULATION;
+}
+
 function blank(text: string): boolean {
   return text.trim().length === 0;
 }
@@ -192,9 +198,11 @@ export function validateDocument(doc: CadDocument, find?: (id: string) => CadDoc
       if (blank(doc.title)) out.push('Report needs a title');
       if (blank(doc.location)) out.push('Report needs a location');
       if (doc.narrative.trim().length < 20) out.push('Report narrative must be at least 20 characters');
+      for (const p of doc.persons) if (!knownPerson(p.personId)) out.push(`Unknown person #${p.personId}`);
       break;
     case 'citation': {
       if (!(doc.personId >= 0)) out.push('Citation needs a person');
+      else if (!knownPerson(doc.personId)) out.push(`Unknown person #${doc.personId}`);
       if (blank(doc.plate) && !(doc.vehicleId >= 0)) out.push('Citation needs a plate or vehicle');
       if (doc.violations.length === 0) out.push('Citation needs at least one violation');
       doc.violations.forEach((v, i) => {
@@ -207,6 +215,7 @@ export function validateDocument(doc: CadDocument, find?: (id: string) => CadDoc
     }
     case 'booking': {
       if (!(doc.personId >= 0)) out.push('Booking needs a person');
+      else if (!knownPerson(doc.personId)) out.push(`Unknown person #${doc.personId}`);
       let bookable = 0;
       for (const id of doc.charges) {
         const s = findStatute(id);

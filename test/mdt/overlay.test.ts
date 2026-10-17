@@ -165,6 +165,38 @@ describe('MdtOverlay (headless)', () => {
     expect(f.requests).toEqual([]);
   });
 
+  it('records a Stop-tab plate run in CAD (survives a new overlay) and ignores an ended stop', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const stop = startStop(f, 777);
+    mdt.runStopVehicle();
+    expect(f.cad.trafficStop?.plateRun).toBe(true);
+    expect(f.cad.call(stop.callId)?.narrative.at(-1)?.text).toMatch(new RegExp(`^Plate ${stop.plate}`));
+    const fresh = new MdtOverlay(null, f.deps);
+    fresh.openForm('citation');
+    expect(fresh.formKind).toBe('citation');
+    // The stop ends: later citations are not prefilled from it and the stop actions are refused.
+    f.cad.updateTrafficStop({ outcome: 'released' }, at(1));
+    f.cad.closeCall(stop.callId, 'handled', at(1));
+    const after = new MdtOverlay(null, f.deps);
+    after.openForm('citation');
+    const r = after.submitForm(false);
+    expect(r.doc?.kind === 'citation' && r.doc.plate).toBe('');
+    expect(r.doc?.callId).toBeNull();
+    expect(after.runStopVehicle()).toBeNull();
+    expect(after.message).toBe('No active traffic stop');
+  });
+
+  it('refuses to show a person outside the population', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open('queue');
+    expect(() => mdt.showPerson(99_999_999)).not.toThrow();
+    expect(mdt.message).toBe('Unknown person #99999999');
+    expect(mdt.tab).toBe('queue');
+    expect(mdt.personId).toBe(-1);
+  });
+
   it('issues a citation prefilled from the stop (create + finalize)', () => {
     const f = fixture();
     const mdt = new MdtOverlay(null, f.deps);

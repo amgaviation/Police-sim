@@ -319,6 +319,8 @@ export class RecordsDb {
       daily = dailyBolos(this.seed, epochDay);
       this.boloDays.set(epochDay, daily);
     }
+    // A daily wanted-person BOLO is withdrawn once all of its subject's warrants are served.
+    if (this.served.size > 0) daily = daily.filter((b) => !this.boloCleared(b));
     const added = this.addedBolos.filter((b) => b.day <= epochDay);
     return added.length === 0 ? daily : [...daily, ...added];
   }
@@ -419,6 +421,12 @@ export class RecordsDb {
   }
 
   // --- Internals -----------------------------------------------------------------
+
+  /** True for a daily person BOLO picked for its warrants once every one of them is served. */
+  private boloCleared(b: Bolo): boolean {
+    if (b.kind !== 'person' || !this.served.has(b.personId)) return false;
+    return this.basePerson(b.personId).warrants.length > 0 && this.viewPerson(b.personId).warrants.length === 0;
+  }
 
   private checkPerson(id: number, what: string): void {
     if (!inRange(id, PERSON_POPULATION)) throw new RangeError(`${what}: id ${id} outside [0, ${PERSON_POPULATION})`);

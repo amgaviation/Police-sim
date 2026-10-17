@@ -13,6 +13,8 @@ import type { ChannelId, Transmission } from './types';
 
 /** The parts of `RadioFx` the player uses. */
 export interface RadioFxLike {
+  /** Level multiplier (0..1) for the effects scheduled next. */
+  level: number;
   keyUp(): void;
   squelchTail(): void;
   heterodyne(durationS: number): void;
@@ -38,6 +40,17 @@ export interface RadioPlayerDeps {
   readonly scanVolume?: number;
   /** The radio's selected channel; default: tracked from radio:channel events. */
   readonly selected?: () => ChannelId;
+  /** Presentation timer (default setTimeout); returns a cancel function. */
+  readonly schedule?: (fn: () => void, ms: number) => () => void;
+}
+
+/** Priority warble length (6 x 125 ms) and the longest alert beep sequence (s): speech starts after them. */
+const PRIORITY_TONE_S = 0.75;
+const ALERT_TONE_S = 0.45;
+
+function defaultSchedule(fn: () => void, ms: number): () => void {
+  const h = setTimeout(fn, ms);
+  return () => clearTimeout(h);
 }
 
 function alertFor(kind: string): AlertToneKind | null {
@@ -58,6 +71,8 @@ export class RadioPlayer {
   private speakingId = -1;
   private speakingScanned = false;
   private paused = false;
+  /** Cancels the speech waiting for its tone (null when none). */
+  private cancelPending: (() => void) | null = null;
 
   constructor(deps: RadioPlayerDeps) {
     this.deps = deps;
@@ -90,7 +105,20 @@ export class RadioPlayer {
     for (const off of this.offs) off();
     this.offs.length = 0;
     this.playing.clear();
+    this.clearPending();
     if (this.speakingId >= 0) this.deps.speech.cancel();
+    this.speakingId = -1;
+  }
+
+  private clearPending(): void {
+    this.cancelPending?.();
+    this.cancelPending = null;
+  }
+
+  /** Stops the current utterance (spoken or still waiting for its tone). */
+  private stopSpeaking(): void {
+    this.clearPending();
+    this.deps.speech.cancel();
     this.speakingId = -1;
   }
 
@@ -102,19 +130,37 @@ export class RadioPlayer {
     if (!tx.audible) return;
     this.playing.set(tx.id, tx);
     const fx = this.deps.audio.radio;
-    if (tx.priority) fx.priorityTone();
-    const alert = alertFor(tx.kind);
-    if (alert !== null) fx.alertTone(alert);
-    fx.keyUp();
-    if (tx.blocked) return;
     const scanned = tx.channel !== this.selected();
+    // Scanned channels play at the scan volume, effects included.
+    fx.level = scanned ? this.scanVolume : 1;
+    let toneS = 0;
+    const alert = alertFor(tx.kind);
+    if (alert !== null) {
+      fx.alertTone(alert);
+      toneS = ALERT_TONE_S;
+    } else if (tx.priority) {
+      fx.priorityTone();
+      toneS = PRIORITY_TONE_S;
+    }
+    fx.keyUp();
+    fx.level = 1;
+    if (tx.blocked) return;
     if (this.speakingId >= 0) {
       // One utterance at a time: the selected channel pre-empts a scanned one; otherwise captions only.
       if (!this.speakingScanned || scanned) return;
-      this.deps.speech.cancel();
-      this.speakingId = -1;
+      this.stopSpeaking();
     }
-    this.speak(tx, scanned);
+    if (toneS === 0) {
+      this.speak(tx, scanned);
+      return;
+    }
+    // The tone comes first, then the voice.
+    this.speakingId = tx.id;
+    this.speakingScanned = scanned;
+    this.cancelPending = (this.deps.schedule ?? defaultSchedule)(() => {
+      this.cancelPending = null;
+      if (this.speakingId === tx.id) this.speak(tx, scanned);
+    }, toneS * 1000);
   }
 
   private speak(tx: Readonly<Transmission>, scanned: boolean): void {
@@ -136,17 +182,23 @@ export class RadioPlayer {
   }
 
   private onEnd(id: number): void {
-    if (!this.playing.delete(id)) return;
-    this.deps.audio.radio.squelchTail();
+    const tx = this.playing.get(id);
+    if (!tx || !this.playing.delete(id)) return;
+    const fx = this.deps.audio.radio;
+    fx.level = tx.channel !== this.selected() ? this.scanVolume : 1;
+    fx.squelchTail();
+    fx.level = 1;
   }
 
   private onBlocked(ids: readonly number[]): void {
     let latestStart = -Infinity;
     let any = false;
+    let selected = false;
     for (const id of ids) {
       const tx = this.playing.get(id);
       if (!tx) continue;
       any = true;
+      if (tx.channel === this.selected()) selected = true;
       if (tx.start > latestStart) latestStart = tx.start;
     }
     if (!any) return;
@@ -156,10 +208,10 @@ export class RadioPlayer {
       const tx = this.playing.get(id);
       if (tx) firstEnd = Math.min(firstEnd, tx.start + tx.duration);
     }
-    if (ids.includes(this.speakingId)) {
-      this.deps.speech.cancel();
-      this.speakingId = -1;
-    }
-    this.deps.audio.radio.heterodyne(Math.max(0.2, firstEnd - latestStart));
+    if (ids.includes(this.speakingId)) this.stopSpeaking();
+    const fx = this.deps.audio.radio;
+    fx.level = selected ? 1 : this.scanVolume;
+    fx.heterodyne(Math.max(0.2, firstEnd - latestStart));
+    fx.level = 1;
   }
 }

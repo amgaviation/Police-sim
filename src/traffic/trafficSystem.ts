@@ -6,6 +6,7 @@ import { createRng, type Rng, type RngState } from '../core/rng';
 import { EntityKind, KIND, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
 import { despawn, spawn, type GameWorld } from '../ecs/world';
 import type { CollisionEvent, PhysicsWorld, Vec3 } from '../physics/physics';
+import { canBeOnRoad } from '../records/vehicle';
 import { LIGHT, VehicleLook, attachVehicleLook } from '../vehicles/components';
 import { VEHICLE_MODELS, restHeight } from '../vehicles/model';
 import type { City } from '../world/city';
@@ -343,6 +344,10 @@ const YIELD_RELEASE_DISTANCE = 80;
 const ASIDE_MARGIN = 0.25;
 /** A merging car waits while a car behind on its lane is this close (m) or this many seconds away. */
 const MERGE_CLEAR_M = 12;
+/** Extra longitudinal clearance (m) a car moving across lanes to or from the curb keeps from cars beside it. */
+const SIDE_CLEAR_M = 1.5;
+/** `sideBlock` results. */
+const SIDE = { clear: 0, moving: 1, curb: 2 } as const;
 const MERGE_CLEAR_S = 2.5;
 /** An emergency fleet car crossing against a signal or sign waits while another approach has a car this close (m / s). */
 const EMERGENCY_CLEAR_M = 15;
@@ -455,7 +460,10 @@ export class TrafficSystem {
   private readonly aside: Uint8Array;
   /** Per-step scratch: gap to the car/obstacle ahead (for the hard no-overlap clamp). */
   private readonly hardGap: Float64Array;
-  /** Per-step scratch: 1 = the pull is deferred past the junction ahead; 2 = a merge waits for a gap. */
+  /**
+   * Per-step scratch: 1 = the pull is deferred past the junction ahead; 2 = a merge waits for a gap;
+   * 3 = the sideways move waits for the lanes towards the curb to clear (lateral position held).
+   */
   private readonly pullHold: Uint8Array;
   private readonly proxy: (RigidBody | null)[];
   private readonly slotArrays: SlotArray[];
@@ -1095,13 +1103,16 @@ export class TrafficSystem {
     return true;
   }
 
-  /** Next registry id from the coprime-stride walk, skipping ids already on the road; -1 if all are. */
+  /**
+   * Next registry id from the coprime-stride walk, skipping ids already on the road and
+   * registrations kept off it (`canBeOnRoad`: plates reported stolen); -1 if all are.
+   */
   private nextVehicleId(): number {
     const pop = REGISTRY_POPULATION;
     for (let tries = 0; tries < pop; tries++) {
       const id = ((this.spawnSeq % pop) * REGISTRY_STRIDE + this.registryOffset) % pop;
       this.spawnSeq++;
-      if (this.onRoad[id] !== 1) return id;
+      if (this.onRoad[id] !== 1 && canBeOnRoad(this.seed, id)) return id;
     }
     return -1;
   }
@@ -1759,9 +1770,15 @@ export class TrafficSystem {
     let hold = 0;
     if (p === PULL.pulling || p === PULL.yielding || p === PULL.parking) {
       const decel = PULLOVER.curb.decel;
+      const side = this.aside[slot] === 1 ? SIDE.clear : this.sideBlock(slot, true);
       if (next >= 0 && (s > end || s + hl + (v * v) / (2 * decel) > end - PULLOVER.curb.noPullNearLineM)) hold = 1;
-      else a = Math.min(a, v > 0 ? -decel : 0);
-    } else if (p === PULL.merging && this.aside[slot] === 1 && this.carBehindClose(slot, k)) {
+      else if (side !== SIDE.clear) {
+        // A car beside it on the way to the curb (or already at the curb there): hold the lateral move;
+        // ease off for moving traffic so it passes, drive on past a car standing at the curb.
+        hold = 3;
+        if (side === SIDE.moving) a = Math.min(a, v > 0 ? -decel / 2 : 0);
+      } else a = Math.min(a, v > 0 ? -decel : 0);
+    } else if (p === PULL.merging && this.aside[slot] === 1 && (this.carBehindClose(slot, k) || this.sideBlock(slot, false) !== SIDE.clear)) {
       hold = 2;
       a = Math.min(a, v > 0 ? -PULLOVER.curb.decel : 0);
     }
@@ -2014,7 +2031,7 @@ export class TrafficSystem {
   /**
    * Stop target upkeep ('lost' beyond autoReleaseM) and candidate detection: with the light bar on, the
    * nearest ambient car ahead of the player car in its direction that stays the candidate for delayS.
-   * Cars with a curb phase (yielding to the siren, merging, parked) are not candidates.
+   * Cars merging or parked are not candidates; a car yielding to the siren is (it stays at the curb).
    */
   private updateStop(dt: number, focus: TrafficFocus): void {
     if (this.stopId >= 0) {
@@ -2043,11 +2060,14 @@ export class TrafficSystem {
     let bestLon = Infinity;
     for (let slot = 0; slot < this.count; slot++) {
       if ((this.fleetIndex[slot] ?? -1) >= 0 || this.state[slot] === TRAFFIC_STATE.crashed) continue;
-      if (this.pull[slot] !== PULL.none) continue;
+      // A car already yielding to the siren can still be pulled over (its curb offset widens the window).
+      const p = this.pull[slot];
+      if (p !== PULL.none && p !== PULL.yielding) continue;
       const dx = (this.x[slot] ?? 0) - focus.ox, dz = (this.z[slot] ?? 0) - focus.oz;
       const lon = dx * fx + dz * fz;
       if (lon < det.minDistance || lon > det.maxDistance || lon >= bestLon) continue;
-      if (Math.abs(-dx * fz + dz * fx) >= det.lateral) continue;
+      const lateral = det.lateral + (p === PULL.yielding ? (this.shoulder[slot] ?? 0) : 0);
+      if (Math.abs(-dx * fz + dz * fx) >= lateral) continue;
       if ((this.hx[slot] ?? 0) * fx + (this.hz[slot] ?? 0) * fz <= det.headingDot) continue;
       best = slot;
       bestLon = lon;
@@ -2158,6 +2178,44 @@ export class TrafficSystem {
     this.aside[slot] = off ? 1 : 0;
   }
 
+  /**
+   * What keeps `slot` from moving sideways on its road: a car alongside it (car lengths plus
+   * SIDE_CLEAR_M apart along the road) on a lane between its own and the curb (`toCurb`: any such
+   * car; merging back: only cars still in their lane), or, on the way to the curb, a car of a lane
+   * further out already standing at the curb there.
+   */
+  private sideBlock(slot: number, toCurb: boolean): number {
+    const lane = this.lane[slot] ?? 0;
+    const idx = laneIndex(lane);
+    const e = laneEdge(lane), dir = laneDir(lane);
+    const n = this.graph.laneCount(e, dir);
+    if (n <= 1) return SIDE.clear;
+    const s = this.s[slot] ?? 0;
+    const hl = MODEL_HALF_LEN[this.model[slot] ?? 0] ?? 2;
+    // Once mostly out of its own lane the car finishes the move: only cars standing at the curb still hold it.
+    const committed = toCurb && (this.shoulder[slot] ?? 0) >= (this.graph.edges[e]?.laneWidth ?? 3.5) / 2;
+    for (let j = 0; j < n; j++) {
+      if (j === idx || (!toCurb && j > idx)) continue;
+      const other = laneRef(e, dir, j);
+      for (let k = this.lowerBound(other); k < this.count; k++) {
+        const o = this.order[k] ?? 0;
+        if (this.lane[o] !== other) break;
+        const d = (this.s[o] ?? 0) - s;
+        const lengths = hl + (MODEL_HALF_LEN[this.model[o] ?? 0] ?? 2);
+        const atCurb = this.aside[o] === 1;
+        if (d >= lengths + SIDE_CLEAR_M) break;
+        // Moving traffic coming up from behind needs a time gap, like a merge.
+        const behind = atCurb ? SIDE_CLEAR_M : Math.max(SIDE_CLEAR_M, (this.v[o] ?? 0) * MERGE_CLEAR_S);
+        if (d <= -(lengths + behind)) continue;
+        if (j > idx ? atCurb : toCurb || !atCurb) {
+          if (atCurb) return SIDE.curb;
+          if (!committed) return SIDE.moving;
+        }
+      }
+    }
+    return SIDE.clear;
+  }
+
   /** True when a car behind on the lane (not itself aside) is too close for this car to merge out. */
   private carBehindClose(slot: number, k: number): boolean {
     const lane = this.lane[slot] ?? 0;
@@ -2182,7 +2240,7 @@ export class TrafficSystem {
       if (hold !== 2) sh = Math.max(0, sh - PULLOVER.release.lateralSpeed * dt);
       this.shoulder[slot] = sh;
       if (sh <= 0) this.pull[slot] = PULL.none;
-    } else if (p === PULL.pulling || p === PULL.yielding || p === PULL.parking) {
+    } else if ((p === PULL.pulling || p === PULL.yielding || p === PULL.parking) && hold !== 3) {
       const target = hold === 1 ? 0 : this.curbTarget(slot);
       const step = PULLOVER.curb.lateralSpeed * dt;
       sh = sh < target ? Math.min(target, sh + step) : Math.max(target, sh - step);
@@ -2218,7 +2276,8 @@ export class TrafficSystem {
     const p = this.pull[slot];
     if (p === PULL.none || p === PULL.merging) return;
     this.pull[slot] = PULL.merging;
-    if (this.state[slot] === TRAFFIC_STATE.parked) this.state[slot] = TRAFFIC_STATE.waiting;
+    const st = this.state[slot];
+    if (st === TRAFFIC_STATE.parked || st === TRAFFIC_STATE.crashed) this.state[slot] = TRAFFIC_STATE.waiting;
   }
 
   // --- Fleet cars ------------------------------------------------------------------------------------
@@ -2539,8 +2598,11 @@ export class TrafficSystem {
       const v = this.v[slot] ?? 0;
       impactSpeed = Math.hypot(ov.x - v * (this.hx[slot] ?? 0), ov.z - v * (this.hz[slot] ?? 0));
     }
-    // Fleet cars (AI units) shrug collisions off: the event still tells the dispatcher.
-    if ((this.fleetIndex[slot] ?? -1) < 0) {
+    // Fleet cars (AI units) shrug collisions off, and so does a car pulling over or standing at the curb
+    // (the traffic-stop target must still reach / leave the curb): the event still tells the dispatcher.
+    const p = this.pull[slot];
+    const curb = eid === this.stopEid || p === PULL.pulling || p === PULL.stopped || p === PULL.parked;
+    if ((this.fleetIndex[slot] ?? -1) < 0 && !curb) {
       this.state[slot] = TRAFFIC_STATE.crashed;
       this.v[slot] = 0;
       this.speedView[slot] = 0;

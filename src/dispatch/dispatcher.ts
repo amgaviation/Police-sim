@@ -7,9 +7,10 @@
  * order -700) and draws only from `deps.rng` children 'calls' and 'units'. Steady-state steps
  * allocate nothing; strings and objects are built on rare transitions (calls, requests, events).
  */
+import { locationText } from '../cad/address';
 import { DISPOSITIONS, findCallType } from '../cad/data';
-import { statusLabel } from '../cad/codes';
-import type { CadState } from '../cad/cadState';
+import { plateRunNarrative, statusLabel } from '../cad/codes';
+import { canAssign, canTransition, type CadState } from '../cad/cadState';
 import type { Citation, Booking } from '../cad/documents';
 import type {
   CadCall,
@@ -76,6 +77,8 @@ const OFFICER_TYPES: ReadonlySet<string> = new Set(['trafficStop', 'officerAssis
 const ARRIVE_M = 30;
 /** Below this speed a unit en route counts as stuck (m/s). */
 const STUCK_SPEED = 0.5;
+/** Route metres an en-route unit must gain to count as progress (resets the forced-arrival timer). */
+const PROGRESS_M = 50;
 /** Siren on above this speed in emergency mode (m/s). */
 const SIREN_SPEED = 1;
 /** Assignment pass interval when nothing changed (s). */
@@ -112,7 +115,10 @@ interface AiUnit {
   destEmergency: boolean;
   onSceneUntil: number;
   stuckSince: number;
+  /** Start of the trip, then the last time the route got `PROGRESS_M` shorter (forced arrival only without progress). */
   enRouteSince: number;
+  /** Shortest route length seen on this trip (-1 = not measured yet). */
+  progressLeftM: number;
   breakUntil: number;
   releaseAt: number;
   nextBeatCheck: number;
@@ -215,6 +221,7 @@ export class Dispatcher {
         onSceneUntil: -1,
         stuckSince: -1,
         enRouteSince: -1,
+        progressLeftM: -1,
         breakUntil: -1,
         releaseAt: -1,
         nextBeatCheck: 0,
@@ -361,6 +368,7 @@ export class Dispatcher {
           onSceneUntil: u.onSceneUntil,
           stuckSince: u.stuckSince,
           enRouteSince: u.enRouteSince,
+          progressLeftM: u.progressLeftM,
           breakUntil: u.breakUntil,
           releaseAt: u.releaseAt,
           nextBeatCheck: u.nextBeatCheck,
@@ -420,6 +428,7 @@ export class Dispatcher {
       u.onSceneUntil = s.timers.onSceneUntil;
       u.stuckSince = s.timers.stuckSince;
       u.enRouteSince = s.timers.enRouteSince;
+      u.progressLeftM = s.timers.progressLeftM ?? -1;
       u.breakUntil = s.timers.breakUntil;
       u.releaseAt = s.timers.releaseAt;
       u.nextBeatCheck = s.timers.nextBeatCheck;
@@ -498,6 +507,8 @@ export class Dispatcher {
     const narrative = type ? this.generator.narrative(type, this.callsRng, location, caller, vehicles, vehicleId) : `Traffic stop at ${location.near}.`;
     const call = this.openCall('trafficStop', 4, location, caller, narrative, t, true, [], vehicles);
     const pc = this.playerCallsign;
+    this.withdrawOffer(t);
+    this.makeAssignable(t);
     cad.assign(call.id, pc, t, 'self');
     cad.setUnitStatus(pc, 'onScene', t, 'auto');
     cad.setTrafficStop(
@@ -652,13 +663,21 @@ export class Dispatcher {
 
   private reqStatus(status: CadUnit['status'], via: RequestVia, t: CadTime): void {
     const pc = this.playerCallsign;
-    if (status === 'enRoute' && this.offerCallId >= 0) {
+    const { cad } = this.deps;
+    const pu = cad.unit(pc);
+    // "En route" accepts a pending offer only when the player is free (never drops a current call).
+    if (status === 'enRoute' && this.offerCallId >= 0 && pu?.callId === null) {
       this.reqAccept(this.offerCallId, t, 'status');
       return;
     }
-    const { cad } = this.deps;
-    const pu = cad.unit(pc);
     const before = pu?.status ?? 'available';
+    // 10-8 / 10-7 on a call clears it (an active stop is released), not handed to an AI unit.
+    if ((status === 'available' || status === 'outOfService') && pu && pu.callId !== null && canTransition(before, status)) {
+      // Clearing the emergency call is a Code 4.
+      if (this.emergencyActive && pu.callId === this.emergencyCallId) this.reqCode4(t);
+      this.leaveOwnCall(t);
+    }
+    if (status !== 'available') this.withdrawOffer(t);
     const prevCall = pu?.callId ?? null;
     const ok = cad.setUnitStatus(pc, status, t, via);
     if (ok) {
@@ -675,6 +694,11 @@ export class Dispatcher {
     const call = cad.call(callId);
     if (!call || call.status === 'closed' || call.offeredTo !== pc) {
       this.ack(pc, kind, false, 'No call offered');
+      return;
+    }
+    const refused = this.assignRefusal();
+    if (refused !== null) {
+      this.ack(pc, kind, false, refused);
       return;
     }
     cad.assign(callId, pc, t, 'dispatch');
@@ -709,8 +733,14 @@ export class Dispatcher {
       this.ack(pc, 'selfAssign', false, `Already on ${call.number}`);
       return;
     }
-    cad.assign(callId, pc, t, 'self');
+    const refused = this.assignRefusal();
+    if (refused !== null) {
+      this.ack(pc, 'selfAssign', false, refused);
+      return;
+    }
     if (this.offerCallId === callId) this.offerCallId = -1;
+    else this.withdrawOffer(t);
+    cad.assign(callId, pc, t, 'self');
     this.assignDirty = true;
     this.ack(pc, 'selfAssign', true, `Assigned to ${call.number}`);
   }
@@ -755,7 +785,64 @@ export class Dispatcher {
     let others = 0;
     for (const cs of call.units) if (cs !== pc) others++;
     if (others === 0) cad.closeCall(callId, disposition, t);
-    else cad.unassign(pc, t);
+    else if (cad.unit(pc)?.callId === callId) cad.unassign(pc, t);
+    this.assignDirty = true;
+  }
+
+  /**
+   * The player leaves their current call: an active traffic stop on it is released, then the call
+   * closes with its default disposition when the player was the last unit, else the player is
+   * unassigned (the remaining units keep it).
+   */
+  private leaveOwnCall(t: CadTime): void {
+    const { cad } = this.deps;
+    const callId = cad.unit(this.playerCallsign)?.callId ?? null;
+    if (callId === null) return;
+    const stop = cad.trafficStop;
+    if (stop && stop.outcome === 'active' && stop.callId === callId) {
+      this.deps.traffic.releaseStop();
+      this.endStop('released', this.stopDisposition(), t);
+      return;
+    }
+    this.closeOwnCall(callId, this.defaultDisposition(callId), t);
+  }
+
+  /** A self-initiated contact (stop, backup request) brings an out-of-service or transporting player back into service first. */
+  private makeAssignable(t: CadTime): void {
+    const pu = this.deps.cad.unit(this.playerCallsign);
+    if (!pu || canAssign(pu.status)) return;
+    this.leaveOwnCall(t);
+    this.deps.cad.setUnitStatus(this.playerCallsign, 'available', t, 'auto');
+  }
+
+  /** Disposition used when the player clears a call without choosing one. */
+  private defaultDisposition(callId: number): string {
+    const { cad } = this.deps;
+    const stop = cad.trafficStop;
+    if (stop && stop.callId === callId) return stop.outcome === 'arrest' ? 'arrestMade' : this.stopDisposition();
+    const call = cad.call(callId);
+    const first = call ? findCallType(call.typeId)?.dispositions[0] : undefined;
+    return first !== undefined && DISPOSITION_IDS.has(first) ? first : 'handled';
+  }
+
+  /** Why the player may not take a call now (null = may): out of service, transporting, or on an active traffic stop. */
+  private assignRefusal(): string | null {
+    const { cad } = this.deps;
+    const pu = cad.unit(this.playerCallsign);
+    if (!pu) return 'Unknown unit';
+    if (!canAssign(pu.status)) return `Unable: ${statusLabel(pu.status)}`;
+    const stop = cad.trafficStop;
+    if (stop && stop.outcome === 'active' && stop.callId === pu.callId) return 'Clear the traffic stop first';
+    return null;
+  }
+
+  /** Withdraws a pending offer to the player (it goes to the AI units). */
+  private withdrawOffer(t: CadTime): void {
+    if (this.offerCallId < 0) return;
+    const call = this.deps.cad.call(this.offerCallId);
+    if (call && call.status !== 'closed' && call.offeredTo === this.playerCallsign) this.deps.cad.offer(call.id, null, 0, t);
+    this.declined.add(this.offerCallId);
+    this.offerCallId = -1;
     this.assignDirty = true;
   }
 
@@ -785,9 +872,7 @@ export class Dispatcher {
     const stop = cad.trafficStop;
     if (stop && stop.outcome === 'active' && (vehicleId === stop.vehicleId || normalizePlate(plate) === stop.plate)) {
       if (!stop.plateRun) cad.updateTrafficStop({ plateRun: true }, t);
-      const hits = readback.hits.length > 0 ? ` - ${readback.hits.join('; ')}` : '';
-      const text = readback.found ? `Plate ${readback.plate}: ${readback.description.toUpperCase()}, RO ${readback.owner}${hits}` : `Plate ${readback.plate}: NO RECORD`;
-      cad.addNarrative(stop.callId, 'CAD', text, t);
+      cad.addNarrative(stop.callId, 'CAD', plateRunNarrative(readback), t);
     }
   }
 
@@ -810,6 +895,8 @@ export class Dispatcher {
     if (!call || call.status === 'closed') {
       const location = this.generator.locate(p.x, p.z);
       call = this.openOfficerCall('officerAssist', code === 3 ? 1 : 2, location, t);
+      this.withdrawOffer(t);
+      this.makeAssignable(t);
       cad.assign(call.id, pc, t, 'self');
       cad.setUnitStatus(pc, 'onScene', t, 'auto');
     }
@@ -824,7 +911,7 @@ export class Dispatcher {
 
   private reqLocation(): void {
     const pc = this.playerCallsign;
-    const text = this.generator.locate(this.player.x, this.player.z).near;
+    const text = locationText(this.generator.locate(this.player.x, this.player.z));
     this.deps.bus.emit('dispatch:location', { callsign: pc, text, asked: false });
   }
 
@@ -1015,6 +1102,12 @@ export class Dispatcher {
       this.assignDirty = true;
       return;
     }
+    const pu = cad.unit(pc);
+    if (pu && (pu.status !== 'available' || pu.callId !== null)) {
+      // The player took something else: the offer goes to the AI units.
+      this.withdrawOffer(t);
+      return;
+    }
     if (t.sim < call.offerExpires) return;
     cad.offer(call.id, null, 0, t);
     this.declined.add(call.id);
@@ -1042,6 +1135,8 @@ export class Dispatcher {
   private assignCall(c: CadCall, t: CadTime): void {
     const pc = this.playerCallsign;
     if (c.units.includes(pc)) return;
+    // A self-initiated call left without units is never handed to the AI units.
+    if (c.selfInitiated && c.units.length === 0) return;
     let ai = 0;
     for (const cs of c.units) if (cs !== pc) ai++;
     if (c.status === 'pending' && ai === 0 && this.canOffer(c)) {
@@ -1138,6 +1233,7 @@ export class Dispatcher {
     u.destZ = z;
     u.destEmergency = urgency === 'emergency';
     u.enRouteSince = t.sim;
+    u.progressLeftM = -1;
     u.stuckSince = -1;
     u.onSceneUntil = -1;
     u.releaseAt = -1;
@@ -1209,6 +1305,15 @@ export class Dispatcher {
 
   private stepEnRoute(u: AiUnit, fs: FleetState, t: CadTime): void {
     const close = Math.hypot(fs.x - u.destX, fs.z - u.destZ) <= ARRIVE_M;
+    // Arrival is forced only after `forceArriveS` without progress along the route (or without a route).
+    const left = fs.routeLeftM;
+    if (left >= 0) {
+      if (u.progressLeftM < 0) u.progressLeftM = left;
+      else if (left < u.progressLeftM - PROGRESS_M) {
+        u.progressLeftM = left;
+        u.enRouteSince = t.sim;
+      }
+    }
     if (u.arrived || fs.arrived || close || t.sim - u.enRouteSince >= this.cfg.aiUnits.forceArriveS) {
       this.arrive(u, t);
       return;
@@ -1284,6 +1389,7 @@ export class Dispatcher {
     u.onSceneUntil = -1;
     u.stuckSince = -1;
     u.enRouteSince = -1;
+    u.progressLeftM = -1;
     u.breakUntil = -1;
     u.releaseAt = -1;
     u.replanned = false;
@@ -1340,12 +1446,14 @@ export class Dispatcher {
       if (u.mode === 'enRoute') {
         u.destX = p.x;
         u.destZ = p.z;
+        u.progressLeftM = -1;
         this.deps.traffic.setFleetDestination(u.fleetIndex, p.x, p.z, urgency);
         moved = true;
       } else if (u.mode === 'onScene' && Math.hypot(u.fs.x - p.x, u.fs.z - p.z) > BACKUP_FOLLOW_M) {
         this.deps.cad.setUnitStatus(u.callsign, 'enRoute', t, 'auto');
         u.mode = 'enRoute';
         u.enRouteSince = t.sim;
+        u.progressLeftM = -1;
         u.stuckSince = -1;
         u.replanned = false;
         u.arrived = false;
@@ -1372,6 +1480,15 @@ export class Dispatcher {
     const pu = cad.unit(pc);
     if (!pu) return;
     const sc = this.cfg.statusCheck;
+    if (this.emergencyActive) {
+      // Emergency traffic: units are already on the way; no status checks (and their clock restarts after Code 4).
+      this.checkAttempt = 0;
+      this.awaitingSince = -1;
+      this.locationAsked = false;
+      this.lastAnswerSim = t.sim;
+      this.nextCheckSim = -1;
+      return;
+    }
     const busy = pu.status === 'onScene' || pu.status === 'busy';
     if (!busy) {
       if (this.checkAttempt > 0 && this.checkAttempt <= sc.attempts) {

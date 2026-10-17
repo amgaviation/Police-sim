@@ -845,6 +845,9 @@ describe('determinism', () => {
     h.step(session, 600);
     session.radio.playerRequest({ kind: 'code4' }, 'radio');
     h.step(session, 600);
+    // Code 4 by radio gets through the emergency hold and ends the emergency.
+    expect(session.radio.isHeld('dispatch')).toBe(false);
+    expect(session.cad.unit(callsign)?.emergency).toBe(false);
     // Park in the station lot and get out: nothing physical is left in a traffic lane before the mid save.
     const slot = city.parking[0];
     if (!slot) throw new Error('no parking slot');

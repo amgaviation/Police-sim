@@ -192,8 +192,9 @@ export interface MapDrawState {
 }
 
 /**
- * The map canvas. Owns its view; `draw` is called by the overlay (≤ 4 Hz) and repaints only when
- * `dirty`, the CAD revisions changed, or an emergency marker needs its slow flash.
+ * The map canvas. Owns its view; `draw` is called by the overlay (≤ 4 Hz for the CAD layer, every
+ * frame while `viewDirty` so pan / zoom / drag follow the input) and repaints only when `dirty`,
+ * the CAD revisions changed, or an emergency marker needs its slow flash.
  */
 export class MdtMap {
   readonly canvas: HTMLCanvasElement;
@@ -232,6 +233,11 @@ export class MdtMap {
 
   invalidate(): void {
     this.dirty = true;
+  }
+
+  /** The view changed (pan, zoom, drag, resize) and has not been repainted yet. */
+  get viewDirty(): boolean {
+    return this.dirty;
   }
 
   pan(dx: number, dy: number): void {

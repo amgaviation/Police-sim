@@ -71,8 +71,10 @@ export class ListView<R> {
     return this.activeKey;
   }
 
+  /** Makes `key` the active row; a key not in the list keeps the first row active (one row stays tabbable). */
   select(key: string | number | null): void {
     this.activeKey = key;
+    if (this.indexOfKey(key) < 0) this.activeKey = this.rows.length > 0 ? this.opts.key(this.rows[0] as R) : null;
     this.syncActive();
   }
 
@@ -105,8 +107,9 @@ export class ListView<R> {
   move(delta: number): boolean {
     const n = this.rows.length;
     if (n === 0) return false;
-    const i = Math.max(0, this.indexOfKey(this.activeKey));
-    const next = Math.min(n - 1, Math.max(0, i + delta));
+    const cur = this.indexOfKey(this.activeKey);
+    // Without an active row the first move lands on the first (down) or last (up) row.
+    const next = cur < 0 ? (delta > 0 ? 0 : n - 1) : Math.min(n - 1, Math.max(0, cur + delta));
     const row = this.rows[next] as R;
     this.activeKey = this.opts.key(row);
     this.syncActive();

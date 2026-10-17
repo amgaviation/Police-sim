@@ -9,6 +9,8 @@ import {
   type VehicleRecord,
 } from '../../src/traffic/registry';
 import { FAULT } from '../../src/vehicles/components';
+import { canBeOnRoad, plateReportedStolen } from '../../src/records/vehicle';
+import { lineGraph, makeHarness } from './helpers';
 import { TRAFFIC_MODELS, VEHICLE_MODELS } from '../../src/vehicles/model';
 
 const SEED = 1234;
@@ -103,5 +105,22 @@ describe('vehicleRecord', () => {
       expect(Math.abs(got - want)).toBeLessThan(Math.max(want * 0.3, 0.005));
     }
     expect(counts.has('patrol_sedan')).toBe(false);
+  });
+});
+
+describe('spawn walk', () => {
+  it('never spawns a registration whose plates were reported stolen', async () => {
+    const h = await makeHarness(lineGraph(), 42);
+    const walk = h.sys as unknown as { nextVehicleId(): number };
+    let skipped = 0;
+    const seen = new Set<number>();
+    for (let i = 0; i < 20000; i++) {
+      const id = walk.nextVehicleId();
+      expect(canBeOnRoad(42, id), `vehicle ${id}`).toBe(true);
+      seen.add(id);
+    }
+    for (let id = 0; id < REGISTRY_POPULATION; id++) if (plateReportedStolen(42, id)) skipped++;
+    expect(skipped).toBeGreaterThan(0);
+    expect(seen.size).toBe(20000);
   });
 });

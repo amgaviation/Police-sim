@@ -67,6 +67,15 @@ export function plateReportedStolen(seed: number, vehicleId: number): boolean {
   return unitHash(seed, SALT_PLATE_STOLEN, vehicleId) < VEHICLE_DATA.intrinsic.plateReportedStolen;
 }
 
+/**
+ * Whether registered car `vehicleId` may appear in traffic: a registration whose plates were
+ * reported stolen is kept off the road (its owner is assumed to drive on replacement plates), so
+ * a reported-stolen plate is only ever seen on another car (anomaly 'stolenPlate').
+ */
+export function canBeOnRoad(seed: number, vehicleId: number): boolean {
+  return !plateReportedStolen(seed, vehicleId);
+}
+
 /** Intrinsic: a clone alert is on file for this registration (donor pool for 'cloned'). */
 export function cloneAlert(seed: number, vehicleId: number): boolean {
   return unitHash(seed, SALT_CLONE_ALERT, vehicleId) < VEHICLE_DATA.intrinsic.cloneAlert;
@@ -211,18 +220,20 @@ export function observedVehicle(seed: number, vehicleId: number): ObservedVehicl
 }
 
 /**
- * Truth `PLATE_FLAG` bits of car `vehicleId`: stolen = the vehicle is stolen or wears a plate
- * reported stolen (anomaly 'stolenPlate', or its own plate still listed stolen); cloned / mismatched = the anomaly; expired / flagged = the registration the mounted plate
- * belongs to is expired / has a vehicle flag or an owner with an active (generated) warrant.
+ * Truth `PLATE_FLAG` bits of car `vehicleId` (a car that `canBeOnRoad`): stolen = the vehicle is
+ * stolen or wears a donor plate reported stolen (anomaly 'stolenPlate'); cloned / mismatched = the
+ * anomaly; expired / flagged = the registration the mounted plate belongs to is expired / has a
+ * vehicle flag or an owner with a generated warrant. This is pre-overlay truth: warrants served
+ * during the game (RecordsDb) are not applied, so a plate run may show fewer flags afterwards.
  */
 export function plateFlags(seed: number, vehicleId: number): number {
   const rec = vehicleRecord(seed, vehicleId);
   const mp = mountedPlate(seed, vehicleId);
   const reg = generateRegistration(seed, mp.plateVehicleId);
   let flags = 0;
-  // 'stolenPlate' implies reg.plateReportedStolen; a car wearing its own plate that is still listed
-  // stolen counts too, so every truth bit is what a plate run detects.
-  if (rec.stolen || mp.anomaly === 'stolenPlate' || reg.plateReportedStolen) flags |= PLATE_FLAG.stolen;
+  // 'stolenPlate' implies reg.plateReportedStolen (what a plate run detects). A registration with
+  // reported-stolen plates never drives on them itself (`canBeOnRoad`).
+  if (rec.stolen || mp.anomaly === 'stolenPlate') flags |= PLATE_FLAG.stolen;
   if (mp.anomaly === 'cloned') flags |= PLATE_FLAG.cloned;
   if (mp.anomaly === 'mismatched') flags |= PLATE_FLAG.mismatched;
   if (reg.expired) flags |= PLATE_FLAG.expired;

@@ -64,6 +64,7 @@ export const HINTS = {
   sayAgain: 'Say again',
   noPlate: 'No plate to run',
   micBlocked: 'Microphone blocked',
+  voiceUnavailable: 'Voice service unavailable',
 } as const;
 
 interface MutableState {
@@ -151,7 +152,7 @@ export class RadioController {
   private pttInput(): void {
     const { input, speechIn } = this.deps;
     if (!speechIn) return;
-    if (input.wasPressed('radio.ptt') && speechIn.available && speechIn.enabled) speechIn.start();
+    if (input.wasPressed('radio.ptt') && speechIn.available && speechIn.enabled && !speechIn.start()) this.setHint(HINTS.voiceUnavailable);
     if (input.wasReleased('radio.ptt') && speechIn.listening) speechIn.stop();
   }
 
@@ -177,6 +178,8 @@ export class RadioController {
       this.recognitionError = null;
       if (err === 'no-match' || err === 'no-speech') this.setHint(HINTS.sayAgain);
       else if (err === 'not-allowed' || err === 'service-not-allowed' || err === 'audio-capture') this.setHint(HINTS.micBlocked);
+      // 'network', 'language-not-supported' and the like: no recognition service ('aborted' is our own cancel).
+      else if (err !== 'aborted') this.setHint(HINTS.voiceUnavailable);
     }
     const results = this.results;
     if (results === null) return;

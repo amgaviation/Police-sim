@@ -34,6 +34,8 @@ export class RadioFx {
   private noise: AudioBuffer | null = null;
   /** Rotates the noise start offset so consecutive bursts differ (deterministically). */
   private noiseCursor = 0;
+  /** Level multiplier (0..1) for the effects scheduled next, e.g. the scan volume for a scanned channel. */
+  level = 1;
 
   /** @internal Attaches the radio bus and the shared noise buffer (engine unlock). */
   attach(ctx: BaseAudioContext, out: AudioNode, noise: AudioBuffer): void {
@@ -116,6 +118,7 @@ export class RadioFx {
   private envelope(ctx: BaseAudioContext, t: number, d: number, level: number, decay: boolean): GainNode {
     const env = ctx.createGain();
     const g = env.gain;
+    level *= clampLevel(this.level);
     g.setValueAtTime(0, t);
     g.linearRampToValueAtTime(level, t + Math.min(EDGE_S, d / 4));
     if (decay) {

@@ -101,6 +101,9 @@ describe('DocumentStore', () => {
     expect(store.finalize(c.id, at(4)).status).toBe('final');
     const byVehicle = store.create('citation', { personId: 0, vehicleId: 0, location: 'x', violations: [{ statuteId: 'TR-325', fine: 25, detail: '' }] }, at(1), AUTHOR);
     expect(validateDocument(byVehicle)).toEqual([]);
+    expect(validateDocument({ ...byVehicle, personId: 99_999_999 })).toEqual(['Unknown person #99999999']);
+    const rep = store.create('report', { title: 't', location: 'x', narrative: 'x'.repeat(30), persons: [{ personId: 99_999_999, role: 'witness' }] }, at(1), AUTHOR);
+    expect(validateDocument(rep)).toEqual(['Unknown person #99999999']);
 
     const b = store.create('booking', { charges: ['TR-301'] }, at(1), AUTHOR);
     expect(finalizeError(store, b.id)).toEqual([

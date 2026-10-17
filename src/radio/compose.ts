@@ -101,6 +101,8 @@ export class Composer {
   private expectLocation = false;
   private answeringLocation = false;
   private pulling = -1;
+  /** The last status-check line queued (not saved: the 10-20 question is queued in the same tick). */
+  private lastCheckLine: QueuedTransmission | null = null;
 
   constructor(host: ComposerHost, bus: EventBus<EventMap>) {
     this.host = host;
@@ -233,10 +235,10 @@ export class Composer {
         break;
       case 'location':
         if (this.expectLocation) {
+          // An answer to "what's your 10-20?"; `answeringLocation` is set once it went out unblocked.
           kind = 'locationAnswer';
           values = { near: this.host.playerNear() };
           this.expectLocation = false;
-          this.answeringLocation = true;
         } else {
           kind = 'locationRequest';
         }
@@ -288,7 +290,23 @@ export class Composer {
 
   /** A request transmitted by radio/voice was acted on: its answer will be spoken. */
   expectAnswer(kind: UnitRequest['kind']): void {
+    this.playerActed(kind);
     this.pending.push({ kind, at: this.host.net.now });
+  }
+
+  /** The player's answer to "what's your 10-20?" ended: unblocked, dispatch acknowledges it; blocked, the question stands. */
+  locationAnswerEnded(blocked: boolean): void {
+    if (blocked) {
+      this.expectLocation = true;
+      this.answeringLocation = false;
+    } else {
+      this.answeringLocation = true;
+    }
+  }
+
+  /** Any other player request answers a status check, so a pending "what's your 10-20?" lapses. */
+  private playerActed(kind: UnitRequest['kind']): void {
+    if (kind !== 'location') this.expectLocation = false;
   }
 
   // --- Event handlers -------------------------------------------------------------------------
@@ -299,6 +317,7 @@ export class Composer {
     if (unit.kind === 'player') {
       // Automatic changes (assignment, closing) are consequences, answered by their own events.
       if (e.via === 'auto') return;
+      this.playerActed('status');
       if (this.answer(['status'], e.via, false)) this.dispatcherLine('dispatchAck', e.callsign, {});
       return;
     }
@@ -358,6 +377,7 @@ export class Composer {
 
   private onPlateResult(e: DispatchPlateResultEvent): void {
     if (e.callsign !== this.host.player) return;
+    this.playerActed('runPlate');
     if (!this.answer(['runPlate'], e.via, true)) return;
     const r = e.readback;
     const kind: PhraseKind = !r.found ? 'plateNotFound' : r.severity === 'clear' ? 'plateClear' : 'plateHit';
@@ -422,14 +442,17 @@ export class Composer {
 
   private onStatusCheck(e: DispatchStatusCheckEvent): void {
     const kind: PhraseKind = e.escalated ? 'statusEscalate' : e.attempt >= 2 ? 'statusCheckRepeat' : 'statusCheck';
-    this.dispatcherLine(kind, e.callsign, { near: e.location !== '' ? e.location : this.fragment('unknownLocation') }, { priority: e.escalated });
+    // Priority: a status check always goes on the air (also through an emergency hold), as the dispatcher's timer runs.
+    this.lastCheckLine = this.dispatcherLine(kind, e.callsign, { near: e.location !== '' ? e.location : this.fragment('unknownLocation') }, { priority: true });
   }
 
   private onLocation(e: DispatchLocationEvent): void {
     if (e.callsign !== this.host.player) return;
     if (e.asked) {
       this.expectLocation = true;
-      this.dispatcherLine('locationAsk', e.callsign, {});
+      // "What's your 10-20?" belongs after the status check emitted with it.
+      const check = this.lastCheckLine !== null && this.isLive(this.lastCheckLine) ? this.lastCheckLine : null;
+      this.dispatcherLine('locationAsk', e.callsign, {}, check ? { follows: check, gap: this.replyGap(), priority: true } : { priority: true });
       return;
     }
     const answering = this.answeringLocation;
@@ -441,6 +464,7 @@ export class Composer {
 
   private onAck(e: DispatchAckEvent): void {
     if (e.callsign !== this.host.player) return;
+    this.playerActed(e.kind);
     if (!e.ok) {
       if (this.answer([e.kind], undefined, false)) this.dispatcherLine('refused', e.callsign, { reason: stripEnd(e.text) });
       return;
@@ -467,6 +491,12 @@ export class Composer {
   }
 
   // --- Helpers --------------------------------------------------------------------------------
+
+  /** `e` is still waiting or on the air (a follower of it will be started). */
+  private isLive(e: QueuedTransmission): boolean {
+    const net = this.host.net;
+    return net.pending.includes(e) || net.onAir.some((tx) => tx.id === e.id);
+  }
 
   private stopPlate(): string {
     const stop = this.host.cad.trafficStop;

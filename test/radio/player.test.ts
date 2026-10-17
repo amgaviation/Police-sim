@@ -6,7 +6,11 @@ import { makeRig, PLAYER, type Rig } from './helpers';
 
 class FakeFx implements RadioFxLike {
   readonly calls: string[] = [];
+  level = 1;
+  /** Effect levels in call order. */
+  readonly levels: number[] = [];
   keyUp(): void {
+    this.levels.push(this.level);
     this.calls.push('keyUp');
   }
   squelchTail(): void {
@@ -143,6 +147,49 @@ describe('RadioPlayer', () => {
       'alert:statusCheck',
       'priority',
     ]);
+  });
+
+  it('speaks a hit readback only after its alert tone; scanned-channel effects use the scan volume', () => {
+    const rig = makeRig();
+    const fx = new FakeFx();
+    const speech = new FakeSpeech();
+    const timers: { fn: () => void; ms: number }[] = [];
+    const player = new RadioPlayer({
+      bus: rig.bus,
+      audio: { radio: fx },
+      speech,
+      scanVolume: 0.5,
+      schedule: (fn, ms) => {
+        const t = { fn, ms };
+        timers.push(t);
+        return () => timers.splice(timers.indexOf(t), 1);
+      },
+    });
+    rig.bus.emit('dispatch:plateResult', {
+      callsign: PLAYER,
+      via: 'radio',
+      vehicleId: 1,
+      readback: { plate: 'ABC 1234', found: true, description: 'x', owner: 'y', ownerPersonId: 1, hits: ['STOLEN'], severity: 'alert' },
+    });
+    rig.run(3);
+    expect(fx.calls).toContain('alert:hit');
+    expect(speech.spoken).toHaveLength(0);
+    expect(timers.map((t) => t.ms)).toEqual([450]);
+    timers[0]?.fn();
+    expect(speech.spoken).toHaveLength(1);
+    speech.finish();
+    rig.run(20);
+    // A scanned channel: key-up at the scan volume, selected channel at full volume.
+    rig.radio.toggleScan();
+    const before = fx.levels.length;
+    rig.radio.say('fireEms', 'engine five responding');
+    rig.run(1);
+    expect(fx.levels.slice(before)).toEqual([0.5]);
+    rig.radio.say('dispatch', 'all units stand by');
+    rig.run(1);
+    expect(fx.levels.at(-1)).toBe(1);
+    expect(fx.level).toBe(1);
+    player.dispose();
   });
 
   it('pauses and resumes speech; dispose unsubscribes', () => {

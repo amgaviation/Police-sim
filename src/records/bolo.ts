@@ -3,7 +3,7 @@ import { REGISTRY_POPULATION, vehicleRecord } from '../traffic/registry';
 import { formatDate } from './calendar';
 import { BOLO_DATA } from './data';
 import { PERSON_POPULATION } from './ids';
-import { displayName, hasGeneratedWarrant, personIdentity } from './person';
+import { DETACHED_CONTEXT, displayName, generatePerson, hasGeneratedWarrant, personIdentity } from './person';
 import { generateRegistration, registrationFlag, vehicleDescription } from './vehicle';
 
 /** Be-on-the-lookout bulletins (design §5.4): a daily bulletin pure from (seed, day) plus added ones. */
@@ -45,10 +45,17 @@ export function personBoloText(reason: string, personId: number, seed: number): 
   return `${reason} - ${displayName(p)}, DOB ${formatDate(p.dob)}`;
 }
 
+function at(list: readonly string[], u: number): string {
+  return list[Math.min(list.length - 1, Math.max(0, Math.floor(u * list.length)))] ?? '';
+}
+
 /**
  * The daily bulletin of `day` (pure). Draws from `'records:bolo:<day>'`: count, then per BOLO
- * (kind, reason, probe start). Vehicle BOLOs name a stolen or flagged registration, person BOLOs a
- * person with a warrant; a BOLO whose capped probe finds nobody is skipped.
+ * (kind, reason, probe start). The reason follows from the record that selected the subject:
+ * a stolen vehicle gets a stolen-vehicle reason, a flagged one its registration's flag reason;
+ * a person BOLO is either a missing person (`missingShare`, a person without a warrant) or a
+ * wanted person named by their first generated warrant. A BOLO whose capped probe finds nobody
+ * is skipped.
  */
 export function dailyBolos(seed: number, day: number): Bolo[] {
   const rng = createRng(seed).stream(`records:bolo:${day}`);
@@ -63,17 +70,22 @@ export function dailyBolos(seed: number, day: number): Bolo[] {
     const start = rng.nextInt(0, 0x7fffffff);
     const id = `BOLO-${day}-${i + 1}`;
     if (isVehicle) {
-      const reason = d.vehicleReasons[Math.floor(uReason * d.vehicleReasons.length)] ?? '';
       const v = probe(start % REGISTRY_POPULATION, REGISTRY_POPULATION, VEHICLE_PROBES, usedVehicles,
         (vid) => vehicleRecord(seed, vid).stolen || registrationFlag(seed, vid) !== null);
       if (v < 0) continue;
       usedVehicles.add(v);
+      const reason = vehicleRecord(seed, v).stolen ? at(d.vehicleReasons.stolen, uReason) : (registrationFlag(seed, v) ?? '');
       out.push({ id, day, kind: 'vehicle', vehicleId: v, personId: -1, text: vehicleBoloText(reason, v, seed) });
     } else {
-      const reason = d.personReasons[Math.floor(uReason * d.personReasons.length)] ?? '';
-      const p = probe(start % PERSON_POPULATION, PERSON_POPULATION, PERSON_PROBES, usedPersons, (pid) => hasGeneratedWarrant(seed, pid));
+      const missing = uReason < d.missingShare;
+      // Re-spread the reason draw over the chosen branch.
+      const u = missing ? uReason / d.missingShare : (uReason - d.missingShare) / (1 - d.missingShare);
+      const p = probe(start % PERSON_POPULATION, PERSON_POPULATION, PERSON_PROBES, usedPersons,
+        (pid) => hasGeneratedWarrant(seed, pid) !== missing);
       if (p < 0) continue;
       usedPersons.add(p);
+      const offense = missing ? '' : (generatePerson(seed, p, DETACHED_CONTEXT).warrants[0]?.offense ?? '');
+      const reason = missing ? at(d.personReasons.missing, u) : at(d.personReasons.wanted, u).replace('{offense}', offense.toLowerCase());
       out.push({ id, day, kind: 'person', vehicleId: -1, personId: p, text: personBoloText(reason, p, seed) });
     }
   }

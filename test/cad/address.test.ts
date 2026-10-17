@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressAt, addressOnEdge, locationOf } from '../../src/cad/address';
+import { addressAt, addressOnEdge, locationOf, locationText } from '../../src/cad/address';
 import { createRng } from '../../src/core/rng';
 import {
   DISTRICT,
@@ -101,6 +101,19 @@ describe('addresses on a grid', () => {
     const a = addressAt(g, 203, -250);
     expect(a?.text).toBe('248 Highway 9');
     expect(a?.near).toBe('200 block of Highway 9');
+  });
+
+  it('gives a 10-20 text with the cross street mid-block and at a junction', () => {
+    const mid = addressAt(g, 3, -250);
+    if (!mid) throw new Error('no address');
+    expect(mid.near).not.toContain(mid.cross);
+    expect(mid.cross).not.toBe('');
+    expect(locationText(mid)).toBe(`${mid.near} near ${mid.cross}`);
+    const atJunction = addressAt(g, 3, -195);
+    if (!atJunction) throw new Error('no address');
+    expect(atJunction.near).toBe(`${atJunction.street} at ${atJunction.cross}`);
+    expect(locationText(atJunction)).toBe(atJunction.near);
+    expect(locationText({ street: 'Lone Road', cross: '', near: '100 block of Lone Road' })).toBe('100 block of Lone Road');
   });
 
   it('increases numbers away from the centre', () => {

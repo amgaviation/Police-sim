@@ -16,6 +16,7 @@ import { PERSON_POPULATION, dlNumberOf, ownerOfVehicle, vehicleOfOwner, vinOf } 
 import { generatePerson, personIdentity, type PersonRecord } from '../../src/records/person';
 import {
   PLATE_FLAG,
+  canBeOnRoad,
   generateRegistration,
   mountedPlate,
   observedVehicle,
@@ -144,7 +145,7 @@ describe.each(SEEDS)('RecordsDb lookups (seed %i)', (seed) => {
     let checked = 0;
     let clear = 0;
     for (let id = 0; checked < 200; id++) {
-      if (plateFlags(seed, id) !== 0 || generateRegistration(seed, id).cloneAlert) continue;
+      if (!canBeOnRoad(seed, id) || plateFlags(seed, id) !== 0 || generateRegistration(seed, id).cloneAlert) continue;
       checked++;
       const r = db.runPlate(plateOf(seed, id), observedVehicle(seed, id));
       expect(r.flags, `vehicle ${id}`).toBe(0);
@@ -393,7 +394,8 @@ describe.each(SEEDS)('RecordsDb search and BOLOs (seed %i)', (seed) => {
       for (const bolo of a.bolos(d)) {
         expect(bolo.day).toBe(d);
         if (bolo.kind === 'person') {
-          expect(generatePerson(seed, bolo.personId, fakeCtx()).warrants.length).toBeGreaterThan(0);
+          const wanted = generatePerson(seed, bolo.personId, fakeCtx()).warrants.length > 0;
+          expect(wanted).toBe(!/Missing person/.test(bolo.text));
           continue;
         }
         const reg = generateRegistration(seed, bolo.vehicleId);

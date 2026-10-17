@@ -103,6 +103,31 @@ describe('SpeechIn', () => {
     expect(rec.calls).toEqual(['start', 'stop', 'start']);
   });
 
+  it('restarts when push-to-talk is pressed again while the last command is still finishing', () => {
+    const { rec, speech } = make();
+    speech.enabled = true;
+    const got: string[] = [];
+    speech.onResult((alts) => got.push(alts[0]?.transcript ?? ''));
+    expect(speech.start()).toBe(true);
+    speech.stop();
+    expect(speech.listening).toBe(false);
+    // Pressed again before 'end': accepted (no InvalidStateError), restarted on 'end'.
+    expect(speech.start()).toBe(true);
+    expect(speech.listening).toBe(true);
+    rec.onresult?.(event(0, [[{ transcript: 'show me ten eight', confidence: 0.9 }]]));
+    rec.end();
+    expect(got).toEqual(['show me ten eight']);
+    expect(rec.calls).toEqual(['start', 'stop', 'start']);
+    expect(speech.listening).toBe(true);
+    speech.stop();
+    // Pressed and released again before 'end': the deferred restart is cancelled.
+    expect(speech.start()).toBe(true);
+    speech.stop();
+    rec.end();
+    expect(speech.listening).toBe(false);
+    expect(rec.calls).toEqual(['start', 'stop', 'start', 'stop']);
+  });
+
   it('returns false when the recognizer refuses to start', () => {
     const { rec, speech } = make();
     speech.enabled = true;

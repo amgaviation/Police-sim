@@ -251,8 +251,10 @@ export class RadioNet {
         e.priority !== priority ||
         e.follows >= 0 ||
         e.earliest > this.now ||
-        (!e.priority && this.holds.has(e.channel)) ||
-        (e.waitClear && this.isActive(e.channel))
+        // A hold (emergency traffic) keeps other units off the channel, never the player (Code 4 must get
+        // through); the player then waits for a clear channel instead of keying over emergency traffic.
+        (!e.priority && e.speakerKind !== 'player' && this.holds.has(e.channel)) ||
+        ((e.waitClear || (!e.priority && e.speakerKind === 'player' && this.holds.has(e.channel))) && this.isActive(e.channel))
       ) {
         i++;
         continue;
@@ -275,7 +277,8 @@ export class RadioNet {
       (this.activeTx[i] as Transmission).blocked = true;
       (stepped ??= []).push(other.id);
     }
-    if (stepped) {
+    // The emergency button pre-empts the channel (like an emergency talk permit): it cuts the others off and gets through.
+    if (stepped && !(e.priority && e.kind === 'playerEmergency')) {
       e.blocked = true;
       tx.blocked = true;
       stepped.push(e.id);

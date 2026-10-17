@@ -256,6 +256,8 @@ describe('backup, emergency, location', () => {
     expect(loc).toHaveLength(1);
     expect(loc[0]?.asked).toBe(false);
     expect(loc[0]?.text).toContain(addr?.street ?? '???');
+    // The cross street is always named (mid-block too).
+    if (addr && addr.cross !== '') expect(loc[0]?.text).toContain(addr.cross);
     expect(eventsOf(h, 'dispatch:ack')).toEqual([]);
   });
 

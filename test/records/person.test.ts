@@ -150,6 +150,35 @@ describe.each(SEEDS)('person records (seed %i)', (seed) => {
     expect(osOfWanted / count.warrant).toBeGreaterThan(1.3 * (count.os / n));
   });
 
+  it('keeps warrants, supervision, priors, firearms and licence consistent with each other and with age', () => {
+    const ctx = fakeCtx();
+    const start = CALENDAR.startEpochDay;
+    let supervised = 0, probationViolations = 0, young = 0;
+    for (let id = 0; id < 30000; id++) {
+      const p = generatePerson(seed, id, ctx);
+      const age = Math.floor((start - p.dob) / 365.25);
+      if (p.warrants.some((w) => w.offense === 'Probation violation')) {
+        probationViolations++;
+        expect(p.supervision.kind, `person ${id}`).toBe('probation');
+      }
+      if (p.supervision.kind !== 'none') {
+        supervised++;
+        expect(p.priors.some((x) => x.kind === PERSON_DATA.supervision.priorKind), `person ${id}`).toBe(true);
+      }
+      if (age < 21) young++;
+      if (age < PERSON_DATA.firearms.minAge) expect(p.firearms, `person ${id}`).toEqual([]);
+      const minAge = PERSON_DATA.license.classMinAge[p.license.cls] ?? 0;
+      expect(age, `person ${id} class ${p.license.cls}`).toBeGreaterThanOrEqual(minAge);
+      if (p.license.status === 'expired') {
+        expect(p.license.expires).toBeGreaterThan(p.dob + 5844);
+        expect(p.license.expires).toBeLessThan(start);
+      }
+    }
+    expect(supervised).toBeGreaterThan(500);
+    expect(probationViolations).toBeGreaterThan(0);
+    expect(young).toBeGreaterThan(100);
+  });
+
   it('formats display names', () => {
     expect(displayName({ first: 'John', middle: 'A', last: 'Smith' })).toBe('SMITH, JOHN A');
     expect(displayName({ first: 'Ann', middle: '', last: 'Lee' })).toBe('LEE, ANN');

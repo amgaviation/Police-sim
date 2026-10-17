@@ -1,6 +1,6 @@
 import { createRng, type Rng } from '../core/rng';
 import { CALENDAR, epochDayFromYmd } from './calendar';
-import { CALENDAR_DATA, NAMES, PERSON_DATA, VIN_ALPHABET } from './data';
+import { CALENDAR_DATA, NAMES, PERSON_DATA, VIN_ALPHABET, type PriorKind } from './data';
 import { hash3 } from './hash';
 import { PERSON_POPULATION, dlNumberOf } from './ids';
 
@@ -135,6 +135,13 @@ function pickWeighted<T extends { readonly weight: number }>(items: readonly T[]
   return last;
 }
 
+/** The class with the highest weight (first on ties). */
+function mostCommonClass(classes: readonly { readonly cls: string; readonly weight: number }[]): string {
+  let best = classes[0];
+  for (const c of classes) if (best === undefined || c.weight > best.weight) best = c;
+  return best?.cls ?? '';
+}
+
 function at<T>(list: readonly T[], u: number): T {
   const v = list[Math.min(list.length - 1, Math.floor(u * list.length))];
   if (v === undefined) throw new RangeError('at: empty list');
@@ -179,6 +186,10 @@ function addressFrom(ctx: RecordsContext, uEdge: number, uT: number): string {
  * 11 firearms: has, count, then `max` x (type, serial hi, serial lo, registered) (2 + 4 max)
  * 12 protective order: has, protected person, conditions mask, expiry (4)
  * 13 priors: count, then `max` x (day, kind, location edge, location t, summary) (1 + 5 max)
+ * Outcomes are then made consistent without extra draws: warrant kinds that `require` a
+ * supervision kind are only resolved for such a person; a supervised person has at least one
+ * prior of `supervision.priorKind`; no firearms below `firearms.minAge`; licence classes below
+ * their `classMinAge` fall back to the most common class; an expired licence expired after 16.
  */
 export function generatePerson(seed: number, id: number, ctx: RecordsContext): PersonRecord {
   const identity = personIdentity(seed, id);
@@ -186,6 +197,8 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
   const d = PERSON_DATA;
   const start = CALENDAR.startEpochDay;
   const adultFrom = Math.min(start - 1, identity.dob + DAYS_16_YEARS);
+  // Age in whole years on game day 0 (the DOB is `age` years and 0..364 days before it).
+  const ageYears = Math.floor((start - identity.dob) / 365.25);
   const pastDay = (daysAgo: number): number => Math.max(start - daysAgo, adultFrom);
 
   // 1 physical
@@ -223,36 +236,32 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
       break;
     }
   }
+  // An expired licence expired after the holder could first be licensed (16); someone too young for that holds a valid one.
+  const licensedFrom = identity.dob + DAYS_16_YEARS + 1;
+  if (status === 'expired' && licensedFrom > start - 1) status = 'valid';
+  let cls = pickWeighted(lic.classes, uClass).cls;
+  if (ageYears < (lic.classMinAge[cls] ?? 0)) cls = mostCommonClass(lic.classes);
   const license =
     status === 'none'
       ? { number: '', cls: '', status, expires: 0 }
       : {
           number: dlNumberOf(seed, id),
-          cls: pickWeighted(lic.classes, uClass).cls,
+          cls,
           status,
-          expires: status === 'expired' ? start - 1 - Math.floor(uExpiry * 900) : start + 30 + Math.floor(uExpiry * 1471),
+          expires: status === 'expired' ? Math.max(licensedFrom, start - 1 - Math.floor(uExpiry * 900)) : start + 30 + Math.floor(uExpiry * 1471),
         };
 
-  // 6 warrants
+  // 6 warrants (drawn now, resolved after supervision: some kinds require a supervision kind)
   const w = d.warrants;
   const hasWarrant = rng.next() < w.rate * rf;
   const warrantCount = 1 + Math.floor(rng.next() ** 2 * w.max);
-  const warrants: Warrant[] = [];
+  const warrantDraws: { uKind: number; uBail: number; court: string; issuedAgo: number }[] = [];
   for (let k = 0; k < w.max; k++) {
-    const kind = pickWeighted(w.kinds, rng.next());
+    const uKind = rng.next();
     const uBail = rng.next();
     const court = at(w.courts, rng.next());
     const issuedAgo = rng.nextInt(1, 1500);
-    if (hasWarrant && k < warrantCount) {
-      warrants.push({
-        id: `W${id}-${k + 1}`,
-        kind: kind.kind,
-        offense: kind.label,
-        bail: Math.round((kind.bail[0] + uBail * (kind.bail[1] - kind.bail[0])) / 50) * 50,
-        court,
-        issued: pastDay(issuedAgo),
-      });
-    }
+    if (hasWarrant && k < warrantCount) warrantDraws.push({ uKind, uBail, court, issuedAgo });
   }
 
   // 7 supervision
@@ -263,6 +272,18 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
   const supUntil = start + rng.nextInt(30, 900);
   const supConditions = subset(rng, s.conditions);
   const supKind = uSup < s.probation * rf ? 'probation' : uSup < (s.probation + s.parole) * rf ? 'parole' : 'none';
+  const eligibleKinds = w.kinds.filter((k) => k.requires === null || k.requires === supKind);
+  const warrants: Warrant[] = warrantDraws.map((wd, k) => {
+    const kind = pickWeighted(eligibleKinds, wd.uKind);
+    return {
+      id: `W${id}-${k + 1}`,
+      kind: kind.kind,
+      offense: kind.label,
+      bail: Math.round((kind.bail[0] + wd.uBail * (kind.bail[1] - kind.bail[0])) / 50) * 50,
+      court: wd.court,
+      issued: pastDay(wd.issuedAgo),
+    };
+  });
   const supervision: PersonRecord['supervision'] =
     supKind === 'none'
       ? { kind: supKind, agent: '', until: 0, conditions: [] }
@@ -292,7 +313,7 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
     const hi = rng.nextInt(0, VIN_ALPHABET.length ** 4 - 1);
     const lo = rng.nextInt(0, VIN_ALPHABET.length ** 3 - 1);
     const regAgo = rng.nextInt(1, 5000);
-    if (hasFirearms && k < firearmCount) {
+    if (hasFirearms && k < firearmCount && ageYears >= f.minAge) {
       firearms.push({ type, serial: `F${vinChars(hi, 4)}${vinChars(lo, 3)}`, registered: pastDay(regAgo) });
     }
   }
@@ -308,17 +329,28 @@ export function generatePerson(seed: number, id: number, ctx: RecordsContext): P
 
   // 13 priors
   const p = d.priors;
-  const priorCount = Math.min(p.max, Math.floor(rng.next() * (2 * p.mean * rf + 1)));
-  const priors: PriorContact[] = [];
+  let priorCount = Math.min(p.max, Math.floor(rng.next() * (2 * p.mean * rf + 1)));
+  const priorDraws: { ago: number; kind: PriorKind; uEdge: number; uT: number; uSummary: number }[] = [];
   for (let k = 0; k < p.max; k++) {
     const ago = rng.nextInt(1, 3000);
     const kind = pickWeighted(p.kinds, rng.next());
     const uEdge = rng.next();
     const uT = rng.next();
-    const summary = at(kind.summaries, rng.next());
-    if (k < priorCount) {
-      priors.push({ day: pastDay(ago), kind: kind.kind, location: addressFrom(ctx, uEdge, uT), summary, ref: '' });
-    }
+    const uSummary = rng.next();
+    priorDraws.push({ ago, kind, uEdge, uT, uSummary });
+  }
+  // Probation or parole implies a conviction: a supervised person has at least one prior of `s.priorKind`.
+  if (supKind !== 'none' && p.max > 0 && !priorDraws.slice(0, priorCount).some((x) => x.kind.kind === s.priorKind)) {
+    priorCount = Math.max(1, priorCount);
+    const first = priorDraws[0];
+    const conviction = p.kinds.find((k) => k.kind === s.priorKind);
+    if (first && conviction) first.kind = conviction;
+  }
+  const priors: PriorContact[] = [];
+  for (let k = 0; k < priorCount; k++) {
+    const x = priorDraws[k];
+    if (!x) break;
+    priors.push({ day: pastDay(x.ago), kind: x.kind.kind, location: addressFrom(ctx, x.uEdge, x.uT), summary: at(x.kind.summaries, x.uSummary), ref: '' });
   }
   priors.sort((a, b) => b.day - a.day);
 

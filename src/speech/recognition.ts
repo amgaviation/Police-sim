@@ -72,6 +72,10 @@ export class SpeechIn {
   private recognizer: SpeechRecognitionLike | null = null;
   private isEnabled = false;
   private isListening = false;
+  /** The browser recognizer runs (from `start()` until its 'end' event; it outlives `stop()` while finishing a result). */
+  private isActive = false;
+  /** PTT was pressed again while the previous recognition was still finishing: start again on its 'end'. */
+  private restartOnEnd = false;
   private disposed = false;
   private readonly resultListeners = new Set<ResultListener>();
   private readonly errorListeners = new Set<ErrorListener>();
@@ -104,26 +108,42 @@ export class SpeechIn {
   start(): boolean {
     if (!this.isEnabled || !this.available) return false;
     if (this.isListening) return true;
-    try {
-      const rec = this.ensureRecognizer();
-      if (!rec) return false;
-      rec.start();
+    if (this.isActive) {
+      // Still finishing the previous command (start() would throw InvalidStateError): restart on its end.
+      this.restartOnEnd = true;
       this.isListening = true;
       return true;
-    } catch {
-      this.isListening = false;
-      return false;
     }
+    return this.startRecognizer();
   }
 
   /** PTT up: ends capture; the final result (if any) still arrives through `onResult`. */
   stop(): void {
     if (!this.isListening) return;
     this.isListening = false;
+    if (this.restartOnEnd) {
+      // Released before the deferred restart: nothing new to capture.
+      this.restartOnEnd = false;
+      return;
+    }
     try {
       this.recognizer?.stop();
     } catch {
       // ignore
+    }
+  }
+
+  private startRecognizer(): boolean {
+    try {
+      const rec = this.ensureRecognizer();
+      if (!rec) return false;
+      rec.start();
+      this.isActive = true;
+      this.isListening = true;
+      return true;
+    } catch {
+      this.isListening = false;
+      return false;
     }
   }
 
@@ -155,6 +175,8 @@ export class SpeechIn {
 
   private abort(): void {
     this.isListening = false;
+    this.restartOnEnd = false;
+    this.isActive = false;
     try {
       this.recognizer?.abort();
     } catch {
@@ -183,11 +205,19 @@ export class SpeechIn {
       }
     };
     rec.onerror = (ev) => {
-      this.isListening = false;
+      if (!this.restartOnEnd) this.isListening = false;
       this.emitError(typeof ev.error === 'string' ? ev.error : 'unknown');
     };
     rec.onnomatch = () => this.emitError('no-match');
     rec.onend = () => {
+      this.isActive = false;
+      if (this.restartOnEnd) {
+        this.restartOnEnd = false;
+        if (this.isEnabled && !this.disposed) {
+          this.startRecognizer();
+          return;
+        }
+      }
       this.isListening = false;
     };
     this.recognizer = rec;

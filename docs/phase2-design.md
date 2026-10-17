@@ -133,7 +133,7 @@ Owners in brackets (§20). Every file has `"version": 1`.
   "colors": [ { "name": "black", "hex": "#16181d" }, { "name": "white", "hex": "#f2f2f2" } /* one per colour used by vehicle models */ ],
   "vinPrefix": "PT" }
 ```
-`bolo.json` — `{ "version": 1, "perDay": [3, 6], "vehicleShare": 0.6, "vehicleReasons": [...], "personReasons": ["Wanted: failure to appear", "Missing person - endangered"] }`.
+`bolo.json` — `{ "version": 1, "perDay": [3, 6], "vehicleShare": 0.6, "missingShare": 0.2, "vehicleReasons": { "stolen": [...] }, "personReasons": { "wanted": ["Wanted: {offense}"], "missing": ["Missing person - endangered"] } }`. The reason always follows the record that selected the subject: stolen vehicles get a `stolen` reason, flagged ones their registration flag reason, wanted persons their first warrant's offense, missing persons (no warrant) a `missing` reason. A daily wanted-person BOLO is withdrawn once all the subject's warrants are served.
 
 ### 4.2 CAD [cad] `src/data/cad/`
 `callTypes.json` — the call-type table (extensible: Phase 3 adds 150+ rows, no code change):
@@ -707,7 +707,7 @@ records in step. Bus handlers only enqueue; all work happens in `step` (determin
   P3/P4 `respond`.
 - **AI unit FSM** (one per fleet car): `patrol` (CAD available, wanders, returns toward its beat centre
   when farther than `beatRadiusM`) → `enRoute` (destination set) → `onScene` (on `traffic:fleetArrived`
-  or `forceArriveS`; on-scene timer from the call type) → close the call (if no player is assigned)
+  or after `forceArriveS` without 50 m of route progress; on-scene timer from the call type) → close the call (if no player is assigned)
   with a disposition from the type → `patrol`. Stuck (`speed < 0.5` for `stuckS`) re-plans once.
   Occasional `outOfService` breaks (at most one unit at a time). AVL: unit positions into
   `CadState.setUnitPosition` every `avlIntervalS`. Fleet cars get `PoliceLights` (attach if missing):

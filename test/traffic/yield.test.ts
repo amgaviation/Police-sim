@@ -37,13 +37,15 @@ describe('yielding to emergency vehicles', () => {
     const { h, ahead, oncoming } = await road();
     let x = -520;
     let t = runFor(h, 0, 12, () => player(h, (x += 4 / 60), 4, true));
+    // The car right ahead (inside the stop window) is pulled over; the one further on yields.
     for (const id of ahead) {
       const slot = slotOf(h, id);
       const info = h.sys.inspect(slot, carInfo());
-      expect(info.pull).toBe(PULL.yielding);
+      expect(info.pull).toBe(id === ahead[0] ? PULL.stopped : PULL.yielding);
       expect(info.shoulder).toBeGreaterThan(2);
       expect(h.sys.view.speed[slot]).toBeLessThan(0.01);
     }
+    expect(h.sys.stopVehicleId).toBe(ahead[0]);
     expect(h.sys.inspect(slotOf(h, oncoming), carInfo()).pull).toBe(PULL.none);
     // Drive past them at 15 m/s: they merge back and drive on.
     t = runFor(h, t, 12, () => player(h, (x += 15 / 60), 15, true));
@@ -74,15 +76,15 @@ describe('yielding to emergency vehicles', () => {
     h.sys.densityScale = 0;
     h.sys.spawnAt(EAST, 1000, { speed: 12, behavior: 0, desiredFactor: 1 });
     const id = h.sys.view.vehicleId[0] ?? 0;
-    // The source keeps 30 m behind, slowing with the car: it never passes.
-    let t = runFor(h, 0, 2, () => followCar(h, slotOf(h, id), 30, true, true));
+    // The source keeps 45 m behind (beyond the stop window), slowing with the car: it never passes.
+    let t = runFor(h, 0, 2, () => followCar(h, slotOf(h, id), 45, true, true));
     expect(h.sys.inspect(0, carInfo()).pull).toBe(PULL.yielding);
-    t = runFor(h, t, PULLOVER.yield.timeoutS, () => followCar(h, slotOf(h, id), 30, true, true));
+    t = runFor(h, t, PULLOVER.yield.timeoutS, () => followCar(h, slotOf(h, id), 45, true, true));
     expect(h.sys.inspect(0, carInfo()).pull).toBe(PULL.merging);
     // Within the cooldown it never yields again (with the light bar on it may become a stop target).
     let yielded = false;
     runFor(h, t, 8, () => {
-      followCar(h, slotOf(h, id), 30, true, true);
+      followCar(h, slotOf(h, id), 45, true, true);
       if (h.sys.inspect(0, carInfo()).pull === PULL.yielding) yielded = true;
     });
     expect(yielded).toBe(false);

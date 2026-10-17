@@ -20,6 +20,8 @@ export interface UnitTimersSave {
   onSceneUntil: number;
   stuckSince: number;
   enRouteSince: number;
+  /** Shortest route length seen on the trip (-1 none); absent in older saves. */
+  progressLeftM?: number;
   breakUntil: number;
   releaseAt: number;
   nextBeatCheck: number;
@@ -126,7 +128,7 @@ function isRngState(x: unknown): x is RngState {
 
 function isTimers(x: unknown): x is UnitTimersSave {
   return isObj(x) && isNum(x.onSceneUntil) && isNum(x.stuckSince) && isNum(x.enRouteSince) && isNum(x.breakUntil) &&
-    isNum(x.releaseAt) && isNum(x.nextBeatCheck);
+    isNum(x.releaseAt) && isNum(x.nextBeatCheck) && (x.progressLeftM === undefined || isNum(x.progressLeftM));
 }
 
 function isDest(x: unknown): x is UnitFsmSave['dest'] {

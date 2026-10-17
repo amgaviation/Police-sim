@@ -23,6 +23,7 @@ import { OfficerKit, type OfficerKitSave } from '../police/inventory';
 import { RadioSystem } from '../radio/radioSystem';
 import { epochDayOfGameSeconds } from '../records/calendar';
 import { RecordsDb, homeEdgesOf } from '../records/db';
+import { mountedPlate } from '../records/vehicle';
 import type { MeshRegistry } from '../render/meshSync';
 import type { SaveEnvelope, SaveGame, SavedSpeeding, SavedVehicle, SavedViolations, SerializedEntity } from '../save/schema';
 import type { TrafficViolationEvent, TrafficViolationKind } from '../traffic/events';
@@ -95,7 +96,7 @@ export interface TrafficCarRow {
   crashed: boolean;
   /** Violations observed this session, by kind. */
   violations: Partial<Record<TrafficViolationKind, number>>;
-  /** Registration flags of the record (stolen, expired, uninsured). */
+  /** Plate anomaly (cloned / mismatched / stolenPlate, naming the registry plate) and registration flags of the record (stolen, expired, uninsured). */
   flags: string[];
 }
 
@@ -873,13 +874,16 @@ export class GameSession {
     return slots.slice(0, Math.max(0, limit)).map((i) => {
       const id = view.vehicleId[i] ?? 0;
       const record = vehicleRecord(this.seed, id);
+      // The plate an officer sees is the mounted one (a donor's for a plate anomaly).
+      const mp = mountedPlate(this.seed, id);
       const flags: string[] = [];
+      if (mp.anomaly !== 'none') flags.push(`${mp.anomaly} plate (registry ${record.plate})`);
       if (record.stolen) flags.push('stolen');
       if (record.registrationExpired) flags.push('expired registration');
       if (!record.insured) flags.push('uninsured');
       return {
         vehicleId: id,
-        plate: record.plate,
+        plate: mp.plate,
         modelId: record.modelId,
         distance: dist(i),
         speedMph: (view.speed[i] ?? 0) / MPH,

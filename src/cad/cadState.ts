@@ -86,6 +86,11 @@ export function canTransition(from: UnitStatus, to: UnitStatus): boolean {
   return STATUS_TRANSITIONS[from].includes(to);
 }
 
+/** Whether a unit in `status` may be assigned to a call (assignment puts it en route). */
+export function canAssign(status: UnitStatus): boolean {
+  return status === 'enRoute' || canTransition(status, 'enRoute');
+}
+
 /** "C-00042". */
 export function callNumber(id: number): string {
   return `C-${String(id).padStart(5, '0')}`;
@@ -288,13 +293,15 @@ export class CadState {
 
   /**
    * Assigns a unit: it leaves its previous call, the call becomes active (units, primary, dispatched
-   * time), the unit goes en route (`cad:unitStatus` via 'auto'), then `cad:unitAssigned`.
+   * time), the unit goes en route (`cad:unitStatus` via 'auto'), then `cad:unitAssigned`. Refused
+   * (false, nothing changes) when the unit's status may not go en route (out of service, transporting).
    */
-  assign(callId: number, callsign: string, t: CadTime, by: AssignedBy): void {
+  assign(callId: number, callsign: string, t: CadTime, by: AssignedBy): boolean {
     const call = this.callMap.get(callId);
     const unit = this.unitMap.get(callsign);
-    if (!call || !unit || call.status === 'closed') return;
-    if (unit.callId === callId && call.units.includes(callsign)) return;
+    if (!call || !unit || call.status === 'closed') return false;
+    if (unit.callId === callId && call.units.includes(callsign)) return true;
+    if (!canAssign(unit.status)) return false;
     this.detach(unit);
     call.units.push(callsign);
     call.primary ??= callsign;
@@ -308,6 +315,7 @@ export class CadState {
     this.rev++;
     this.changeStatus(unit, 'enRoute', t, 'auto');
     this.bus?.emit('cad:unitAssigned', { callId, callsign, by });
+    return true;
   }
 
   /** Takes a unit off its call (the call returns to pending when left without units); the unit goes available. */
@@ -462,9 +470,14 @@ export class CadState {
     }
   }
 
-  /** Links a document to its call. */
+  /** Links a document to its call (and unlinks it from any other call, e.g. after a draft was re-linked). */
   private onDocument(doc: CadDocument): void {
     this.rev++;
+    for (const c of this.callList) {
+      if (c.id === doc.callId) continue;
+      const i = c.documents.indexOf(doc.id);
+      if (i >= 0) c.documents.splice(i, 1);
+    }
     if (doc.callId === null) return;
     const call = this.callMap.get(doc.callId);
     if (call && !call.documents.includes(doc.id)) call.documents.push(doc.id);

@@ -3,7 +3,7 @@
  * and the RadioNet, stepped at fixed order -650. Deterministic: draws only from `deps.rng`
  * (`session.rng.stream('radio')`); durations are estimated from word counts.
  */
-import { addressAt } from '../cad/address';
+import { addressAt, locationText } from '../cad/address';
 import type { CadState } from '../cad/cadState';
 import type { CadTime, RadioMode, UnitRequest } from '../cad/types';
 import type { EventMap } from '../core/event-map';
@@ -218,7 +218,7 @@ export class RadioSystem {
 
   private playerNear(): string {
     const a = addressAt(this.deps.graph, this.px, this.pz, undefined, PLAYER_ADDRESS_RADIUS);
-    return a ? a.near : PHRASES.fragments.unknownLocation[this.deps.mode()];
+    return a ? locationText(a) : PHRASES.fragments.unknownLocation[this.deps.mode()];
   }
 
   private ambient(t: CadTime): void {
@@ -261,8 +261,11 @@ export class RadioSystem {
     if (e.speakerKind !== 'player') return;
     const def = channelDef(e.channel);
     const player = this.deps.playerCallsign;
+    if (e.kind === 'locationAnswer') this.composer.locationAnswerEnded(e.blocked);
     if (e.blocked) {
-      this.composer.dispatcherLine('blocked', player, {}, { channel: e.channel });
+      // The emergency request already went out with the button: never ask to repeat it.
+      // Priority on a held channel, or the player would never hear it (the request was lost).
+      if (e.kind !== 'playerEmergency') this.composer.dispatcherLine('blocked', player, {}, { channel: e.channel, priority: this.net.isHeld(e.channel) });
       return;
     }
     if (!def.requests) {

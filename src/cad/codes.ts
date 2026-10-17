@@ -1,6 +1,6 @@
 /** Ten-code / plain-language text of coded phrases and unit statuses (design §6.2). */
 import { TEN_CODES } from './data';
-import type { RadioMode, UnitStatus } from './types';
+import type { PlateReadback, RadioMode, UnitStatus } from './types';
 
 /** "10-8" (tenCode) or "in service" (plain); throws on an unknown key. */
 export function codeText(key: string, mode: RadioMode): string {
@@ -28,4 +28,10 @@ export function statusLabel(status: UnitStatus): string {
     LABELS.set(status, label);
   }
   return label;
+}
+
+/** CAD narrative line of a plate run on a traffic stop ("Plate ABC 1234: 2019 BLACK SEDAN, RO DOE, JOHN - HIT; HIT"). */
+export function plateRunNarrative(r: PlateReadback): string {
+  const hits = r.hits.length > 0 ? ` - ${r.hits.join('; ')}` : '';
+  return r.found ? `Plate ${r.plate}: ${r.description.toUpperCase()}, RO ${r.owner}${hits}` : `Plate ${r.plate}: NO RECORD`;
 }

@@ -149,6 +149,15 @@ function build(
   };
 }
 
+/**
+ * 10-20 text: `near` plus the cross street when `near` does not name it already (mid-block),
+ * e.g. "1200 block of N Oak Street near 5th Street"; at a junction it is `near` ("Oak Street at 5th Street").
+ */
+export function locationText(a: { readonly street: string; readonly cross: string; readonly near: string }): string {
+  if (a.cross === '' || a.near === `${a.street} at ${a.cross}`) return a.near;
+  return `${a.near} near ${a.cross}`;
+}
+
 /** Address of the road point nearest (x, z); null when no road is within `maxDistance` (default 60 m). */
 export function addressAt(
   graph: RoadGraph,

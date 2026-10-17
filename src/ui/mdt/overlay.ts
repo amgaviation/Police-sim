@@ -11,7 +11,8 @@
  */
 import './mdt.css';
 import { addressAt } from '../../cad/address';
-import { canTransition } from '../../cad/cadState';
+import { canAssign, canTransition } from '../../cad/cadState';
+import { plateRunNarrative } from '../../cad/codes';
 import { statusLabel } from '../../cad/codes';
 import { DISPOSITIONS } from '../../cad/data';
 import {
@@ -23,16 +24,17 @@ import {
   type DocKind,
   type DraftFields,
 } from '../../cad/documents';
-import type { CadCall, UnitStatus } from '../../cad/types';
+import type { CadCall, TrafficStopInfo, UnitStatus } from '../../cad/types';
 import type { Bolo } from '../../records/bolo';
 import { epochDayFromYmd, formatClockTime, formatStamp } from '../../records/calendar';
-import type { PersonQuery, PersonSummary, PlateQueryResult, QueryLogEntry, VinQueryResult } from '../../records/db';
+import { plateSummary, type PersonQuery, type PersonSummary, type PlateQueryResult, type QueryLogEntry, type VinQueryResult } from '../../records/db';
+import { PERSON_POPULATION } from '../../records/ids';
 import { mountedPlate } from '../../records/vehicle';
 import { REGISTRY_POPULATION } from '../../traffic/registry';
 import { clearChildren, el, type Menu, type UIRoot } from '../ui';
 import { ListView, button, renderSections, selectField, setText, textField, type Field } from './dom';
 import { buildDocForm, showErrors, type DocFormView, type FormOptions } from './forms';
-import { MAP_ZOOM_STEP, MdtMap } from './map';
+import { MAP_ZOOM_STEP, MdtMap, type MapDrawState } from './map';
 import {
   callDetailLines,
   canCompleteBooking,
@@ -203,10 +205,14 @@ export class MdtOverlay implements Menu {
   private messageText = '';
   private dirty = true;
   private lastUpdateMs = -Infinity;
+  /** Reused map draw state (no per-frame allocation). */
+  private readonly mapState: { -readonly [K in keyof MapDrawState]: MapDrawState[K] } = { selectedCallId: null, playerCallsign: '', nowMs: 0, reducedFlash: false };
   private lastTickMs = -Infinity;
   private lastRev = -1;
   private lastAvl = -1;
   private lastLogKey = '';
+  /** `docPaneKey` of the viewer last rendered ('' = a form or nothing). */
+  private renderedDocKey = '';
   private refreshCount = 0;
 
   constructor(ui: UIRoot | null, deps: MdtDeps) {
@@ -306,6 +312,8 @@ export class MdtOverlay implements Menu {
 
   update(nowMs: number): void {
     if (!this.isOpen) return;
+    // User-driven view changes repaint at once; the CAD layer follows the refresh gate below.
+    if (this.current === 'map' && this.dom?.map.viewDirty) this.drawMap(nowMs);
     if (nowMs - this.lastUpdateMs < MDT_REFRESH_MS) return;
     this.lastUpdateMs = nowMs;
     const { cad, records } = this.deps;
@@ -329,14 +337,18 @@ export class MdtOverlay implements Menu {
       this.lastTickMs = nowMs;
       this.refreshHeader();
     }
-    if (this.current === 'map' && this.dom) {
-      this.dom.map.draw(cad, {
-        selectedCallId: this.selectedCall,
-        playerCallsign: this.deps.callsign,
-        nowMs,
-        reducedFlash: document.documentElement.dataset['reducedFlash'] === 'true',
-      });
-    }
+    if (this.current === 'map') this.drawMap(nowMs);
+  }
+
+  private drawMap(nowMs: number): void {
+    const dom = this.dom;
+    if (!dom) return;
+    const st = this.mapState;
+    st.selectedCallId = this.selectedCall;
+    st.playerCallsign = this.deps.callsign;
+    st.nowMs = nowMs;
+    st.reducedFlash = document.documentElement.dataset['reducedFlash'] === 'true';
+    dom.map.draw(this.deps.cad, st);
   }
 
   // --- Keyboard -----------------------------------------------------------------------------
@@ -438,6 +450,11 @@ export class MdtOverlay implements Menu {
     this.setMessage(text);
   }
 
+  /** Code 4: no further assistance needed; clears an active emergency. */
+  code4(): void {
+    this.send({ kind: 'code4' }, 'Code 4 sent');
+  }
+
   acceptCall(callId: number): void {
     this.send({ kind: 'acceptCall', callId }, 'Accept sent');
   }
@@ -481,8 +498,15 @@ export class MdtOverlay implements Menu {
     const observed = vehicleId >= 0 ? this.deps.observed(vehicleId) : null;
     const r = this.deps.records.runPlate(plate, observed ?? undefined, this.deps.now().game);
     this.vehicleResultValue = r;
-    const stop = this.deps.cad.trafficStop;
-    if (stop && vehicleId === stop.vehicleId) this.stopRun = r;
+    const stop = this.activeStop();
+    if (stop && (vehicleId === stop.vehicleId || r.plate === stop.plate)) {
+      this.stopRun = r;
+      // Recorded in CAD like a radio run, so it survives save/load and shows on every screen.
+      const { cad } = this.deps;
+      const t = this.deps.now();
+      if (!stop.plateRun) cad.updateTrafficStop({ plateRun: true }, t);
+      cad.addNarrative(stop.callId, 'CAD', plateRunNarrative(plateSummary(r)), t);
+    }
     this.dirty = true;
     this.renderVehicle();
     return r;
@@ -513,7 +537,7 @@ export class MdtOverlay implements Menu {
   }
 
   runStopVehicle(): PlateQueryResult | null {
-    const stop = this.deps.cad.trafficStop;
+    const stop = this.activeStop();
     if (!stop) {
       this.setMessage('No active traffic stop');
       return null;
@@ -534,6 +558,10 @@ export class MdtOverlay implements Menu {
 
   showPerson(personId: number): void {
     const { records } = this.deps;
+    if (!Number.isInteger(personId) || personId < 0 || personId >= PERSON_POPULATION) {
+      this.setMessage(`Unknown person #${personId}`);
+      return;
+    }
     this.personShown = personId;
     this.setTab('person');
     const dom = this.dom;
@@ -659,8 +687,7 @@ export class MdtOverlay implements Menu {
     return addressAt(this.deps.graph, u.x, u.z, undefined, 150)?.text ?? '';
   }
 
-  private stopLocation(): string {
-    const stop = this.deps.cad.trafficStop;
+  private stopLocation(stop: TrafficStopInfo | null): string {
     if (!stop) return this.playerLocation();
     return this.deps.cad.call(stop.callId)?.location.text ?? addressAt(this.deps.graph, stop.x, stop.z, undefined, 150)?.text ?? '';
   }
@@ -668,7 +695,9 @@ export class MdtOverlay implements Menu {
   private prefill(kind: DocKind): DraftFields<DocKind> {
     const { cad, records } = this.deps;
     const now = this.deps.now();
-    const stop = cad.trafficStop;
+    // Citations come from a stop in progress; a booking also from the stop that ended in the arrest.
+    const stop = this.activeStop();
+    const arrestStop = stop ?? (cad.trafficStop?.outcome === 'arrest' ? cad.trafficStop : null);
     const selected = this.selectedCall !== null ? cad.call(this.selectedCall) : null;
     const call = this.current === 'call' && selected ? selected : this.playerCall() ?? selected;
     switch (kind) {
@@ -691,7 +720,7 @@ export class MdtOverlay implements Menu {
           records,
           this.deps.observedViolations(stop.vehicleId),
           this.deps.observedSpeed(stop.vehicleId),
-          this.stopLocation(),
+          this.stopLocation(stop),
           this.stopRun,
         );
         const { idUnverified: _idUnverified, totalFine: _totalFine, ...fields } = draft;
@@ -700,10 +729,10 @@ export class MdtOverlay implements Menu {
       case 'booking': {
         const prisoner = this.deps.prisoner();
         return {
-          callId: stop?.callId ?? call?.id ?? null,
+          callId: arrestStop?.callId ?? call?.id ?? null,
           personId: prisoner,
-          charges: suggestedCharges(records, prisoner, stop),
-          arrestLocation: stop ? this.stopLocation() : call?.location.text ?? this.playerLocation(),
+          charges: suggestedCharges(records, prisoner, arrestStop),
+          arrestLocation: arrestStop ? this.stopLocation(arrestStop) : call?.location.text ?? this.playerLocation(),
           arrestedGame: now.game,
         };
       }
@@ -717,7 +746,7 @@ export class MdtOverlay implements Menu {
   }
 
   private formOptionsFor(kind: DocKind): FormOptions {
-    const stop = this.deps.cad.trafficStop;
+    const stop = this.activeStop();
     return kind === 'citation' && stop !== null && !(stop.driverId >= 0) ? { idUnverified: true } : {};
   }
 
@@ -759,7 +788,8 @@ export class MdtOverlay implements Menu {
     switch (this.current) {
       case 'queue': {
         const rows = queueRows(cad, now.sim);
-        if (this.selectedCall === null && rows[0]) this.selectedCall = rows[0].callId;
+        // A closed / removed call drops out of the queue: select the top call instead.
+        if (this.selectedCall === null || !rows.some((r) => r.callId === this.selectedCall)) this.selectedCall = rows[0]?.callId ?? null;
         if (dom) {
           dom.queue.render(rows);
           if (this.selectedCall !== null) dom.queue.select(this.selectedCall);
@@ -790,7 +820,7 @@ export class MdtOverlay implements Menu {
       case 'vehicle':
         if (dom) {
           dom.runTarget.disabled = this.deps.target() === null;
-          dom.runStop.disabled = cad.trafficStop === null;
+          dom.runStop.disabled = this.activeStop() === null;
         }
         break;
       case 'bolo': {
@@ -817,7 +847,8 @@ export class MdtOverlay implements Menu {
               this.deps.prisoner(),
               this.deps.atStation(),
             );
-          } else if (!this.form) {
+          } else if (!this.form && this.docPaneKey() !== this.renderedDocKey) {
+            // Only when the shown document changed: a rebuild would wipe a custody note being typed.
             this.renderDocPane();
           }
         }
@@ -836,14 +867,30 @@ export class MdtOverlay implements Menu {
     const open = call !== null && call.status !== 'closed';
     const mine = open && call.units.includes(this.deps.callsign);
     const offered = open && call.offeredTo === this.deps.callsign;
+    const assignable = this.canTakeCall();
     const a = dom.queueActions;
-    a.accept.disabled = !offered;
+    a.accept.disabled = !offered || !assignable;
     a.decline.disabled = !offered;
-    a.self.disabled = !open || mine;
+    a.self.disabled = !open || mine || !assignable;
     a.enRoute.disabled = !mine;
     a.onScene.disabled = !mine;
     a.clear.disabled = !mine;
     dom.disposition.disabled = !mine;
+  }
+
+  /** The player may take a call: their status can go en route and they are not on an active traffic stop. */
+  private canTakeCall(): boolean {
+    const { cad } = this.deps;
+    const player = cad.unit(this.deps.callsign);
+    if (!player || !canAssign(player.status)) return false;
+    const stop = this.activeStop();
+    return !stop || stop.callId !== player.callId;
+  }
+
+  /** The traffic stop while it is in progress (`cad.trafficStop` keeps the last one after it ends). */
+  private activeStop(): TrafficStopInfo | null {
+    const stop = this.deps.cad.trafficStop;
+    return stop && stop.outcome === 'active' ? stop : null;
   }
 
   private renderCall(): void {
@@ -900,9 +947,9 @@ export class MdtOverlay implements Menu {
     const stop = this.deps.cad.trafficStop;
     const b = dom.stopButtons;
     const active = stop !== null && stop.outcome === 'active';
-    b.run.disabled = !stop;
+    b.run.disabled = !active;
     b.wants.disabled = !stop || !(stop.driverId >= 0);
-    b.cite.disabled = !stop;
+    b.cite.disabled = !active;
     b.release.disabled = !active;
     if (!stop) {
       clearChildren(dom.stopBody);
@@ -951,13 +998,24 @@ export class MdtOverlay implements Menu {
     view.focus();
   }
 
+  /** What the read-only viewer shows: the document, its revision and the booking button state. */
+  private docPaneKey(): string {
+    const doc = this.viewDocId !== null ? this.deps.cad.docs.get(this.viewDocId) : null;
+    if (!doc) return `none:${this.docKind}`;
+    const canComplete = doc.kind === 'booking' && canCompleteBooking(doc, this.deps.prisoner(), this.deps.atStation());
+    const custody = doc.kind === 'evidence' ? doc.custody.length : 0;
+    return `${doc.id}:${doc.status}:${doc.updated.sim}:${custody}:${canComplete ? 1 : 0}`;
+  }
+
   private renderDocPane(): void {
     const dom = this.dom;
     if (!dom) return;
     if (this.form) {
+      this.renderedDocKey = '';
       this.renderForm();
       return;
     }
+    this.renderedDocKey = this.docPaneKey();
     clearChildren(dom.docPane);
     const doc = this.viewDocId !== null ? this.deps.cad.docs.get(this.viewDocId) : null;
     if (!doc) {
@@ -1126,6 +1184,8 @@ export class MdtOverlay implements Menu {
       statusButtons.set(s.status, b);
       statusGroup.appendChild(b);
     }
+    // Code 4 also ends an emergency (a path that does not need the radio).
+    statusGroup.appendChild(button('Code 4', () => this.code4()));
     panels.units.append(el('div', { class: 'mdt-scroll' }, units.element), statusGroup);
 
     // Map

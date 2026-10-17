@@ -226,6 +226,31 @@ describe('CadState calls and units', () => {
     expect(cad.units().map((u) => u.callsign)).toEqual(['12', '21', '23']);
   });
 
+  it('moves a re-linked draft document from its old call to the new one (or to none)', () => {
+    const { cad } = recordingCad();
+    const a = cad.createCall(newCall(), at(0));
+    const b = cad.createCall(newCall('alarm', 2), at(0));
+    const report = cad.docs.create('report', { title: 'Debris', callId: a.id }, at(0), 'Officer Doe #4071');
+    expect(a.documents).toEqual([report.id]);
+    cad.docs.update(report.id, { callId: b.id }, at(1));
+    expect(a.documents).toEqual([]);
+    expect(b.documents).toEqual([report.id]);
+    cad.docs.update(report.id, { callId: null }, at(2));
+    expect(b.documents).toEqual([]);
+  });
+
+  it('refuses to assign a unit that may not go en route (out of service, transporting)', () => {
+    const { cad } = recordingCad();
+    addRoster(cad);
+    const c = cad.createCall(newCall(), at(0));
+    expect(cad.setUnitStatus('21', 'outOfService', at(1), 'mdt')).toBe(true);
+    expect(cad.assign(c.id, '21', at(2), 'self')).toBe(false);
+    expect(cad.unit('21')).toMatchObject({ status: 'outOfService', callId: null });
+    expect(c.units).toEqual([]);
+    expect(cad.assign(c.id, '23', at(3), 'dispatch')).toBe(true);
+    expect(cad.unit('23')?.status).toBe('enRoute');
+  });
+
   it('drops the oldest closed calls beyond MAX_CLOSED_CALLS but keeps documents', () => {
     const { cad } = recordingCad();
     addRoster(cad);

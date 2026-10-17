@@ -4,6 +4,7 @@ import { VEHICLE_DATA } from '../../src/records/data';
 import { PERSON_POPULATION, ownerOfVehicle, vinOf } from '../../src/records/ids';
 import {
   PLATE_FLAG,
+  canBeOnRoad,
   cloneAlert,
   colorName,
   driverOf,
@@ -142,5 +143,25 @@ describe.each(SEEDS)('registrations and plates (seed %i)', (seed) => {
     expect(checkedStolen).toBeGreaterThan(0);
     expect(checkedAnomalous).toBeGreaterThan(0);
     expect(Math.abs(owner / clean - VEHICLE_DATA.driverIsOwner)).toBeLessThan(0.05);
+  });
+});
+
+describe.each(SEEDS)('reported-stolen plates stay off the road (seed %i)', (seed) => {
+  it('never lets a car drive on its own reported-stolen plate, so stolen means a stolen car or a stolen plate', () => {
+    let offRoad = 0;
+    for (let id = 0; id < 20000; id++) {
+      const own = plateReportedStolen(seed, id);
+      expect(canBeOnRoad(seed, id)).toBe(!own);
+      if (own) {
+        offRoad++;
+        continue;
+      }
+      const mp = mountedPlate(seed, id);
+      const stolen = (plateFlags(seed, id) & PLATE_FLAG.stolen) !== 0;
+      expect(stolen, `vehicle ${id}`).toBe(vehicleRecord(seed, id).stolen || mp.anomaly === 'stolenPlate');
+      // A reported-stolen plate is only ever seen on another car.
+      if (generateRegistration(seed, mp.plateVehicleId).plateReportedStolen) expect(mp.plateVehicleId).not.toBe(id);
+    }
+    expect(offRoad).toBeGreaterThan(20);
   });
 });

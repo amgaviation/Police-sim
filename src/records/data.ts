@@ -42,6 +42,8 @@ export interface WarrantKind {
   readonly label: string;
   readonly weight: number;
   readonly bail: readonly [number, number];
+  /** Only issued to a person under this supervision kind (e.g. a probation violation). */
+  readonly requires: 'probation' | 'parole' | null;
 }
 
 export interface PriorKind {
@@ -69,13 +71,17 @@ export interface PersonData {
     readonly expired: number;
     /** Class letters and weights. */
     readonly classes: readonly { readonly cls: string; readonly weight: number }[];
+    /** Minimum age (years on game day 0) per class; younger holders get the most common class. */
+    readonly classMinAge: Readonly<Record<string, number>>;
   };
   readonly warrants: { readonly rate: number; readonly max: number; readonly courts: readonly string[]; readonly kinds: readonly WarrantKind[] };
-  readonly supervision: { readonly probation: number; readonly parole: number; readonly conditions: readonly string[] };
+  /** `priorKind`: the prior-contact kind every supervised person has at least once (their conviction arrest). */
+  readonly supervision: { readonly probation: number; readonly parole: number; readonly priorKind: string; readonly conditions: readonly string[] };
   readonly gang: { readonly rate: number; readonly names: readonly string[]; readonly associateShare: number };
   readonly mentalHealth: { readonly rate: number; readonly notes: readonly string[] };
   readonly officerSafety: { readonly rate: number; readonly notes: readonly string[] };
-  readonly firearms: { readonly rate: number; readonly max: number; readonly types: readonly string[] };
+  /** No registered firearms below `minAge` (years on game day 0). */
+  readonly firearms: { readonly rate: number; readonly max: number; readonly minAge: number; readonly types: readonly string[] };
   readonly protectiveOrders: { readonly rate: number; readonly conditions: readonly string[] };
   readonly priors: { readonly mean: number; readonly max: number; readonly kinds: readonly PriorKind[] };
   readonly phonePrefix: string;
@@ -103,8 +109,12 @@ export interface VehicleData {
 export interface BoloData {
   readonly perDay: readonly [number, number];
   readonly vehicleShare: number;
-  readonly vehicleReasons: readonly string[];
-  readonly personReasons: readonly string[];
+  /** Share of person BOLOs that are missing persons (the rest are wanted persons). */
+  readonly missingShare: number;
+  /** Reasons for a stolen vehicle (a flagged one uses its registration's flag reason). */
+  readonly vehicleReasons: { readonly stolen: readonly string[] };
+  /** `wanted` texts may hold `{offense}` (the subject's first warrant). */
+  readonly personReasons: { readonly wanted: readonly string[]; readonly missing: readonly string[] };
 }
 
 /** VIN characters: digits and letters without I, O, Q (33 symbols). */
@@ -114,6 +124,12 @@ export const VIN_ALPHABET = '0123456789ABCDEFGHJKLMNPRSTUVWXYZ';
 const MAX_SUBSET_LIST = 24;
 
 // --- Readers --------------------------------------------------------------------------
+
+function readRequires(value: unknown, file: string, path: string): 'probation' | 'parole' | null {
+  if (value === undefined) return null;
+  if (value === 'probation' || value === 'parole') return value;
+  return fail(file, path, `must be "probation" or "parole", got ${JSON.stringify(value)}`);
+}
 
 function readInt(value: unknown, file: string, path: string, min: number, max: number): number {
   const n = readNumber(value, file, path, min, max);
@@ -235,10 +251,18 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
       label: readString(o.label, file, `${path}.label`),
       weight: readNumber(o.weight, file, `${path}.weight`, 0, 1000),
       bail: readRange(o.bail, file, `${path}.bail`, 0, 10_000_000),
+      requires: readRequires(o.requires, file, `${path}.requires`),
     };
   });
-  if (!kinds.some((k) => k.weight > 0)) fail(file, 'warrants.kinds', 'must have a positive weight');
+  if (!kinds.some((k) => k.weight > 0 && k.requires === null)) fail(file, 'warrants.kinds', 'must have a positive weight without "requires"');
 
+  const classMinAge: Record<string, number> = {};
+  if (lic.classMinAge !== undefined) {
+    for (const [cls, a] of Object.entries(readObject(lic.classMinAge, file, 'license.classMinAge'))) {
+      if (!classes.some((c) => c.cls === cls)) fail(file, `license.classMinAge.${cls}`, 'must name a class in license.classes');
+      classMinAge[cls] = readInt(a, file, `license.classMinAge.${cls}`, 0, 110);
+    }
+  }
   const sup = readObject(r.supervision, file, 'supervision');
   const probation = readProb(sup.probation, file, 'supervision.probation');
   const parole = readProb(sup.parole, file, 'supervision.parole');
@@ -261,6 +285,8 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
     };
   });
   if (!priorKinds.some((k) => k.weight > 0)) fail(file, 'priors.kinds', 'must have a positive weight');
+  const supPriorKind = sup.priorKind === undefined ? 'arrest' : readString(sup.priorKind, file, 'supervision.priorKind');
+  if (!priorKinds.some((k) => k.kind === supPriorKind)) fail(file, 'supervision.priorKind', `must name a kind in priors.kinds, got ${JSON.stringify(supPriorKind)}`);
   const phonePrefix = readString(r.phonePrefix, file, 'phonePrefix');
   if (!/^\d{3}$/.test(phonePrefix)) fail(file, 'phonePrefix', `must be 3 digits, got ${JSON.stringify(phonePrefix)}`);
 
@@ -274,14 +300,14 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
       hair: readStrings(physical.hair, file, 'physical.hair'),
     },
     risk: { exponent: readNumber(risk.exponent, file, 'risk.exponent', 0.1, 20) },
-    license: { none: licNone, suspended: licSusp, revoked: licRev, expired: licExp, classes },
+    license: { none: licNone, suspended: licSusp, revoked: licRev, expired: licExp, classes, classMinAge },
     warrants: {
       rate: readProb(w.rate, file, 'warrants.rate'),
       max: readInt(w.max, file, 'warrants.max', 1, 10),
       courts: readStrings(w.courts, file, 'warrants.courts'),
       kinds,
     },
-    supervision: { probation, parole, conditions: readStrings(sup.conditions, file, 'supervision.conditions', 1, MAX_SUBSET_LIST) },
+    supervision: { probation, parole, priorKind: supPriorKind, conditions: readStrings(sup.conditions, file, 'supervision.conditions', 1, MAX_SUBSET_LIST) },
     gang: {
       rate: readProb(gang.rate, file, 'gang.rate'),
       names: readStrings(gang.names, file, 'gang.names'),
@@ -295,6 +321,7 @@ export function parsePersonData(json: unknown, file = 'person.json'): PersonData
     firearms: {
       rate: readProb(fa.rate, file, 'firearms.rate'),
       max: readInt(fa.max, file, 'firearms.max', 1, 10),
+      minAge: fa.minAge === undefined ? 0 : readInt(fa.minAge, file, 'firearms.minAge', 0, 110),
       types: readStrings(fa.types, file, 'firearms.types'),
     },
     protectiveOrders: {
@@ -361,11 +388,17 @@ export function parseVehicleData(json: unknown, file = 'vehicle.json'): VehicleD
 
 export function parseBoloData(json: unknown, file = 'bolo.json'): BoloData {
   const r = root(json, file);
+  const vr = readObject(r.vehicleReasons, file, 'vehicleReasons');
+  const pr = readObject(r.personReasons, file, 'personReasons');
   return {
     perDay: readRange(r.perDay, file, 'perDay', 0, 50),
     vehicleShare: readProb(r.vehicleShare, file, 'vehicleShare'),
-    vehicleReasons: readStrings(r.vehicleReasons, file, 'vehicleReasons'),
-    personReasons: readStrings(r.personReasons, file, 'personReasons'),
+    missingShare: readProb(r.missingShare, file, 'missingShare'),
+    vehicleReasons: { stolen: readStrings(vr.stolen, file, 'vehicleReasons.stolen') },
+    personReasons: {
+      wanted: readStrings(pr.wanted, file, 'personReasons.wanted'),
+      missing: readStrings(pr.missing, file, 'personReasons.missing'),
+    },
   };
 }
 

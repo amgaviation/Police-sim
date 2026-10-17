@@ -179,6 +179,19 @@ describe('RadioController', () => {
     expect(frame().hint).toBe('Say again');
   });
 
+  it('other recognition failures ("network") and a refused start give a "voice unavailable" hint', () => {
+    const { frame, speech, input } = setup();
+    const sin = speech as FakeSpeechIn;
+    sin.fail('network');
+    expect(frame().hint).toBe('Voice service unavailable');
+    frame(CTX, 5);
+    sin.fail('aborted');
+    expect(frame().hint).toBeNull();
+    sin.start = () => false;
+    input.tap('radio.ptt');
+    expect(frame().hint).toBe('Voice service unavailable');
+  });
+
   it('voice state', () => {
     expect(setup(null).frame().voice).toBe('unavailable');
     const off = new FakeSpeechIn();
