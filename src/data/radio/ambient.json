@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "channels": {
+    "dispatch": {
+      "speakerKind": "officer",
+      "units": ["31", "34", "40", "42", "45", "51"],
+      "templates": [
+        "{unit}, {code:available}.",
+        "{unit}, show me {code:onScene}.",
+        "{unit}, {code:registration} on {randomPlate}.",
+        "{unit}, {code:trafficStop}, {randomPlate}, {randomAddress}.",
+        "{unit}, show me {code:busy} at {randomAddress}.",
+        "{unit}, {code:enRoute} to the station."
+      ],
+      "dispatcherTemplates": [
+        "{unit}, {code:ack}.",
+        "{unit}, {randomPlate} comes back clear.",
+        "{unit}, {code:alarm} at {randomAddress}, P3.",
+        "{unit}, {code:hazard} reported at {randomAddress}."
+      ]
+    },
+    "tac": {
+      "speakerKind": "officer",
+      "units": ["31", "34", "Sergeant 3", "K9 1"],
+      "templates": [
+        "{unit} to {other}, set up on the north side of {randomAddress}.",
+        "{unit}, perimeter is set.",
+        "{unit} to {other}, {code:ack}, holding position.",
+        "{unit}, nothing found, clearing the area."
+      ]
+    },
+    "car": {
+      "speakerKind": "officer",
+      "units": ["26", "28", "33", "37"],
+      "templates": [
+        "{unit} to {other}, meet me at {randomAddress}.",
+        "{unit} to {other}, you want coffee?",
+        "{unit} to {other}, did you see the plate, {randomPlate}?",
+        "{unit} to {other}, I'll cover you on the stop."
+      ]
+    },
+    "fireEms": {
+      "speakerKind": "agency",
+      "units": ["Engine 4", "Engine 7", "Medic 2", "Medic 5", "Truck 1", "Battalion 1"],
+      "templates": [
+        "{unit} responding.",
+        "{unit} on scene, nothing showing.",
+        "{unit} available, returning to quarters.",
+        "{unit} transporting one to the hospital.",
+        "{unit}, patient care transferred, back in service."
+      ],
+      "dispatcherTemplates": [
+        "{unit}, respond to {randomAddress} for a medical call.",
+        "{unit}, {other}, fire alarm at {randomAddress}.",
+        "{unit}, copy, {time}."
+      ]
+    },
+    "county": {
+      "speakerKind": "agency",
+      "units": ["County 14", "County 22", "County 31", "County 40"],
+      "templates": [
+        "{unit}, {code:trafficStop}, {randomPlate}, {randomAddress}.",
+        "{unit}, {code:available}.",
+        "{unit}, {code:registration} on {randomPlate}.",
+        "{unit}, {code:onScene}."
+      ],
+      "dispatcherTemplates": [
+        "{unit}, {code:ack}.",
+        "{unit}, {code:collision} at {randomAddress}, unknown injuries."
+      ]
+    },
+    "state": {
+      "speakerKind": "agency",
+      "units": ["Trooper 7", "Trooper 12", "Trooper 21"],
+      "templates": [
+        "{unit}, {code:trafficStop}, {randomPlate}.",
+        "{unit}, {code:available}.",
+        "{unit}, show me assisting a disabled vehicle at {randomAddress}."
+      ],
+      "dispatcherTemplates": [
+        "{unit}, {code:hazard}, debris in the roadway near {randomAddress}.",
+        "{unit}, {code:ack}, {time}."
+      ]
+    }
+  }
+}

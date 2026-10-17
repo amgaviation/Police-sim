@@ -28,11 +28,41 @@ export interface TrafficViolationEvent {
   limitMph: number;
 }
 
+/** The traffic-stop target was pulled over (it stopped at the curb): its pose. */
+export interface TrafficPulledOverEvent {
+  eid: number;
+  vehicleId: number;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
+export type TrafficReleaseReason = 'released' | 'abandoned' | 'lost';
+
+/** The stop target is no longer one: released (merges back), abandoned (stays parked) or lost (focus too far). */
+export interface TrafficReleasedEvent {
+  eid: number;
+  vehicleId: number;
+  reason: TrafficReleaseReason;
+}
+
+/** A fleet car reached its destination and parked at the curb. */
+export interface TrafficFleetArrivedEvent {
+  index: number;
+  eid: number;
+  x: number;
+  z: number;
+}
+
 declare module '../core/event-map' {
   interface EventMap {
     'traffic:spawned': TrafficCarEvent;
     'traffic:despawned': TrafficCarEvent;
     'traffic:collision': TrafficCollisionEvent;
     'traffic:violation': TrafficViolationEvent;
+    'traffic:pullingOver': TrafficCarEvent;
+    'traffic:pulledOver': TrafficPulledOverEvent;
+    'traffic:released': TrafficReleasedEvent;
+    'traffic:fleetArrived': TrafficFleetArrivedEvent;
   }
 }

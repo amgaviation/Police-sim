@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import densityJson from '../../src/data/traffic/density.json';
+import pulloverJson from '../../src/data/traffic/pullover.json';
 import registryJson from '../../src/data/traffic/registry.json';
 import violationsJson from '../../src/data/traffic/violations.json';
-import { DENSITY, REGISTRY, VIOLATIONS, validateDensity, validateRegistry, validateViolations } from '../../src/traffic/data';
+import {
+  DENSITY,
+  PULLOVER,
+  REGISTRY,
+  VIOLATIONS,
+  validateDensity,
+  validatePullover,
+  validateRegistry,
+  validateViolations,
+} from '../../src/traffic/data';
 import { DISTRICT } from '../../src/world/roadGraph';
 
 function clone<T>(v: T): T {
@@ -36,5 +46,26 @@ describe('traffic data', () => {
     r.version = 1;
     r.population = 1.5;
     expect(() => validateRegistry(r)).toThrow(/registry\.json: population/);
+  });
+
+  it('loads pullover.json (design §4.3) and names the file and field on errors', () => {
+    expect(PULLOVER.detect).toEqual({ minDistance: 3, maxDistance: 35, lateral: 2.5, headingDot: 0.8, delayS: 1.5 });
+    expect(PULLOVER.curb).toEqual({ clearance: 0.15, lateralSpeed: 0.9, decel: 2, noPullNearLineM: 30, hazards: true });
+    expect(PULLOVER.release).toEqual({ lateralSpeed: 0.7, autoReleaseM: 150 });
+    expect(PULLOVER.yield).toEqual({ range: 50, lateral: 6, passMargin: 10, timeoutS: 20 });
+    expect(PULLOVER.fleet.maxCars).toBe(16);
+    expect(PULLOVER.fleet.maxEmergencySpeed).toBe(30);
+    const p = clone(pulloverJson) as Record<string, unknown> & { curb: Record<string, unknown>; fleet: Record<string, unknown> };
+    p.curb.hazards = 1;
+    expect(() => validatePullover(p)).toThrow(/pullover\.json: curb\.hazards/);
+    const q = clone(pulloverJson) as Record<string, unknown> & { fleet: Record<string, unknown> };
+    q.fleet.maxCars = 2.5;
+    expect(() => validatePullover(q)).toThrow(/pullover\.json: fleet\.maxCars/);
+    const r = clone(pulloverJson) as Record<string, unknown> & { detect: Record<string, unknown> };
+    r.detect.minDistance = 50;
+    expect(() => validatePullover(r)).toThrow(/pullover\.json: detect\.minDistance/);
+    const v = clone(pulloverJson) as Record<string, unknown>;
+    delete v.yield;
+    expect(() => validatePullover(v)).toThrow(/pullover\.json: yield/);
   });
 });

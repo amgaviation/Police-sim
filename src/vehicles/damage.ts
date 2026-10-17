@@ -63,7 +63,8 @@ export function cornerWheel(localX: number, localZ: number): number {
 /**
  * Applies one impact of `impactSpeed` (m/s) from chassis-local direction (localX, localZ). Below
  * `minImpactSpeed` nothing happens. Zone damage grows by `impactSpeed / zoneStrength` (+-10 % from `rng`),
- * front hits also cost engine health (`engineFrontShare`), an engine below `failBelow` fails, and an impact
+ * front hits also cost engine health (`engineFrontShare`); a push bumper replaces both for front hits by
+ * `frontZoneStrength` / `frontEngineShare` when the spec has them. An engine below `failBelow` fails, and an impact
  * of at least `tireBurstSpeed` next to a wheel (`nearWheel`, -1 = none) flattens that tyre.
  */
 export function applyImpact(
@@ -82,10 +83,12 @@ export function applyImpact(
   out.engineFailedNow = false;
   if (!(impactSpeed >= params.minImpactSpeed)) return out;
 
-  const amount = (impactSpeed / params.zoneStrength) * (0.9 + 0.2 * rng.next());
+  const front = out.zone === ZONE.front;
+  const strength = front ? (params.frontZoneStrength ?? params.zoneStrength) : params.zoneStrength;
+  const amount = (impactSpeed / strength) * (0.9 + 0.2 * rng.next());
   out.amount = amount;
   state.zones[out.zone] = Math.min(1, (state.zones[out.zone] ?? 0) + amount);
-  if (out.zone === ZONE.front) state.engineHealth = Math.max(0, state.engineHealth - amount * params.engineFrontShare);
+  if (front) state.engineHealth = Math.max(0, state.engineHealth - amount * (params.frontEngineShare ?? params.engineFrontShare));
   if (!state.engineFailed && state.engineHealth < params.failBelow) {
     state.engineFailed = true;
     out.engineFailedNow = true;

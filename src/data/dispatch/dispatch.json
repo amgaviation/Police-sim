@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "generator": { "meanIntervalS": 75, "firstCallDelayS": 20, "maxOpenCalls": 8, "nearPlayerShare": 0.6,
+                 "nearRadiusM": 1800, "minDistanceM": 150, "crimeReferenceRate": 0.5 },
+  "offer": { "radiusM": 2500, "timeoutS": 25 },
+  "assign": { "maxDistanceM": 6000, "p1Units": 2 },
+  "statusCheck": { "afterS": 300, "responseS": 30, "attempts": 2, "escalateUnits": 2 },
+  "backup": { "code2Units": 1, "code3Units": 2, "retargetS": 5, "retargetMoveM": 30, "releaseS": 30 },
+  "emergency": { "units": 3 },
+  "aiUnits": { "stuckS": 60, "forceArriveS": 150, "beatRadiusM": 1500, "breakChancePerHour": 0.1, "breakS": [300, 600] },
+  "avlIntervalS": 0.5
+}

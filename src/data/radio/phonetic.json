@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "letters": {
+    "A": "Adam", "B": "Boy", "C": "Charles", "D": "David", "E": "Edward", "F": "Frank", "G": "George",
+    "H": "Henry", "I": "Ida", "J": "John", "K": "King", "L": "Lincoln", "M": "Mary", "N": "Nora",
+    "O": "Ocean", "P": "Paul", "Q": "Queen", "R": "Robert", "S": "Sam", "T": "Tom", "U": "Union",
+    "V": "Victor", "W": "William", "X": "X-ray", "Y": "Young", "Z": "Zebra"
+  },
+  "digits": {
+    "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
+    "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"
+  },
+  "nato": {
+    "A": ["alpha", "alfa"], "B": ["bravo"], "C": ["charlie"], "D": ["delta"], "E": ["echo"], "F": ["foxtrot"],
+    "G": ["golf"], "H": ["hotel"], "I": ["india"], "J": ["juliet", "juliett"], "K": ["kilo"], "L": ["lima"],
+    "M": ["mike"], "N": ["november"], "O": ["oscar"], "P": ["papa"], "Q": ["quebec"], "R": ["romeo"],
+    "S": ["sierra"], "T": ["tango"], "U": ["uniform"], "V": ["victor"], "W": ["whiskey", "whisky"],
+    "X": ["x-ray", "xray"], "Y": ["yankee"], "Z": ["zulu"]
+  }
+}

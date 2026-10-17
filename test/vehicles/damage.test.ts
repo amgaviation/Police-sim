@@ -10,9 +10,12 @@ import {
   rollStall,
   type ImpactResult,
 } from '../../src/vehicles/damage';
-import { vehicleModel } from '../../src/vehicles/model';
+import { vehicleModel, type DamageSpec } from '../../src/vehicles/model';
 
-const params = vehicleModel('patrol_sedan').damage;
+/** The patrol sedan's push-bumper spec, and the same spec without the bumper (what the Phase 1 tests use). */
+const bumperParams = vehicleModel('patrol_sedan').damage;
+const { frontZoneStrength: _z, frontEngineShare: _e, ...plainParams } = bumperParams;
+const params: DamageSpec = plainParams;
 
 function result(): ImpactResult {
   return { zone: ZONE.front, amount: 0, tireBurst: -1, engineFailedNow: false };
@@ -106,5 +109,32 @@ describe('damage', () => {
     const before = rng.state();
     for (let i = 0; i < 1000; i++) expect(rollStall(healthy, params, 1, rng)).toBe(0);
     expect(rng.state()).toEqual(before);
+  });
+
+  it('a push bumper cuts front crumple by frontStrength and engine damage by both factors; other zones unchanged', () => {
+    const bumper = vehicleModel('patrol_sedan').equipment?.pushBumper;
+    expect(bumper).toEqual({ frontStrength: 1.8, engineShare: 0.5 });
+    expect(bumperParams.frontZoneStrength).toBeCloseTo(params.zoneStrength * 1.8, 10);
+    expect(bumperParams.frontEngineShare).toBeCloseTo(params.engineFrontShare * 0.5, 10);
+    expect('frontZoneStrength' in params).toBe(false);
+    const without = params;
+
+    const hit = (spec: DamageSpec, x: number, z: number): { zones: number[]; engine: number } => {
+      const state = createDamageState();
+      applyImpact(state, x, z, 8, -1, spec, createRng(11), result());
+      return { zones: Array.from(state.zones), engine: state.engineHealth };
+    };
+    const a = hit(without, 0, -1);
+    const b = hit(bumperParams, 0, -1);
+    expect(b.zones[ZONE.front]).toBeCloseTo((a.zones[ZONE.front] ?? 0) / 1.8, 6);
+    expect(1 - b.engine).toBeCloseTo((1 - a.engine) / 1.8 / 2, 6);
+    expect(1 - b.engine).toBeLessThan(1 - a.engine);
+    for (const [x, z] of [
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ] as const) {
+      expect(hit(bumperParams, x, z)).toEqual(hit(without, x, z));
+    }
   });
 });

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "items": [
+    { "id": "cones", "label": "Traffic cones", "carryMax": 4, "deployable": true },
+    { "id": "flares", "label": "Road flares", "carryMax": 6, "deployable": true },
+    { "id": "firstAid", "label": "First aid kit", "carryMax": 1, "deployable": false },
+    { "id": "aed", "label": "Defibrillator (AED)", "carryMax": 1, "deployable": false },
+    { "id": "spikeStrip", "label": "Spike strip", "carryMax": 1, "deployable": true },
+    { "id": "evidenceKit", "label": "Evidence kit", "carryMax": 1, "deployable": false },
+    { "id": "fireExtinguisher", "label": "Fire extinguisher", "carryMax": 1, "deployable": false },
+    { "id": "trafficVest", "label": "Traffic vest", "carryMax": 1, "deployable": false }
+  ]
+}

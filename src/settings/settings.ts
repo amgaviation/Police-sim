@@ -17,6 +17,8 @@ export const SETTINGS_VERSION = 1;
 export type ShadowQuality = 'off' | 'low' | 'high';
 export type FrameCap = 0 | 30 | 60 | 120;
 export type ColorblindMode = 'none' | 'protanopia' | 'deuteranopia' | 'tritanopia';
+/** Radio phrasing: APCO-style ten-codes or plain language. */
+export type RadioModeSetting = 'tenCode' | 'plain';
 
 export interface GraphicsSettings {
   renderScale: number;
@@ -32,8 +34,13 @@ export interface AudioSettings {
   sfx: number;
   radio: number;
   music: number;
-  /** Web Speech voice name; null picks the browser default. */
+  /** Web Speech voice name for the dispatcher; null picks from the English voice pool. */
   ttsVoice: string | null;
+  /** Speak radio traffic with text-to-speech (captions and the log work without it). */
+  tts: boolean;
+  radioMode: RadioModeSetting;
+  /** Push-to-talk speech recognition (browsers usually send audio to a remote service). */
+  voiceCommands: boolean;
 }
 
 export interface ControlsSettings {
@@ -144,18 +151,27 @@ export const SETTINGS_FIELDS = {
     ],
   },
   'graphics.drawDistance': { kind: 'number', label: 'Draw distance', min: 200, max: 2000, step: 50, unit: 'm' },
-  // Audio arrives in a later phase; the values persist but nothing plays yet.
-  'audio.master': { kind: 'number', label: 'Master volume', min: 0, max: 1, step: 0.01, implemented: false },
-  'audio.sfx': { kind: 'number', label: 'Effects volume', min: 0, max: 1, step: 0.01, implemented: false },
-  'audio.radio': { kind: 'number', label: 'Radio volume', min: 0, max: 1, step: 0.01, implemented: false },
+  'audio.master': { kind: 'number', label: 'Master volume', min: 0, max: 1, step: 0.01 },
+  'audio.sfx': { kind: 'number', label: 'Effects volume', min: 0, max: 1, step: 0.01 },
+  'audio.radio': { kind: 'number', label: 'Radio volume', min: 0, max: 1, step: 0.01 },
+  // No music yet; the value persists but the menu hides it.
   'audio.music': { kind: 'number', label: 'Music volume', min: 0, max: 1, step: 0.01, implemented: false },
   'audio.ttsVoice': {
     kind: 'text',
-    label: 'Dispatch voice',
+    label: 'Dispatcher voice',
     nullable: true,
     placeholder: 'Browser default',
-    implemented: false,
   },
+  'audio.tts': { kind: 'boolean', label: 'Spoken radio (text-to-speech)' },
+  'audio.radioMode': {
+    kind: 'enum',
+    label: 'Radio language',
+    options: [
+      { value: 'tenCode', label: 'Ten-codes' },
+      { value: 'plain', label: 'Plain language' },
+    ],
+  },
+  'audio.voiceCommands': { kind: 'boolean', label: 'Voice commands (push-to-talk, browser speech service)' },
   'controls.mouseSensitivity': { kind: 'number', label: 'Mouse sensitivity', min: 0.1, max: 5, step: 0.05 },
   'controls.invertY': { kind: 'boolean', label: 'Invert look Y' },
   'controls.gamepadDeadzone': { kind: 'number', label: 'Gamepad deadzone', min: 0, max: 0.5, step: 0.01 },
@@ -173,7 +189,7 @@ export const SETTINGS_FIELDS = {
     ],
   },
   'accessibility.reducedFlash': { kind: 'boolean', label: 'Reduce flashing lights' },
-  'accessibility.subtitles': { kind: 'boolean', label: 'Subtitles', implemented: false },
+  'accessibility.subtitles': { kind: 'boolean', label: 'Radio captions' },
   'accessibility.oneHanded': { kind: 'boolean', label: 'One-handed mode', implemented: false },
 } as const satisfies Record<SettingsPath, SettingsField>;
 
@@ -206,7 +222,16 @@ export function visibleSections(): SettingsSection[] {
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   version: SETTINGS_VERSION,
   graphics: { renderScale: 1, shadows: 'low', fov: 75, frameCap: 0, drawDistance: 800 },
-  audio: { master: 0.8, sfx: 1, radio: 1, music: 0.6, ttsVoice: null },
+  audio: {
+    master: 0.8,
+    sfx: 1,
+    radio: 1,
+    music: 0.6,
+    ttsVoice: null,
+    tts: true,
+    radioMode: 'tenCode',
+    voiceCommands: false,
+  },
   controls: { mouseSensitivity: 1, invertY: false, gamepadDeadzone: 0.15, bindings: cloneBindings(DEFAULT_BINDINGS) },
   accessibility: { textScale: 1, colorblind: 'none', reducedFlash: false, subtitles: true, oneHanded: false },
 };

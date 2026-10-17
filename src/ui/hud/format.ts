@@ -55,6 +55,13 @@ export function limitSignText(limitMph: number): string {
   return Number.isFinite(limitMph) && limitMph > 0 ? String(Math.round(limitMph)) : '--';
 }
 
+/** Distance for the call strip: '850 m' below 1 km, '1.2 km' from there; '' when negative or non-finite. */
+export function formatDistance(meters: number): string {
+  if (!Number.isFinite(meters) || meters < 0) return '';
+  const m = Math.round(meters);
+  return m < 1000 ? `${String(m)} m` : `${(meters / 1000).toFixed(1)} km`;
+}
+
 export interface MapPoint {
   x: number;
   y: number;

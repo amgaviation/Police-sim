@@ -2,6 +2,7 @@ import type { City, PoiKind } from '../../world/city';
 import { ROAD_CLASS } from '../../world/ids';
 import type { RoadEdge } from '../../world/roadGraph';
 import { worldToMap, type MapPoint } from './format';
+import { PRIORITY_COLORS } from './police';
 
 /** Canvas size in CSS pixels (square). */
 export const MINIMAP_SIZE = 200;
@@ -17,6 +18,72 @@ export interface TrafficDots {
 }
 
 const HALF = MINIMAP_SIZE / 2;
+
+/** Marker kinds for `MinimapMarkers.kind` (design §13.3). */
+export const MARKER = {
+  callP1: 1,
+  callP2: 2,
+  callP3: 3,
+  callP4: 4,
+  unitAvailable: 5,
+  unitBusy: 6,
+  unitEmergency: 7,
+  stop: 8,
+} as const;
+export type MarkerKind = (typeof MARKER)[keyof typeof MARKER];
+
+/** Call, unit and stop markers (world x/z); the integrator reuses one set of arrays. */
+export interface MinimapMarkers {
+  count: number;
+  x: Float32Array;
+  z: Float32Array;
+  kind: Uint8Array;
+}
+
+/** Preallocated marker arrays for up to `capacity` markers. */
+export function createMinimapMarkers(capacity: number): MinimapMarkers {
+  const n = Math.max(0, Math.floor(capacity));
+  return { count: 0, x: new Float32Array(n), z: new Float32Array(n), kind: new Uint8Array(n) };
+}
+
+/** Distance (px) from the map centre at which off-map call markers sit on the rim. */
+export const MARKER_RIM = HALF - 7;
+
+export interface MarkerPoint extends MapPoint {
+  /** True when the point was pulled in to the rim. */
+  clamped: boolean;
+}
+
+/**
+ * `worldToMap` with off-map points clamped to a circle of `rimPx` pixels around the centre
+ * (direction kept). Pass `Infinity` to never clamp. Allocation-free; returns `out`.
+ */
+export function markerProjection(
+  px: number,
+  pz: number,
+  yaw: number,
+  wx: number,
+  wz: number,
+  metersPerPixel: number,
+  rimPx: number,
+  out: MarkerPoint,
+): MarkerPoint {
+  worldToMap(px, pz, yaw, wx, wz, metersPerPixel, out);
+  const d = Math.hypot(out.x, out.y);
+  if (d > rimPx && d > 0) {
+    const k = rimPx / d;
+    out.x *= k;
+    out.y *= k;
+    out.clamped = true;
+  } else {
+    out.clamped = false;
+  }
+  return out;
+}
+
+const UNIT_FILL = '#4f8cff';
+const UNIT_BUSY_FILL = '#2a4f8f';
+const EMERGENCY_OUTLINE = '#ff3b3b';
 
 /** Road colour and minimum stroke width (px) per `ROAD_CLASS` id, drawn minor classes first. */
 const ROAD_STYLE: readonly { readonly color: string; readonly minWidth: number }[] = [
@@ -58,7 +125,7 @@ const ROOT_STYLE = [
 
 /**
  * Heading-up circular minimap (canvas 2D): roads near the player by class, the active
- * route, POI markers, traffic dots and the player arrow. Redraws at most `MINIMAP_HZ`
+ * route, POI markers, traffic dots, call/unit/stop markers and the player arrow. Redraws at most `MINIMAP_HZ`
  * times per second with reused scratch objects; headless (no `document`) it is a no-op.
  */
 export class Minimap {
@@ -67,6 +134,7 @@ export class Minimap {
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly edges: number[] = [];
   private readonly p: MapPoint = { x: 0, y: 0 };
+  private readonly mp: MarkerPoint = { x: 0, y: 0, clamped: false };
   private zoom = 0;
   private lastDraw = -Infinity;
   private drawCount = 0;
@@ -106,7 +174,15 @@ export class Minimap {
     this.lastDraw = -Infinity;
   }
 
-  update(x: number, z: number, yaw: number, traffic: TrafficDots | null, route: Float32Array | null, nowMs: number): void {
+  update(
+    x: number,
+    z: number,
+    yaw: number,
+    traffic: TrafficDots | null,
+    route: Float32Array | null,
+    nowMs: number,
+    markers: MinimapMarkers | null = null,
+  ): void {
     if (nowMs - this.lastDraw < 1000 / MINIMAP_HZ) return;
     this.lastDraw = nowMs;
     this.drawCount += 1;
@@ -127,6 +203,7 @@ export class Minimap {
     if (route) this.drawRoute(ctx, x, z, yaw, route, mpp);
     this.drawPois(ctx, x, z, yaw, radius, mpp);
     if (traffic) this.drawTraffic(ctx, x, z, yaw, traffic, radius, mpp);
+    if (markers && markers.count > 0) this.drawMarkers(ctx, x, z, yaw, markers, mpp);
     this.drawPlayer(ctx);
     this.drawNorth(ctx, x, z, yaw, mpp);
     ctx.restore();
@@ -207,6 +284,59 @@ export class Minimap {
       if (dx * dx + dz * dz > r2) continue;
       worldToMap(x, z, yaw, tx, tz, mpp, p);
       ctx.fillRect(HALF + p.x - 1.5, HALF + p.y - 1.5, 3, 3);
+    }
+  }
+
+  /**
+   * Units (blue squares, busy darker, emergency with a red outline) and the stop (white ring)
+   * when on the map, then calls (diamonds by priority, P1 on top) with off-map calls on the rim.
+   */
+  private drawMarkers(ctx: CanvasRenderingContext2D, x: number, z: number, yaw: number, m: MinimapMarkers, mpp: number): void {
+    const p = this.mp;
+    const n = Math.min(m.count, m.x.length, m.z.length, m.kind.length);
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < n; i++) {
+      const kind = m.kind[i] ?? 0;
+      if (kind < MARKER.unitAvailable || kind > MARKER.stop) continue;
+      markerProjection(x, z, yaw, m.x[i] ?? 0, m.z[i] ?? 0, mpp, HALF + 4, p);
+      if (p.clamped) continue;
+      const cx = HALF + p.x;
+      const cy = HALF + p.y;
+      if (kind === MARKER.stop) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        continue;
+      }
+      ctx.fillStyle = kind === MARKER.unitBusy ? UNIT_BUSY_FILL : UNIT_FILL;
+      ctx.fillRect(cx - 3.5, cy - 3.5, 7, 7);
+      ctx.strokeStyle = kind === MARKER.unitEmergency ? EMERGENCY_OUTLINE : '#111';
+      ctx.lineWidth = kind === MARKER.unitEmergency ? 2 : 1;
+      ctx.strokeRect(cx - 3.5, cy - 3.5, 7, 7);
+    }
+    // Calls, lowest priority first so P1 is drawn on top.
+    for (let kind: number = MARKER.callP4; kind >= MARKER.callP1; kind--) {
+      ctx.fillStyle = PRIORITY_COLORS[kind - 1] ?? PRIORITY_COLORS[3];
+      for (let i = 0; i < n; i++) {
+        if (m.kind[i] !== kind) continue;
+        markerProjection(x, z, yaw, m.x[i] ?? 0, m.z[i] ?? 0, mpp, MARKER_RIM, p);
+        const cx = HALF + p.x;
+        const cy = HALF + p.y;
+        const r = p.clamped ? 4.5 : 6;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r);
+        ctx.lineTo(cx + r, cy);
+        ctx.lineTo(cx, cy + r);
+        ctx.lineTo(cx - r, cy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
   }
 

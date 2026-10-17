@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "status": {
+    "available": ["10-8", "in service", "back in service", "available", "clear", "show me clear"],
+    "enRoute": ["en route", "enroute", "10-76", "responding", "on the way"],
+    "onScene": ["on scene", "10-23", "10-97", "arrived", "on location"],
+    "busy": ["busy", "10-6"],
+    "outOfService": ["out of service", "10-7", "off duty"],
+    "transporting": ["transporting", "10-15", "in transport", "with one in custody"]
+  },
+  "accept": ["accept", "accept the call", "ill take it", "ill take that", "show me taking it", "i can take it"],
+  "decline": ["decline", "unable", "negative", "cant take it", "cannot take it"],
+  "runPlate": ["run plate", "run a plate", "run the plate", "run this plate", "plate check", "check plate", "check a plate", "10-28", "registration check"],
+  "backup": ["backup", "back up", "requesting backup", "request backup", "need backup", "send backup", "need assistance", "10-78", "cover"],
+  "location": ["10-20", "location", "my location", "whats my 20", "my 20", "where am i"],
+  "code4": ["code 4", "all ok", "all okay", "im ok", "im okay", "all good"],
+  "trafficStop": ["traffic stop", "10-38", "car stop", "vehicle stop"],
+  "repeat": ["say again", "repeat", "10-9", "repeat last", "come again"],
+  "emergencyWords": ["emergency", "code 3", "lights and siren", "hot"]
+}

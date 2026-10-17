@@ -128,3 +128,58 @@ export async function makeHarness(graph: RoadGraph, seed = 7, city?: City): Prom
   const focus: TrafficFocus = { x: 0, z: 0, obstacle: false, ox: 0, oz: 0, ovx: 0, ovz: 0, oRadius: 1, oHalfWidth: 1 };
   return { sys, world, physics, bus, violations, focus };
 }
+
+/** Car state probe for `TrafficSystem.inspect`. */
+export function carInfo(): import('../../src/traffic/trafficSystem').TrafficCarInfo {
+  return { lane: 0, s: 0, nextLane: 0, behavior: 0, desiredFactor: 0, headway: 0, lateral: 0, weaveAmp: 0, limitMph: 0, inJunction: false };
+}
+
+/** Slot of the car with `vehicleId`, -1 when absent. */
+export function slotOf(h: Harness, vehicleId: number): number {
+  for (let i = 0; i < h.sys.view.count; i++) if (h.sys.view.vehicleId[i] === vehicleId) return i;
+  return -1;
+}
+
+/** Steps `seconds` from `t0` (calling `each` before every step to move the focus); returns the end time. */
+export function runFor(h: Harness, t0: number, seconds: number, each?: (t: number) => void): number {
+  let t = t0;
+  for (let i = 0; i < Math.round(seconds / DT); i++) {
+    each?.(t);
+    t += DT;
+    h.sys.step(DT, t, NOON, h.focus);
+    h.physics.step();
+  }
+  return t;
+}
+
+/** Puts the player car obstacle `behind` m behind slot `slot` (travelling with it) with the given lights. */
+export function followCar(h: Harness, slot: number, behind: number, lights: boolean, siren = false): void {
+  const v = h.sys.view;
+  const yaw = v.yaw[slot] ?? 0;
+  const hx = -Math.sin(yaw), hz = -Math.cos(yaw);
+  const f = h.focus;
+  f.obstacle = true;
+  f.ox = (v.x[slot] ?? 0) - hx * behind;
+  f.oz = (v.z[slot] ?? 0) - hz * behind;
+  f.ovx = hx * (v.speed[slot] ?? 0);
+  f.ovz = hz * (v.speed[slot] ?? 0);
+  f.x = f.ox;
+  f.z = f.oz;
+  f.heading = yaw;
+  f.lights = lights;
+  f.siren = siren;
+}
+
+/**
+ * A 3 x 3 grid of two-way 200 m blocks (nodes 0..8 at x, z = 0, 200, 400; node = row * 3 + col) with
+ * all-way stops where three or more roads meet. Edges: rows first (west -> east), then columns (north -> south).
+ */
+export function gridGraph(junction: JunctionId = JUNCTION.allWayStop): RoadGraph {
+  const points: [number, number][] = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) points.push([c * 200, r * 200]);
+  const specs: EdgeSpec[] = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 2; c++) specs.push({ from: r * 3 + c, to: r * 3 + c + 1 });
+  for (let c = 0; c < 3; c++) for (let r = 0; r < 2; r++) specs.push({ from: r * 3 + c, to: (r + 1) * 3 + c });
+  const junctions = points.map((_, i) => (i === 0 || i === 2 || i === 6 || i === 8 ? JUNCTION.none : junction));
+  return buildGraph(points, specs, junctions);
+}

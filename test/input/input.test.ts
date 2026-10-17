@@ -66,7 +66,7 @@ describe('InputManager', () => {
 
   it('ignores key repeats and prevents default on bound keys only', () => {
     const bound = { code: 'Backquote', preventDefault: vi.fn() };
-    const unbound = { code: 'KeyZ', preventDefault: vi.fn() };
+    const unbound = { code: 'KeyY', preventDefault: vi.fn() };
     input.handleKeyDown(bound);
     input.handleKeyDown(unbound);
     expect(bound.preventDefault).toHaveBeenCalledOnce();

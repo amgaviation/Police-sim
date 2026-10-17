@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "channels": [
+    { "id": "dispatch", "label": "City Dispatch", "short": "DISP", "dispatcher": "Dispatch", "ambientPerMin": 1.2, "requests": true },
+    { "id": "tac", "label": "Tactical 2", "short": "TAC2", "dispatcher": null, "ambientPerMin": 0.3, "requests": false },
+    { "id": "car", "label": "Car-to-car", "short": "CAR", "dispatcher": null, "ambientPerMin": 0.4, "requests": false },
+    { "id": "fireEms", "label": "Fire / EMS", "short": "F/EMS", "dispatcher": "Fire Dispatch", "ambientPerMin": 1.0, "requests": false },
+    { "id": "county", "label": "County", "short": "CNTY", "dispatcher": "County", "ambientPerMin": 0.8, "requests": false },
+    { "id": "state", "label": "State", "short": "STATE", "dispatcher": "State Dispatch", "ambientPerMin": 0.5, "requests": false }
+  ],
+  "defaultSelected": "dispatch",
+  "defaultScan": ["dispatch", "tac", "fireEms"],
+  "wordsPerSecond": 2.6,
+  "keyUpS": 0.35,
+  "tailS": 0.3,
+  "doubleKeyChance": 0.04,
+  "scanVolume": 0.7,
+  "logSize": 100
+}

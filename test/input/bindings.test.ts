@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_IDS } from '../../src/input/actions';
+import { ACTION_IDS, isActionId } from '../../src/input/actions';
 import {
   BINDINGS_SCHEMA_VERSION,
   DEFAULT_BINDINGS,
@@ -34,6 +34,60 @@ describe('DEFAULT_BINDINGS', () => {
     expect(codes('perf.toggle')).toContain('F3');
     expect(codes('vehicle.steer')).toContain('GamepadAxis0');
     expect(codes('vehicle.accelerate')).toContain('GamepadButton7');
+  });
+});
+
+describe('Phase 2 default bindings', () => {
+  const codes = (id: keyof typeof DEFAULT_BINDINGS): string[] => DEFAULT_BINDINGS[id].map((b) => b.code);
+
+  it('match the design table (§11.5)', () => {
+    const table: [keyof typeof DEFAULT_BINDINGS, string[]][] = [
+      ['vehicle.siren', ['KeyQ', 'GamepadButton3']],
+      ['vehicle.lights', ['KeyL', 'GamepadButton2']],
+      ['vehicle.sirenTone', ['KeyR', 'GamepadButton4']],
+      ['vehicle.horn', ['KeyG', 'GamepadButton11']],
+      ['vehicle.manual', ['KeyF']],
+      ['vehicle.lightPattern', ['KeyK']],
+      ['vehicle.spotlight', ['KeyJ']],
+      ['vehicle.spotAim', ['MouseButton2']],
+      ['vehicle.equipment', ['KeyX']],
+      ['mdt.toggle', ['Tab']],
+      ['target.runPlate', ['KeyP', 'GamepadButton15']],
+      ['radio.menu', ['KeyT', 'GamepadButton14']],
+      ['radio.ptt', ['KeyB', 'GamepadButton5']],
+      ['radio.emergency', ['KeyZ']],
+      ['radio.channelPrev', ['BracketLeft']],
+      ['radio.channelNext', ['BracketRight']],
+      ['radio.scan', ['Backslash']],
+    ];
+    for (const [id, expected] of table) expect(codes(id), id).toEqual(expected);
+    expect(DEFAULT_BINDINGS['vehicle.spotAim']).toEqual([{ device: 'mouse', code: 'MouseButton2' }]);
+  });
+
+  it('binds Digit1..Digit9 to radio.option1..9', () => {
+    for (let i = 1; i <= 9; i++) {
+      const id = `radio.option${i}`;
+      expect(isActionId(id)).toBe(true);
+      if (isActionId(id)) expect(DEFAULT_BINDINGS[id]).toEqual([{ device: 'keyboard', code: `Digit${i}` }]);
+    }
+  });
+
+  it('binds no keyboard code or gamepad button to two actions, except the shared driving/walking keys', () => {
+    const shared = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+    const owners = new Map<string, string[]>();
+    for (const id of ACTION_IDS) {
+      for (const b of DEFAULT_BINDINGS[id]) {
+        if (b.device === 'gamepad' && b.code.startsWith('GamepadAxis')) continue;
+        const k = `${b.device}:${b.code}`;
+        owners.set(k, [...(owners.get(k) ?? []), id]);
+      }
+    }
+    for (const [k, ids] of owners) {
+      if (ids.length < 2) continue;
+      const code = k.slice(k.indexOf(':') + 1);
+      expect(shared.has(code), `${k} bound to ${ids.join(', ')}`).toBe(true);
+      expect(ids.every((id) => id.startsWith('move.') || id.startsWith('vehicle.')), k).toBe(true);
+    }
   });
 });
 

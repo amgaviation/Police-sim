@@ -1,0 +1,269 @@
+import { describe, expect, it } from 'vitest';
+import { generateRegistration, mountedPlate } from '../../src/records/vehicle';
+import { hasGeneratedWarrant } from '../../src/records/person';
+import { isTextField, MDT_REFRESH_MS, MdtOverlay } from '../../src/ui/mdt';
+import { addCall, at, fixture, key, SEED, startStop } from './helpers';
+
+const input = { tagName: 'INPUT', type: 'text' };
+const textarea = { tagName: 'TEXTAREA' };
+const checkbox = { tagName: 'INPUT', type: 'checkbox' };
+
+describe('isTextField', () => {
+  it('treats inputs, textareas, selects and editable content as text fields', () => {
+    expect(isTextField(input)).toBe(true);
+    expect(isTextField({ tagName: 'input', type: 'number' })).toBe(true);
+    expect(isTextField(textarea)).toBe(true);
+    expect(isTextField({ tagName: 'SELECT' })).toBe(true);
+    expect(isTextField({ tagName: 'DIV', isContentEditable: true })).toBe(true);
+    expect(isTextField(checkbox)).toBe(false);
+    expect(isTextField({ tagName: 'BUTTON' })).toBe(false);
+    expect(isTextField(null)).toBe(false);
+  });
+});
+
+describe('MdtOverlay (headless)', () => {
+  it('constructs without a DOM and opens, updates and closes', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    expect(mdt.id).toBe('mdt');
+    expect(mdt.pausesGame).toBe(false);
+    expect(mdt.isOpen).toBe(false);
+    mdt.update(0);
+    expect(mdt.refreshes).toBe(0); // nothing while closed
+    mdt.open('units');
+    expect(mdt.isOpen).toBe(true);
+    expect(mdt.tab).toBe('units');
+    mdt.update(1000);
+    expect(mdt.refreshes).toBe(1);
+    mdt.close();
+    expect(mdt.isOpen).toBe(false);
+    mdt.update(5000);
+    expect(mdt.refreshes).toBe(1);
+    mdt.dispose();
+  });
+
+  it('refreshes at most 4 Hz and only when the CAD revision or the tab changed', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open();
+    mdt.update(1000);
+    expect(mdt.refreshes).toBe(1);
+    mdt.update(1000 + MDT_REFRESH_MS / 2);
+    mdt.update(1000 + MDT_REFRESH_MS * 2);
+    expect(mdt.refreshes).toBe(1); // unchanged
+    addCall(f.cad, 1, 2);
+    mdt.update(1000 + MDT_REFRESH_MS * 2 + 10); // throttled
+    expect(mdt.refreshes).toBe(1);
+    mdt.update(1000 + MDT_REFRESH_MS * 3);
+    expect(mdt.refreshes).toBe(2);
+    // AVL changes refresh only the Units and Map tabs.
+    f.cad.setUnitPosition('21', 10, 10);
+    mdt.update(1000 + MDT_REFRESH_MS * 4);
+    expect(mdt.refreshes).toBe(2);
+    mdt.setTab('map');
+    mdt.update(1000 + MDT_REFRESH_MS * 4 + 1);
+    expect(mdt.refreshes).toBe(3);
+    f.cad.setUnitPosition('21', 20, 10);
+    mdt.update(1000 + MDT_REFRESH_MS * 6);
+    expect(mdt.refreshes).toBe(4);
+    // BOLO tab: a new query refreshes it.
+    mdt.setTab('bolo');
+    mdt.update(3000);
+    expect(mdt.refreshes).toBe(5);
+    f.records.runPlate('ABC1234');
+    mdt.update(3000 + MDT_REFRESH_MS);
+    expect(mdt.refreshes).toBe(6);
+  });
+
+  it('Escape closes, digits switch tabs when not editing and are ignored while typing', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    expect(mdt.onKeyDown(key('1'))).toBe(false); // closed
+    mdt.open();
+    expect(mdt.onKeyDown(key('5'))).toBe(true);
+    expect(mdt.tab).toBe('person');
+    expect(mdt.onKeyDown(key('9', checkbox))).toBe(true);
+    expect(mdt.tab).toBe('stop');
+    expect(mdt.onKeyDown(key('3', input))).toBe(false);
+    expect(mdt.onKeyDown(key('3', textarea))).toBe(false);
+    expect(mdt.tab).toBe('stop');
+    expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
+    expect(mdt.tab).toBe('queue');
+    expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);
+    expect(mdt.tab).toBe('stop');
+    expect(mdt.onKeyDown(key('ArrowLeft', input))).toBe(false);
+    expect(mdt.onKeyDown({ ...key('2'), ctrlKey: true })).toBe(false);
+    expect(mdt.onKeyDown(key('x'))).toBe(false);
+    expect(mdt.onKeyDown(key('Escape', input))).toBe(true);
+    expect(mdt.isOpen).toBe(false);
+  });
+
+  it('Escape cancels an open form before closing', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open('queue');
+    mdt.openForm('report');
+    expect(mdt.editing).toBe(true);
+    expect(mdt.tab).toBe('reports');
+    expect(mdt.onKeyDown(key('Escape', textarea))).toBe(true);
+    expect(mdt.editing).toBe(false);
+    expect(mdt.isOpen).toBe(true);
+    expect(mdt.onKeyDown(key('Escape'))).toBe(true);
+    expect(mdt.isOpen).toBe(false);
+  });
+
+  it('sends CAD changes through deps.request', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const call = addCall(f.cad, 0, 2);
+    mdt.acceptCall(call.id);
+    mdt.declineCall(call.id);
+    mdt.selfAssign(call.id);
+    mdt.setStatus('onScene');
+    mdt.clearCall(call.id, 'handled');
+    expect(mdt.addNarrative(call.id, '   ')).toBe(false);
+    expect(mdt.addNarrative(call.id, ' Area checked ')).toBe(true);
+    mdt.wantsCheck(42);
+    mdt.wantsCheck(-1);
+    mdt.releaseStop();
+    expect(f.requests).toEqual([
+      { kind: 'acceptCall', callId: call.id },
+      { kind: 'declineCall', callId: call.id },
+      { kind: 'selfAssign', callId: call.id },
+      { kind: 'status', status: 'onScene' },
+      { kind: 'clearCall', callId: call.id, disposition: 'handled' },
+      { kind: 'narrative', callId: call.id, text: 'Area checked' },
+      { kind: 'runPerson', personId: 42 },
+      { kind: 'stopContact', action: 'release' },
+    ]);
+    // Nothing was changed directly.
+    expect(f.cad.call(call.id)?.status).toBe('pending');
+  });
+
+  it('runs records queries directly, with the observed car for the stop vehicle', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const v = 777;
+    const stop = startStop(f, v);
+    const r = mdt.runStopVehicle();
+    expect(r?.plate).toBe(stop.plate);
+    expect(r?.observed).not.toBeNull();
+    expect(f.records.queryLog.at(-1)).toMatchObject({ kind: 'plate', gameSeconds: at(0).game });
+    const vin = mdt.runVehicleQuery(generateRegistration(SEED, v).vin);
+    expect(vin && 'vin' in vin && vin.found).toBe(true);
+    const plate = mdt.runVehicleQuery(generateRegistration(SEED, 5).plate.toLowerCase());
+    expect(plate && 'plate' in plate && plate.registration?.vehicleId).toBe(5);
+    expect(mdt.runTarget()).toBeNull();
+    expect(mdt.message).toBe('No target vehicle');
+    let licensed = 321;
+    while (f.records.person(licensed).license.number === '') licensed++;
+    const results = mdt.searchPersons({ dl: f.records.person(licensed).license.number });
+    expect(results.map((p) => p.personId)).toEqual([licensed]);
+    expect(mdt.personId).toBe(licensed);
+    expect(mdt.tab).toBe('person');
+    expect(mdt.searchPersons({ first: 'JOHN' })).toEqual([]);
+    expect(f.requests).toEqual([]);
+  });
+
+  it('issues a citation prefilled from the stop (create + finalize)', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    f.state.violations = { speeding: 1 };
+    f.state.speed = { speedMph: 48, limitMph: 30 };
+    const v = 1500;
+    const stop = startStop(f, v, { driverId: 4321 });
+    mdt.open('stop');
+    mdt.writeCitation();
+    expect(mdt.tab).toBe('reports');
+    expect(mdt.formKind).toBe('citation');
+    const r = mdt.submitForm(true);
+    expect(r.errors).toEqual([]);
+    const doc = r.doc;
+    expect(doc?.kind).toBe('citation');
+    if (doc?.kind !== 'citation') return;
+    expect(doc).toMatchObject({
+      id: 'CT-000001', status: 'final', author: 'Officer Doe #4071', callId: stop.callId, personId: 4321,
+      plate: stop.plate, vehicleId: v, location: '400 S Elm Street', recordedSpeedMph: 48, limitMph: 30, totalFine: 150,
+    });
+    expect(doc.violations).toEqual([{ statuteId: 'TR-301', fine: 150, detail: '48 mph in a 30 mph zone' }]);
+    expect(mdt.editing).toBe(false);
+    expect(mdt.message).toBe('CT-000001 issued');
+  });
+
+  it('keeps an invalid citation as a draft and reports the validation messages', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    mdt.open();
+    mdt.openForm('citation', { location: '' });
+    const r = mdt.submitForm(true);
+    expect(r.errors).toContain('Citation needs at least one violation');
+    expect(r.errors).toContain('Citation needs a person');
+    expect(r.doc?.status).toBe('draft');
+    expect(mdt.editing).toBe(true);
+  });
+
+  it('completes a booking only at the station with the prisoner', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const wanted = (() => {
+      for (let i = 0; i < 100000; i++) if (hasGeneratedWarrant(SEED, i)) return i;
+      return -1;
+    })();
+    f.state.prisoner = wanted;
+    mdt.open();
+    mdt.openForm('booking');
+    let r = mdt.submitForm(true);
+    expect(r.errors[0]).toMatch(/station/);
+    expect(r.doc).toMatchObject({ kind: 'booking', status: 'draft', personId: wanted, charges: ['PC-220'] });
+    expect(f.completed).toEqual([]);
+    f.state.atStation = true;
+    r = mdt.submitForm(true);
+    expect(r.errors).toEqual([]);
+    expect(r.doc?.status).toBe('final');
+    expect(f.completed).toEqual(['B-0001']);
+  });
+
+  it('logs evidence with a collected custody entry and links supplements to final reports', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const ev = mdt.saveDocument('evidence', { description: 'Pocket knife', category: 'weapon', foundAt: 'Front seat' }, true);
+    expect(ev.errors).toEqual([]);
+    expect(ev.doc?.kind === 'evidence' && ev.doc.custody).toEqual([{ game: at(0).game, action: 'collected', by: 'Officer Doe #4071', note: '' }]);
+    const report = mdt.saveDocument('report', { title: 'Theft', location: '248 N Oak Street', narrative: 'Victim reported a stolen bicycle from the porch.', evidenceIds: ['E-0001'] }, true);
+    expect(report.doc?.status).toBe('final');
+    const bad = mdt.saveDocument('supplement', { parentId: 'R-0099', narrative: 'Follow-up with witness.' }, true);
+    expect(bad.errors).toContain('Supplement needs an existing report');
+    const sup = mdt.saveDocument('supplement', { parentId: 'R-0001', narrative: 'Follow-up with witness.' }, true, bad.doc?.id ?? null);
+    expect(sup.errors).toEqual([]);
+    expect(sup.doc).toMatchObject({ id: 'S-0001', status: 'final', parentId: 'R-0001' });
+    mdt.viewDocument('R-0001');
+    expect(mdt.tab).toBe('reports');
+  });
+
+  it('prefills a report from the player call', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const call = addCall(f.cad, 0, 3);
+    f.cad.assign(call.id, '12', at(1), 'self');
+    mdt.openForm('report');
+    const r = mdt.submitForm(false);
+    expect(r.doc).toMatchObject({
+      kind: 'report', status: 'draft', callId: call.id, title: 'Traffic hazard', location: '248 N Oak Street',
+      persons: [{ personId: 77, role: 'reportingParty' }],
+    });
+    expect(f.cad.call(call.id)?.documents).toEqual(['R-0001']);
+    // A draft stays open (headless forms close after saving).
+    expect(mdt.message).toBe('R-0001 saved as draft');
+  });
+
+  it('remembers the selected call and the stop vehicle is the stop plate', () => {
+    const f = fixture();
+    const mdt = new MdtOverlay(null, f.deps);
+    const call = addCall(f.cad, 0, 1);
+    mdt.selectCall(call.id);
+    expect(mdt.selectedCallId).toBe(call.id);
+    const v = 2024;
+    startStop(f, v);
+    expect(mountedPlate(SEED, v).plate).toBe(f.cad.trafficStop?.plate);
+  });
+});

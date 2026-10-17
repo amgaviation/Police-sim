@@ -27,4 +27,30 @@ describe('actions', () => {
     expect(isActionId(42)).toBe(false);
     expect(isActionId(null)).toBe(false);
   });
+
+  it('adds the Phase 2 button actions with readable labels', () => {
+    const expected: Record<string, string> = {
+      'vehicle.sirenTone': 'Siren tone',
+      'vehicle.horn': 'Air horn',
+      'vehicle.manual': 'Manual siren',
+      'vehicle.lightPattern': 'Light pattern',
+      'vehicle.spotlight': 'Spotlight',
+      'vehicle.spotAim': 'Aim spotlight (hold)',
+      'vehicle.equipment': 'Vehicle equipment',
+      'mdt.toggle': 'MDT',
+      'target.runPlate': 'Run plate',
+      'radio.menu': 'Radio menu',
+      'radio.ptt': 'Push to talk',
+      'radio.emergency': 'Emergency button',
+      'radio.channelPrev': 'Previous channel',
+      'radio.channelNext': 'Next channel',
+      'radio.scan': 'Radio scan',
+    };
+    for (let i = 1; i <= 9; i++) expected[`radio.option${i}`] = `Radio option ${i}`;
+    for (const [id, label] of Object.entries(expected)) {
+      expect(isActionId(id), id).toBe(true);
+      if (!isActionId(id)) continue;
+      expect(ACTIONS[id]).toEqual({ kind: 'button', label });
+    }
+  });
 });

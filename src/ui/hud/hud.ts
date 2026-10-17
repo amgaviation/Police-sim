@@ -2,6 +2,22 @@ import { formatClock, type GameTime } from '../../environment/time';
 import type { WeatherState } from '../../environment/weather';
 import type { VehicleTelemetry } from '../../vehicles/drivableVehicle';
 import { formatFuel, formatGear, formatSpeedMph, limitSignText } from './format';
+import {
+  SEVERITY_COLORS,
+  callStripText,
+  clampPriority,
+  createCallStripText,
+  createTargetText,
+  policeStatusText,
+  priorityColor,
+  targetText,
+  unitChipText,
+  type HudCall,
+  type HudPolice,
+  type HudTarget,
+  type HudUnit,
+  type TargetSeverity,
+} from './police';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
 export interface HudSnapshot {
@@ -19,6 +35,19 @@ export interface HudSnapshot {
   prompt: string | null;
   cameraMode: string;
   headlights: boolean;
+  // Phase 2 (design §13.3): all optional so a Phase 1 feed keeps compiling; absent or null hides the element.
+  /** Equipment of the driven patrol car. */
+  police?: Readonly<HudPolice> | null;
+  /** Locked target vehicle and its plate-run result. */
+  target?: Readonly<HudTarget> | null;
+  /** The player's active call. */
+  call?: Readonly<HudCall> | null;
+  /** The player's unit (status chip). */
+  unit?: Readonly<HudUnit> | null;
+  /** Offer line under the call strip, e.g. 'OFFER C-00043 P3 Alarm  7 Accept · 8 Decline'. */
+  offer?: string | null;
+  /** Carried items, e.g. 'Flashlight · Cuffs ×2'. */
+  carried?: string;
 }
 
 export interface HudOptions {
@@ -58,6 +87,28 @@ export interface HudText {
   schoolZone: boolean;
   construction: boolean;
   prompt: string;
+  /** Police status line ('LIGHTS ALT · SIREN WAIL · HORN · SPOT'); '' hides it. Driving only. */
+  police: string;
+  /** Unit chip ('12 · 10-8 AVAILABLE'); '' hides the unit row. */
+  unit: string;
+  unitEmergency: boolean;
+  unitStatusCheck: boolean;
+  /** Call strip lines; an empty title hides the strip. */
+  callTitle: string;
+  callAddress: string;
+  callStatus: string;
+  /** 1..4 (strip accent colour). */
+  callPriority: number;
+  /** Offer line; '' hides it. */
+  offer: string;
+  /** Target reticle and its lines. */
+  targetShow: boolean;
+  targetLabel: string;
+  /** '' hides the result line. */
+  targetResult: string;
+  targetSeverity: TargetSeverity;
+  /** Carried items line; '' hides it. */
+  carried: string;
 }
 
 export function createHudText(): HudText {
@@ -81,8 +132,26 @@ export function createHudText(): HudText {
     schoolZone: false,
     construction: false,
     prompt: '',
+    police: '',
+    unit: '',
+    unitEmergency: false,
+    unitStatusCheck: false,
+    callTitle: '',
+    callAddress: '',
+    callStatus: '',
+    callPriority: 4,
+    offer: '',
+    targetShow: false,
+    targetLabel: '',
+    targetResult: '',
+    targetSeverity: 'none',
+    carried: '',
   };
 }
+
+// Scratch for the multi-line helpers (hudText runs on the main thread at the HUD rate).
+const CALL_SCRATCH = createCallStripText();
+const TARGET_SCRATCH = createTargetText();
 
 function weatherText(w: Readonly<WeatherState>): string {
   const kind = w.kind.charAt(0).toUpperCase() + w.kind.slice(1);
@@ -112,6 +181,24 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
   out.schoolZone = s.schoolZoneActive;
   out.construction = s.construction;
   out.prompt = s.prompt ?? '';
+
+  out.police = t ? policeStatusText(s.police) : '';
+  const unit = s.unit ?? null;
+  out.unit = unitChipText(unit);
+  out.unitEmergency = unit ? unit.emergency : false;
+  out.unitStatusCheck = unit ? unit.statusCheck : false;
+  const call = callStripText(s.call, CALL_SCRATCH);
+  out.callTitle = call.title;
+  out.callAddress = call.address;
+  out.callStatus = call.status;
+  out.callPriority = s.call ? clampPriority(s.call.priority) : 4;
+  out.offer = s.offer ?? '';
+  const target = targetText(s.target, TARGET_SCRATCH);
+  out.targetShow = target.show;
+  out.targetLabel = target.label;
+  out.targetResult = target.result;
+  out.targetSeverity = target.severity;
+  out.carried = s.carried ?? '';
   return out;
 }
 
@@ -134,7 +221,8 @@ const ROOT_STYLE = [
 const PANEL = 'position:absolute;background:rgba(0,0,0,0.5);border-radius:6px;padding:6px 10px';
 
 const STYLES = {
-  speedPanel: `${PANEL};right:16px;bottom:16px;min-width:${px(150)};text-align:right`,
+  bottomRight: 'position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;align-items:flex-end;gap:6px',
+  speedPanel: `${PANEL};position:relative;min-width:${px(150)};text-align:right`,
   speed: `font:700 ${px(44)}/1 ui-monospace, Menlo, Consolas, monospace`,
   unit: `font-size:${px(13)};opacity:0.8;margin-left:4px`,
   row: `display:flex;justify-content:flex-end;gap:8px;align-items:center;margin-top:4px;font-size:${px(13)}`,
@@ -154,7 +242,28 @@ const STYLES = {
   signValue: `font:700 ${px(20)}/1 ui-sans-serif, system-ui, sans-serif`,
   workTag: `padding:2px 6px;border-radius:3px;background:#f08a24;color:#111;text-shadow:none;font-weight:700;font-size:${px(11)}`,
   prompt: `position:absolute;left:50%;bottom:${px(84)};transform:translateX(-50%);padding:4px 10px;border-radius:4px;background:rgba(0,0,0,0.55);font-size:${px(15)}`,
+  police: `font-size:${px(12)};font-weight:700;color:#9fd0ff;margin-top:3px;letter-spacing:0.05em`,
+  unitRow: `${PANEL};position:relative;display:flex;gap:6px;align-items:center;padding:4px 8px;font-size:${px(13)};font-weight:700`,
+  carried: `${PANEL};position:relative;padding:3px 8px;font-size:${px(12)};opacity:0.9`,
+  topLeft: `position:absolute;left:16px;top:16px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:${px(380)}`,
+  callPanel: `${PANEL};position:relative;border-left:4px solid #9a9a9a;font-size:${px(13)}`,
+  callTitle: `font-weight:700;font-size:${px(15)};white-space:nowrap`,
+  callStatus: `font-size:${px(12)};opacity:0.85;letter-spacing:0.05em`,
+  offer: `${PANEL};position:relative;background:rgba(80,56,0,0.7);color:#ffd27a;font-weight:700;font-size:${px(13)}`,
+  reticle: `position:absolute;left:50%;top:50%;width:${px(90)};height:${px(56)};transform:translate(-50%,-50%)`,
+  corner: `position:absolute;width:${px(14)};height:${px(14)};border:0 solid rgba(255,255,255,0.9)`,
+  targetInfo: `position:absolute;left:50%;top:calc(50% + ${px(36)});transform:translateX(-50%);text-align:center;white-space:nowrap`,
+  targetLabel: `${PANEL};position:relative;display:inline-block;padding:2px 8px;font:700 ${px(14)}/1.3 ui-monospace, Menlo, Consolas, monospace`,
+  targetResult: `margin-top:4px;font-weight:700;font-size:${px(13)}`,
 } as const;
+
+/** Corner bracket borders of the target reticle (top-left, top-right, bottom-left, bottom-right). */
+const CORNERS = [
+  'left:0;top:0;border-left-width:2px;border-top-width:2px',
+  'right:0;top:0;border-right-width:2px;border-top-width:2px',
+  'left:0;bottom:0;border-left-width:2px;border-bottom-width:2px',
+  'right:0;bottom:0;border-right-width:2px;border-bottom-width:2px',
+] as const;
 
 const SIGN_WHITE = '#f4f4f4';
 const SIGN_YELLOW = '#f5d63d';
@@ -182,6 +291,21 @@ interface HudView {
   signValue: HTMLSpanElement;
   workTag: HTMLSpanElement;
   prompt: HTMLDivElement;
+  police: HTMLDivElement;
+  unitRow: HTMLDivElement;
+  unit: HTMLSpanElement;
+  unitEmergency: HTMLSpanElement;
+  unitStatusCheck: HTMLSpanElement;
+  carried: HTMLDivElement;
+  callPanel: HTMLDivElement;
+  callTitle: HTMLDivElement;
+  callAddress: HTMLDivElement;
+  callStatus: HTMLDivElement;
+  offer: HTMLDivElement;
+  reticle: HTMLDivElement;
+  targetInfo: HTMLDivElement;
+  targetLabel: HTMLDivElement;
+  targetResult: HTMLDivElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -202,7 +326,15 @@ function buildView(parent: HTMLElement): HudView {
   const root = node('div', ROOT_STYLE, null);
   root.id = 'hud';
 
-  const speedPanel = node('div', STYLES.speedPanel, root);
+  const bottomRight = node('div', STYLES.bottomRight, root);
+  const carried = node('div', STYLES.carried, bottomRight);
+  carried.style.display = 'none';
+  const unitRow = node('div', STYLES.unitRow, bottomRight);
+  unitRow.style.display = 'none';
+  const unit = node('span', '', unitRow);
+  const unitEmergency = chip('EMERGENCY', '#ff4d4d', unitRow);
+  const unitStatusCheck = chip('STATUS CHECK', '#f2c14e', unitRow);
+  const speedPanel = node('div', STYLES.speedPanel, bottomRight);
   const speedLine = node('div', '', speedPanel);
   const speed = node('span', STYLES.speed, speedLine, '0');
   node('span', STYLES.unit, speedLine, 'mph');
@@ -219,6 +351,26 @@ function buildView(parent: HTMLElement): HudView {
   const fuelLow = chip('FUEL LOW', '#ffa34a', warnings);
   const damage = chip('', '#d9d9d9', warnings);
   const status = node('div', STYLES.status, speedPanel);
+  const police = node('div', STYLES.police, speedPanel);
+  police.style.display = 'none';
+
+  const topLeft = node('div', STYLES.topLeft, root);
+  const callPanel = node('div', STYLES.callPanel, topLeft);
+  callPanel.style.display = 'none';
+  const callTitle = node('div', STYLES.callTitle, callPanel);
+  const callAddress = node('div', '', callPanel);
+  const callStatus = node('div', STYLES.callStatus, callPanel);
+  const offer = node('div', STYLES.offer, topLeft);
+  offer.style.display = 'none';
+
+  const reticle = node('div', STYLES.reticle, root);
+  for (const corner of CORNERS) node('div', `${STYLES.corner};${corner}`, reticle);
+  reticle.style.display = 'none';
+  const targetInfo = node('div', STYLES.targetInfo, root);
+  targetInfo.style.display = 'none';
+  const targetLabel = node('div', STYLES.targetLabel, targetInfo);
+  const targetResult = node('div', STYLES.targetResult, targetInfo);
+  targetResult.style.display = 'none';
 
   const topRight = node('div', STYLES.topRight, root);
   const clock = node('div', STYLES.clock, topRight);
@@ -239,6 +391,8 @@ function buildView(parent: HTMLElement): HudView {
   return {
     root, speedPanel, speed, gear, abs, fuelBar, fuel, engine, tyre, brakes, fuelLow, damage, status,
     clock, weather, roadPanel, road, sign, signCaption, signValue, workTag, prompt,
+    police, unitRow, unit, unitEmergency, unitStatusCheck, carried, callPanel, callTitle, callAddress, callStatus,
+    offer, reticle, targetInfo, targetLabel, targetResult,
   };
 }
 
@@ -248,7 +402,10 @@ function show(e: HTMLElement, visible: boolean, display = 'block'): void {
 
 /**
  * Driving and world HUD: speed, gear, ABS, fuel and warnings bottom-right, clock and
- * weather top-right, road name and limit sign bottom-centre, and a prompt line.
+ * weather top-right, road name and limit sign bottom-centre, and a prompt line. Phase 2
+ * adds (when the optional snapshot fields are set) the police status line and the unit chip
+ * and carried line above the speed panel, the call strip and offer line top-left, and the
+ * target reticle with its plate/description and run result at the screen centre.
  * Elements are built once; `update` recomputes the text at most `updateHz` times per
  * second and writes only the fields that changed. Headless (no `document`) it keeps
  * the text model but touches no DOM.
@@ -396,6 +553,91 @@ export class Hud {
       if (v) {
         v.prompt.textContent = n.prompt;
         show(v.prompt, n.prompt !== '');
+      }
+    }
+    this.applyPolice(all);
+  }
+
+  /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
+  private applyPolice(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    if (all || n.police !== o.police) {
+      o.police = n.police;
+      if (v) {
+        v.police.textContent = n.police;
+        show(v.police, n.police !== '');
+      }
+    }
+    if (all || n.unit !== o.unit) {
+      o.unit = n.unit;
+      if (v) {
+        v.unit.textContent = n.unit;
+        show(v.unitRow, n.unit !== '', 'flex');
+      }
+    }
+    if (all || n.unitEmergency !== o.unitEmergency) {
+      o.unitEmergency = n.unitEmergency;
+      if (v) show(v.unitEmergency, n.unitEmergency, 'inline');
+    }
+    if (all || n.unitStatusCheck !== o.unitStatusCheck) {
+      o.unitStatusCheck = n.unitStatusCheck;
+      if (v) show(v.unitStatusCheck, n.unitStatusCheck, 'inline');
+    }
+    if (all || n.callTitle !== o.callTitle) {
+      o.callTitle = n.callTitle;
+      if (v) {
+        v.callTitle.textContent = n.callTitle;
+        show(v.callPanel, n.callTitle !== '');
+      }
+    }
+    if (all || n.callAddress !== o.callAddress) {
+      o.callAddress = n.callAddress;
+      if (v) v.callAddress.textContent = n.callAddress;
+    }
+    if (all || n.callStatus !== o.callStatus) {
+      o.callStatus = n.callStatus;
+      if (v) v.callStatus.textContent = n.callStatus;
+    }
+    if (all || n.callPriority !== o.callPriority) {
+      o.callPriority = n.callPriority;
+      if (v) v.callPanel.style.borderLeftColor = priorityColor(n.callPriority);
+    }
+    if (all || n.offer !== o.offer) {
+      o.offer = n.offer;
+      if (v) {
+        v.offer.textContent = n.offer;
+        show(v.offer, n.offer !== '');
+      }
+    }
+    if (all || n.targetShow !== o.targetShow) {
+      o.targetShow = n.targetShow;
+      if (v) {
+        show(v.reticle, n.targetShow);
+        show(v.targetInfo, n.targetShow);
+      }
+    }
+    if (all || n.targetLabel !== o.targetLabel) {
+      o.targetLabel = n.targetLabel;
+      if (v) v.targetLabel.textContent = n.targetLabel;
+    }
+    if (all || n.targetResult !== o.targetResult) {
+      o.targetResult = n.targetResult;
+      if (v) {
+        v.targetResult.textContent = n.targetResult;
+        show(v.targetResult, n.targetResult !== '');
+      }
+    }
+    if (all || n.targetSeverity !== o.targetSeverity) {
+      o.targetSeverity = n.targetSeverity;
+      if (v) v.targetResult.style.color = SEVERITY_COLORS[n.targetSeverity];
+    }
+    if (all || n.carried !== o.carried) {
+      o.carried = n.carried;
+      if (v) {
+        v.carried.textContent = n.carried;
+        show(v.carried, n.carried !== '');
       }
     }
   }

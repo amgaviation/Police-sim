@@ -3,10 +3,13 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAX_ENTITIES, Transform } from '../../ecs/components';
 import type { GameWorld } from '../../ecs/world';
+import { hasPoliceLights, PoliceLights } from '../../police/components';
+import { LIGHTBAR_SEGMENTS, lightbarColors, REDUCED_FLASH, SEGMENT_COLOR } from '../../police/lightbar';
 import { FAULT, LIGHT, VehicleLook } from '../../vehicles/components';
 import type { WheelPose } from '../../vehicles/drivableVehicle';
 import { VEHICLE_MODELS, type VehicleModel } from '../../vehicles/model';
 import { interpolateTransform } from '../meshSync';
+import { spotlightMount, spotlightPose, type LocalPoint, type SpotlightPose } from '../police/spotlight';
 import { disposeObject } from '../renderer';
 import { buildCarParts, LENS_KINDS, wheelLocalPositions, type CarPart } from './carParts';
 import { damageTransform, type DamageTransform } from './damageVisual';
@@ -24,23 +27,42 @@ export interface CarRendererOptions {
   shadows?: boolean;
 }
 
-/** Lens floats per entry: kind (index into LENS_KINDS), x, y, z, sx, sy, sz. */
-const LENS_STRIDE = 7;
+/** Lens floats per entry: kind (index into LENS_KINDS), x, y, z, sx, sy, sz, light-bar segment (-1 none). */
+const LENS_STRIDE = 8;
 const LENS_HEAD_LEFT = LENS_KINDS.indexOf('headLeft');
 const LENS_HEAD_RIGHT = LENS_KINDS.indexOf('headRight');
 const LENS_TAIL_LEFT = LENS_KINDS.indexOf('tailLeft');
 const LENS_TAIL_RIGHT = LENS_KINDS.indexOf('tailRight');
-const LENS_RED = LENS_KINDS.indexOf('lightbarRed');
 
 const HAZARD_HZ = 1.5;
-const LIGHTBAR_HZ = 2;
-const LIGHTBAR_REDUCED_HZ = 0.5;
-const LIGHTBAR_REDUCED_LEVEL = 0.55;
+/** Unlit light-bar lenses (and the whole bar when off), as in Phase 1. */
+const LIGHTBAR_DIM = 0.12;
+/** Lit light-bar colours by `SEGMENT_COLOR` (linear RGB at full level); index 0 (off) unused. */
+const SEGMENT_RGB: readonly (readonly [number, number, number])[] = (() => {
+  const table: [number, number, number][] = [];
+  table[SEGMENT_COLOR.off] = [0, 0, 0];
+  table[SEGMENT_COLOR.red] = [1, 0.05, 0.05];
+  table[SEGMENT_COLOR.blue] = [0.05, 0.15, 1];
+  table[SEGMENT_COLOR.white] = [1, 1, 1];
+  table[SEGMENT_COLOR.amber] = [1, 0.55, 0.05];
+  return table;
+})();
 /** Peak headlight spot intensity (candela) at night; a quarter of it by day. */
 const SPOT_INTENSITY = 120;
 const SPOT_DISTANCE = 70;
 /** Spot aim point ahead of the bumper (m). */
 const SPOT_AIM = 20;
+/** Police spotlight (design §12): intensity 300 x (0.3 + 0.7 night), narrow beam, no shadows. */
+export const SPOTLIGHT_LIGHT = {
+  intensity: 300,
+  dayFactor: 0.3,
+  angle: 0.12,
+  penumbra: 0.3,
+  distance: 160,
+  decay: 1.5,
+} as const;
+/** The spotlight target sits this far along the beam (m). */
+const SPOTLIGHT_AIM = 30;
 /** Frame-to-frame moves longer than this are teleports or recycled ids, not rolling. */
 const MAX_ROLL_STEP = 5;
 const TWO_PI = Math.PI * 2;
@@ -59,11 +81,21 @@ const scratchDamage: DamageTransform = { scaleX: 1, scaleZ: 1, offsetX: 0, offse
 const scratchWheel: WheelPose = { x: 0, y: 0, z: 0, steer: 0, spin: 0, radius: 0, inContact: false };
 const spotPos = new THREE.Vector3();
 const spotQuat = new THREE.Quaternion();
+const beamPos = new THREE.Vector3();
+const beamQuat = new THREE.Quaternion();
+const beamDir = new THREE.Vector3();
+const scratchBeam: SpotlightPose = { x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: -1 };
+/** Light-bar segment colours of the car being drawn. */
+const barColors = new Uint8Array(LIGHTBAR_SEGMENTS);
 
 interface ModelSlot {
   readonly model: VehicleModel;
   readonly body: THREE.InstancedMesh;
   readonly glass: THREE.InstancedMesh;
+  /** Push bumper and spotlight housing; null for models without patrol trim. */
+  readonly trim: THREE.InstancedMesh | null;
+  /** Spotlight lamp position in the vehicle frame. */
+  readonly spotMount: LocalPoint;
   /** LENS_STRIDE floats per lens part. */
   readonly lenses: Float32Array;
   /** Wheel hub centres FL, FR, RL, RR (x, y, z). */
@@ -187,8 +219,9 @@ function frac(v: number): number {
 
 /**
  * Instanced renderer for every `VehicleLook` entity: per model one body mesh (body colour with damage
- * tint) and one glass mesh, plus one shared wheel mesh and one shared lens mesh (lamps and light bar).
- * Two headlight spots exist for the whole session so the shader light count never changes.
+ * tint), one glass mesh and, for patrol models, one trim mesh (push bumper, spotlight housing), plus
+ * one shared wheel mesh and one shared lens mesh (lamps and light-bar segments). Two headlight spots
+ * and one police spotlight exist for the whole session so the shader light count never changes.
  */
 export class CarRenderer {
   readonly stats = { cars: 0, drawCalls: 0 };
@@ -202,6 +235,7 @@ export class CarRenderer {
   private readonly wheelMesh: THREE.InstancedMesh;
   private readonly lensMesh: THREE.InstancedMesh;
   private readonly spots: readonly [THREE.SpotLight, THREE.SpotLight];
+  private readonly spotlight: THREE.SpotLight;
   private readonly sources = new Map<EntityId, WheelSource>();
   /** Speed-based wheel spin and last drawn position for cars without a WheelSource. */
   private readonly spin = new Float32Array(MAX_ENTITIES);
@@ -212,6 +246,7 @@ export class CarRenderer {
   private readonly colorTint = new Float64Array(MAX_ENTITIES);
   private readonly colorLinear = new Float32Array(MAX_ENTITIES * 3);
   private headlightTarget: EntityId = 0;
+  private spotlightTarget: EntityId = 0;
 
   constructor(scene: THREE.Scene, world: GameWorld, options: CarRendererOptions = {}) {
     this.world = world;
@@ -219,23 +254,30 @@ export class CarRenderer {
     this.group.name = 'vehicles';
     const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.2 });
     const glassMaterial = new THREE.MeshStandardMaterial({ color: 0x1a2230, roughness: 0.15, metalness: 0.3 });
+    const trimMaterial = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85, metalness: 0.05 });
 
     let maxLenses = 0;
     this.slots = VEHICLE_MODELS.map((model) => {
       const parts = buildCarParts(model);
       const painted = parts.filter((p) => p.kind === 'body' || p.kind === 'cabin');
       const glass = parts.filter((p) => p.kind === 'glass');
+      const trim = parts.filter((p) => p.kind === 'trim');
       const lensParts = parts.filter((p) => LENS_KINDS.includes(p.kind));
       maxLenses = Math.max(maxLenses, lensParts.length);
       const lenses = new Float32Array(lensParts.length * LENS_STRIDE);
       lensParts.forEach((p, i) => {
-        lenses.set([LENS_KINDS.indexOf(p.kind), p.x, p.y, p.z, p.sx, p.sy, p.sz], i * LENS_STRIDE);
+        lenses.set([LENS_KINDS.indexOf(p.kind), p.x, p.y, p.z, p.sx, p.sy, p.sz, p.segment ?? -1], i * LENS_STRIDE);
       });
       const head = lensParts.find((p) => p.kind === 'headRight');
       const slot: ModelSlot = {
         model,
         body: instanced(`car-body:${model.id}`, mergedBoxes(painted), bodyMaterial, this.maxPerModel, true),
         glass: instanced(`car-glass:${model.id}`, mergedBoxes(glass), glassMaterial, this.maxPerModel, false),
+        trim:
+          trim.length > 0
+            ? instanced(`car-trim:${model.id}`, mergedBoxes(trim), trimMaterial, this.maxPerModel, false)
+            : null,
+        spotMount: spotlightMount(model),
         lenses,
         wheels: wheelLocalPositions(model, new Float32Array(12)),
         headX: head?.x ?? 0,
@@ -243,6 +285,7 @@ export class CarRenderer {
         count: 0,
       };
       this.group.add(slot.body, slot.glass);
+      if (slot.trim) this.group.add(slot.trim);
       return slot;
     });
 
@@ -263,6 +306,13 @@ export class CarRenderer {
       return light;
     };
     this.spots = [spot('headlight-spot-left'), spot('headlight-spot-right')];
+    // The police spotlight: created once (fixed light count, no shader recompiles), intensity 0 when unused.
+    const L = SPOTLIGHT_LIGHT;
+    this.spotlight = new THREE.SpotLight(0xf4f6ff, 0, L.distance, L.angle, L.penumbra, L.decay);
+    this.spotlight.name = 'police-spotlight';
+    this.spotlight.castShadow = false;
+    this.spotlight.target.name = 'police-spotlight-target';
+    this.group.add(this.spotlight, this.spotlight.target);
 
     this.setShadows(options.shadows ?? false);
     scene.add(this.group);
@@ -279,19 +329,28 @@ export class CarRenderer {
     this.headlightTarget = eid;
   }
 
+  /** The car whose `PoliceLights` spotlight is drawn (0 = none): the driven or last-driven patrol car. */
+  setSpotlightTarget(eid: EntityId): void {
+    this.spotlightTarget = eid;
+  }
+
   setShadows(enabled: boolean): void {
     for (const slot of this.slots) {
       slot.body.castShadow = enabled;
       slot.body.receiveShadow = enabled;
       slot.glass.castShadow = enabled;
+      if (slot.trim) {
+        slot.trim.castShadow = enabled;
+        slot.trim.receiveShadow = enabled;
+      }
     }
     this.wheelMesh.castShadow = enabled;
   }
 
   /**
    * Draws every `VehicleLook` entity at its transform interpolated by `alpha`. `nightFactor` (0..1)
-   * brightens lamps and the headlight spots, `timeSec` drives hazard and light-bar flashing, and
-   * `reducedFlash` slows and dims the light bar.
+   * brightens lamps and the headlight spots, `timeSec` drives hazard and light-bar flashing (light-bar
+   * patterns from `PoliceLights`), and `reducedFlash` slows and dims the light bar.
    */
   update(alpha: number, nightFactor: number, timeSec: number, reducedFlash: boolean): void {
     const slots = this.slots;
@@ -301,10 +360,10 @@ export class CarRenderer {
     let cars = 0;
     let target: ModelSlot | null = null;
     let targetFaults = 0;
+    let beamSlot: ModelSlot | null = null;
     const night = nightFactor < 0 ? 0 : nightFactor > 1 ? 1 : nightFactor;
     const blink = frac(timeSec * HAZARD_HZ) < 0.5;
-    const redPhase = frac(timeSec * (reducedFlash ? LIGHTBAR_REDUCED_HZ : LIGHTBAR_HZ)) < 0.5;
-    const barLevel = reducedFlash ? LIGHTBAR_REDUCED_LEVEL : 1;
+    const barLevel = reducedFlash ? REDUCED_FLASH.level : 1;
     const lensColors = this.lensMesh.instanceColor?.array;
     if (!lensColors) return;
 
@@ -336,6 +395,9 @@ export class CarRenderer {
       const k = slot.count++;
       putInstance(slot.body.instanceMatrix.array, k, carBasis, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
       putInstance(slot.glass.instanceMatrix.array, k, carBasis, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      if (slot.trim) {
+        putInstance(slot.trim.instanceMatrix.array, k, carBasis, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      }
       this.writeBodyColor(eid, dmg.tint, slot.body, k);
 
       // Wheels: physics poses for drivable cars, otherwise spin from the distance rolled since last frame.
@@ -377,6 +439,13 @@ export class CarRenderer {
       // Lenses follow the crumpled body.
       const lights = VehicleLook.lights[eid] ?? 0;
       const faults = VehicleLook.faults[eid] ?? 0;
+      const police = slot.model.lightbar || eid === this.spotlightTarget ? hasPoliceLights(this.world, eid) : false;
+      const barOn = slot.model.lightbar && (lights & LIGHT.lightbar) !== 0;
+      if (barOn) {
+        const pattern = police ? (PoliceLights.pattern[eid] ?? 0) : 0;
+        const phase = police ? (PoliceLights.phase[eid] ?? 0) : 0;
+        lightbarColors(pattern, timeSec + phase, reducedFlash, barColors);
+      }
       const lenses = slot.lenses;
       for (let i = 0; i < lenses.length; i += LENS_STRIDE) {
         putInstance(
@@ -390,7 +459,12 @@ export class CarRenderer {
           lenses[i + 5] ?? 0,
           (lenses[i + 6] ?? 0) * dmg.scaleZ,
         );
-        lensColor(lenses[i] ?? 0, lights, faults, night, blink, redPhase, barLevel, lensColors, lensCount * 3);
+        const segment = lenses[i + 7] ?? -1;
+        if (segment >= 0) {
+          barLensColor(segment, barOn ? (barColors[segment] ?? 0) : SEGMENT_COLOR.off, barLevel, lensColors, lensCount * 3);
+        } else {
+          lensColor(lenses[i] ?? 0, lights, faults, night, blink, lensColors, lensCount * 3);
+        }
         lensCount++;
       }
 
@@ -400,6 +474,11 @@ export class CarRenderer {
         spotPos.copy(scratchPos);
         spotQuat.copy(scratchQuat);
       }
+      if (eid === this.spotlightTarget && eid !== 0 && police && (PoliceLights.spot[eid] ?? 0) !== 0) {
+        beamSlot = slot;
+        beamPos.copy(scratchPos);
+        beamQuat.copy(scratchQuat);
+      }
       cars++;
     }
 
@@ -407,11 +486,13 @@ export class CarRenderer {
     for (let m = 0; m < slots.length; m++) {
       const slot = slots[m] as ModelSlot;
       drawCalls += this.finish(slot.body, slot.count, true) + this.finish(slot.glass, slot.count, false);
+      if (slot.trim) drawCalls += this.finish(slot.trim, slot.count, false);
     }
     drawCalls += this.finish(this.wheelMesh, wheelCount, false) + this.finish(this.lensMesh, lensCount, true);
     this.stats.cars = cars;
     this.stats.drawCalls = drawCalls;
     this.updateSpots(target, targetFaults, night);
+    this.updateSpotlight(beamSlot, night);
   }
 
   /** Removes everything from the scene and frees geometries, materials and instance buffers. */
@@ -455,6 +536,21 @@ export class CarRenderer {
     return 1;
   }
 
+  /** Places the police spotlight on `slot`'s car (pose in `beamPos`/`beamQuat`) or switches it off. */
+  private updateSpotlight(slot: ModelSlot | null, night: number): void {
+    const light = this.spotlight;
+    if (!slot) {
+      light.intensity = 0;
+      return;
+    }
+    const eid = this.spotlightTarget;
+    const beam = spotlightPose(slot.spotMount, PoliceLights.spotYaw[eid] ?? 0, PoliceLights.spotPitch[eid] ?? 0, scratchBeam);
+    light.position.set(beam.x, beam.y, beam.z).applyQuaternion(beamQuat).add(beamPos);
+    beamDir.set(beam.dx, beam.dy, beam.dz).applyQuaternion(beamQuat);
+    light.target.position.copy(light.position).addScaledVector(beamDir, SPOTLIGHT_AIM);
+    light.intensity = SPOTLIGHT_LIGHT.intensity * (SPOTLIGHT_LIGHT.dayFactor + (1 - SPOTLIGHT_LIGHT.dayFactor) * night);
+  }
+
   private updateSpots(slot: ModelSlot | null, faults: number, night: number): void {
     const intensity = SPOT_INTENSITY * (0.25 + 0.75 * night);
     for (let side = 0; side < 2; side++) {
@@ -484,8 +580,6 @@ function lensColor(
   faults: number,
   night: number,
   blink: boolean,
-  redPhase: boolean,
-  barLevel: number,
   out: THREE.TypedArray,
   o: number,
 ): void {
@@ -509,12 +603,18 @@ function lensColor(
     if (headOn) return rgb(out, o, 0.35 + 0.15 * night, 0.02, 0.02);
     return rgb(out, o, 0.12, 0.01, 0.01);
   }
-  // Light bar halves: red on in the first half of each period, blue in the second.
-  const red = kind === LENS_RED;
-  const lit = (lights & LIGHT.lightbar) !== 0 && red === redPhase;
-  const v = lit ? barLevel : 0.12;
-  if (red) rgb(out, o, v, v * 0.05, v * 0.05);
-  else rgb(out, o, v * 0.05, v * 0.15, v);
+  rgb(out, o, 0.2, 0.2, 0.2);
+}
+
+/**
+ * Light-bar lens `segment` showing `color` (`SEGMENT_COLOR`) at `level`. Unlit lenses keep the Phase 1
+ * dim tint: red on the left half of the bar, blue on the right.
+ */
+function barLensColor(segment: number, color: number, level: number, out: THREE.TypedArray, o: number): void {
+  const lit = color !== SEGMENT_COLOR.off ? SEGMENT_RGB[color] : undefined;
+  if (lit) return rgb(out, o, lit[0] * level, lit[1] * level, lit[2] * level);
+  if (segment < LIGHTBAR_SEGMENTS / 2) rgb(out, o, LIGHTBAR_DIM, LIGHTBAR_DIM * 0.05, LIGHTBAR_DIM * 0.05);
+  else rgb(out, o, LIGHTBAR_DIM * 0.05, LIGHTBAR_DIM * 0.15, LIGHTBAR_DIM);
 }
 
 function rgb(out: THREE.TypedArray, o: number, r: number, g: number, b: number): void {

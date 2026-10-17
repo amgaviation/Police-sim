@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "timing": {
+    "ackGapS": [1.5, 3],
+    "replyGapS": [0.8, 1.8],
+    "dispatchAckChance": 0.5,
+    "answerWindowS": 30
+  },
+  "fragments": {
+    "noHits": { "tenCode": "no wants, no warrants", "plain": "no wants or warrants" },
+    "backupCode2": { "tenCode": "Code 2", "plain": "non-emergency" },
+    "backupCode3": { "tenCode": "Code 3", "plain": "emergency" },
+    "unknownLocation": { "tenCode": "location unknown", "plain": "an unknown location" },
+    "allUnits": { "tenCode": "all available units", "plain": "all available units" },
+    "noPlate": { "tenCode": "unknown plate", "plain": "an unknown plate" }
+  },
+  "kinds": {
+    "assign": {
+      "tenCode": ["{unit}, {nature}, {address}, cross {cross}, P{priority}.", "{unit}, respond {address}, {nature}, P{priority}, {call}."],
+      "plain": ["{unit}, respond to a {nature} at {address}, near {cross}, priority {priority}.", "{unit}, please handle a {nature} at {address}, priority {priority}."]
+    },
+    "unitAck": {
+      "tenCode": ["{unit}, {code:ack}, {code:enRoute}.", "{unit}, {code:ack}."],
+      "plain": ["{unit}, copy, on my way.", "{unit}, copy, heading there now."]
+    },
+    "enRoute": {
+      "tenCode": ["{unit}, {code:enRoute}."],
+      "plain": ["{unit}, en route."]
+    },
+    "onScene": {
+      "tenCode": ["{unit}, {code:onScene}.", "{unit}, show me {code:onScene}."],
+      "plain": ["{unit}, on scene.", "{unit}, I'm on scene."]
+    },
+    "clear": {
+      "tenCode": ["{unit}, {code:available}.", "{unit}, clear, {code:available}."],
+      "plain": ["{unit}, clear and back in service.", "{unit}, I'm clear, in service."]
+    },
+    "dispatchAck": {
+      "tenCode": ["{unit}, {code:ack}.", "{code:ack}, {unit}, {time}."],
+      "plain": ["Copy, {unit}.", "{unit}, copy at {time}."]
+    },
+    "offer": {
+      "tenCode": ["{unit}, can you take a {nature}, {address}, P{priority}?"],
+      "plain": ["{unit}, are you available for a {nature} at {address}, priority {priority}?"]
+    },
+    "offerTimeout": {
+      "tenCode": ["{unit}, disregard, {call} going to another unit."],
+      "plain": ["{unit}, disregard, another unit will take {call}."]
+    },
+    "plateRequest": {
+      "tenCode": ["{unit}, {code:registration} on {plate}."],
+      "plain": ["{unit}, can you run a plate for me, {plate}."]
+    },
+    "plateClear": {
+      "tenCode": ["{unit}, {plate} comes back on a {desc}, registered to {owner}, {hits}."],
+      "plain": ["{unit}, {plate} is a {desc} registered to {owner}, {hits}."]
+    },
+    "plateHit": {
+      "tenCode": ["{unit}, use caution, {plate}, {desc}, registered to {owner}. {hits}."],
+      "plain": ["{unit}, be advised, {plate} comes back with {hits}. It's a {desc}, registered to {owner}."]
+    },
+    "plateNotFound": {
+      "tenCode": ["{unit}, {plate} returns no record."],
+      "plain": ["{unit}, there is no record on file for {plate}."]
+    },
+    "personReturn": {
+      "tenCode": ["{unit}, {code:wants} returns {name}, DOB {dob}, license {dlStatus}, {hits}."],
+      "plain": ["{unit}, your subject comes back as {name}, born {dob}, license {dlStatus}, {hits}."]
+    },
+    "personRequest": {
+      "tenCode": ["{unit}, {code:wants} on a subject."],
+      "plain": ["{unit}, can you check a subject for wants?"]
+    },
+    "backupRequest": {
+      "tenCode": ["{unit}, {code:assist}, {backupCode}, {near}."],
+      "plain": ["{unit}, requesting backup, {backupCode}, at {near}."]
+    },
+    "backupDispatch": {
+      "tenCode": ["{units}, {backupCode} to assist {player}, {near}."],
+      "plain": ["{units}, respond {backupCode} to back up {player} at {near}."]
+    },
+    "noUnits": {
+      "tenCode": ["{unit}, no units available at this time."],
+      "plain": ["{unit}, sorry, no units are free right now."]
+    },
+    "emergencyAlert": {
+      "tenCode": ["All units, {code:emergency}. {unit} emergency activation, last known {near}. {units}, respond Code 3."],
+      "plain": ["All units, emergency traffic. Officer {unit} needs help at {near}. {units}, respond with lights and siren."]
+    },
+    "emergencyClear": {
+      "tenCode": ["All units, {unit} is {code:allOk}. Resume normal traffic."],
+      "plain": ["All units, {unit} is OK. The channel is open."]
+    },
+    "playerEmergency": {
+      "tenCode": ["{unit}, {code:emergency}! {near}!"],
+      "plain": ["{unit}, emergency! I need help at {near}!"]
+    },
+    "statusCheck": {
+      "tenCode": ["{unit}, status check.", "{unit}, {code:allOk}?"],
+      "plain": ["{unit}, checking on you, are you OK?"]
+    },
+    "statusCheckRepeat": {
+      "tenCode": ["{unit}, {unit}, second status check, respond."],
+      "plain": ["{unit}, {unit}, please respond, are you OK?"]
+    },
+    "statusEscalate": {
+      "tenCode": ["All units, no response from {unit} on status check. Last known {near}. Units respond Code 3."],
+      "plain": ["All units, {unit} is not answering a status check. Last known location {near}. Units respond with lights and siren."]
+    },
+    "locationAsk": {
+      "tenCode": ["{unit}, what's your {code:location}?"],
+      "plain": ["{unit}, what's your location?"]
+    },
+    "locationGive": {
+      "tenCode": ["{unit}, your {code:location} is {near}."],
+      "plain": ["{unit}, you are at {near}."]
+    },
+    "locationAnswer": {
+      "tenCode": ["{unit}, {code:location} is {near}."],
+      "plain": ["{unit}, I'm at {near}."]
+    },
+    "locationRequest": {
+      "tenCode": ["{unit}, {code:location}?"],
+      "plain": ["{unit}, can you give me my location?"]
+    },
+    "trafficStop": {
+      "tenCode": ["{unit}, {code:trafficStop}, {plate}, {near}."],
+      "plain": ["{unit}, traffic stop on {plate} at {near}."]
+    },
+    "trafficStopAck": {
+      "tenCode": ["{unit}, {code:ack}, {time}."],
+      "plain": ["{unit}, copy your traffic stop at {time}."]
+    },
+    "stopClear": {
+      "tenCode": ["{unit}, {code:ack}, clear of the stop."],
+      "plain": ["{unit}, copy, you're clear of the stop."]
+    },
+    "blocked": {
+      "tenCode": ["{unit}, you were blocked, {code:repeat}."],
+      "plain": ["{unit}, you were stepped on, say again."]
+    },
+    "wrongChannel": {
+      "tenCode": ["Unit calling, this is {channel}, switch to dispatch."],
+      "plain": ["Unit calling, you're on {channel}. Please switch to dispatch."]
+    },
+    "code4": {
+      "tenCode": ["{unit}, {code:allOk}."],
+      "plain": ["{unit}, all OK here."]
+    },
+    "status": {
+      "tenCode": ["{unit}, show me {status}."],
+      "plain": ["{unit}, show me {status}."]
+    },
+    "accept": {
+      "tenCode": ["{unit}, {code:ack}, show me {code:enRoute}."],
+      "plain": ["{unit}, copy, I'll take it, en route."]
+    },
+    "decline": {
+      "tenCode": ["{unit}, unable, {code:busy}."],
+      "plain": ["{unit}, unable to take that one."]
+    },
+    "repeatRequest": {
+      "tenCode": ["{unit}, {code:repeat}."],
+      "plain": ["{unit}, say again?"]
+    },
+    "refused": {
+      "tenCode": ["{unit}, negative, {reason}."],
+      "plain": ["{unit}, unable, {reason}."]
+    },
+    "generic": {
+      "tenCode": ["{unit}, {code:ack}."],
+      "plain": ["{unit}, copy."]
+    }
+  }
+}

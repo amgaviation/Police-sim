@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "tones": {
+    "wail": { "lowHz": 650, "highHz": 1500, "periodS": 4.5, "shape": "triangle" },
+    "yelp": { "lowHz": 650, "highHz": 1500, "periodS": 0.32, "shape": "sawtooth" },
+    "phaser": { "lowHz": 800, "highHz": 1700, "periodS": 0.09, "shape": "sawtooth" },
+    "hilo": { "lowHz": 770, "highHz": 960, "periodS": 1.3, "shape": "square" }
+  },
+  "horn": { "freqsHz": [311, 392], "attackS": 0.03, "releaseS": 0.15 },
+  "manual": { "minHz": 200, "maxHz": 1500, "riseS": 2.5, "fallS": 4 },
+  "voice": { "wave": "sawtooth", "lowpassHz": 3200, "gain": 0.35 },
+  "panner": { "model": "inverse", "refDistance": 12, "rolloff": 1.1, "maxDistance": 900 },
+  "voices": 4,
+  "maxAudibleM": 700,
+  "cabin": { "gain": 0.45, "lowpassHz": 2500 }
+}

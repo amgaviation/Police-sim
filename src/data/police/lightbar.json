@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "segments": 8,
+  "reducedFlash": { "minFrameS": 0.34, "level": 0.55 },
+  "patterns": [
+    { "id": "alternate", "label": "Alternating", "frames": [["RRRR....", 0.25], ["....BBBB", 0.25]] },
+    {
+      "id": "quad",
+      "label": "Quad flash",
+      "frames": [
+        ["RRRR....", 0.06], ["........", 0.05], ["RRRR....", 0.06], ["........", 0.05],
+        ["....BBBB", 0.06], ["........", 0.05], ["....BBBB", 0.06], ["........", 0.05]
+      ]
+    },
+    {
+      "id": "sweep",
+      "label": "Sweep",
+      "frames": [
+        ["R.......", 0.07], [".R......", 0.07], ["..R.....", 0.07], ["...R....", 0.07],
+        ["....B...", 0.07], [".....B..", 0.07], ["......B.", 0.07], [".......B", 0.07]
+      ]
+    },
+    { "id": "takedown", "label": "Takedown", "frames": [["RWWWWWWB", 0.3], ["BWWWWWWR", 0.3]] },
+    { "id": "cruise", "label": "Cruise (steady)", "frames": [["B......B", 1.0]] },
+    {
+      "id": "arrowLeft",
+      "label": "Traffic advisor left",
+      "frames": [["......AA", 0.12], ["....AAAA", 0.12], ["..AAAAAA", 0.12], ["AAAAAAAA", 0.18], ["........", 0.2]]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import type { VehicleEquipmentSpec } from '../police/equipment';
 import {
   fail,
   readArray,
@@ -89,6 +90,8 @@ export interface VehicleModel {
   readonly damage: DamageSpec;
   /** IDM parameters for ambient traffic (m/s²). */
   readonly traffic: { readonly maxAccel: number; readonly comfortDecel: number; readonly maxDecel: number };
+  /** Patrol-car equipment (optional `equipment` JSON section, design §4.4); null for every other model. */
+  readonly equipment: VehicleEquipmentSpec | null;
 }
 
 export interface BrakeSpec {
@@ -123,6 +126,13 @@ export interface DamageSpec {
   readonly stallBelow: number;
   readonly stallChancePerS: number;
   readonly failBelow: number;
+  /**
+   * Front-zone strength with a push bumper (`zoneStrength * pushBumper.frontStrength`); absent without
+   * one, when front hits use `zoneStrength`.
+   */
+  readonly frontZoneStrength?: number;
+  /** Engine share of front hits with a push bumper (`engineFrontShare * pushBumper.engineShare`); absent without one. */
+  readonly frontEngineShare?: number;
 }
 
 type Ranges<K extends string> = Record<K, readonly [number, number]>;
@@ -142,6 +152,29 @@ function readNumbers<K extends string>(obj: JsonObject, ranges: Ranges<K>, sourc
 
 function section(root: JsonObject, key: string, source: string): JsonObject {
   return readObject(root[key], source, key);
+}
+
+/** Parses the optional `equipment` section; null when absent. */
+function parseEquipment(value: unknown, source: string): VehicleEquipmentSpec | null {
+  if (value === undefined) return null;
+  const eq = readObject(value, source, 'equipment');
+  const bumper =
+    eq.pushBumper === undefined
+      ? null
+      : readNumbers(
+          readObject(eq.pushBumper, source, 'equipment.pushBumper'),
+          { frontStrength: POS, engineShare: UNIT },
+          source,
+          'equipment.pushBumper',
+        );
+  return {
+    pushBumper: bumper,
+    partition: readBoolean(eq.partition, source, 'equipment.partition'),
+    rack: readBoolean(eq.rack, source, 'equipment.rack'),
+    spotlight: readBoolean(eq.spotlight, source, 'equipment.spotlight'),
+    mdt: readBoolean(eq.mdt, source, 'equipment.mdt'),
+    trunk: eq.trunk === null ? null : readString(eq.trunk, source, 'equipment.trunk'),
+  };
 }
 
 /** Validates one model file; throws a readable error naming `source` and the field. */
@@ -226,6 +259,23 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
   const comHeight = readNumber(root.comHeight, source, 'comHeight', 0);
   if (comHeight >= body.groundClearance + body.height) fail(source, 'comHeight', 'must be below the roof');
 
+  const equipment = parseEquipment(root.equipment, source);
+  const damage: DamageSpec = readNumbers(
+    section(root, 'damage', source),
+    {
+      minImpactSpeed: POS,
+      zoneStrength: POS,
+      engineFrontShare: NONNEG,
+      tireBurstSpeed: POS,
+      stallBelow: UNIT,
+      stallChancePerS: NONNEG,
+      failBelow: UNIT,
+    },
+    source,
+    'damage',
+  );
+  const bumper = equipment?.pushBumper ?? null;
+
   return {
     index,
     id: readString(root.id, source, 'id'),
@@ -264,26 +314,21 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
       source,
       'fuel',
     ),
-    damage: readNumbers(
-      section(root, 'damage', source),
-      {
-        minImpactSpeed: POS,
-        zoneStrength: POS,
-        engineFrontShare: NONNEG,
-        tireBurstSpeed: POS,
-        stallBelow: UNIT,
-        stallChancePerS: NONNEG,
-        failBelow: UNIT,
-      },
-      source,
-      'damage',
-    ),
+    damage:
+      bumper === null
+        ? damage
+        : {
+            ...damage,
+            frontZoneStrength: damage.zoneStrength * bumper.frontStrength,
+            frontEngineShare: damage.engineFrontShare * bumper.engineShare,
+          },
     traffic: readNumbers(
       section(root, 'traffic', source),
       { maxAccel: POS, comfortDecel: POS, maxDecel: POS },
       source,
       'traffic',
     ),
+    equipment,
   };
 }
 

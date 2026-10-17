@@ -182,9 +182,94 @@ describe('implemented settings', () => {
     expect(isImplemented('graphics.frameCap')).toBe(true);
     expect(isImplemented('graphics.drawDistance')).toBe(true);
     expect(isImplemented('controls.gamepadDeadzone')).toBe(true);
-    expect(isImplemented('audio.master')).toBe(false);
+    expect(isImplemented('audio.music')).toBe(false);
     expect(isImplemented('accessibility.colorblind')).toBe(false);
-    expect(visibleSections()).toEqual(['graphics', 'controls', 'accessibility']);
+    expect(visibleSections()).toEqual(['graphics', 'audio', 'controls', 'accessibility']);
+  });
+
+  it('shows the Phase 2 audio and radio settings', () => {
+    for (const path of [
+      'audio.master',
+      'audio.sfx',
+      'audio.radio',
+      'audio.ttsVoice',
+      'audio.tts',
+      'audio.radioMode',
+      'audio.voiceCommands',
+      'accessibility.subtitles',
+    ] as const) {
+      expect(isImplemented(path), path).toBe(true);
+    }
+    expect(SETTINGS_FIELDS['audio.ttsVoice'].label).toBe('Dispatcher voice');
+    expect(SETTINGS_FIELDS['audio.tts'].label).toBe('Spoken radio (text-to-speech)');
+    expect(SETTINGS_FIELDS['audio.radioMode'].label).toBe('Radio language');
+    expect(SETTINGS_FIELDS['audio.radioMode'].options.map((o) => o.label)).toEqual(['Ten-codes', 'Plain language']);
+    expect(SETTINGS_FIELDS['audio.voiceCommands'].label).toBe('Voice commands (push-to-talk, browser speech service)');
+    expect(SETTINGS_FIELDS['accessibility.subtitles'].label).toBe('Radio captions');
+  });
+});
+
+describe('audio and radio settings', () => {
+  it('defaults: speech on, ten-codes, voice commands off', () => {
+    expect(DEFAULT_SETTINGS.audio).toEqual({
+      master: 0.8,
+      sfx: 1,
+      radio: 1,
+      music: 0.6,
+      ttsVoice: null,
+      tts: true,
+      radioMode: 'tenCode',
+      voiceCommands: false,
+    });
+    expect(SETTINGS_VERSION).toBe(1);
+  });
+
+  it('coerces radioMode to the two known modes only', () => {
+    expect(coerceSetting('audio.radioMode', 'plain')).toBe('plain');
+    expect(coerceSetting('audio.radioMode', 'tenCode')).toBe('tenCode');
+    for (const bad of ['TenCode', 'tencode', 'ten-codes', '', 1, null, true]) {
+      expect(coerceSetting('audio.radioMode', bad)).toBeUndefined();
+    }
+    expect(parseSettings({ audio: { radioMode: 'pirate' } }).audio.radioMode).toBe('tenCode');
+  });
+
+  it('coerces the new booleans strictly', () => {
+    expect(coerceSetting('audio.tts', false)).toBe(false);
+    expect(coerceSetting('audio.voiceCommands', true)).toBe(true);
+    expect(coerceSetting('audio.tts', 'false')).toBeUndefined();
+    expect(coerceSetting('audio.voiceCommands', 1)).toBeUndefined();
+  });
+
+  it('parses an old version-1 blob without the new fields using defaults', () => {
+    const oldBlob = {
+      version: 1,
+      graphics: { renderScale: 1, shadows: 'high', fov: 80, frameCap: 60, drawDistance: 900 },
+      audio: { master: 0.5, sfx: 0.7, radio: 0.9, music: 0.2, ttsVoice: 'Daniel' },
+      controls: { mouseSensitivity: 1, invertY: false, gamepadDeadzone: 0.15 },
+      accessibility: { textScale: 1, colorblind: 'none', reducedFlash: false, subtitles: false, oneHanded: false },
+    };
+    const parsed = parseSettings(oldBlob);
+    expect(parsed.audio).toEqual({
+      master: 0.5,
+      sfx: 0.7,
+      radio: 0.9,
+      music: 0.2,
+      ttsVoice: 'Daniel',
+      tts: true,
+      radioMode: 'tenCode',
+      voiceCommands: false,
+    });
+    expect(parsed.accessibility.subtitles).toBe(false);
+    expect(log.entries().filter((e) => e.level === 'warn')).toHaveLength(0);
+  });
+
+  it('round-trips the new fields', () => {
+    const settings = parseSettings({ audio: { tts: false, radioMode: 'plain', voiceCommands: true } });
+    const blob = JSON.parse(JSON.stringify(serializeSettings(settings))) as unknown;
+    const again = parseSettings(blob);
+    expect(again.audio.tts).toBe(false);
+    expect(again.audio.radioMode).toBe('plain');
+    expect(again.audio.voiceCommands).toBe(true);
   });
 });
 

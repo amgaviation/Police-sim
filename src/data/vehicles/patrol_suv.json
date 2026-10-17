@@ -17,5 +17,6 @@
   "brakes": { "maxForce": 25500, "frontBias": 0.63, "abs": true, "handbrakeForce": 17000, "heatPerKJ": 0.17, "coolingPerS": 0.002, "airflowCooling": 0.0003, "fadeStartC": 350, "fadeEndC": 650, "minEfficiency": 0.45 },
   "fuel": { "capacityL": 80, "idleLph": 1, "litersPerKWh": 0.31 },
   "damage": { "minImpactSpeed": 2, "zoneStrength": 16, "engineFrontShare": 0.65, "tireBurstSpeed": 9.5, "stallBelow": 0.3, "stallChancePerS": 0.04, "failBelow": 0.05 },
+  "equipment": { "pushBumper": { "frontStrength": 1.8, "engineShare": 0.5 }, "partition": true, "rack": true, "spotlight": true, "mdt": true, "trunk": "patrol" },
   "traffic": { "maxAccel": 2, "comfortDecel": 2.5, "maxDecel": 7 }
 }

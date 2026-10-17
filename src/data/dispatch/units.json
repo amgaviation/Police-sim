@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "player": { "callsign": "12", "officer": "Officer Doe", "beat": "downtown" },
+  "units": [
+    { "callsign": "21", "officer": "Officer Reyes", "model": "patrol_sedan", "beat": "downtown" },
+    { "callsign": "23", "officer": "Officer Park", "model": "patrol_suv", "beat": "suburbs" },
+    { "callsign": "25", "officer": "Officer Lindqvist", "model": "patrol_sedan", "beat": "industrial" },
+    { "callsign": "27", "officer": "Officer Okafor", "model": "patrol_suv", "beat": "highway" },
+    { "callsign": "31", "officer": "Officer Marsh", "model": "patrol_sedan", "beat": "suburbs" },
+    { "callsign": "33", "officer": "Officer Albright", "model": "patrol_sedan", "beat": "downtown" }
+  ]
+}

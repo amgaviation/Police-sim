@@ -1,5 +1,6 @@
 export {
   compassLabel,
+  formatDistance,
   formatFuel,
   formatGear,
   formatSpeedMph,
@@ -20,4 +21,36 @@ export {
   type HudSnapshot,
   type HudText,
 } from './hud';
-export { MINIMAP_HZ, MINIMAP_RADII, MINIMAP_SIZE, Minimap, type TrafficDots } from './minimap';
+export {
+  MARKER,
+  MARKER_RIM,
+  MINIMAP_HZ,
+  MINIMAP_RADII,
+  MINIMAP_SIZE,
+  Minimap,
+  createMinimapMarkers,
+  markerProjection,
+  type MarkerKind,
+  type MarkerPoint,
+  type MinimapMarkers,
+  type TrafficDots,
+} from './minimap';
+export {
+  PRIORITY_COLORS,
+  SEVERITY_COLORS,
+  callStripText,
+  clampPriority,
+  createCallStripText,
+  createTargetText,
+  policeStatusText,
+  priorityColor,
+  targetText,
+  unitChipText,
+  type CallStripText,
+  type HudCall,
+  type HudPolice,
+  type HudTarget,
+  type HudUnit,
+  type TargetSeverity,
+  type TargetText,
+} from './police';

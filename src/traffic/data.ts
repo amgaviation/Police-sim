@@ -1,7 +1,8 @@
 import densityJson from '../data/traffic/density.json';
+import pulloverJson from '../data/traffic/pullover.json';
 import registryJson from '../data/traffic/registry.json';
 import violationsJson from '../data/traffic/violations.json';
-import { fail, readArray, readNumber, readObject, readVersion, type JsonObject } from '../vehicles/json';
+import { fail, readArray, readBoolean, readNumber, readObject, readVersion, type JsonObject } from '../vehicles/json';
 import { DISTRICT_NAMES } from '../world/ids';
 
 // --- Validated shapes ------------------------------------------------------------
@@ -57,6 +58,40 @@ export interface DensityData {
 export interface RegistryData {
   readonly population: number;
   readonly yearRange: readonly [number, number];
+}
+
+/** Traffic stops, yielding and fleet cars (Phase 2 design §4.3, §7). */
+export interface PulloverData {
+  /** Stop candidate window ahead of the player car (centre distances, m) and the time it must persist (s). */
+  readonly detect: {
+    readonly minDistance: number;
+    readonly maxDistance: number;
+    readonly lateral: number;
+    readonly headingDot: number;
+    readonly delayS: number;
+  };
+  /** Curb offset: clearance past the lane edge (m), lateral speed (m/s), braking (m/s²), no pull this close to a stop line (m). */
+  readonly curb: {
+    readonly clearance: number;
+    readonly lateralSpeed: number;
+    readonly decel: number;
+    readonly noPullNearLineM: number;
+    readonly hazards: boolean;
+  };
+  /** Merging back (m/s) and the focus distance that ends a stop (m). */
+  readonly release: { readonly lateralSpeed: number; readonly autoReleaseM: number };
+  /** Yielding to emergency vehicles: range ahead (m), lateral window (m), pass margin (m), timeout (s). */
+  readonly yield: { readonly range: number; readonly lateral: number; readonly passMargin: number; readonly timeoutS: number };
+  /** AI police fleet cars: count, speed factors on the limit, caps (m/s), crossing speed (m/s), arrival distance (m). */
+  readonly fleet: {
+    readonly maxCars: number;
+    readonly patrolFactor: number;
+    readonly respondFactor: number;
+    readonly emergencyFactor: number;
+    readonly maxEmergencySpeed: number;
+    readonly crossSpeed: number;
+    readonly arriveDistance: number;
+  };
 }
 
 // --- Readers --------------------------------------------------------------------------
@@ -182,6 +217,57 @@ export function validateRegistry(data: unknown, file = 'registry.json'): Registr
   };
 }
 
+export function validatePullover(data: unknown, file = 'pullover.json'): PulloverData {
+  const root = readObject(data, file, '');
+  readVersion(root, file);
+  const section = (key: string): JsonObject => readObject(root[key], file, key);
+  const num = (obj: JsonObject, sec: string, key: string, min: number, max: number): number =>
+    readNumber(obj[key], file, `${sec}.${key}`, min, max);
+  const detect = section('detect');
+  const curb = section('curb');
+  const release = section('release');
+  const yld = section('yield');
+  const fleet = section('fleet');
+  const result: PulloverData = {
+    detect: {
+      minDistance: num(detect, 'detect', 'minDistance', 0, 500),
+      maxDistance: num(detect, 'detect', 'maxDistance', 0, 500),
+      lateral: num(detect, 'detect', 'lateral', 0, 50),
+      headingDot: num(detect, 'detect', 'headingDot', -1, 1),
+      delayS: num(detect, 'detect', 'delayS', 0, 60),
+    },
+    curb: {
+      clearance: num(curb, 'curb', 'clearance', 0, 5),
+      lateralSpeed: num(curb, 'curb', 'lateralSpeed', 0.05, 10),
+      decel: num(curb, 'curb', 'decel', 0.1, 10),
+      noPullNearLineM: num(curb, 'curb', 'noPullNearLineM', 0, 500),
+      hazards: readBoolean(curb.hazards, file, 'curb.hazards'),
+    },
+    release: {
+      lateralSpeed: num(release, 'release', 'lateralSpeed', 0.05, 10),
+      autoReleaseM: num(release, 'release', 'autoReleaseM', 1, 10000),
+    },
+    yield: {
+      range: num(yld, 'yield', 'range', 0, 1000),
+      lateral: num(yld, 'yield', 'lateral', 0, 50),
+      passMargin: num(yld, 'yield', 'passMargin', 0, 500),
+      timeoutS: num(yld, 'yield', 'timeoutS', 0.1, 600),
+    },
+    fleet: {
+      maxCars: readInt(fleet.maxCars, file, 'fleet.maxCars', 0, 64),
+      patrolFactor: num(fleet, 'fleet', 'patrolFactor', 0.1, 3),
+      respondFactor: num(fleet, 'fleet', 'respondFactor', 0.1, 3),
+      emergencyFactor: num(fleet, 'fleet', 'emergencyFactor', 0.1, 3),
+      maxEmergencySpeed: num(fleet, 'fleet', 'maxEmergencySpeed', 1, 100),
+      crossSpeed: num(fleet, 'fleet', 'crossSpeed', 0.5, 30),
+      arriveDistance: num(fleet, 'fleet', 'arriveDistance', 1, 1000),
+    },
+  };
+  if (result.detect.minDistance > result.detect.maxDistance) fail(file, 'detect.minDistance', 'must not exceed detect.maxDistance');
+  return result;
+}
+
 export const VIOLATIONS: ViolationsData = validateViolations(violationsJson);
 export const DENSITY: DensityData = validateDensity(densityJson);
 export const REGISTRY: RegistryData = validateRegistry(registryJson);
+export const PULLOVER: PulloverData = validatePullover(pulloverJson);

@@ -78,6 +78,14 @@ describe('vehicle models', () => {
       [(j) => delete j.tires, /^bad\.json: tires must be an object, got undefined$/],
       [(j) => ((j.body as Record<string, unknown>).wheelbase = 9), /^bad\.json: body\.wheelbase must be shorter than body\.length/],
       [(j) => (j.lightbar = 'yes'), /^bad\.json: lightbar must be true or false, got "yes"$/],
+      [(j) => (j.equipment = 'full'), /^bad\.json: equipment must be an object, got "full"$/],
+      [(j) => ((j.equipment as Record<string, unknown>).pushBumper = 5), /^bad\.json: equipment\.pushBumper must be an object, got 5$/],
+      [
+        (j) => (((j.equipment as Record<string, unknown>).pushBumper as Record<string, unknown>).engineShare = 2),
+        /^bad\.json: equipment\.pushBumper\.engineShare must be in \[0, 1\], got 2$/,
+      ],
+      [(j) => ((j.equipment as Record<string, unknown>).rack = 'yes'), /^bad\.json: equipment\.rack must be true or false, got "yes"$/],
+      [(j) => ((j.equipment as Record<string, unknown>).trunk = 3), /^bad\.json: equipment\.trunk must be a non-empty string, got 3$/],
     ];
     for (const [mutate, message] of cases) {
       const json = patrolJson();
@@ -89,5 +97,37 @@ describe('vehicle models', () => {
 
   it('requires the id to match the file name', () => {
     expect(() => loadVehicleModels({ './x/renamed.json': patrolJson() })).toThrow(/renamed\.json: id must match the file name/);
+  });
+
+  it('patrol models parse their equipment and fold the push bumper into the damage spec', () => {
+    for (const id of ['patrol_sedan', 'patrol_suv']) {
+      const m = vehicleModel(id);
+      expect(m.equipment).toEqual({
+        pushBumper: { frontStrength: 1.8, engineShare: 0.5 },
+        partition: true,
+        rack: true,
+        spotlight: true,
+        mdt: true,
+        trunk: 'patrol',
+      });
+      expect(m.damage.frontZoneStrength).toBeCloseTo(m.damage.zoneStrength * 1.8, 10);
+      expect(m.damage.frontEngineShare).toBeCloseTo(m.damage.engineFrontShare * 0.5, 10);
+    }
+  });
+
+  it('models without the section have no equipment and no front damage fields', () => {
+    for (const m of VEHICLE_MODELS.filter((x) => x.role !== 'police')) {
+      expect(m.equipment).toBeNull();
+      expect('frontZoneStrength' in m.damage).toBe(false);
+      expect('frontEngineShare' in m.damage).toBe(false);
+    }
+    const json = patrolJson();
+    const eq = json.equipment as Record<string, unknown>;
+    delete eq.pushBumper;
+    eq.trunk = null;
+    const m = parseVehicleModel(json, 'x.json');
+    expect(m.equipment?.pushBumper).toBeNull();
+    expect(m.equipment?.trunk).toBeNull();
+    expect('frontZoneStrength' in m.damage).toBe(false);
   });
 });
