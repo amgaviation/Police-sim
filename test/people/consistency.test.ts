@@ -116,7 +116,7 @@ describe('identity never contradicts the Phase 2 CAD record', () => {
     const d = describePerson(i);
     expect(d.sex).toBe(i.record.sex);
     expect(d.ageBand).toMatch(/^in their (teens|\d0s)$/);
-    expect(d.top).toBe(`${i.appearance.topName} shirt`);
+    expect(d.top).toBe(i.appearance.topName);
     expect(d.bottom).toBe(i.appearance.bottomName);
     expect(d.hair).toBe(i.record.hair === 'bald' ? 'bald' : `${i.record.hair} hair`);
     expect(d.heightText).toMatch(/^\d foot \d{1,2}$/);

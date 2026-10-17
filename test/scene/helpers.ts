@@ -13,14 +13,14 @@ export { DT, GAME0, at };
 
 /** A stub contact port: records `attachCall` and `open` calls. */
 export class StubContact implements ContactPort {
-  readonly attached: { incident: string; callId: number }[] = [];
+  readonly attached: { incident: string; callId: number; role?: string }[] = [];
   readonly opened: { target: ContactTarget; incident: IncidentInfo | null }[] = [];
   open(target: ContactTarget, incident: IncidentInfo | null, _t: CadTime): number {
     this.opened.push({ target, incident });
     return this.opened.length;
   }
-  attachCall(incident: string, callId: number): void {
-    this.attached.push({ incident, callId });
+  attachCall(incident: string, callId: number, role?: string): void {
+    this.attached.push(role === undefined ? { incident, callId } : { incident, callId, role });
   }
 }
 

@@ -54,7 +54,7 @@ export interface Presence {
 /** What the scene needs from the contact manager (structurally `ContactManager`). */
 export interface ContactPort {
   open(target: ContactTarget, incident: IncidentInfo | null, t: CadTime): number;
-  attachCall(incident: string, callId: number): void;
+  attachCall(incident: string, callId: number, role?: string): void;
 }
 
 // --- Dependencies and requests -----------------------------------------------------------------------

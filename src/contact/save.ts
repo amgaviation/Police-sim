@@ -123,7 +123,8 @@ function isEntry(x: unknown): x is ContactSaveEntry {
     typeof x.stop === 'boolean' &&
     typeof x.appTranslation === 'boolean' &&
     (x.flags === undefined || (Array.isArray(x.flags) && x.flags.every(str))) &&
-    (x.found === undefined || (Array.isArray(x.found) && x.found.every(str)))
+    (x.found === undefined || (Array.isArray(x.found) && x.found.every(str))) &&
+    (x.lastSim === undefined || num(x.lastSim))
   );
 }
 
@@ -142,7 +143,7 @@ export function isContactSave(x: unknown): x is ContactSave {
     ids.add(e.id);
     persons.add(e.personId);
   }
-  return x.rng === undefined || isRngState(x.rng);
+  return (x.step === undefined || int(x.step)) && (x.rng === undefined || isRngState(x.rng));
 }
 
 /** A save with no conversations. */

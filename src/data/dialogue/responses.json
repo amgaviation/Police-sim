@@ -39,6 +39,7 @@
     "foreign.untranslated": ["({language}) ...","({language}) ... ?","(Answers in {language}, shaking their head.)"],
     "foreign.misunderstood": ["(The translation comes out garbled. They look confused.)","(The app's translation makes no sense.)","(They frown at the translation and shrug.)"],
     "limited.confused": ["Sorry... I don't understand.","What? Slower, please.","I do not... what do you say?"],
+    "dementia.confused": ["Hmm? I... what was that again?","I'm sorry, I lost my train of thought.","Where was I? What did you ask?"],
     "silent.none": ["(No response.)","(Does not react.)"],
     "escalate.flee": ["I'm out of here!","(Bolts!)","No way, I'm not staying for this!"],
     "escalate.fight": ["Back off!","Get away from me! I'll hurt you!","(Clenches fists and lunges.)"],

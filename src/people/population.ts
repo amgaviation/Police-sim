@@ -133,6 +133,8 @@ export class Population {
   private readonly nowFn: () => number;
   private readonly deltas = new Map<number, PersonDeltaSave>();
   private readonly cache = new Map<number, NpcIdentity>();
+  /** The driver `vehicleItems` last used per vehicle, so `seize` validates against what the contact listed. */
+  private readonly lastDriver = new Map<number, number>();
   private index: NameIndex | null = null;
   private rev = 0;
 
@@ -162,7 +164,7 @@ export class Population {
       return hit;
     }
     this.index ??= nameIndexFor(this.seed);
-    const made = generateIdentity(this.seed, id, record, day, this.index);
+    const made = generateIdentity(this.seed, id, record, day, this.index, this.records.peekBasePerson(id));
     this.cache.delete(key);
     this.cache.set(key, made);
     if (this.cache.size > IDENTITY_CACHE) {
@@ -189,6 +191,13 @@ export class Population {
       deceased: d?.deceased === true,
       missing: d?.missing === true,
     };
+  }
+
+  /** Dead, missing, or in custody (arrested, jailed, hospitalised): not out driving around. Cheap: reads the delta only. */
+  unavailable(id: number): boolean {
+    const d = this.deltas.get(id);
+    if (!d) return false;
+    return d.deceased === true || d.missing === true || d.custody === 'arrested' || d.custody === 'jailed' || d.custody === 'hospital';
   }
 
   /** The explicit intoxication (decayed by the elimination rate since it was set) or the base session curve. */
@@ -281,6 +290,7 @@ export class Population {
    */
   vehicleItems(vehicleId: number, driverId: number): readonly CarriedItem[] {
     if (!this.isRegistered(vehicleId)) return NO_ITEMS;
+    this.lastDriver.set(vehicleId, driverId);
     const ident = this.identity(driverId);
     const base = baseVehicleItems(this.seed, vehicleId, epochDayOfGameSeconds(this.nowFn()), {
       id: driverId,
@@ -313,12 +323,13 @@ export class Population {
     return { instance: entry.instance, item, where, visible };
   }
 
-  /** Removes an item from its owner (evidence); false when the owner does not have it. */
-  seize(owner: ItemOwner, instance: string): boolean {
+  /** Removes an item from its owner (evidence); false when the owner does not have it. `driverId` is the vehicle's actual driver. */
+  seize(owner: ItemOwner, instance: string, driverId?: number): boolean {
     const holder = this.holderOf(owner, 'seize');
     const prefix = `${owner.kind === 'person' ? 'p' : 'v'}${owner.id}:`;
     if (!instance.startsWith(prefix)) return false;
-    const present = owner.kind === 'person' ? this.itemsOn(owner.id) : this.vehicleItems(owner.id, driverOf(this.seed, owner.id));
+    const present =
+      owner.kind === 'person' ? this.itemsOn(owner.id) : this.vehicleItems(owner.id, driverId ?? this.lastDriver.get(owner.id) ?? driverOf(this.seed, owner.id));
     if (!present.some((i) => i.instance === instance)) return false;
     const d = this.edit(holder);
     const seized = (d.seized ??= []);

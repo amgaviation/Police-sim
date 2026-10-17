@@ -86,6 +86,8 @@ export class ActorRec {
   lost = 0;
   /** Seconds since the last decision. */
   acc = 0;
+  /** Seconds since the actor appeared (loose bystanders are culled by age). */
+  age = 0;
   // Derived at spawn and restore (not saved).
   walkSpeed = 1.3;
   runSpeed = 6;

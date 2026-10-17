@@ -73,7 +73,7 @@ describe('dialogue data', () => {
   it('ships every required inconsistency rule', () => {
     expect(RULES.map((r) => r.id)).toEqual([
       'nameVsId', 'dobVsId', 'nameNotOnFile', 'dobVsRecord', 'idNotOnFile', 'appearanceVsRecord', 'addressVsRecord', 'storyDestination',
-      'storyOrigin', 'storyAccount', 'drinkingDenial', 'drugsDenial', 'weaponsDenial', 'contentsDenial', 'ownerVsRecord', 'identityVsBooking',
+      'storyOrigin', 'storyAccount', 'storyDrinking', 'storyDrugs', 'storyWeapons', 'storyContents', 'storyOwner', 'drinkingDenial', 'drugsDenial', 'weaponsDenial', 'contentsDenial', 'ownerVsRecord', 'identityVsBooking',
     ]);
   });
 

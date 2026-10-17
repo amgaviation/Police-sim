@@ -362,7 +362,7 @@ function validateVariants(data: unknown, file: string): VariantConfig {
 function readPerson(value: unknown, file: string, path: string): RoleDef['person'] {
   if (typeof value === 'string') return readOneOf(value, ['caller', 'driver', 'given'] as const, file, path);
   const o = readObject(value, file, path);
-  rejectUnknown(o, ['minAge', 'maxAge', 'warrant', 'mentalHealth', 'risk', 'sex'], file, path);
+  rejectUnknown(o, ['minAge', 'maxAge', 'warrant', 'mentalHealth', 'dementia', 'risk', 'sex'], file, path);
   const out: { -readonly [K in keyof PersonConstraint]: PersonConstraint[K] } = {};
   if (o.minAge !== undefined) out.minAge = readInt(o.minAge, file, `${path}.minAge`, 0, 120);
   if (o.maxAge !== undefined) out.maxAge = readInt(o.maxAge, file, `${path}.maxAge`, 0, 120);
@@ -371,6 +371,7 @@ function readPerson(value: unknown, file: string, path: string): RoleDef['person
   }
   if (o.warrant !== undefined) out.warrant = readBoolean(o.warrant, file, `${path}.warrant`);
   if (o.mentalHealth !== undefined) out.mentalHealth = readBoolean(o.mentalHealth, file, `${path}.mentalHealth`);
+  if (o.dementia !== undefined) out.dementia = readBoolean(o.dementia, file, `${path}.dementia`);
   if (o.risk !== undefined) out.risk = readBoolean(o.risk, file, `${path}.risk`);
   if (o.sex !== undefined) out.sex = readOneOf(o.sex, ['M', 'F'] as const, file, `${path}.sex`);
   return out;

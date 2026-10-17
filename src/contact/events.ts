@@ -20,6 +20,8 @@ export interface ContactLineEvent {
   speaker: 'officer' | 'subject' | 'system';
   text: string;
   language: string;
+  /** Who the subtitle names: the claimed name, else a generic description (never the true record name). */
+  label: string;
 }
 
 /** The escorted prisoner was placed in patrol car `vehicleIndex` (the session seats the person). */

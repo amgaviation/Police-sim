@@ -253,12 +253,12 @@
       "describe": null,
       "branches": [
         {"id": "fine", "weight": 5},
-        {"id": "confused", "weight": 2, "roleOverrides": {"subject": {"person": {"minAge": 70}, "profile": "subjectConfused"}}},
+        {"id": "confused", "weight": 2, "roleOverrides": {"subject": {"person": {"minAge": 70, "dementia": true}, "profile": "subjectConfused"}}},
         {"id": "medical", "weight": 2, "flags": ["injury:subject"], "roleOverrides": {"subject": {"profile": "subjectUnconscious", "injured": 1}}},
         {"id": "deceased", "weight": 1, "flags": ["deceased:subject"], "roleOverrides": {"subject": {"deceased": true, "profile": "subjectDeceased"}}},
         {"id": "notHome", "weight": 2, "remove": ["subject"]},
         {"id": "inVehicle", "weight": 0, "flags": ["injury:subject"], "roleOverrides": {"subject": {"spot": "curb", "profile": "subjectUnconscious", "injured": 1}}},
-        {"id": "confusedOutside", "weight": 0, "roleOverrides": {"subject": {"person": {"minAge": 70}, "spot": "curb", "profile": "subjectConfused"}}},
+        {"id": "confusedOutside", "weight": 0, "roleOverrides": {"subject": {"person": {"minAge": 70, "dementia": true}, "spot": "curb", "profile": "subjectConfused"}}},
         {"id": "stranded", "weight": 0, "roleOverrides": {"subject": {"spot": "roadside", "profile": "callerHelpful"}}}
       ],
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0},
@@ -271,6 +271,7 @@
         {"text": "Occupant needs medical help: request EMS", "done": "service:ems", "show": "injury:subject"}
       ],
       "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
         {"id": "fine", "when": {"all": ["branch:fine", "contacted:subject"]}, "disposition": "handled", "grade": "good"},
         {"id": "transported", "when": "transported:subject", "disposition": "transported", "grade": "good"},
         {"id": "medicalMissed", "when": {"all": ["injury:subject", "!service:ems"]}, "disposition": "handled", "grade": "bad"},
@@ -309,6 +310,7 @@
         {"text": "Request EMS for transport", "done": "service:ems"}
       ],
       "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
         {"id": "transported", "when": "transported:subject", "disposition": "transported", "grade": "good"},
         {"id": "calmedReferred", "when": "calmed:subject", "disposition": "referred", "grade": "good"},
         {"id": "forced", "when": {"all": ["custody:subject", "forceUsed"]}, "disposition": "arrestMade", "grade": "bad"},
@@ -346,10 +348,11 @@
         {"text": "Request EMS", "done": "service:ems"}
       ],
       "outcomes": [
+        {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
         {"id": "transported", "when": "transported:patient", "disposition": "transported", "grade": "good"},
         {"id": "firstAidOnly", "when": {"all": ["firstAid", "!service:ems"]}, "disposition": "handled", "grade": "bad"},
         {"id": "refused", "when": "branch:refuses", "disposition": "handled", "grade": "good"},
-        {"id": "noEms", "when": "!service:ems", "disposition": "handled", "grade": "bad"},
+        {"id": "noEms", "when": {"all": ["role:patient", "!service:ems"]}, "disposition": "handled", "grade": "bad"},
         {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
       ]
     },
@@ -772,7 +775,7 @@
         {"id": "foundNearby", "weight": 4},
         {"id": "returnedHome", "weight": 2, "roleOverrides": {"missing": {"spot": "door", "profile": "bystander"}}},
         {"id": "notFound", "weight": 2, "roleOverrides": {"missing": {"spot": "hidden"}}},
-        {"id": "elderly", "weight": 2, "roleOverrides": {"missing": {"person": {"minAge": 70}, "profile": "subjectConfused"}}},
+        {"id": "elderly", "weight": 2, "roleOverrides": {"missing": {"person": {"minAge": 70, "dementia": true}, "profile": "subjectConfused"}}},
         {"id": "juvenileNearby", "weight": 0, "roleOverrides": {"missing": {"person": {"minAge": 16, "maxAge": 17}}}},
         {"id": "juvenileHidden", "weight": 0, "roleOverrides": {"missing": {"person": {"minAge": 16, "maxAge": 17}, "spot": "hidden"}}}
       ],

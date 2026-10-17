@@ -108,6 +108,7 @@ describe('npc events', () => {
     const sus = rt.scenario.participants.find((p) => p.role === 'suspect')!;
     const actorId = rt.actorIds[sus.index]!;
     const bus = r.bus;
+    r.npc.forceState(actorId, 'flee');
     bus.emit('npc:fled', { actorId, personId: sus.personId, callId: id });
     run(r, 0.1);
     expect(rt.flags.has('fled:suspect')).toBe(true);

@@ -128,7 +128,7 @@ export class PeoplePresenter {
         if (e.speaker === 'system') return;
         const s = this.session;
         if (!s) return;
-        const speaker = e.speaker === 'officer' ? s.officer.name : this.nameOf(s, e.personId);
+        const speaker = e.speaker === 'officer' ? s.officer.name : e.label === '' ? 'Subject' : e.label;
         this.say(speaker, e.text, e.speaker === 'subject' && e.language === 'en' ? e.personId : -1);
       }),
       bus.on('scene:line', (e) => {
@@ -278,7 +278,7 @@ export class PeoplePresenter {
       commMode: (mode) => contact.request({ kind: 'commMode', contactId: id, mode }),
       close: () => {
         this.dismissedContact = id;
-        contact.request({ kind: 'close', contactId: id });
+        contact.request({ kind: 'dismiss', contactId: id });
       },
     };
   }
@@ -302,6 +302,7 @@ export class PeoplePresenter {
         key: (key) => contact.request({ kind: 'sfstKey', key: key }),
         close: () => {
           this.dismissedSfst = true;
+          contact.request({ kind: 'sfstAbort' });
         },
       });
     }
@@ -313,12 +314,6 @@ export class PeoplePresenter {
     this.lastSubtitle = { speaker, text };
     if (this.subtitlesOn) this.subtitles.show(speaker, text, performance.now());
     if (speakPersonId >= 0) this.speech.speak(text, voiceProfileFor(`npc:${String(speakPersonId)}`, 'officer'));
-  }
-
-  private nameOf(session: GameSession, personId: number): string {
-    if (personId < 0) return 'Person';
-    const r = session.people.identity(personId).record;
-    return `${r.first} ${r.last}`;
   }
 
   // --- HUD helpers -----------------------------------------------------------------------------

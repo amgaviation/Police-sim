@@ -56,14 +56,24 @@ export function riskOf(record: PersonRecord): number {
  * (`index` is the seed's name index, memoised when omitted). Every trait uses `unitHash` with its own salt;
  * daily traits (clothes, daily items) use `salt ^ epochDay`.
  */
-export function generateIdentity(seed: number, id: number, record: PersonRecord, epochDay: number, index?: NameIndex): NpcIdentity {
+export function generateIdentity(
+  seed: number,
+  id: number,
+  record: PersonRecord,
+  epochDay: number,
+  index?: NameIndex,
+  baseRecord?: PersonRecord,
+): NpcIdentity {
   const d = PEOPLE_DATA;
+  // Hashed traits come from the deterministic base record so game contacts and served warrants never change who a
+  // person is; only `record`, `wanted` (and the supervision/licence the caller reads) follow the overlay.
+  const base = baseRecord ?? record;
   const u = (salt: number): number => unitHash(seed, salt, id);
   const age = ageOn(record.dob, epochDay);
   const juvenile = age < JUVENILE_AGE;
   const elderly = age >= d.hearing.elderlyAge;
-  const risk = riskOf(record);
-  const arrestPriors = record.priors.filter((p) => p.kind === 'arrest').length;
+  const risk = riskOf(base);
+  const arrestPriors = base.priors.filter((p) => p.kind === 'arrest').length;
 
   // Employment.
   let employer: string;
@@ -76,9 +86,9 @@ export function generateIdentity(seed: number, id: number, record: PersonRecord,
   const honesty = clamp(lerp(d.honesty.min, d.honesty.max, u(SALT.honesty)) - risk * d.honesty.riskPenalty, 0, 1);
   const attitude = clamp(
     lerp(d.attitude.min, d.attitude.max, u(SALT.attitude)) +
-      d.attitude.perPrior * record.priors.length +
+      d.attitude.perPrior * base.priors.length +
       d.attitude.perArrestPrior * arrestPriors +
-      (record.gang ? d.attitude.gang : 0),
+      (base.gang ? d.attitude.gang : 0),
     d.attitude.minClamp,
     d.attitude.maxClamp,
   );
@@ -113,7 +123,7 @@ export function generateIdentity(seed: number, id: number, record: PersonRecord,
     uh < d.hearing.deaf ? 'deaf' : uh < d.hearing.deaf + (elderly ? d.hearing.elderlyHardOfHearing : d.hearing.hardOfHearing) ? 'hardOfHearing' : 'normal';
   const dementia = age >= d.dementia.minAge && u(SALT.dementia) < d.dementia.rate;
   let mental: MentalCondition = 'none';
-  if (record.mentalHealth !== null) mental = pickWeighted(d.mental.withRecordNote, u(SALT.mentalKind));
+  if (base.mentalHealth !== null) mental = pickWeighted(d.mental.withRecordNote, u(SALT.mentalKind));
   else if (u(SALT.mentalHas) < d.mental.baseRate) mental = pickWeighted(d.mental.base, u(SALT.mentalKind));
   const health: HealthCondition[] = [];
   if (u(SALT.healthDiabetic) < d.health.diabetic) health.push('diabetic');
@@ -167,7 +177,7 @@ export function generateIdentity(seed: number, id: number, record: PersonRecord,
     drugUse,
     wanted: record.warrants.length > 0,
     appearance,
-    baseItems: baseItems(seed, id, record, { risk, drugUse }, epochDay),
+    baseItems: baseItems(seed, id, base, { risk, drugUse }, epochDay),
   };
 }
 
@@ -175,7 +185,7 @@ export interface PersonDescription {
   readonly sex: 'M' | 'F';
   /** "in their 30s". */
   readonly ageBand: string;
-  /** "black shirt". */
+  /** The colour of the top: "black". */
   readonly top: string;
   /** "blue jeans". */
   readonly bottom: string;
@@ -192,7 +202,7 @@ export function describePerson(identity: NpcIdentity): PersonDescription {
   return {
     sex: identity.record.sex,
     ageBand: decade < 20 ? 'in their teens' : `in their ${decade}s`,
-    top: `${identity.appearance.topName} shirt`,
+    top: identity.appearance.topName,
     bottom: identity.appearance.bottomName,
     hair: identity.record.hair === 'bald' ? 'bald' : `${identity.record.hair} hair`,
     heightText: `${Math.floor(inches / 12)} foot ${inches % 12}`,

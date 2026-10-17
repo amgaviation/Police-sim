@@ -315,14 +315,14 @@ describe('dispatch errors and the timeline', () => {
       }
       describes++;
       expect(described?.atS).toBe(0);
-      expect(described?.text).toMatch(/^RP describes the subject as a (male|female) .+, wearing a \w+ top and blue jeans/);
+      expect(described?.text).toMatch(/^RP describes the subject as a (male|female) .+, wearing an? \w+ top and blue jeans/);
       const armed = subject.weapon !== null;
       expect(described?.text.includes(', armed with a ')).toBe(armed && !s.errors.missingWeapon);
       expect(texts.filter((t) => t.startsWith('Update: second caller advises')).length).toBe(armed && s.errors.missingWeapon ? 1 : 0);
-      expect(texts.filter((t) => t.startsWith('Correction: subject is wearing a')).length).toBe(s.errors.wrongDescription ? 1 : 0);
+      expect(texts.filter((t) => t.startsWith('Correction: subject is wearing')).length).toBe(s.errors.wrongDescription ? 1 : 0);
       if (s.errors.wrongDescription) {
-        const said = /wearing a (\w+) top/.exec(described?.text ?? '')?.[1];
-        const truth = /wearing a (\w+) top/.exec(texts.find((t) => t.startsWith('Correction: subject is wearing')) ?? '')?.[1];
+        const said = /wearing an? (\w+) top/.exec(described?.text ?? '')?.[1];
+        const truth = /wearing an? (\w+) top/.exec(texts.find((t) => t.startsWith('Correction: subject is wearing')) ?? '')?.[1];
         expect(said).not.toBe(truth);
       }
     }

@@ -13,7 +13,7 @@ export interface CadCallCreatedEvent {
   selfInitiated: boolean;
 }
 
-export type CadCallChange = 'narrative' | 'priority' | 'units' | 'status' | 'offer' | 'links';
+export type CadCallChange = 'narrative' | 'priority' | 'units' | 'status' | 'offer' | 'links' | 'location';
 
 export interface CadCallUpdatedEvent {
   callId: number;

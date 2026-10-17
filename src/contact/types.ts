@@ -81,6 +81,10 @@ export type ContactRequest =
   | { readonly kind: 'commMode'; readonly contactId: number; readonly mode: CommMode }
   | { readonly kind: 'activate'; readonly contactId: number }
   | { readonly kind: 'close'; readonly contactId: number }
+  /** Hides the dialogue but keeps the conversation (consent, found items, flags) for when the officer talks again. */
+  | { readonly kind: 'dismiss'; readonly contactId: number }
+  /** The officer stopped the field sobriety tests: the subject declines to continue (the tests can be retried). */
+  | { readonly kind: 'sfstAbort' }
   | { readonly kind: 'sfstKey'; readonly key: string }
   | { readonly kind: 'cage'; readonly vehicleIndex: number };
 
@@ -137,6 +141,8 @@ export interface ContactSaveEntry {
   flags?: string[];
   /** Optional when reading: instance ids found by a search and not yet seized. */
   found?: string[];
+  /** Optional when reading: sim second of the last activity (eviction order). */
+  lastSim?: number;
 }
 
 export interface ContactSave {
@@ -144,6 +150,8 @@ export interface ContactSave {
   nextId: number;
   active: number;
   contacts: ContactSaveEntry[];
+  /** Optional when reading: the step counter that phases the liveness and release checks. */
+  step?: number;
   /** Optional when reading: the `contact` stream, so a restored session continues identically. */
   rng?: RngState;
 }

@@ -48,8 +48,8 @@ export function complianceChance(
 
 /**
  * Probability (0..1) that the person understands `cmd` given the way it is communicated. Deaf people only
- * get written text or gestures (gestures cover the simple commands at 0.9), hard of hearing people 0.6 of
- * verbal commands; non-English speakers 0.6 / 0.1 (none) or 0.8 / 0.5 (limited) for simple / other commands
+ * get written text, an interpreter, the app or gestures (gestures cover the simple commands at 0.9), hard of
+ * hearing people 0.6 of verbal commands only (the aided modes work like in the dialogue); non-English speakers 0.6 / 0.1 (none) or 0.8 / 0.5 (limited) for simple / other commands
  * unless an interpreter or translation app is used; dementia halves the result. `id` null (an animal) is 1.
  */
 export function understands(id: NpcIdentity | null, commMode: string, cmd: NpcCommand): number {
@@ -60,9 +60,9 @@ export function understands(id: NpcIdentity | null, commMode: string, cmd: NpcCo
   let u = 1;
   if (id.hearing === 'deaf') {
     if (commMode === 'gesture') u = GESTURE.includes(cmd) ? 0.9 : 0;
-    else if (commMode === 'written') u = 1;
+    else if (commMode === 'written' || aided) u = 1;
     else return 0;
-  } else if (id.hearing === 'hardOfHearing' && (commMode === 'verbal' || aided)) {
+  } else if (id.hearing === 'hardOfHearing' && commMode === 'verbal') {
     u *= 0.6;
   }
   if (u > 0 && !aided) {

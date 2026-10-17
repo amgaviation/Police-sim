@@ -92,6 +92,8 @@ const MAX_CONTACTS = 8;
 const TRANSCRIPT_CAP = 40;
 /** Frisk, search, cuff: the officer must be this close. */
 const ACTION_RANGE_M = 3.5;
+/** The dialogue only works within this distance. */
+const TALK_RANGE_M = 15;
 /** Looking into a vehicle. */
 const VEHICLE_RANGE_M = 3;
 /** Liveness and release checks run every this many steps. */
@@ -266,12 +268,18 @@ export class ContactManager {
   }
 
   /** Field contact `incident` got a CAD call (the scene answers `contact:needsCall`). */
-  attachCall(incident: string, callId: number): void {
+  attachCall(incident: string, callId: number, role?: string): void {
     for (const c of this.contacts) {
-      if (c.incident === incident) {
-        c.callId = callId;
-        this.rev++;
-      }
+      if (c.incident !== incident) continue;
+      const wasDetached = c.callId === 0;
+      c.callId = callId;
+      if (role !== undefined && role !== '') c.role = role;
+      this.rev++;
+      if (!wasDetached) continue;
+      // Flags earned before the call existed were dropped by the scene: say them again with the new call and role.
+      this.emitFlag(c, 'contacted');
+      for (const f of [...c.flags]) if (f.startsWith('ev:')) this.emitFlag(c, f.slice(3));
+      if (this.actorOf(c)?.cuffed === true) this.emitFlag(c, 'custody');
     }
   }
 
@@ -499,8 +507,9 @@ export class ContactManager {
       appTranslation: c.appTranslation,
       flags: [...c.flags].sort(),
       found: [...c.found],
+      lastSim: c.lastSim,
     }));
-    return { version: 1, nextId: this.nextId, active: this.activeId, contacts, rng: this.rng.state() };
+    return { version: 1, nextId: this.nextId, active: this.activeId, contacts, step: this.stepCount, rng: this.rng.state() };
   }
 
   /** Replaces every conversation with `save` (ignored when malformed). Restore the npc system and people first. */
@@ -536,7 +545,7 @@ export class ContactManager {
         found: [...(e.found ?? [])],
         tone: 'neutral',
         ownerId: isRegistered(e.vehicleId) ? this.deps.records.registration(e.vehicleId).ownerId : -1,
-        lastSim: this.t.sim,
+        lastSim: e.lastSim ?? this.t.sim,
         seen: new Set(),
       };
       if (c.sfst && c.sfst.test === 'done') c.sfstDoneSim = this.t.sim;
@@ -545,6 +554,7 @@ export class ContactManager {
       this.refreshSeen(c);
     }
     this.nextId = save.nextId;
+    this.stepCount = save.step ?? 0;
     this.activeId = this.contacts.some((c) => c.id === save.active) ? save.active : -1;
     if (save.rng) this.rng.restore(save.rng);
     this.rev++;
@@ -584,6 +594,22 @@ export class ContactManager {
       case 'close': {
         const c = this.find(r.contactId);
         if (c) this.closeContact(c);
+        break;
+      }
+      case 'dismiss': {
+        if (this.activeId === r.contactId) this.activeId = -1;
+        this.rev++;
+        break;
+      }
+      case 'sfstAbort': {
+        const c = this.contacts.find((x) => x.sfst !== null && x.id === this.activeId) ?? this.contacts.find((x) => x.sfst !== null);
+        if (c?.sfst) {
+          const unfinished = c.sfstDoneSim < 0;
+          c.sfst = null;
+          c.sfstDoneSim = -1;
+          if (unfinished) this.line(c, 'system', 'The subject declines to continue the tests.');
+          this.rev++;
+        }
         break;
       }
       case 'sfstKey': {
@@ -691,7 +717,11 @@ export class ContactManager {
   private demeanorOf(c: Contact, a: ActorInfo | null, deceased: boolean): string {
     if (deceased) return 'unresponsive';
     if (a) return findBehavior(a.profile)?.demeanor ?? 'cooperative';
-    return c.stop && c.guilty ? 'nervous' : 'cooperative';
+    const base = c.stop && c.guilty ? 'nervous' : 'cooperative';
+    if (c.target.kind !== 'occupant') return base;
+    // A seated occupant: who they are (drunk, volatile, wanted, in crisis...) decides, else the stop's guilt.
+    const own = findBehavior(this.deps.npc.ambientProfile(c.personId, this.seatProfile(c)))?.demeanor;
+    return own === undefined || own === 'cooperative' ? base : own;
   }
 
   private subjectOf(c: Contact): SubjectProfile {
@@ -776,7 +806,15 @@ export class ContactManager {
     if (c.transcript.length > TRANSCRIPT_CAP) c.transcript.splice(0, c.transcript.length - TRANSCRIPT_CAP);
     c.lastSim = this.t.sim;
     this.rev++;
-    this.deps.bus.emit('contact:line', { personId: c.personId, speaker, text, language });
+    const label = speaker === 'subject' ? this.speakerLabel(c) : '';
+    this.deps.bus.emit('contact:line', { personId: c.personId, speaker, text, language, label });
+  }
+
+  /** The subject's display name as far as the officer knows it: the claimed identity, else a generic description. */
+  private speakerLabel(c: Contact): string {
+    const claim = c.memory.identity;
+    const id = this.deps.people.identity(c.personId);
+    return titleOf(claim ? claimName(claim) : null, id.record.sex, roundTo(id.age, 5), '');
   }
 
   private emitFlag(c: Contact, flag: string): void {
@@ -841,6 +879,15 @@ export class ContactManager {
   private doSay(contactId: number, utteranceId: string, tone: Tone): void {
     const c = this.find(contactId);
     if (!c || this.isBusy(c)) return;
+    const who = this.actorOf(c);
+    if (who && (who.state === ACTOR_STATE.flee || who.state === ACTOR_STATE.fight)) {
+      this.line(c, 'system', 'The subject is not listening.');
+      return;
+    }
+    if (this.distanceTo(c) > TALK_RANGE_M) {
+      this.line(c, 'system', 'Too far away to talk.');
+      return;
+    }
     let u: Utterance;
     try {
       u = utterance(utteranceId);
@@ -858,22 +905,7 @@ export class ContactManager {
     }
     const reason = c.truth.reason === '' ? 'checking on things here' : c.truth.reason;
     this.line(c, 'officer', officerLine(u, tone, { officerName: ctx.officerName, reason }));
-    if (
-      c.callId === 0 &&
-      c.incident.startsWith('FC-') &&
-      !c.flags.has('needsCall') &&
-      (u.intent === 'requestId' || u.intent === 'command' || u.intent === 'consent')
-    ) {
-      c.flags.add('needsCall');
-      this.deps.officerPosition(this.opos);
-      const a = this.actorOf(c);
-      this.deps.bus.emit('contact:needsCall', {
-        personId: c.personId,
-        x: a ? a.x : this.opos.x,
-        z: a ? a.z : this.opos.z,
-        incident: c.incident,
-      });
-    }
+    if (u.intent === 'requestId' || u.intent === 'command' || u.intent === 'consent') this.needCall(c);
     if (u.intent === 'command') {
       this.doCommand(c, u, subject, ctx);
       return;
@@ -882,6 +914,20 @@ export class ContactManager {
     c.pending.push({ dueSim: this.t.sim + res.delayS, result: res });
     this.rev++;
     this.drain(c);
+  }
+
+  /** A field contact (no call yet) asks the scene for a self-initiated call, once. */
+  private needCall(c: Contact): void {
+    if (c.callId !== 0 || !c.incident.startsWith('FC-') || c.flags.has('needsCall')) return;
+    c.flags.add('needsCall');
+    this.deps.officerPosition(this.opos);
+    const a = this.actorOf(c);
+    this.deps.bus.emit('contact:needsCall', {
+      personId: c.personId,
+      x: a ? a.x : this.opos.x,
+      z: a ? a.z : this.opos.z,
+      incident: c.incident,
+    });
   }
 
   /** Delivers every delayed answer that is due. */
@@ -942,7 +988,12 @@ export class ContactManager {
       }
       if (previous === null || previous.personId !== claim.personId || previous.kind !== claim.kind) this.identityEffects(c, claim);
     }
-    if (res.escalate) this.escalate(c, res.escalate);
+    if (res.escalate && this.actorOf(c)?.cuffed !== true) {
+      this.escalate(c, res.escalate);
+      // The subject is no longer talking: hide the dialogue so the officer can move and react.
+      this.line(c, 'system', res.escalate === 'flee' ? 'The subject runs!' : 'The subject attacks!');
+      if (this.activeId === c.id) this.activeId = -1;
+    }
     if (res.calmed) this.flagOnce(c, 'calmed');
     if (c.actorId > 0) this.deps.npc.setStress(c.actorId, c.memory.stress);
     this.rev++;
@@ -1005,6 +1056,8 @@ export class ContactManager {
   }
 
   private escalate(c: Contact, kind: 'flee' | 'fight'): void {
+    // A prisoner in handcuffs cannot bolt or fight.
+    if (this.actorOf(c)?.cuffed === true) return;
     if (c.actorId === 0) this.stepOutActor(c);
     if (c.actorId > 0) this.deps.npc.forceState(c.actorId, kind);
   }
@@ -1016,7 +1069,7 @@ export class ContactManager {
     const id = npc.stepOut(c.target.vehicleId, c.target.seat);
     if (id === 0) return 0;
     c.actorId = id;
-    npc.setProfile(id, c.target.seat === 0 ? (c.guilty ? 'driverNervous' : 'driverCooperative') : 'passenger');
+    npc.setProfile(id, npc.ambientProfile(c.personId, this.seatProfile(c)));
     npc.setRole(id, c.role, c.callId);
     npc.setStress(id, c.memory.stress);
     this.rev++;
@@ -1065,9 +1118,14 @@ export class ContactManager {
     this.drain(c);
   }
 
+  /** The default profile of the occupant a contact is about (before who they are is taken into account). */
+  private seatProfile(c: Contact): string {
+    return c.target.kind === 'occupant' && c.target.seat === 0 ? (c.guilty ? 'driverNervous' : 'driverCooperative') : 'passenger';
+  }
+
   /** A command to someone still seated in a car: no actor yet, so the same formulas run here. */
   private seatedRoll(c: Contact, subject: SubjectProfile, cmd: NpcCommand, cc: CommandContext): CommandOutcome {
-    const profile = findBehavior(c.target.kind === 'occupant' && c.target.seat === 0 ? (c.guilty ? 'driverNervous' : 'driverCooperative') : 'passenger');
+    const profile = findBehavior(this.deps.npc.ambientProfile(c.personId, this.seatProfile(c)));
     if (!profile) return 'refuse';
     if (this.rng.next() >= understands(subject.identity, c.commMode, cmd)) return 'confused';
     return this.rng.next() < complianceChance(profile, subject.identity, subject.intoxication, c.memory.stress, cc, cmd) ? 'comply' : 'refuse';
@@ -1242,13 +1300,15 @@ export class ContactManager {
         break;
       case 'useTranslationApp':
         this.doCommMode(c.id, 'translationApp');
-        this.line(c, 'system', 'Using the translation app.');
+        this.line(c, 'system', c.commMode === 'translationApp' ? 'Using the translation app.' : 'The translation app does not help.');
         break;
       case 'requestInterpreter':
         if (c.callId > 0 && this.deps.interpreterAvailable(c.callId)) {
           this.doCommMode(c.id, 'interpreter');
           this.line(c, 'system', 'The interpreter joins the conversation.');
         } else {
+          this.needCall(c);
+          c.flags.add('interpreterAsked');
           this.line(c, 'system', 'Interpreter requested.');
           this.emitFlag(c, 'interpreterRequested');
         }
@@ -1491,6 +1551,7 @@ export class ContactManager {
     if (this.deps.npc.uncuff(c.actorId)) {
       this.deps.people.setCustody(c.personId, 'none');
       this.line(c, 'system', 'Handcuffs removed.');
+      this.emitFlag(c, 'uncuffed');
     }
   }
 
@@ -1607,10 +1668,17 @@ export class ContactManager {
     const call = c.callId > 0 ? cad.call(c.callId) : null;
     const foundAt = call ? call.location.text : this.deps.districtOf(this.opos.x, this.opos.z);
     const claim = c.memory.identity;
+    let seized = 0;
     for (const it of items) {
       const vehicle = it.instance.startsWith('v');
       const ownerId = Number(it.instance.slice(1, it.instance.indexOf(':')));
-      if (Number.isInteger(ownerId)) people.seize({ kind: vehicle ? 'vehicle' : 'person', id: ownerId }, it.instance);
+      if (!Number.isInteger(ownerId)) continue;
+      const driver = vehicle ? (this.deps.npc.occupantsOf(ownerId)[0] ?? driverOf(this.deps.seed, ownerId)) : undefined;
+      if (!people.seize({ kind: vehicle ? 'vehicle' : 'person', id: ownerId }, it.instance, driver)) {
+        this.line(c, 'system', `The ${itemDef(it.item).label.toLowerCase()} could not be collected.`);
+        continue;
+      }
+      seized++;
       const def = itemDef(it.item);
       const who = vehicle ? 'the vehicle' : claim ? claimName(claim) : 'an unidentified subject';
       const doc = cad.docs.create(
@@ -1631,7 +1699,7 @@ export class ContactManager {
         /* stays a draft the officer can complete in the MDT */
       }
     }
-    this.line(c, 'system', `${items.length} item${items.length === 1 ? '' : 's'} seized as evidence.`);
+    if (seized > 0) this.line(c, 'system', `${seized} item${seized === 1 ? '' : 's'} seized as evidence.`);
   }
 
   private doSeize(c: Contact): void {
@@ -1676,6 +1744,12 @@ export class ContactManager {
   private maintain(): void {
     const npc = this.deps.npc;
     for (const c of this.contacts.slice()) {
+      if (c.callId > 0 && !c.flags.has('interpreterHere') && this.deps.interpreterAvailable(c.callId)) {
+        // The mode list changed: refresh the panel and tell the officer if they asked.
+        c.flags.add('interpreterHere');
+        if (c.flags.has('interpreterAsked')) this.line(c, 'system', 'The interpreter has arrived.');
+        this.rev++;
+      }
       if (c.flags.has('releasing')) {
         this.progressRelease(c);
         continue;

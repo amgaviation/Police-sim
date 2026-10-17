@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { understanding } from '../../src/dialogue';
+import type { SubjectProfile } from '../../src/dialogue';
 import { complianceChance, understands } from '../../src/npc/compliance';
 import { behavior } from '../../src/npc/data';
 import { NPC_COMMANDS, type CommandContext } from '../../src/npc/types';
@@ -110,12 +112,21 @@ describe('understands', () => {
 
   it('deaf people understand only written text and gestures (simple commands)', () => {
     expect(understands(deaf, 'verbal', 'stop')).toBe(0);
-    expect(understands(deaf, 'interpreter', 'stop')).toBe(0);
-    expect(understands(deaf, 'translationApp', 'handsUp')).toBe(0);
+    expect(understands(deaf, 'interpreter', 'stop')).toBe(1);
+    expect(understands(deaf, 'translationApp', 'handsUp')).toBe(1);
     expect(understands(deaf, 'gesture', 'stop')).toBe(0.9);
     for (const c of ['handsUp', 'getDown', 'comeHere', 'stayBack', 'showHands', 'dropWeapon'] as const) expect(understands(deaf, 'gesture', c)).toBe(0.9);
     for (const c of ['followMe', 'sitDown', 'stepOut', 'turnAround', 'walkBackward', 'turnOffEngine'] as const) expect(understands(deaf, 'gesture', c)).toBe(0);
     expect(understands(deaf, 'written', 'followMe')).toBe(1);
+  });
+
+  it('commands and questions agree on the aided modes (hearing x mode)', () => {
+    const subjectOf = (identity: NpcIdentity): SubjectProfile => ({ identity }) as unknown as SubjectProfile;
+    for (const who of [plain, deaf, hard]) {
+      for (const mode of ['verbal', 'written', 'interpreter', 'translationApp'] as const) {
+        expect(understands(who, mode, 'stop'), `${who.hearing} ${mode}`).toBeCloseTo(understanding(subjectOf(who), mode, 'greet').p, 10);
+      }
+    }
   });
 
   it('hard of hearing people understand 60 % of verbal commands but all written ones', () => {

@@ -83,6 +83,8 @@ export interface PersonConstraint {
   readonly maxAge?: number;
   readonly warrant?: boolean;
   readonly mentalHealth?: boolean;
+  /** The person has dementia (an elderly subject who is really confused). */
+  readonly dementia?: boolean;
   readonly risk?: boolean;
   readonly sex?: 'M' | 'F';
 }

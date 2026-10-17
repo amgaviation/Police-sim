@@ -185,6 +185,8 @@ export class Dispatcher {
   private stopWarned = false;
   /** Scene hook: does open call `callId` own the stopped vehicle (a scenario's subject car or a pursuit)? */
   private stopOwner: ((callId: number, vehicleId: number) => boolean) | null = null;
+  private driverResolver: ((vehicleId: number) => number) | null = null;
+  private dispositionResolver: ((callId: number) => string | null) | null = null;
   /** Player state of the current step (requests and helpers read it). */
   private player: PlayerUnitState = { x: 0, z: 0, speed: 0, inPoliceVehicle: false };
 
@@ -317,6 +319,41 @@ export class Dispatcher {
    * Scene hook (design §11.1): when the player pulls over a car that the call they are on owns (the subject
    * vehicle of a DUI scenario, a pursuit), the stop attaches to that call instead of being refused.
    */
+  /** The person actually driving `vehicleId` in the world (the NPC occupant), or -1 to use the registry driver. */
+  setDriverResolver(fn: ((vehicleId: number) => number) | null): void {
+    this.driverResolver = fn;
+  }
+
+  /** CAD location of the point (x, z). */
+  locate(x: number, z: number): CadLocation {
+    return this.generator.locate(x, z);
+  }
+
+  /** The call's location changed (a correction): units still on their way go to the new spot. */
+  callRelocated(callId: number, x: number, z: number): void {
+    for (const u of this.units) {
+      if (u.callId !== callId || u.mode !== 'enRoute' || !u.hasDest) continue;
+      u.destX = x;
+      u.destZ = z;
+      this.deps.traffic.setFleetDestination(u.fleetIndex, x, z, u.destEmergency ? 'emergency' : 'respond');
+    }
+  }
+
+  /** The disposition the scenario of `callId` earned (what actually happened there), or null for a call without one. */
+  setDispositionResolver(fn: ((callId: number) => string | null) | null): void {
+    this.dispositionResolver = fn;
+  }
+
+  private scenarioDisposition(callId: number): string | null {
+    const d = this.dispositionResolver?.(callId) ?? null;
+    return d !== null && DISPOSITION_IDS.has(d) ? d : null;
+  }
+
+  private trueDriverOf(vehicleId: number): number {
+    const id = this.driverResolver?.(vehicleId) ?? -1;
+    return id >= 0 && id < PERSON_POPULATION ? id : driverOf(this.deps.seed, vehicleId);
+  }
+
   setStopOwner(fn: ((callId: number, vehicleId: number) => boolean) | null): void {
     this.stopOwner = fn;
   }
@@ -612,7 +649,7 @@ export class Dispatcher {
         z,
         started: time(t),
         driverId: -1,
-        trueDriverId: driverOf(seed, vehicleId),
+        trueDriverId: this.trueDriverOf(vehicleId),
         plateRun: false,
         vinChecked: false,
         vinResult: '',
@@ -929,6 +966,8 @@ export class Dispatcher {
     const { cad } = this.deps;
     const stop = cad.trafficStop;
     if (stop && stop.callId === callId) return stop.outcome === 'arrest' ? 'arrestMade' : this.stopDisposition();
+    const earned = this.scenarioDisposition(callId);
+    if (earned !== null) return earned;
     const call = cad.call(callId);
     const first = call ? findCallType(call.typeId)?.dispositions[0] : undefined;
     return first !== undefined && DISPOSITION_IDS.has(first) ? first : 'handled';
@@ -1084,11 +1123,14 @@ export class Dispatcher {
       return;
     }
     const call = cad.call(stop.callId);
-    const subject = stop.driverId >= 0 ? stop.driverId : stop.trueDriverId;
+    // The occupants may have been seated after the stop began: re-resolve who is really behind the wheel.
+    const trueDriver = this.trueDriverOf(stop.vehicleId);
+    cad.setTrueDriver(trueDriver);
+    const subject = stop.driverId >= 0 ? stop.driverId : trueDriver;
     switch (action) {
       case 'license': {
         // The identity the driver claimed (when the officer ran that name) else the true driver.
-        const driverId = claimedId !== undefined && Number.isInteger(claimedId) && claimedId >= 0 && claimedId < PERSON_POPULATION ? claimedId : stop.trueDriverId;
+        const driverId = claimedId !== undefined && Number.isInteger(claimedId) && claimedId >= 0 && claimedId < PERSON_POPULATION ? claimedId : trueDriver;
         cad.updateTrafficStop({ driverId }, t);
         const readback = records.personSummary(driverId);
         if (call && !call.persons.includes(driverId)) call.persons.push(driverId);
@@ -1470,7 +1512,7 @@ export class Dispatcher {
       if (others === 0 && !call.units.includes(pc)) {
         const type = findCallType(call.typeId);
         const options = type && type.dispositions.length > 0 ? type.dispositions : ['handled'];
-        cad.closeCall(call.id, this.unitsRng.pick(options), t);
+        cad.closeCall(call.id, this.scenarioDisposition(call.id) ?? this.unitsRng.pick(options), t);
       } else {
         cad.unassign(u.callsign, t);
         // Its share of the work is done: the call is never refilled (the unit leaving would be picked

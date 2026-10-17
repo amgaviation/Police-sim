@@ -93,6 +93,35 @@ describe('tone and memory transitions', () => {
     expect(a).toEqual(b);
   });
 
+  it('never escalates a restrained subject and spends the stress of one who does', () => {
+    const cuffed = subjectOf(ID, { demeanor: 'hostile', restrained: true });
+    for (let seed = 0; seed < 30; seed++) {
+      const rng = createRng(seed);
+      let m = memoryOf(cuffed, ctxOf(), 0, 0.9);
+      for (let i = 0; i < 4; i++) {
+        const r = respond(utterance('requestId'), cuffed, ctxOf({ tone: 'aggressive' }), m, rng);
+        expect(r.escalate).toBeNull();
+        m = r.memory;
+      }
+    }
+    const free = subjectOf(ID, { demeanor: 'hostile' });
+    const r1 = respond(utterance('requestId'), free, ctxOf({ tone: 'aggressive' }), memoryOf(free, ctxOf(), 0, 0.95), createRng(3));
+    expect(r1.escalate).not.toBeNull();
+    // Escalating once does not escalate again on the very next (calm) question.
+    const r2 = respond(utterance('greet'), free, ctxOf({ tone: 'neutral' }), r1.memory, createRng(4));
+    expect(r2.escalate).toBeNull();
+  });
+
+  it('a demented subject who misses a question gives the dementia line, not the language one', () => {
+    const subject = subjectOf(ID, { demeanor: 'cooperative' }, { dementia: true, hearing: 'normal', language: { id: 'english', label: 'English', english: 'fluent' } });
+    const keys = new Set<string>();
+    for (let seed = 0; seed < 60; seed++) {
+      const r = respond(utterance('greet'), subject, ctxOf(), memoryOf(subject, ctxOf()), createRng(seed));
+      if (!r.understood) keys.add(r.lineKey);
+    }
+    expect([...keys]).toEqual(['dementia.confused']);
+  });
+
   it('escalates a hostile subject to flee or fight under sustained aggression', () => {
     const subject = subjectOf(ID, { demeanor: 'hostile' });
     const seen = new Set<string>();
@@ -107,7 +136,7 @@ describe('tone and memory transitions', () => {
         if (r.escalate !== null) {
           expect(r.lineKey).toBe(`escalate.${r.escalate}`);
           expect(r.statement).toBeNull();
-          expect(m.stress).toBeGreaterThan(0.85);
+          expect(m.stress).toBeLessThan(0.85);
         }
       }
       expect(escalated, `seed ${seed}`).not.toBeNull();

@@ -60,7 +60,7 @@ export interface CadCall {
   readonly typeId: string;
   priority: Priority;
   readonly nature: string;
-  readonly location: CadLocation;
+  location: CadLocation;
   readonly caller: CallerInfo;
   readonly narrative: NarrativeEntry[];
   status: CallStatus;

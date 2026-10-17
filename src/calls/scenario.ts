@@ -126,6 +126,9 @@ export type TimelineKind =
   | 'unitReport'
   | 'ambush';
 
+/** Start of the narrative that corrects a wrong dispatch address (the scene then moves the call). */
+export const LOCATION_CORRECTION = 'Correction: RP advises the location is';
+
 export interface TimelineEntry {
   /** Sim seconds after creation. */
   readonly atS: number;
@@ -273,6 +276,11 @@ function pointAlongEdge(e: RoadEdge, s: number): { x: number; z: number } {
 // --- Text -----------------------------------------------------------------------------------------
 
 /** Top colour names of the people palette (a wrong description picks another). */
+/** "a blue top" / "an orange top": one phrase for the radio, the correction and the foot-pursuit call. */
+export function topPhrase(colour: string): string {
+  return `${/^[aeiou]/i.test(colour) ? 'an' : 'a'} ${colour} top`;
+}
+
 const TOP_NAMES = ['black', 'white', 'gray', 'red', 'blue', 'green', 'yellow', 'brown', 'navy', 'orange'] as const;
 
 const WEAPON_LABEL: Readonly<Record<string, string>> = {
@@ -492,15 +500,15 @@ export function buildScenario(input: ScenarioInput, rng: Rng): Scenario {
     }
     const sexWord = d.sex === 'M' ? 'male' : 'female';
     const weaponText = described.weapon !== null && !errors.missingWeapon ? `, armed with a ${weaponLabel(described.weapon)}` : '';
-    entry(0, 'describe', `RP describes the subject as a ${sexWord} ${d.ageBand}, ${d.heightText}, wearing a ${top} top and ${d.bottom}${weaponText}.`);
+    entry(0, 'describe', `RP describes the subject as a ${sexWord} ${d.ageBand}, ${d.heightText}, wearing ${topPhrase(top)} and ${d.bottom}${weaponText}.`);
     const dc = cfg.dispatchErrors.correctionDelayS;
-    if (errors.wrongDescription) entry(between(rng, dc), 'correction', `Correction: subject is wearing a ${d.top} top.`);
+    if (errors.wrongDescription) entry(between(rng, dc), 'correction', `Correction: subject is wearing ${topPhrase(d.top)}.`);
     if (errors.missingWeapon && described.weapon !== null) {
       entry(between(rng, dc), 'correction', `Update: second caller advises the subject has a ${weaponLabel(described.weapon)}.`);
     }
   }
   if (errors.wrongAddress) {
-    entry(between(rng, cfg.dispatchErrors.correctionDelayS), 'correction', `Correction: RP advises the location is ${input.addressAt(anchor.edge, anchor.s)}.`);
+    entry(between(rng, cfg.dispatchErrors.correctionDelayS), 'correction', `${LOCATION_CORRECTION} ${input.addressAt(anchor.edge, anchor.s)}.`);
   }
   if (variants.includes('escalation') && family.escalation) {
     entry(between(rng, cfg.escalation.delayS), 'escalate', rng.pick(family.escalation.narratives), Math.max(1, input.priority + cfg.escalation.priorityDelta));

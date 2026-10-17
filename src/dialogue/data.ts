@@ -74,6 +74,7 @@ export const LINE_KEYS: readonly string[] = [
   'foreign.untranslated',
   'foreign.misunderstood',
   'limited.confused',
+  'dementia.confused',
   'silent.none',
   'escalate.flee',
   'escalate.fight',

@@ -286,6 +286,7 @@ describe('consent', () => {
       return i.juvenile && !i.dementia && i.hearing === 'normal' && i.language.english === 'fluent';
     }, 0);
     const actor = rig.spawn(pid);
+    rig.npc.forceState(actor, 'handsUp');
     const k = key('J');
     const id = rig.mgr.open({ kind: 'actor', actorId: actor }, incident(k), rig.time());
     expect(rig.mgr.view(id)?.subtitle).toContain('Juvenile');

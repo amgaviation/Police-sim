@@ -183,6 +183,8 @@ function unheardKey(cause: Understanding['cause']): string {
       return 'hoh.repeat';
     case 'foreign':
       return 'foreign.untranslated';
+    case 'dementia':
+      return 'dementia.confused';
     default:
       return 'limited.confused';
   }
@@ -798,8 +800,10 @@ export function respond(u: Utterance, subject: SubjectProfile, ctx: DialogueCont
   }
 
   // 4 (evaluated before the intent: it depends only on the tone-adjusted memory). Escalation.
-  if (mem.stress > ESCALATION_STRESS && (demeanor === 'hostile' || demeanor === 'evasive')) {
+  if (!subject.restrained && mem.stress > ESCALATION_STRESS && (demeanor === 'hostile' || demeanor === 'evasive')) {
     const escalate = demeanor === 'hostile' && !rng.chance(0.5) ? 'fight' : 'flee';
+    // Spent: the next answer must not escalate again.
+    mem.stress = ESCALATION_STRESS - 0.1;
     const key = `escalate.${escalate}`;
     return finish(key, render(key, baseVars, level, rng), delayS, true, mem, { escalate });
   }

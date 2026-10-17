@@ -46,6 +46,15 @@ describe('inconsistency engine: each rule fires on a minimal fixture and stays s
       bad: [fact('account', 'claim', 'it got loud'), fact('account', 'claim', 'nothing happened')],
       good: [fact('account', 'claim', 'it got loud'), fact('account', 'claim', 'it got loud')],
     },
+    { rule: 'storyDrinking', bad: [fact('drinking', 'claim', 'no'), fact('drinking', 'claim', 'some')], good: [fact('drinking', 'claim', 'no'), fact('drinking', 'claim', 'NO')] },
+    { rule: 'storyDrugs', bad: [fact('drugs', 'claim', 'no'), fact('drugs', 'claim', 'some')], good: [fact('drugs', 'claim', 'no'), fact('drugs', 'claim', 'no')] },
+    { rule: 'storyWeapons', bad: [fact('weapons', 'claim', 'no'), fact('weapons', 'claim', 'yes')], good: [fact('weapons', 'claim', 'no'), fact('weapons', 'claim', 'no')] },
+    {
+      rule: 'storyContents',
+      bad: [fact('vehicleContents', 'claim', 'nothing'), fact('vehicleContents', 'claim', 'some tools')],
+      good: [fact('vehicleContents', 'claim', 'nothing'), fact('vehicleContents', 'claim', 'nothing')],
+    },
+    { rule: 'storyOwner', bad: [fact('vehicleOwner', 'claim', 'owner:5'), fact('vehicleOwner', 'claim', 'owner:9')], good: [fact('vehicleOwner', 'claim', 'owner:5'), fact('vehicleOwner', 'claim', 'owner:5')] },
     {
       rule: 'drinkingDenial',
       bad: [fact('drinking', 'claim', 'no'), fact('drinking', 'evidence', 'yes', { detail: 'the PBT read 0.09' })],

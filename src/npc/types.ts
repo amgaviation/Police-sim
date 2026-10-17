@@ -155,6 +155,7 @@ export interface ActorSave {
   routePos: number;
   lostTimer: number;
   acc?: number;
+  age?: number;
 }
 
 export interface NpcSave {
@@ -170,6 +171,8 @@ export interface NpcSave {
   actors: ActorSave[];
   /** Scenario occupant overrides per vehicle id. */
   occupants: [number, number[]][];
+  /** Step at which each override was set (absent in older saves: they restart their prune grace period). */
+  occupantsSince?: [number, number][];
   /** Seats stepped out, per vehicle id. */
   out: [number, number[]][];
 }

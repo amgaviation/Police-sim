@@ -321,6 +321,14 @@ export class CadState {
     this.changed(call, 'priority');
   }
 
+  /** Moves the call to `location` (a dispatch correction); emits `cad:callUpdated { change: 'location' }`. */
+  updateLocation(callId: number, location: CadLocation, _t: CadTime): void {
+    const call = this.callMap.get(callId);
+    if (!call || call.status === 'closed') return;
+    call.location = { ...location };
+    this.changed(call, 'location');
+  }
+
   /** Offers the call to `callsign` until sim time `expiresSim`; null withdraws the offer. */
   offer(callId: number, callsign: string | null, expiresSim: number, _t: CadTime): void {
     const call = this.callMap.get(callId);
@@ -408,6 +416,14 @@ export class CadState {
   }
 
   /** Patches the mutable fields of the current stop (vehicle, plate, start and true driver are fixed). */
+  /** The person who is really driving the stopped car (the world's occupant), once known. */
+  setTrueDriver(personId: number): void {
+    const stop = this.stop;
+    if (!stop || stop.trueDriverId === personId || !Number.isInteger(personId) || personId < 0) return;
+    (stop as { trueDriverId: number }).trueDriverId = personId;
+    this.rev++;
+  }
+
   updateTrafficStop(patch: Partial<TrafficStopInfo>, _t: CadTime): void {
     const stop = this.stop;
     if (!stop) return;

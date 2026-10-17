@@ -10,6 +10,7 @@ import { BODY, FIGURE_FLAG, HELD, POSE, createHumanoidSource } from '../render/p
 import { isFleetVehicleId, type TrafficSystem } from '../traffic/trafficSystem';
 import { VEHICLE_MODELS } from '../vehicles/model';
 import type { RoadEdge, RoadGraph, RoadHit, RoadNode } from '../world/roadGraph';
+import { ambientProfile } from './ambient';
 import { complianceChance, understands } from './compliance';
 import { NPC_CONFIG, NPC_DENSITY, behavior, findBehavior, type NpcConfig } from './data';
 import { TWO_PI, sampleEdge, yawOf, type EdgeSample } from './geometry';
@@ -70,6 +71,8 @@ const FIGHT_COMMAND_RANGE_M = 2;
 const TACKLE_HALF_CONE = (35 * Math.PI) / 180;
 /** Seconds without a view of an occupant cache entry before it is dropped. */
 const OCC_CACHE_STEPS = 600;
+const OVERRIDE_GRACE_STEPS = 900;
+const OVERRIDE_CAP = 64;
 /** Door offset beyond the body side (m). */
 const DOOR_OFFSET_M = 0.7;
 
@@ -94,6 +97,12 @@ const APPROACHABLE = new Set<number>([
 const HELPLESS = new Set<number>([
   ACTOR_STATE.cuffed, ACTOR_STATE.down, ACTOR_STATE.prone, ACTOR_STATE.lying, ACTOR_STATE.hide, ACTOR_STATE.seated,
 ]);
+/** States of a loose actor that may be culled when nobody needs it. */
+const CULLABLE = new Set<number>([ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.hold, ACTOR_STATE.talk, ACTOR_STATE.crowd]);
+/** A bystander older than this and out of sight goes away (s). */
+const BYSTANDER_LIFE_S = 300;
+/** States of a person held on the ground or in cuffs: they cannot bolt or fight until released. */
+const RESTRAINED = new Set<number>([ACTOR_STATE.cuffed, ACTOR_STATE.down, ACTOR_STATE.prone]);
 /** States in which an actor stands still facing the officer when close. */
 const FACING = new Set<number>([
   ACTOR_STATE.idle, ACTOR_STATE.talk, ACTOR_STATE.hold, ACTOR_STATE.handsUp, ACTOR_STATE.kneel, ACTOR_STATE.sit, ACTOR_STATE.fight,
@@ -206,6 +215,8 @@ export class NpcSystem {
 
   // occupants
   private readonly overrides = new Map<number, number[]>();
+  /** Step at which each override was set (not saved): a fresh override gets a grace period before it can be pruned. */
+  private readonly overrideSince = new Map<number, number>();
   private readonly outSeats = new Map<number, number[]>();
   private readonly occCache = new Map<number, OccEntry>();
   private readonly occVehicle = new Int32Array(MAX_OCCUPANTS);
@@ -333,6 +344,17 @@ export class NpcSystem {
         for (let i = 0; i < this.actorCount; i++) if ((this.actors[i] as ActorRec).vehicleId === vid) held = true;
         if (!held) this.outSeats.delete(vid);
       }
+    }
+    // Scenario occupants of cars that left traffic are forgotten (the car respawns with its generated occupants).
+    for (const vid of this.overrides.keys()) {
+      if (this.stepCount - (this.overrideSince.get(vid) ?? 0) < OVERRIDE_GRACE_STEPS || this.traffic.slotOfVehicle(vid) >= 0) continue;
+      let held = false;
+      for (let i = 0; i < this.actorCount; i++) if ((this.actors[i] as ActorRec).vehicleId === vid) held = true;
+      if (held) continue;
+      this.overrides.delete(vid);
+      this.overrideSince.delete(vid);
+      this.occCache.delete(vid);
+      this.outSeats.delete(vid);
     }
   }
 
@@ -557,8 +579,14 @@ export class NpcSystem {
     const yaw = p.yaw;
     this.removePed(slot);
     return this.spawnActor({
-      personId: person, x, z, yaw, profile: 'bystander', role: 'bystander', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId: -1,
+      personId: person, x, z, yaw, profile: this.ambientProfile(person, 'bystander'), role: 'bystander', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId: -1,
     });
+  }
+
+  /** The profile `base` adjusted by who `personId` is (temperament, mental health, warrants, drink); see `ambientProfile`. */
+  ambientProfile(personId: number, base: string): string {
+    if (personId < 0) return base;
+    return ambientProfile(this.people.identity(personId), this.people.intoxication(personId).bac, base);
   }
 
   // --- Actors: lifecycle ---------------------------------------------------------------
@@ -643,6 +671,7 @@ export class NpcSystem {
     a.routePos = 0;
     a.lost = 0;
     a.acc = 0;
+    a.age = 0;
   }
 
   /** Values derived from the person (or the actor id): speeds, stamina, look, flee bonus. */
@@ -1014,6 +1043,8 @@ export class NpcSystem {
   forceState(id: number, state: 'flee' | 'fight' | 'armed' | 'handsUp' | 'kneel' | 'prone' | 'leave' | 'lying' | 'crowd' | 'hold'): void {
     const a = this.byId.get(id);
     if (!a) return;
+    // Restrained and helpless people cannot bolt or fight (cuffs only come off through `uncuff`).
+    if ((state === 'flee' || state === 'fight') && ((a.flags & FLAG.cuffed) !== 0 || RESTRAINED.has(a.state))) return;
     switch (state) {
       case 'flee':
         this.startFlee(a);
@@ -1560,6 +1591,15 @@ export class NpcSystem {
       if (d <= cfg.revealDistanceM) this.revealRec(a);
       return false;
     }
+    a.age += ddt;
+    // Loose bystanders (no call) that nobody is dealing with fade out: far away, or old and out of sight.
+    if (
+      a.callId === 0 && CULLABLE.has(a.state) && (a.flags & (FLAG.cuffed | FLAG.following)) === 0 &&
+      (d > this.cfg.peds.despawnRadiusM || (a.age > BYSTANDER_LIFE_S && d > this.cfg.actors.lod.nearM))
+    ) {
+      this.removeActorRec(a);
+      return true;
+    }
     if ((a.flags & FLAG.approached) === 0 && APPROACHABLE.has(a.state) && d <= cfg.approachTriggerM) this.approachRoll(a);
     const rng = this.actorsRng;
     switch (a.state) {
@@ -1668,7 +1708,16 @@ export class NpcSystem {
     for (const id of personIds) {
       if (Number.isInteger(id) && id >= 0 && id < PERSON_POPULATION && !ids.includes(id)) ids.push(id);
     }
+    this.overrides.delete(vehicleId);
     this.overrides.set(vehicleId, ids);
+    this.overrideSince.set(vehicleId, this.stepCount);
+    while (this.overrides.size > OVERRIDE_CAP) {
+      const oldest = this.overrides.keys().next();
+      if (oldest.done) break;
+      this.overrides.delete(oldest.value);
+      this.overrideSince.delete(oldest.value);
+      this.occCache.delete(oldest.value);
+    }
     this.occCache.delete(vehicleId);
     for (const id of ids) {
       for (let i = 0; i < this.pedCount; i++) {
@@ -1682,7 +1731,14 @@ export class NpcSystem {
 
   /** The occupants of a vehicle by seat (seat 0 = driver): the scenario override or the generated ones. */
   occupantsOf(vehicleId: number): readonly number[] {
-    return this.overrides.get(vehicleId) ?? this.people.occupantsOf(vehicleId);
+    const o = this.overrides.get(vehicleId);
+    if (o) return o;
+    const base = this.people.occupantsOf(vehicleId);
+    // A booked, jailed, hospitalised, missing or dead person is not driving around any more.
+    for (let i = 0; i < base.length; i++) {
+      if (this.people.unavailable(base[i] as number)) return base.filter((id) => !this.people.unavailable(id));
+    }
+    return base;
   }
 
   /** Marks the seat of `person` empty in every scenario occupant list that has them. */
@@ -1745,7 +1801,7 @@ export class NpcSystem {
     if (person === undefined || seat >= this.cfg.occupants.seats.length) return 0;
     this.seatWorld(slot, seat, true);
     const id = this.spawnActor({
-      personId: person, x: this.door.x, z: this.door.z, yaw: this.door.yaw, profile: seat === 0 ? 'driverCooperative' : 'passenger',
+      personId: person, x: this.door.x, z: this.door.z, yaw: this.door.yaw, profile: this.ambientProfile(person, seat === 0 ? 'driverCooperative' : 'passenger'),
       role: seat === 0 ? 'driver' : 'passenger', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId, pose: 'stand',
     });
     const a = this.byId.get(id);
@@ -1967,7 +2023,7 @@ export class NpcSystem {
       actors.push({
         id: a.id, personId: a.person, role: a.role, callId: a.callId, profile: a.profile.id, state: a.state, x: a.x, z: a.z, yaw: a.yaw,
         speed: a.speed, stress: a.stress, timer: a.timer, stamina: a.stamina, flags: a.flags, weapon: a.weapon, vehicleId: a.vehicleId,
-        seat: a.seat, body: a.body, targetX: a.tx, targetZ: a.tz, route, routePos: a.routePos, lostTimer: a.lost, acc: a.acc,
+        seat: a.seat, body: a.body, targetX: a.tx, targetZ: a.tz, route, routePos: a.routePos, lostTimer: a.lost, acc: a.acc, age: a.age,
       });
     }
     const pairs = (m: Map<number, number[]>): [number, number[]][] =>
@@ -1983,7 +2039,8 @@ export class NpcSystem {
       target: this.target,
       peds,
       actors,
-      occupants: [...this.overrides.entries()].sort((x, y) => x[0] - y[0]).map(([k, v]) => [k, v.slice()]),
+      occupants: [...this.overrides.entries()].map(([k, v]) => [k, v.slice()]),
+      occupantsSince: [...this.overrides.keys()].map((k): [number, number] => [k, this.overrideSince.get(k) ?? 0]),
       out: pairs(this.outSeats),
     };
   }
@@ -2057,6 +2114,7 @@ export class NpcSystem {
       a.routePos = Math.min(Math.max(0, s.routePos), n / 2);
       a.lost = s.lostTimer;
       a.acc = s.acc ?? 0;
+      a.age = s.age ?? 0;
       this.derive(a);
       this.byId.set(a.id, a);
       if (a.person >= 0) this.active.add(a.person);
@@ -2067,6 +2125,8 @@ export class NpcSystem {
     for (const [vid, ids] of save.occupants) {
       const clean = ids.filter((id) => Number.isInteger(id) && id >= 0 && id < PERSON_POPULATION);
       this.overrides.set(vid, clean);
+      const since = save.occupantsSince?.find((p) => p[0] === vid)?.[1];
+      this.overrideSince.set(vid, typeof since === 'number' && Number.isFinite(since) ? since : this.stepCount);
     }
     for (const [vid, seats] of save.out) this.outSeats.set(vid, seats.filter((s) => Number.isInteger(s) && s >= 0));
     void people;
@@ -2080,6 +2140,7 @@ export class NpcSystem {
     this.active.clear();
     this.byId.clear();
     this.overrides.clear();
+    this.overrideSince.clear();
     this.outSeats.clear();
     this.occCache.clear();
     this.occCount = 0;
