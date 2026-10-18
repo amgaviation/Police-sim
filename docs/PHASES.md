@@ -216,7 +216,7 @@ Status: ✅ complete. Screenshots: `docs/screenshots/phase3.png` (a call scene o
 - ✅ **Console**: `call spawn <type> [here] [variant...]`, `call list`, `call types <filter>`, `npc spawn <temperament|profile>`, `npc info`, `dialogue debug`, `population density <n>`, `population stats`, plus the module commands (`scene`, `weapon`, `peds`, `actors`, `who`, `intox`, `catalog`, `flee`).
 - ✅ **Determinism**: a scripted Phase 3 shift (a spawned domestic call: accept, walk, knock, victim contact with ID and account, cuff, escort, cage; then a DUI stop with ID, drinking question and PBT) replays to bit-identical v5 saves, and a save made mid-scene continues exactly (people, scenes, contacts, npc, CAD, dispatch, records, traffic) (`test/game/phase3.test.ts`). Population determinism and CAD consistency, the call generator (all types valid, outcomes reachable, variants at their rates), the dialogue state machine and the inconsistency engine each have their own unit tests.
 - ✅ **End-to-end flows verified in the real game** (`npm run smoke`, through `window.patrol`): traffic stop with dialogue, ID, citation and release; DUI to booking (odor, PBT, SFST, step out, cuff, cage, booking → jail); domestic (separate, statements, inconsistencies, arrest, cage); shoplifting (store guard and suspect, arrest); lie detection (fake IDs); foot pursuit (flee, chase, tackle); vehicle flee; false call; duplicate call linked in CAD.
-- ✅ 2 100 unit and integration tests (199 files); the browser smoke test covers Phases 0-3 (about 110 checks).
+- ✅ 2 171 unit and integration tests (209 files); the browser smoke test covers Phases 0-3 (106 checks).
 - ✅ No third-party assets, no new dependencies; `docs/ASSETS.md` stays empty.
 
 ### How to run
