@@ -49,6 +49,21 @@ export function panelBadge(index: number): string {
   return index >= 0 && index < 9 ? String(index + 1) : '';
 }
 
+/** Keys of long lists, in row order: '1'..'9', '0', then letters (no 'm': it is the communication mode key). */
+const LIST_KEYS = '1234567890abcdefghijklnopqrstuvwxyz';
+
+/** Row index of a list key (digits, then letters; case-insensitive), null for anything else. */
+export function listKeyToIndex(key: string): number | null {
+  if (key.length !== 1) return null;
+  const i = LIST_KEYS.indexOf(key.toLowerCase());
+  return i < 0 ? null : i;
+}
+
+/** Badge of row `index` for `listKeyToIndex`: '1'..'9', '0', 'A'.. ; '' past the last key. */
+export function listBadge(index: number): string {
+  return index >= 0 && index < LIST_KEYS.length ? LIST_KEYS.charAt(index).toUpperCase() : '';
+}
+
 /** Radio log line: 'HH:MM CH Speaker: text', with ' [blocked]' for a stepped-on transmission. */
 export function radioLineText(line: RadioLine): string {
   const head = line.clock === '' ? line.channel : `${line.clock} ${line.channel}`;

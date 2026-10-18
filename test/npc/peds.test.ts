@@ -243,3 +243,24 @@ describe('promotePedestrian', () => {
     expect(r.npc.stats.actors).toBe(1);
   }, 60000);
 });
+
+describe('junction turns', () => {
+  it('never teleports a pedestrian between two sidewalk lines in one step', async () => {
+    const p = downtown();
+    const r = await rig({ x: p.x, z: p.z, start: NOON });
+    const v = r.npc.view;
+    let max = 0;
+    let steps = 0;
+    for (let i = 0; i < 9000; i++) {
+      r.run(1);
+      const n = r.npc.stats.peds;
+      for (let k = 0; k < n; k++) {
+        const d = Math.hypot((v.x[k] as number) - (v.prevX[k] as number), (v.z[k] as number) - (v.prevZ[k] as number));
+        if (d > max) max = d;
+      }
+      steps++;
+    }
+    expect(steps).toBe(9000);
+    expect(max).toBeLessThan(1.5);
+  }, 120000);
+});

@@ -39,4 +39,16 @@ describe('scenario occupant overrides', () => {
     expect(r.npc.occupantsOf(vid)).not.toContain(driver);
     expect(r.npc.occupantsOf(vid).length).toBe(before.length - 1);
   });
+
+  it('keeps the seat numbers of a car when the driver is arrested (booking removes them)', async () => {
+    const r = await makeRig({ density: 0 });
+    rigs.push(r);
+    let vid = 0;
+    while (r.npc.occupantsOf(vid).length < 2) vid++;
+    const before = [...r.npc.occupantsOf(vid)];
+    r.people.setCustody(before[0] as number, 'arrested');
+    expect(r.npc.occupantsOf(vid)).toEqual(before);
+    r.people.setCustody(before[0] as number, 'jailed');
+    expect(r.npc.occupantsOf(vid)).toEqual(before.slice(1));
+  });
 });

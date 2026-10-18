@@ -360,8 +360,8 @@ export class Dispatcher {
 
   /**
    * Opens a self-initiated call at `at` (field contact, pursuit): the player is assigned (by 'self') and
-   * on scene at once, no AI unit is planned. A call the player leaves for it without other units is not
-   * handed to the AI units.
+   * on scene at once, no AI unit is planned. A dispatched call the player leaves for it without other units goes
+   * back to the AI units (and is not offered to the player again); a self-initiated one is over and closed.
    */
   openSelfInitiated(
     typeId: string,
@@ -386,7 +386,7 @@ export class Dispatcher {
       const prev = cad.call(prevId);
       if (prev && prev.status !== 'closed' && prev.units.length === 0) {
         this.declined.add(prevId);
-        this.plans.set(prevId, 0);
+        if (prev.selfInitiated) cad.closeCall(prevId, this.scenarioDisposition(prevId) ?? 'handled', t);
       }
     }
     this.assignDirty = true;

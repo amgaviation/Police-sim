@@ -116,7 +116,7 @@ export interface PersonPick {
 
 export type NpcView = HumanoidSource & { count: number };
 
-/** One pedestrian in a save. `acc` (time since its last LOD update) is optional when reading. */
+/** One pedestrian in a save. `acc` (time since its last LOD update) and the corner-blend offset `ox`/`oz` are optional when reading. */
 export interface PedSave {
   personId: number;
   edge: number;
@@ -127,6 +127,9 @@ export interface PedSave {
   gait: number;
   flee: number;
   acc?: number;
+  /** Remaining corner-blend offset after a junction turn (absent = 0). */
+  ox?: number;
+  oz?: number;
 }
 
 /** One actor in a save. Bit 1 cuffed, 2 following, 4 hidden, 8 armed, 16 weaponDrawn, 32 approached, then internal bits. */

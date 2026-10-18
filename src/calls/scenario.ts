@@ -16,7 +16,7 @@
 import type { Rng } from '../core/rng';
 import type { RoadEdge, RoadGraph } from '../world/roadGraph';
 import { CALL_CATALOG, callTypeDef, familyForType } from './catalog';
-import { applyVariantRoles, effectiveRoles, effectiveVehicles } from './effective';
+import { applyVariantRoles, branchFlagsFor, effectiveRoles, effectiveVehicles } from './effective';
 import type {
   BranchDef,
   CallTypeDef,
@@ -484,7 +484,7 @@ export function buildScenario(input: ScenarioInput, rng: Rng): Scenario {
     flags.add(`role:${p.role}`);
     if (p.body === 'human' && p.personId >= 0 && isJuvenile(input, p.personId)) flags.add(`juvenile:${p.role}`);
   }
-  for (const f of branch.flags) flags.add(f);
+  for (const f of branchFlagsFor(branch, variants)) flags.add(f);
 
   // 9. Timeline.
   const timeline: TimelineEntry[] = [];

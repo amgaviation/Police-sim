@@ -24,7 +24,7 @@ function isPed(v: unknown): boolean {
   if (!isRecord(v)) return false;
   return (
     int(v.personId) && int(v.edge) && v.edge >= 0 && num(v.s) && num(v.side) && num(v.dir) && num(v.speed) && v.speed > 0 &&
-    num(v.gait) && num(v.flee) && (v.acc === undefined || num(v.acc))
+    num(v.gait) && num(v.flee) && (v.acc === undefined || num(v.acc)) && (v.ox === undefined || num(v.ox)) && (v.oz === undefined || num(v.oz))
   );
 }
 

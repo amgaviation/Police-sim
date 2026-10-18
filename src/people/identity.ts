@@ -54,7 +54,8 @@ export function riskOf(record: PersonRecord): number {
 /**
  * The in-world identity of person `id` on `epochDay`: a pure function of (seed, id, record, epochDay)
  * (`index` is the seed's name index, memoised when omitted). Every trait uses `unitHash` with its own salt;
- * daily traits (clothes, daily items) use `salt ^ epochDay`.
+ * daily traits (clothes, daily items) use `salt ^ wardrobeDay` (default `epochDay`; the population passes a day that
+ * rolls over at a quiet hour).
  */
 export function generateIdentity(
   seed: number,
@@ -63,6 +64,7 @@ export function generateIdentity(
   epochDay: number,
   index?: NameIndex,
   baseRecord?: PersonRecord,
+  wardrobeDay: number = epochDay,
 ): NpcIdentity {
   const d = PEOPLE_DATA;
   // Hashed traits come from the deterministic base record so game contacts and served warrants never change who a
@@ -137,8 +139,8 @@ export function generateIdentity(
 
   // Appearance.
   const a = d.appearance;
-  const top = a.tops[indexOf(unitHash(seed, SALT.top ^ epochDay, id), a.tops.length)];
-  const bottom = a.bottoms[indexOf(unitHash(seed, SALT.bottom ^ epochDay, id), a.bottoms.length)];
+  const top = a.tops[indexOf(unitHash(seed, SALT.top ^ wardrobeDay, id), a.tops.length)];
+  const bottom = a.bottoms[indexOf(unitHash(seed, SALT.bottom ^ wardrobeDay, id), a.bottoms.length)];
   const hairColor = a.hair.get(record.hair);
   const heightM = record.heightCm / 100;
   const bmi = record.weightKg / (heightM * heightM);
@@ -177,7 +179,7 @@ export function generateIdentity(
     drugUse,
     wanted: record.warrants.length > 0,
     appearance,
-    baseItems: baseItems(seed, id, base, { risk, drugUse }, epochDay),
+    baseItems: baseItems(seed, id, base, { risk, drugUse }, wardrobeDay),
   };
 }
 

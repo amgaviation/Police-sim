@@ -97,6 +97,8 @@ export interface RecordsSave {
   served: [number, string[]][];
   /** Added BOLOs only (the daily bulletin is regenerated). */
   bolos: Bolo[];
+  /** Home address overlay (people who live at a call location); absent in older saves. */
+  addresses?: [number, string][];
   queries: QueryLogEntry[];
 }
 
@@ -173,6 +175,7 @@ export class RecordsDb {
   private readonly touchedVehicles = new Map<number, true>();
   private readonly contacts = new Map<number, ContactEntry[]>();
   private readonly served = new Map<number, string[]>();
+  private readonly addresses = new Map<number, string>();
   private addedBolos: Bolo[] = [];
   private nextBoloNumber = 1;
   private readonly boloDays = new Map<number, readonly Bolo[]>();
@@ -368,6 +371,14 @@ export class RecordsDb {
     this.touchPerson(personId);
   }
 
+  /** Moves the person's home address (a resident at their own door); shown by every record read. */
+  setAddress(personId: number, address: string): void {
+    this.checkPerson(personId, 'setAddress');
+    if (address === '' || this.basePerson(personId).address === address) this.addresses.delete(personId);
+    else this.addresses.set(personId, address);
+    this.touchPerson(personId);
+  }
+
   // --- Persistence -----------------------------------------------------------------
 
   serialize(): RecordsSave {
@@ -379,6 +390,7 @@ export class RecordsDb {
       served: [...this.served].map(([id, list]) => [id, list.slice()]),
       bolos: this.addedBolos.slice(),
       queries: this.log.slice(),
+      ...(this.addresses.size > 0 ? { addresses: [...this.addresses] } : {}),
     };
   }
 
@@ -392,6 +404,7 @@ export class RecordsDb {
     this.touchedVehicles.clear();
     this.contacts.clear();
     this.served.clear();
+    this.addresses.clear();
     this.addedBolos = [];
     this.nextBoloNumber = 1;
     this.log = [];
@@ -405,6 +418,9 @@ export class RecordsDb {
       if (!isIdIn(id, PERSON_POPULATION) || !Array.isArray(list)) continue;
       const valid = (list as unknown[]).filter((w): w is string => typeof w === 'string');
       if (valid.length > 0) this.served.set(id, valid);
+    }
+    for (const [id, text] of pairsOf(s.addresses)) {
+      if (isIdIn(id, PERSON_POPULATION) && typeof text === 'string' && text !== '') this.addresses.set(id, text);
     }
     for (const b of arrayOf(s.bolos)) {
       if (!isBolo(b)) continue;
@@ -429,6 +445,7 @@ export class RecordsDb {
     };
     for (const id of this.contacts.keys()) keepPerson(id);
     for (const id of this.served.keys()) keepPerson(id);
+    for (const id of this.addresses.keys()) keepPerson(id);
     for (const b of this.addedBolos) {
       keepPerson(b.personId);
       if (inRange(b.vehicleId, REGISTRY_POPULATION) && !this.touchedVehicles.has(b.vehicleId)) this.touchVehicle(b.vehicleId);
@@ -478,16 +495,18 @@ export class RecordsDb {
     const base = this.basePerson(id);
     const contacts = this.contacts.get(id);
     const served = this.served.get(id);
+    const address = this.addresses.get(id);
     const today = this.ctx.today();
     const licLapsed = base.license.status === 'valid' && base.license.expires < today;
     const supLapsed = base.supervision.kind !== 'none' && base.supervision.until < today;
     const orderLapsed = base.protectiveOrders.some((o) => o.expires < today);
-    if (!contacts && !served && !licLapsed && !supLapsed && !orderLapsed) return base;
+    if (!contacts && !served && address === undefined && !licLapsed && !supLapsed && !orderLapsed) return base;
     const added: PriorContact[] = (contacts ?? [])
       .map((c) => ({ day: epochDayOfGameSeconds(c.gameSeconds), kind: c.kind, location: '', summary: c.summary, ref: c.ref }))
       .reverse();
     return {
       ...base,
+      address: address ?? base.address,
       license: licLapsed ? { ...base.license, status: 'expired' } : base.license,
       supervision: supLapsed ? { kind: 'none', agent: '', until: 0, conditions: [] } : base.supervision,
       protectiveOrders: orderLapsed ? base.protectiveOrders.filter((o) => o.expires >= today) : base.protectiveOrders,
@@ -517,7 +536,7 @@ export class RecordsDb {
   }
 
   private isPersonReferenced(id: number): boolean {
-    return this.contacts.has(id) || this.served.has(id) || this.addedBolos.some((b) => b.personId === id);
+    return this.contacts.has(id) || this.served.has(id) || this.addresses.has(id) || this.addedBolos.some((b) => b.personId === id);
   }
 
   private isVehicleReferenced(id: number): boolean {
@@ -734,6 +753,7 @@ export function isRecordsSave(x: unknown): x is RecordsSave {
     Array.isArray(x.bolos) &&
     x.bolos.every(isBolo) &&
     Array.isArray(x.queries) &&
-    x.queries.every(isQueryLogEntry)
+    x.queries.every(isQueryLogEntry) &&
+    (x.addresses === undefined || pairs(x.addresses, isStr))
   );
 }

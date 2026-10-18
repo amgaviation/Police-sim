@@ -136,6 +136,26 @@ describe('pursuits', () => {
     expect(r.cad.trafficStop?.callId).toBe(pursuit!.id);
   });
 
+  it('the call the player left for a pursuit is not stranded open when the pursuit is cleared', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'impairedDriver', (rt) => rt.scenario.vehicles.length === 1 && !rt.scenario.variants.includes('false') && rt.scenario.branch === 'drunk');
+    const rt = engage(r, id, 60, 2);
+    const v = rt.scenario.vehicles[0]!;
+    setFlee(r, 1);
+    approach(r, v.vehicleId);
+    r.traffic.forceStop(v.vehicleId);
+    expect(runUntil(r, () => r.traffic.fleeingCount > 0, 20)).toBe(true);
+    run(r, 0.5);
+    const pursuit = r.cad.calls().find((c) => c.typeId === 'vehiclePursuit')!;
+    expect(r.traffic.stopFlee(v.vehicleId)).toBe(true);
+    expect(runUntil(r, () => r.cad.trafficStop?.outcome === 'active', 60)).toBe(true);
+    r.dispatcher.request(r.dispatcher.playerCallsign, { kind: 'clearCall', callId: pursuit.id, disposition: 'arrestMade' }, 'key');
+    run(r, 120);
+    expect(r.cad.call(pursuit.id)?.status).toBe('closed');
+    const owner = r.cad.call(id)!;
+    expect(owner.status === 'closed' || owner.units.length > 0).toBe(true);
+  });
+
   it('a car that escapes marks the pursuit lost and the driver escaped', async () => {
     const r = await makeRig();
     const id = spawnWhere(r, 'impairedDriver', (rt) => rt.scenario.vehicles.length === 1 && !rt.scenario.variants.includes('false') && rt.scenario.branch === 'drunk');

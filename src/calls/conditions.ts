@@ -5,7 +5,7 @@
  */
 import { CALL_CATALOG } from './catalog';
 import { evalCond, toDnf, type Term } from './cond';
-import { applyVariantRoles, effectiveRoles, effectiveVehicles, presentRoles } from './effective';
+import { AMBUSHER, SWATTING_RESIDENT, applyVariantRoles, branchFlagsFor, effectiveRoles, effectiveVehicles, presentRoles } from './effective';
 import {
   CONTRABAND_ITEM_IDS,
   WEAPON_ITEM_IDS,
@@ -37,11 +37,25 @@ export function objectivesFor(family: FamilyDef, flags: ReadonlySet<string>): { 
   return out;
 }
 
+/** Profiles of people EMS takes to hospital without an injury flag. */
+export const INJURED_PROFILES: ReadonlySet<string> = new Set(['victimInjured', 'subjectUnconscious']);
+/** Profiles of people in a behavioural crisis: EMS takes them for a psychiatric evaluation (role `subject` of `crisis`). */
+export const CRISIS_PROFILES: ReadonlySet<string> = new Set(['subjectCrisis', 'subjectSuicidal', 'subjectConfused']);
+
 /** Person-role flags any present human role can get from contact, npc and scene events. */
 const PERSON_FLAGS = [
   'contacted', 'statement', 'identified', 'falseIdentity', 'custody', 'caged', 'warned', 'released', 'searched', 'frisked',
   'calmed', 'fled', 'escaped', 'caught', 'detained', 'weaponDrawn', 'left', 'citation',
 ];
+
+/** Can EMS take this role away? (an injury chance, an injured profile, a medical branch, or a crisis subject). */
+function canBeTransported(family: FamilyDef, branch: BranchDef, r: RoleDef): boolean {
+  const branchFlags = branch.flags ?? [];
+  if (r.injured > 0 || INJURED_PROFILES.has(r.profile) || branchFlags.includes('medicalEmergency') || branchFlags.includes(`injury:${r.role}`)) return true;
+  if (family.id === 'crisis' && r.role === 'subject') return true;
+  const overrides = [family.escalation?.roleOverrides[r.role], family.deescalation?.roleOverrides[r.role]];
+  return overrides.some((o) => o?.profile !== undefined && INJURED_PROFILES.has(o.profile));
+}
 
 function canBeJuvenile(role: RoleDef): boolean {
   if (typeof role.person === 'string') return true;
@@ -58,6 +72,9 @@ function canBeJuvenile(role: RoleDef): boolean {
 export function producibleFlags(family: FamilyDef, branch: BranchDef, catalog: CallCatalog = CALL_CATALOG): Set<string> {
   const flags = new Set<string>(['arrived', 'report', 'cited', 'forceUsed']);
   const roles = presentRoles(effectiveRoles(family, branch));
+  // Roles the variants add can be arrested, found and so on like any other.
+  if (family.variants.swatting > 0) roles.push(SWATTING_RESIDENT);
+  if (family.variants.ambush > 0) roles.push(AMBUSHER);
   const vehicles = effectiveVehicles(family, branch).filter((v) => v.count[1] >= 1);
   const hasEms = family.actions.includes('requestEms');
   const fieldTests = family.id === 'trafficStop' || family.id === 'dui' || roles.some((r) => r.intoxication !== null);
@@ -79,7 +96,7 @@ export function producibleFlags(family: FamilyDef, branch: BranchDef, catalog: C
     if (r.body === 'dog') continue;
     for (const f of PERSON_FLAGS) flags.add(`${f}:${r.role}`);
     if (canBeJuvenile(r)) flags.add(`juvenile:${r.role}`);
-    if (hasEms) flags.add(`transported:${r.role}`);
+    if (hasEms && canBeTransported(family, branch, r)) flags.add(`transported:${r.role}`);
     if (r.spot === 'hidden' || r.spot === 'inside' || r.role === 'missing') {
       flags.add(`found:${r.role}`);
       flags.add(`revealed:${r.role}`);
@@ -176,7 +193,7 @@ export function reachableOutcomes(family: FamilyDef, catalog: CallCatalog = CALL
       const baseRoles = effectiveRoles(family, branch);
       const baseVehicles = effectiveVehicles(family, branch);
       const { roles } = applyVariantRoles(baseRoles, baseVehicles, variants);
-      const fixed = new Set<string>([`branch:${branch.id}`, ...branch.flags]);
+      const fixed = new Set<string>([`branch:${branch.id}`, ...branchFlagsFor(branch, variants)]);
       for (const v of variants) fixed.add(`variant:${v}`);
       for (const r of presentRoles(roles)) fixed.add(`role:${r.role}`);
       for (const outcome of family.outcomes) {

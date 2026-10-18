@@ -208,6 +208,9 @@ describe('field contacts joining a call', () => {
     act(id, 'requestInterpreter');
     expect(rig.emitted.slice(before).some((e) => e.topic === 'contact:needsCall')).toBe(true);
     expect(rig.events.some((e) => e.flag === 'interpreterRequested' && e.personId === pid)).toBe(true);
+    // The request is repeated for the call once it exists, so the scene can order the interpreter.
+    rig.mgr.attachCall(inc, 78, 'subject');
+    expect(rig.events.some((e) => e.flag === 'interpreterRequested' && e.callId === 78 && e.personId === pid)).toBe(true);
   });
 
   it('tells the officer when the requested interpreter arrives', () => {
@@ -226,5 +229,26 @@ describe('field contacts joining a call', () => {
     expect(rig.mgr.revision).toBeGreaterThan(rev);
     expect(rig.mgr.view(id)?.transcript.some((l) => l.text === 'The interpreter has arrived.')).toBe(true);
     rig.interpreter.available = false;
+  });
+});
+
+describe('orders that make the subject flee or fight', () => {
+  it('close the dialogue so the officer can react', () => {
+    let bolted = 0;
+    for (let k = 0; k < 40 && bolted < 2; k++) {
+      const pid = fresh((p) => plain(p) && !rig.people.identity(p).wanted, 52000 + k * 37);
+      const actor = rig.spawn(pid, { profile: 'suspectFleeRisk' });
+      const id = rig.mgr.open({ kind: 'actor', actorId: actor }, incident(key('CMD')), rig.time());
+      say(id, 'cmdHandsUp', 'aggressive');
+      rig.advance(4);
+      const state = rig.npc.actor(actor, info())?.state;
+      if (state === ACTOR_STATE.flee || state === ACTOR_STATE.fight) {
+        bolted++;
+        expect(rig.mgr.active).not.toBe(id);
+      }
+      rig.npc.removeActor(actor);
+      rig.step();
+    }
+    expect(bolted).toBeGreaterThan(0);
   });
 });

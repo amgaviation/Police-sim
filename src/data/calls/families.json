@@ -176,7 +176,7 @@
       "branches": [
         {"id": "noisy", "weight": 4, "roleOverrides": {"subject": {"profile": "suspectCalm"}}},
         {"id": "argument", "weight": 3},
-        {"id": "intoxicated", "weight": 2, "roleOverrides": {"subject": {"intoxication": {"chance": 1, "bac": [0.12, 0.25]}, "profile": "subjectIntoxicated"}}},
+        {"id": "intoxicated", "weight": 2, "roleOverrides": {"subject": {"intoxication": {"chance": 1, "bac": [0.12, 0.25]}, "profile": "subjectIntoxicated", "injured": 0.3}}},
         {"id": "gone", "weight": 1, "remove": ["subject"]}
       ],
       "variants": {"escalation": 1, "deescalation": 1, "false": 1, "duplicate": 1, "swatting": 0, "ambush": 0.2},
@@ -189,6 +189,8 @@
         {"text": "Resolve the disturbance", "done": {"any": ["warned:subject", "custody:subject", "transported:subject", "left:subject"]}, "show": "role:subject"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "gone", "when": {"any": ["branch:gone", "variant:false"]}, "disposition": "goneOnArrival", "grade": "good"},
         {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "ok"},
         {"id": "transported", "when": "transported:subject", "disposition": "transported", "grade": "good"},
@@ -231,6 +233,8 @@
         {"text": "Victim injured: request EMS", "done": "service:ems", "show": "injury:victim"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "unfounded", "when": {"any": ["variant:false", "variant:swatting"]}, "disposition": "unfounded", "grade": "good"},
         {"id": "arrestSuspect", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
         {"id": "suspectFled", "when": {"any": ["escaped:suspect", "branch:suspectGone"]}, "disposition": "reportTaken", "grade": "ok"},
@@ -456,6 +460,8 @@
         {"text": "Remove or warn the subject", "done": {"any": ["warned:subject", "custody:subject", "left:subject"]}, "show": "role:subject"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "gone", "when": {"any": ["branch:gone", "variant:false"]}, "disposition": "goneOnArrival", "grade": "good"},
         {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "good"},
         {"id": "warned", "when": "warned:subject", "disposition": "warningIssued", "grade": "good"},
@@ -494,6 +500,8 @@
         {"text": "Write the report", "done": "report"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "unfounded", "when": {"any": ["branch:nothing", "variant:false"]}, "disposition": "unfounded", "grade": "good"},
         {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
         {"id": "escaped", "when": "escaped:suspect", "disposition": "reportTaken", "grade": "bad"},
@@ -532,6 +540,8 @@
         {"text": "Write the report", "done": "report"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "unfounded", "when": {"any": ["variant:false", "variant:swatting"]}, "disposition": "unfounded", "grade": "good"},
         {"id": "arrest", "when": "custody:suspect", "disposition": "arrestMade", "grade": "good"},
         {"id": "injuredNoEms", "when": {"all": ["injury:victim", "!service:ems"]}, "disposition": "reportTaken", "grade": "bad"},
@@ -572,6 +582,8 @@
         {"text": "Secure the weapon", "done": "weaponFound", "show": "role:subject"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "swatting", "when": "variant:swatting", "disposition": "unfounded", "grade": "good"},
         {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
         {"id": "misidentifiedForce", "when": {"all": ["branch:misidentified", "forceUsed"]}, "disposition": "handled", "grade": "bad"},
@@ -683,6 +695,8 @@
         {"text": "Take the subject into custody", "done": {"any": ["custody:subject", "escaped:subject"]}, "show": "role:subject"}
       ],
       "outcomes": [
+        {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
+        {"id": "ambushed", "when": "variant:ambush", "disposition": "handled", "grade": "ok"},
         {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
         {"id": "arrest", "when": "custody:subject", "disposition": "arrestMade", "grade": "good"},
         {"id": "notHome", "when": "branch:notHome", "disposition": "goneOnArrival", "grade": "good"},

@@ -71,8 +71,20 @@ describe('reduceDialogueKey: talk tab', () => {
     for (let i = 0; i < 10; i++) s = reduceDialogueKey(s, v, 'ArrowDown').state;
     expect(s.focus).toBe(10);
     expect(reduceDialogueKey(s, v, 'Enter').emit).toEqual({ kind: 'say', id: 'o10', tone: 'neutral' });
-    // A tenth digit does not exist.
-    expect(reduceDialogueKey(s, v, '0').consumed).toBe(false);
+  });
+
+  it('addresses rows past nine with 0 and then letters (not M)', () => {
+    const options = Array.from({ length: 24 }, (_, i) => ({ id: `o${String(i)}`, label: `Option ${String(i)}`, enabled: true }));
+    const v = view({ topics: [{ id: 't', label: 'Many', options }], actions: options });
+    const s = reduceDialogueKey(st(), v, '1').state;
+    expect(reduceDialogueKey(s, v, '0').emit).toEqual({ kind: 'say', id: 'o9', tone: 'neutral' });
+    expect(reduceDialogueKey(s, v, 'a').emit).toEqual({ kind: 'say', id: 'o10', tone: 'neutral' });
+    expect(reduceDialogueKey(s, v, 'L').emit).toEqual({ kind: 'say', id: 'o21', tone: 'neutral' });
+    // 'm' stays the communication mode key, so the letters after it shift down by one.
+    expect(reduceDialogueKey(s, v, 'n').emit).toEqual({ kind: 'say', id: 'o22', tone: 'neutral' });
+    expect(reduceDialogueKey(s, v, 'o').emit).toEqual({ kind: 'say', id: 'o23', tone: 'neutral' });
+    const actions = st({ tab: 'actions' });
+    expect(reduceDialogueKey(actions, v, 'k').emit).toEqual({ kind: 'action', id: 'o20' });
   });
 
   it('blocks lines and actions while an answer is pending', () => {
@@ -185,7 +197,7 @@ describe('reduceDialogueKey: back and close', () => {
 
   it('leaves other keys alone', () => {
     const s = st();
-    for (const k of ['w', 'a', ' ', 'F5', 'Shift', '0', 'x']) {
+    for (const k of [' ', 'F5', 'Shift', '-', '/']) {
       const r = reduceDialogueKey(s, view(), k);
       expect(r.consumed, k).toBe(false);
       expect(r.emit, k).toBeNull();

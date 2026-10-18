@@ -179,6 +179,49 @@ describe('field contacts', () => {
   });
 });
 
+describe('self-initiated calls clear themselves', () => {
+  async function contactCall(): Promise<{ r: Awaited<ReturnType<typeof makeRig>>; callId: number; pid: number }> {
+    const r = await makeRig();
+    const pid = 1234;
+    emitLoose(r, 'contact:needsCall', { personId: pid, x: r.player.x, z: r.player.z, incident: `FC-${pid}-1` });
+    run(r, 2);
+    const callId = r.contact.attached[0]!.callId;
+    expect(r.cad.call(callId)?.status).not.toBe('closed');
+    return { r, callId, pid };
+  }
+
+  it('a released field contact clears the call and frees the officer', async () => {
+    const { r, callId, pid } = await contactCall();
+    emitLoose(r, 'contact:event', { incident: `FC-${pid}-1`, callId, personId: pid, role: 'subject', flag: 'released' });
+    run(r, 3);
+    expect(r.cad.call(callId)?.status).toBe('closed');
+    expect(r.cad.playerUnit()?.status).toBe('available');
+  });
+
+  it('a field contact that ends in custody stays open for the arrest', async () => {
+    const { r, callId, pid } = await contactCall();
+    emitLoose(r, 'contact:event', { incident: `FC-${pid}-1`, callId, personId: pid, role: 'subject', flag: 'custody' });
+    emitLoose(r, 'contact:event', { incident: `FC-${pid}-1`, callId, personId: pid, role: 'subject', flag: 'caged' });
+    emitLoose(r, 'contact:event', { incident: `FC-${pid}-1`, callId, personId: pid, role: 'subject', flag: 'released' });
+    run(r, 5);
+    expect(r.cad.call(callId)?.status).not.toBe('closed');
+  });
+
+  it('a field contact nobody touches for ten minutes is cleared', async () => {
+    const { r, callId } = await contactCall();
+    run(r, 640);
+    expect(r.cad.call(callId)?.status).toBe('closed');
+    expect(r.cad.playerUnit()?.status).toBe('available');
+  });
+
+  it('walking away from a contact clears it', async () => {
+    const { r, callId } = await contactCall();
+    r.player.x += 400;
+    run(r, 90);
+    expect(r.cad.call(callId)?.status).toBe('closed');
+  });
+});
+
 describe('actions', () => {
   it('lays out props, consumes kit items, collects evidence and opens forms', async () => {
     const r = await makeRig();

@@ -460,11 +460,13 @@ function phase3Flows(stepSrc) {
     if (s.npc.isActivePerson(personId)) continue;
     const aid = s.npc.spawnActor({ personId, x: at.x - 3, z: at.z - 3, yaw: 0, profile: 'suspectNervous', role: 'subject', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId: -1 });
     const cid = open(aid);
+    // A subject who bolts at the first sight of the officer closes the dialogue: try the next one.
+    if (cid < 0 || !s.contact.view(cid)) continue;
     say(cid, 'requestId', 360);
     say(cid, 'askAddress', 360);
-    early += s.contact.view(cid).inconsistencies.length;
+    early += s.contact.view(cid)?.inconsistencies.length ?? 0;
     act(cid, 'runName', 360);
-    for (const n of s.contact.view(cid).inconsistencies) found.push(`${n.severity}:${n.text}`);
+    for (const n of s.contact.view(cid)?.inconsistencies ?? []) found.push(`${n.severity}:${n.text}`);
     close(cid);
   }
   note('lieDetection', early === 0 && found.some((f) => f.startsWith('alert:')), `${early} before the lookup; after: ${found.join(' | ')}`);

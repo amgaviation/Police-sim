@@ -245,6 +245,15 @@ describe('hidden actors', () => {
     r.npc.reveal(ids[0] as number);
     expect(count(r, 'npc:revealed')).toBe(40);
   });
+
+  it('a hidden body stays lying when revealed, however much its person would run', async () => {
+    const r = await rig();
+    const ids = ring(r, 20, 50, 'subjectDeceased', { hidden: true });
+    for (const id of ids) r.npc.reveal(id);
+    r.run(60);
+    for (const id of ids) expect(stateOf(r.npc, id)).toBe(ACTOR_STATE.lying);
+    expect(count(r, 'npc:fled')).toBe(0);
+  });
 });
 
 describe('flee', () => {

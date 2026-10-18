@@ -29,6 +29,10 @@ const SFST_REFRESH_MS = 33;
 /** People are drawn out to this distance (m). */
 export const PEOPLE_DRAW_DISTANCE = 150;
 /** Walking speeds (m/s) at which the officer figure strides and runs. */
+/** Fixed steps per second (app.ts SIM_HZ). */
+const SIM_HZ = 60;
+/** Seconds without a fixed step after which the officer figure stands still. */
+const STILL_AFTER_S = 0.1;
 const WALK_SPEED = 0.3;
 const RUN_SPEED = 4.2;
 /** Stride length (m per gait cycle) of the officer figure. */
@@ -86,8 +90,8 @@ export class PeoplePresenter {
   private dismissedSfst = false;
   private chipTitle = '';
   private gait = 0;
-  private lastX = NaN;
-  private lastZ = NaN;
+  private lastSim = NaN;
+  private stillS = 0;
   private subtitlesOn = true;
   private readonly hudOfficer: HudOfficer = { weapon: 'none' };
   private readonly hudContact: HudContact = { name: '', state: '', distanceM: -1 };
@@ -121,7 +125,6 @@ export class PeoplePresenter {
     this.lastRevision = -1;
     this.dismissedContact = -1;
     this.dismissedSfst = false;
-    this.lastX = NaN;
     const bus = session.bus;
     this.offs.push(
       bus.on('contact:line', (e) => {
@@ -365,10 +368,13 @@ export class PeoplePresenter {
     f.yaw[0] = yaw;
     f.prevYaw[0] = yaw;
     f.anchor[0] = 0;
-    let speed = 0;
-    if (Number.isFinite(this.lastX) && dt > 1e-4) speed = Math.hypot(x - this.lastX, z - this.lastZ) / dt;
-    this.lastX = x;
-    this.lastZ = z;
+    // Speed of the last fixed step: stable between steps, whatever the display rate (render-frame deltas flicker).
+    // Without a new step for a moment (paused) the officer stands.
+    const sim = session.clock.simTime;
+    if (sim === this.lastSim) this.stillS += dt;
+    else this.stillS = 0;
+    this.lastSim = sim;
+    const speed = this.stillS > STILL_AFTER_S ? 0 : Math.hypot(x - (PrevTransform.x[eid] ?? x), z - (PrevTransform.z[eid] ?? z)) * SIM_HZ;
     f.speed[0] = speed;
     this.gait += (speed * dt) / STRIDE_M;
     if (this.gait > 1e4) this.gait -= 1e4;

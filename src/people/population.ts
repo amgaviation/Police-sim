@@ -1,4 +1,4 @@
-import { epochDayOfGameSeconds } from '../records/calendar';
+import { epochDayOfGameSeconds, wardrobeDayOfGameSeconds } from '../records/calendar';
 import { PERSON_POPULATION, ownerOfVehicle } from '../records/ids';
 import type { RecordsDb } from '../records/db';
 import type { PersonRecord } from '../records/person';
@@ -85,6 +85,7 @@ function sameView(a: PersonRecord, b: PersonRecord): boolean {
     a === b ||
     (a.warrants.length === b.warrants.length &&
       a.priors.length === b.priors.length &&
+      a.address === b.address &&
       a.license.status === b.license.status &&
       a.supervision.kind === b.supervision.kind)
   );
@@ -151,11 +152,13 @@ export class Population {
 
   // --- Identity ------------------------------------------------------------------
 
-  /** Identity of person `id` today (LRU 2048 keyed by id and epoch day); the record is read without touching it. */
+  /** Identity of person `id` today (LRU 2048 keyed by id, epoch day and wardrobe day); the record is read without touching it. */
   identity(id: number): NpcIdentity {
     checkPerson(id, 'identity');
-    const day = epochDayOfGameSeconds(this.nowFn());
-    const key = day * ID_SPACE + id;
+    const now = this.nowFn();
+    const day = epochDayOfGameSeconds(now);
+    const wardrobe = wardrobeDayOfGameSeconds(now);
+    const key = (day * 2 + (wardrobe === day ? 1 : 0)) * ID_SPACE + id;
     const record = this.records.peekPerson(id);
     const hit = this.cache.get(key);
     if (hit && sameView(hit.record, record)) {
@@ -164,7 +167,7 @@ export class Population {
       return hit;
     }
     this.index ??= nameIndexFor(this.seed);
-    const made = generateIdentity(this.seed, id, record, day, this.index, this.records.peekBasePerson(id));
+    const made = generateIdentity(this.seed, id, record, day, this.index, this.records.peekBasePerson(id), wardrobe);
     this.cache.delete(key);
     this.cache.set(key, made);
     if (this.cache.size > IDENTITY_CACHE) {
@@ -194,10 +197,10 @@ export class Population {
   }
 
   /** Dead, missing, or in custody (arrested, jailed, hospitalised): not out driving around. Cheap: reads the delta only. */
-  unavailable(id: number): boolean {
+  unavailable(id: number, includeArrested = true): boolean {
     const d = this.deltas.get(id);
     if (!d) return false;
-    return d.deceased === true || d.missing === true || d.custody === 'arrested' || d.custody === 'jailed' || d.custody === 'hospital';
+    return d.deceased === true || d.missing === true || (includeArrested && d.custody === 'arrested') || d.custody === 'jailed' || d.custody === 'hospital';
   }
 
   /** The explicit intoxication (decayed by the elimination rate since it was set) or the base session curve. */
@@ -292,7 +295,7 @@ export class Population {
     if (!this.isRegistered(vehicleId)) return NO_ITEMS;
     this.lastDriver.set(vehicleId, driverId);
     const ident = this.identity(driverId);
-    const base = baseVehicleItems(this.seed, vehicleId, epochDayOfGameSeconds(this.nowFn()), {
+    const base = baseVehicleItems(this.seed, vehicleId, wardrobeDayOfGameSeconds(this.nowFn()), {
       id: driverId,
       drinker: ident.drinker,
       drugUse: ident.drugUse,

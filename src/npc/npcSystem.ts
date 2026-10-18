@@ -12,7 +12,7 @@ import { VEHICLE_MODELS } from '../vehicles/model';
 import type { RoadEdge, RoadGraph, RoadHit, RoadNode } from '../world/roadGraph';
 import { ambientProfile } from './ambient';
 import { complianceChance, understands } from './compliance';
-import { NPC_CONFIG, NPC_DENSITY, behavior, findBehavior, type NpcConfig } from './data';
+import { NPC_CONFIG, NPC_DENSITY, behavior, findBehavior, type BehaviorProfile, type NpcConfig } from './data';
 import { TWO_PI, sampleEdge, yawOf, type EdgeSample } from './geometry';
 import { ActorRec, FLAG, PedRec } from './pool';
 import { isNpcSave } from './save';
@@ -55,6 +55,8 @@ const NODE_CANDIDATE_CAP = 512;
 /** Seconds a pedestrian runs away from a drawn weapon, and the distance that triggers it (m). */
 const WEAPON_FLEE_S = 10;
 const WEAPON_FLEE_M = 20;
+/** Offset metres removed per metre walked while a ped blends from one sidewalk corner to the next. */
+const PED_CORNER_BLEND = 2.5;
 /** Wander radius of idle bystanders around their spawn point (m). */
 const WANDER_RADIUS_M = 3;
 /** Within this distance resting actors turn to face the officer (m), and their turn rate (rad/s). */
@@ -98,7 +100,7 @@ const HELPLESS = new Set<number>([
   ACTOR_STATE.cuffed, ACTOR_STATE.down, ACTOR_STATE.prone, ACTOR_STATE.lying, ACTOR_STATE.hide, ACTOR_STATE.seated,
 ]);
 /** States of a loose actor that may be culled when nobody needs it. */
-const CULLABLE = new Set<number>([ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.hold, ACTOR_STATE.talk, ACTOR_STATE.crowd]);
+const CULLABLE = new Set<number>([ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.hold, ACTOR_STATE.talk, ACTOR_STATE.crowd, ACTOR_STATE.lying]);
 /** A bystander older than this and out of sight goes away (s). */
 const BYSTANDER_LIFE_S = 300;
 /** States of a person held on the ground or in cuffs: they cannot bolt or fight until released. */
@@ -405,7 +407,19 @@ export class NpcSystem {
     p.speed = speed;
     p.s += p.dir * speed * dt;
     const e = this.edges[p.edge] as RoadEdge;
-    if (p.s < 0 || p.s > e.length) this.pedNextEdge(p, e);
+    if (p.s < 0 || p.s > e.length) {
+      const x0 = p.x;
+      const z0 = p.z;
+      const side0 = p.side;
+      this.pedNextEdge(p, e);
+      if (p.edge !== e.id) this.blendCorner(p, x0, z0, side0);
+    }
+    const ol = Math.sqrt(p.ox * p.ox + p.oz * p.oz);
+    if (ol > 0) {
+      const k = Math.max(0, ol - speed * dt * PED_CORNER_BLEND) / ol;
+      p.ox *= k;
+      p.oz *= k;
+    }
     this.placePed(p);
     p.gait += (speed * dt) / ((1.4 * p.height) / 1.75);
   }
@@ -452,14 +466,34 @@ export class NpcSystem {
     }
   }
 
+  /**
+   * After a junction turn the sidewalk lines of two edges of different width meet at different corners. Picks the
+   * nearer side of the new edge and keeps the remaining gap as an offset that placePed adds and movePed shrinks.
+   */
+  private blendCorner(p: PedRec, x0: number, z0: number, side0: number): void {
+    p.ox = 0;
+    p.oz = 0;
+    p.side = side0 < 0 ? -1 : 1;
+    this.placePed(p);
+    const dSame = Math.hypot(p.x - x0, p.z - z0);
+    p.side = -p.side;
+    this.placePed(p);
+    if (Math.hypot(p.x - x0, p.z - z0) >= dSame) {
+      p.side = -p.side;
+      this.placePed(p);
+    }
+    p.ox = x0 - p.x;
+    p.oz = z0 - p.z;
+  }
+
   /** Writes the world position and yaw from (edge, s, side, dir). */
   private placePed(p: PedRec): void {
     const e = this.edges[p.edge] as RoadEdge;
     this.sample.s = p.s;
     const sm = sampleEdge(e, this.sample);
     const off = p.side * (e.width * 0.5 + e.sidewalk * 0.5);
-    p.x = sm.x - sm.hz * off;
-    p.z = sm.z + sm.hx * off;
+    p.x = sm.x - sm.hz * off + p.ox;
+    p.z = sm.z + sm.hx * off + p.oz;
     p.yaw = yawOf(sm.hx * p.dir, sm.hz * p.dir);
   }
 
@@ -506,6 +540,8 @@ export class NpcSystem {
       p.s = rng.next() * e.length;
       p.side = rng.next() < 0.5 ? -1 : 1;
       p.dir = rng.next() < 0.5 ? -1 : 1;
+      p.ox = 0;
+      p.oz = 0;
       this.placePed(p);
       const dx = p.x - this.fx;
       const dz = p.z - this.fz;
@@ -638,17 +674,23 @@ export class NpcSystem {
     if (spec.hidden) {
       a.flags |= FLAG.hidden;
       a.state = ACTOR_STATE.hide;
-    } else if (pose === 'lying') a.state = ACTOR_STATE.lying;
-    else if (pose === 'sit') a.state = ACTOR_STATE.sit;
-    else if (pose === 'kneel') a.state = ACTOR_STATE.kneel;
-    else if (profile.crowd) a.state = ACTOR_STATE.crowd;
-    else if (profile.wander) a.state = ACTOR_STATE.wander;
-    else a.state = ACTOR_STATE.idle;
+    } else {
+      a.state = this.restingState(profile, pose);
+    }
     if (a.state === ACTOR_STATE.wander || a.state === ACTOR_STATE.crowd) this.pickGoal(a);
     this.byId.set(a.id, a);
     if (person >= 0) this.active.add(person);
     this.actorCount++;
     return a.id;
+  }
+
+  /** The state a visible actor of `profile` rests in: the pose it starts in, else crowd, wander or idle. */
+  private restingState(profile: BehaviorProfile, pose: string): number {
+    if (pose === 'lying') return ACTOR_STATE.lying;
+    if (pose === 'sit') return ACTOR_STATE.sit;
+    if (pose === 'kneel') return ACTOR_STATE.kneel;
+    if (profile.crowd) return ACTOR_STATE.crowd;
+    return profile.wander ? ACTOR_STATE.wander : ACTOR_STATE.idle;
   }
 
   private resetActor(a: ActorRec): void {
@@ -882,7 +924,11 @@ export class NpcSystem {
 
   private revealRec(a: ActorRec): void {
     a.flags &= ~FLAG.hidden;
-    if (a.state === ACTOR_STATE.hide) a.state = ACTOR_STATE.idle;
+    if (a.state === ACTOR_STATE.hide) {
+      // Out of hiding the actor takes the pose it would have had in plain view (a body stays lying).
+      a.state = this.restingState(a.profile, a.profile.startPose);
+      if (a.state === ACTOR_STATE.wander || a.state === ACTOR_STATE.crowd) this.pickGoal(a);
+    }
     this.note('npc:revealed', a);
     this.approachRoll(a);
   }
@@ -891,6 +937,14 @@ export class NpcSystem {
     const a = this.byId.get(id);
     if (!a) return;
     a.profile = behavior(profile);
+  }
+
+  /** Gives a live actor a weapon (an escalation: the suspect now has a knife); it is not drawn yet. */
+  arm(id: number, weapon: string): void {
+    const a = this.byId.get(id);
+    if (!a || weapon === '' || a.weapon !== '') return;
+    a.weapon = weapon;
+    a.flags |= FLAG.armed;
   }
 
   setStress(id: number, stress: number): void {
@@ -1065,7 +1119,8 @@ export class NpcSystem {
         this.setPose(a, ACTOR_STATE.prone);
         break;
       case 'leave':
-        this.startLeave(a);
+        // A body or an unconscious person does not get up and walk away (the stretcher or the cull takes them).
+        if (a.state !== ACTOR_STATE.lying) this.startLeave(a);
         break;
       case 'lying':
         this.setPose(a, ACTOR_STATE.lying);
@@ -1734,9 +1789,12 @@ export class NpcSystem {
     const o = this.overrides.get(vehicleId);
     if (o) return o;
     const base = this.people.occupantsOf(vehicleId);
-    // A booked, jailed, hospitalised, missing or dead person is not driving around any more.
+    // Seat numbers are keys (outSeats, stepOut, contacts): a car that is the stop target, has people out of it or is
+    // drawn keeps all its seats. Elsewhere a booked, hospitalised, missing or dead person is not driving around any more
+    // (an arrested one is still in the car until booked).
+    if (vehicleId === this.traffic.stopVehicleId || this.outSeats.has(vehicleId) || this.occCache.has(vehicleId)) return base;
     for (let i = 0; i < base.length; i++) {
-      if (this.people.unavailable(base[i] as number)) return base.filter((id) => !this.people.unavailable(id));
+      if (this.people.unavailable(base[i] as number, false)) return base.filter((id) => !this.people.unavailable(id, false));
     }
     return base;
   }
@@ -2013,7 +2071,12 @@ export class NpcSystem {
     const peds: PedSave[] = [];
     for (let i = 0; i < this.pedCount; i++) {
       const p = this.peds[i] as PedRec;
-      peds.push({ personId: p.person, edge: p.edge, s: p.s, side: p.side, dir: p.dir, speed: p.base, gait: p.gait, flee: p.flee, acc: p.acc });
+      const ps: PedSave = { personId: p.person, edge: p.edge, s: p.s, side: p.side, dir: p.dir, speed: p.base, gait: p.gait, flee: p.flee, acc: p.acc };
+      if (p.ox !== 0 || p.oz !== 0) {
+        ps.ox = p.ox;
+        ps.oz = p.oz;
+      }
+      peds.push(ps);
     }
     const actors: ActorSave[] = [];
     for (let i = 0; i < this.actorCount; i++) {
@@ -2072,6 +2135,8 @@ export class NpcSystem {
       p.flee = Math.max(0, ps.flee);
       p.acc = ps.acc ?? 0;
       p.speed = p.flee > 0 ? this.cfg.actors.runSpeed[0] : p.base;
+      p.ox = ps.ox ?? 0;
+      p.oz = ps.oz ?? 0;
       this.placePed(p);
       p.prevX = p.x;
       p.prevZ = p.z;

@@ -109,7 +109,11 @@ describe('producibleFlags', () => {
   });
 
   it('adds transported only with requestEms, found/revealed for hidden or inside spots', () => {
-    expect(producibleFlags(domestic, branch(domestic, 'verbal')).has('transported:victim')).toBe(true);
+    expect(producibleFlags(domestic, branch(domestic, 'assault')).has('transported:victim')).toBe(true);
+    // Nobody who cannot be hurt is taken away (a verbal dispute, a shoplifter).
+    expect(producibleFlags(domestic, branch(domestic, 'verbal')).has('transported:victim')).toBe(false);
+    const crisis = fam('crisis');
+    expect(producibleFlags(crisis, branch(crisis, 'talkDown')).has('transported:subject')).toBe(true);
     const retail = fam('retail');
     expect(producibleFlags(retail, branch(retail, 'detained')).has('transported:suspect')).toBe(false);
     expect(producibleFlags(retail, branch(retail, 'fled')).has('found:suspect')).toBe(true);

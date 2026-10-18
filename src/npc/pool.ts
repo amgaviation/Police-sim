@@ -41,6 +41,9 @@ export class PedRec {
   prevX = 0;
   prevZ = 0;
   prevYaw = 0;
+  /** Corner blend: offset added to the placed position after an edge change; it shrinks to 0 while walking. */
+  ox = 0;
+  oz = 0;
   gait = 0;
   speed = 0;
   height = 1.75;

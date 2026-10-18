@@ -280,6 +280,8 @@ export class ContactManager {
       this.emitFlag(c, 'contacted');
       for (const f of [...c.flags]) if (f.startsWith('ev:')) this.emitFlag(c, f.slice(3));
       if (this.actorOf(c)?.cuffed === true) this.emitFlag(c, 'custody');
+      // The interpreter was asked for before the call existed: request it now.
+      if (c.flags.has('interpreterAsked') && !c.flags.has('interpreterHere')) this.emitFlag(c, 'interpreterRequested');
     }
   }
 
@@ -1058,6 +1060,7 @@ export class ContactManager {
   private escalate(c: Contact, kind: 'flee' | 'fight'): void {
     // A prisoner in handcuffs cannot bolt or fight.
     if (this.actorOf(c)?.cuffed === true) return;
+    c.flags.add('bolted');
     if (c.actorId === 0) this.stepOutActor(c);
     if (c.actorId > 0) this.deps.npc.forceState(c.actorId, kind);
   }
@@ -1109,7 +1112,8 @@ export class ContactManager {
       statement: null,
       identity: null,
       consent: null,
-      escalate: null,
+      // A subject who bolts or fights is no longer listening: delivering this closes the panel.
+      escalate: outcome === 'flee' || outcome === 'fight' ? outcome : null,
       calmed: false,
       memory: structuredClone(mem),
     };
@@ -1753,6 +1757,20 @@ export class ContactManager {
       if (c.flags.has('releasing')) {
         this.progressRelease(c);
         continue;
+      }
+      const running = c.actorId > 0 ? this.actorOf(c) : null;
+      if (running && !running.cuffed && (running.state === ACTOR_STATE.flee || running.state === ACTOR_STATE.fight)) {
+        // The subject bolted or attacked on its own: hide the dialogue (once) so the officer can move and react.
+        if (!c.flags.has('bolted')) {
+          c.flags.add('bolted');
+          if (this.activeId === c.id) {
+            this.line(c, 'system', running.state === ACTOR_STATE.flee ? 'The subject runs!' : 'The subject attacks!');
+            this.activeId = -1;
+            this.rev++;
+          }
+        }
+      } else if (running) {
+        c.flags.delete('bolted');
       }
       if (c.actorId > 0 && this.actorOf(c) === null) {
         // The actor is gone: re-seated, transported, left or caged by somebody else.

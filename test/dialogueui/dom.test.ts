@@ -133,13 +133,56 @@ describe('DialoguePanel DOM', () => {
     const root = fake(panel.element);
     const notes = visibleRows(root);
     const texts = labels(notes);
-    expect(texts).toEqual(['Statements', 'Said she was at work', 'Facts', 'None yet', 'Inconsistencies', 'Name differs from the licence']);
-    expect(notes[1]?.className).toContain('dlg-note-info');
-    expect(notes[3]?.className).toContain('dlg-note-none');
-    expect(notes[5]?.className).toContain('dlg-note-alert');
+    expect(texts).toEqual(['Inconsistencies', 'Name differs from the licence', 'Statements', 'Said she was at work', 'Facts', 'None yet']);
+    expect(notes[1]?.className).toContain('dlg-note-alert');
+    expect(notes[3]?.className).toContain('dlg-note-info');
+    expect(notes[5]?.className).toContain('dlg-note-none');
     // Back on the talk tab the rows are rebuilt.
     panel.onKeyDown(keyEvent('Tab'));
     expect(labels(visibleRows(root))).toEqual(['Greeting', 'Identity', 'Nothing here']);
+  });
+
+  it('shows the newest notes of a long list and scrolls the body with the arrows', () => {
+    const ui = install();
+    const panel = new DialoguePanel(asUi(ui));
+    const facts = Array.from({ length: 20 }, (_, i) => ({ text: `fact ${String(i)}`, severity: 'info' as const }));
+    panel.open(view({ facts }), handlers().handlers);
+    panel.onKeyDown(keyEvent('Tab'));
+    panel.onKeyDown(keyEvent('Tab'));
+    const root = fake(panel.element);
+    const texts = labels(visibleRows(root));
+    expect(texts).toContain('fact 19');
+    expect(texts).toContain('fact 8');
+    expect(texts).not.toContain('fact 7');
+    const body = find(root, 'dlg-body')[0] as FakeEl & { scrollTop?: number; clientHeight?: number };
+    body.scrollTop = 0;
+    body.clientHeight = 200;
+    expect(panel.onKeyDown(keyEvent('ArrowDown'))).toBe(true);
+    expect(body.scrollTop).toBe(32);
+    expect(panel.onKeyDown(keyEvent('PageDown'))).toBe(true);
+    expect(body.scrollTop).toBe(32 + 160);
+    expect(panel.onKeyDown(keyEvent('ArrowUp'))).toBe(true);
+    expect(body.scrollTop).toBe(32 + 160 - 32);
+  });
+
+  it('scrolls the highlighted row into view when the highlight moves', () => {
+    const ui = install();
+    const panel = new DialoguePanel(asUi(ui));
+    const actions = Array.from({ length: 22 }, (_, i) => ({ id: `a${String(i)}`, label: `Action ${String(i)}`, enabled: true }));
+    panel.open(view({ actions }), handlers().handlers);
+    const seen: string[] = [];
+    const proto = Object.getPrototypeOf(document.createElement('div')) as { scrollIntoView?: unknown };
+    proto.scrollIntoView = function (this: FakeEl): void {
+      seen.push(this.children[1]?.textContent ?? '');
+    };
+    panel.onKeyDown(keyEvent('Tab'));
+    for (let i = 0; i < 20; i++) panel.onKeyDown(keyEvent('ArrowDown'));
+    expect(seen.at(-1)).toBe('Action 20');
+    // An update that keeps the highlight does not scroll again.
+    const before = seen.length;
+    panel.update(view({ actions }));
+    expect(seen.length).toBe(before);
+    delete proto.scrollIntoView;
   });
 
   it('shows the last transcript lines by speaker and the waiting status', () => {

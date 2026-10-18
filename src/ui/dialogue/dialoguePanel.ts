@@ -2,7 +2,7 @@ import '../panels/panels.css';
 import './dialogue.css';
 import type { Menu, UIRoot } from '../ui';
 import { div, setClass, setText } from '../panels/dom';
-import { panelBadge, panelKeyToIndex } from '../panels/text';
+import { listBadge, listKeyToIndex } from '../panels/text';
 import type {
   CommMode,
   DialogueEmit,
@@ -33,7 +33,7 @@ export const COMM_MODE_LABELS: Readonly<Record<CommMode, string>> = {
 export const TRANSCRIPT_LINES = 8;
 /** Notes shown per section. */
 export const NOTE_LINES = 12;
-const FOOTER = '1-9 pick · ↑↓ Enter · ←→ tone · Tab tab · M mode · Backspace back · Esc close';
+const FOOTER = '1-9 0 A-Z pick · ↑↓ Enter · ←→ tone · Tab tab · M mode · Backspace back · Esc close';
 
 /** The panel state for a conversation that starts with `tone`. */
 export function createDialogueState(tone: Tone): DialoguePanelState {
@@ -68,7 +68,7 @@ function stepFocus(options: readonly DialogueOptionView[] | null, length: number
 }
 
 /**
- * Pure key reducer of the dialogue panel. Digits 1-9 pick a topic and then an option (Talk) or an action
+ * Pure key reducer of the dialogue panel. Digits 1-9, 0 and then letters (not M) pick a topic and then an option (Talk) or an action
  * (Actions); Enter acts on the highlighted row like its digit; Up/Down move the highlight (skipping disabled
  * options); Left/Right change the tone (wrapping); Tab goes to the next tab; M cycles the communication mode;
  * Backspace goes back from an option list to the topics; Escape does the same, else closes. Disabled options
@@ -77,7 +77,7 @@ function stepFocus(options: readonly DialogueOptionView[] | null, length: number
  */
 export function reduceDialogueKey(state: DialoguePanelState, view: DialogueView, key: string): DialogueKeyResult {
   const idle = (consumed: boolean): DialogueKeyResult => ({ state, emit: null, consumed });
-  const digit = panelKeyToIndex(key);
+  const digit = listKeyToIndex(key);
   if (digit !== null) return activate(state, view, digit);
   switch (key) {
     case 'Enter':
@@ -189,6 +189,8 @@ export class DialoguePanel implements Menu {
   private st: DialoguePanelState = createDialogueState('neutral');
   private openFlag = false;
   private lastViewTone: Tone = 'neutral';
+  /** `tab:topic:focus` of the last render: the highlighted row is scrolled into view when it changes. */
+  private lastFocusKey = '';
 
   constructor(ui: UIRoot | null) {
     this.ui = ui;
@@ -246,6 +248,7 @@ export class DialoguePanel implements Menu {
   onKeyDown(event: KeyboardEvent): boolean {
     const view = this.view;
     if (!this.openFlag || !view || event.ctrlKey || event.altKey || event.metaKey) return false;
+    if (this.st.tab === 'notes' && this.scrollNotes(event.key)) return true;
     const result = reduceDialogueKey(this.st, view, event.key);
     // Holding a key repeats navigation but never repeats a line or an action.
     if (event.repeat && result.emit) return true;
@@ -255,6 +258,18 @@ export class DialoguePanel implements Menu {
   dispose(): void {
     this.close();
     this.dom?.root.remove();
+  }
+
+  /** The notes tab has no highlighted row: the arrow and page keys scroll the body. */
+  private scrollNotes(key: string): boolean {
+    const body = this.dom?.body;
+    if (key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'PageUp' && key !== 'PageDown') return false;
+    if (body) {
+      const page = key.startsWith('Page');
+      const step = page ? Math.max(40, body.clientHeight * 0.8) : 32;
+      body.scrollTop += key.endsWith('Down') ? step : -step;
+    }
+    return true;
   }
 
   private apply(result: DialogueKeyResult): boolean {
@@ -313,7 +328,13 @@ export class DialoguePanel implements Menu {
       const tab = DIALOGUE_TABS[i] as DialogueTab;
       setClass(dom.tabs[i] as HTMLDivElement, tab === st.tab ? 'dlg-tab dlg-on' : 'dlg-tab');
     }
-    this.renderBody(dom, view, st);
+    const focusRow = this.renderBody(dom, view, st);
+    const focusKey = `${st.tab}:${String(st.topic)}:${String(st.focus)}`;
+    if (focusKey !== this.lastFocusKey) {
+      this.lastFocusKey = focusKey;
+      const el = focusRow?.root;
+      if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest' });
+    }
     for (let i = 0; i < TRANSCRIPT_LINES; i++) {
       const el = dom.lines[i] as HTMLDivElement;
       const line: TranscriptLine | undefined = view.transcript[Math.max(0, view.transcript.length - TRANSCRIPT_LINES) + i];
@@ -327,8 +348,10 @@ export class DialoguePanel implements Menu {
     setText(dom.footer, FOOTER);
   }
 
-  private renderBody(dom: PanelDom, view: DialogueView, st: DialoguePanelState): void {
+  /** Fills the body rows; returns the highlighted row (null on the notes tab). */
+  private renderBody(dom: PanelDom, view: DialogueView, st: DialoguePanelState): Row | null {
     let n = 0;
+    let focusRow: Row | null = null;
     const fill = (cls: string, badge: string, label: string, hint: string, index: number): void => {
       const row = this.row(dom, n++);
       row.root.hidden = false;
@@ -342,31 +365,32 @@ export class DialoguePanel implements Menu {
       const section = (head: string, notes: readonly NoteLine[]): void => {
         fill('dlg-head', '', head, '', -1);
         if (notes.length === 0) fill('dlg-note dlg-note-none', '', 'None yet', '', -1);
-        for (let i = 0; i < Math.min(notes.length, NOTE_LINES); i++) {
-          const note = notes[i] as NoteLine;
-          fill(`dlg-note dlg-note-${note.severity}`, '', note.text, '', -1);
-        }
+        // The lists grow newest-last: the newest entries are the ones worth reading.
+        for (const note of notes.slice(-NOTE_LINES)) fill(`dlg-note dlg-note-${note.severity}`, '', note.text, '', -1);
       };
+      section('Inconsistencies', view.inconsistencies);
       section('Statements', view.statements);
       section('Facts', view.facts);
-      section('Inconsistencies', view.inconsistencies);
     } else if (st.tab === 'talk' && st.topic < 0) {
       for (let i = 0; i < view.topics.length; i++) {
         const topic = view.topics[i];
         if (!topic) continue;
         const cls = `dlg-row${i === st.focus ? ' dlg-focus' : ''}${topic.options.some((o) => o.enabled) ? '' : ' dlg-off'}`;
-        fill(cls, panelBadge(i), topic.label, `${String(topic.options.length)} ▸`, i);
+        fill(cls, listBadge(i), topic.label, `${String(topic.options.length)} ▸`, i);
+        if (i === st.focus) focusRow = dom.rows[n - 1] ?? null;
       }
     } else {
       const options = currentOptions(st, view) ?? [];
       for (let i = 0; i < options.length; i++) {
         const o = options[i] as DialogueOptionView;
         const cls = `dlg-row${i === st.focus ? ' dlg-focus' : ''}${o.enabled ? '' : ' dlg-off'}`;
-        fill(cls, panelBadge(i), o.label, o.hint ?? '', i);
+        fill(cls, listBadge(i), o.label, o.hint ?? '', i);
+        if (i === st.focus) focusRow = dom.rows[n - 1] ?? null;
       }
     }
     for (let i = n; i < dom.rows.length; i++) (dom.rows[i] as Row).root.hidden = true;
     dom.body.setAttribute('aria-label', st.tab === 'talk' && st.topic >= 0 ? (view.topics[st.topic]?.label ?? '') : TAB_LABELS[st.tab]);
+    return focusRow;
   }
 
   private row(dom: PanelDom, index: number): Row {

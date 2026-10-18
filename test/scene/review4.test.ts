@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { outcomeFor } from '../../src/calls/conditions';
 import { familyDef } from '../../src/calls/catalog';
+import type { ActorInfo } from '../../src/npc/types';
 import { at, engage, makeRig, run, runUntil, spawnWhere, type SceneRig } from './helpers';
 
 const REAL = (rt: { scenario: { variants: readonly string[] } }): boolean =>
@@ -217,5 +218,108 @@ describe('confused elderly subjects', () => {
       expect(identity.age).toBeGreaterThanOrEqual(70);
       r.cad.closeCall(id, 'cancelled', at(r.sim));
     }
+  });
+});
+
+describe('residents', () => {
+  it('a person waiting at their own door has the call address on record', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'welfareCheckNoAnswer', (rt) => rt.scenario.participants.some((p) => p.role === 'subject' && p.personId >= 0));
+    const rt = r.scene.runtime(id)!;
+    const subject = rt.scenario.participants.find((p) => p.role === 'subject')!;
+    expect(r.records.peekPerson(subject.personId).address).toBe(r.cad.call(id)!.location.text);
+    const saved = r.records.serialize();
+    expect(saved.addresses?.some(([pid]) => pid === subject.personId)).toBe(true);
+  });
+});
+
+describe('crisis transport', () => {
+  it('EMS takes a calm subject in crisis away, so the best outcome can be earned', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'mentalHealthCrisis', (rt) => REAL(rt) && rt.scenario.branch === 'suicidal' && rt.scenario.participants.some((p) => p.role === 'subject'));
+    const rt = engage(r, id, 30, 1);
+    r.scene.request({ kind: 'action', callId: id, actionId: 'requestEms' });
+    expect(runUntil(r, () => rt.flags.has('transported:subject'), 600)).toBe(true);
+    const subject = rt.scenario.participants.find((p) => p.role === 'subject')!;
+    expect(r.people.state(subject.personId).custody).toBe('hospital');
+    expect(outcomeFor(familyDef('crisis')!, rt.flags).id).toBe('transported');
+  });
+});
+
+function info(): ActorInfo {
+  return { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 };
+}
+
+describe('escalation arms the suspect', () => {
+  it('a suspect who is now armed really carries the weapon', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'assaultInProgress', (rt) => rt.scenario.branch === 'suspectNearby' && rt.scenario.variants.includes('escalation'), ['escalation']);
+    const rt = engage(r, id, 30, 1);
+    expect(runUntil(r, () => rt.flags.has('escalated'), 400)).toBe(true);
+    run(r, 2);
+    const i = rt.scenario.participants.findIndex((p) => p.role === 'suspect');
+    const actor = rt.actorIds[i] ?? 0;
+    expect(actor).toBeGreaterThan(0);
+    expect(r.npc.actor(actor, info())?.armed).toBe(true);
+  });
+});
+
+describe('bodies stay put', () => {
+  it('a deceased or unconscious person does not get up and walk away when the call is cleared', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'unattendedDeath', (rt) => rt.scenario.participants.some((p) => p.deceased));
+    const rt = engage(r, id, 30, 3);
+    const i = rt.scenario.participants.findIndex((p) => p.deceased);
+    const actor = rt.actorIds[i] ?? 0;
+    expect(actor).toBeGreaterThan(0);
+    r.npc.reveal(actor);
+    r.npc.forceState(actor, 'lying');
+    r.scene.request({ kind: 'clear', callId: id, disposition: null });
+    run(r, 3);
+    expect(r.npc.actor(actor, info())?.state).toBe(15);
+  });
+});
+
+describe('a dropped weapon', () => {
+  it('is collected as evidence and secures the weapon', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'armedPerson', (rt) => REAL(rt) && rt.scenario.branch === 'brandishing' && rt.scenario.participants.some((p) => p.role === 'subject' && p.weapon === 'handgun'));
+    const rt = engage(r, id, 30, 1);
+    const i = rt.scenario.participants.findIndex((p) => p.role === 'subject');
+    const actor = rt.actorIds[i] ?? 0;
+    expect(actor).toBeGreaterThan(0);
+    r.npc.reveal(actor);
+    r.npc.forceState(actor, 'armed');
+    r.npc.dropWeapon(actor);
+    run(r, 1);
+    expect(rt.flags.has('weaponFound')).toBe(false);
+    const before = r.scene.props.count;
+    expect(before).toBeGreaterThan(0);
+    r.scene.request({ kind: 'action', callId: id, actionId: 'photograph' });
+    run(r, 30);
+    r.scene.request({ kind: 'action', callId: id, actionId: 'collectEvidence' });
+    run(r, 60);
+    expect(rt.flags.has('weaponFound')).toBe(true);
+    expect(rt.flags.has('itemFound:handgun')).toBe(true);
+    expect(r.cad.docs.byCall(id).some((d) => d.kind === 'evidence' && (d as { description?: string }).description === 'Handgun')).toBe(true);
+  });
+});
+
+describe('occupants the officer ordered out', () => {
+  it('belong to the scene: EMS takes the patient who stepped out of the car', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'impairedDriver', (rt) => REAL(rt) && rt.scenario.branch === 'medical' && rt.scenario.vehicles.length === 1);
+    const rt = engage(r, id, 60, 2);
+    const driverIdx = rt.scenario.participants.findIndex((p) => p.role === 'driver');
+    const driver = rt.scenario.participants[driverIdx]!;
+    const vehicleId = rt.scenario.vehicles[0]!.vehicleId;
+    // Exactly what ContactManager.stepOutActor does.
+    const aid = r.npc.stepOut(vehicleId, 0);
+    expect(aid).toBeGreaterThan(0);
+    r.npc.setRole(aid, 'driver', id);
+    r.scene.request({ kind: 'action', callId: id, actionId: 'requestEms' });
+    expect(runUntil(r, () => rt.flags.has('transported:driver'), 900)).toBe(true);
+    expect(r.people.state(driver.personId).custody).toBe('hospital');
+    expect(r.npc.actorOfPerson(driver.personId)).toBe(0);
   });
 });

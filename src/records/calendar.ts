@@ -41,6 +41,17 @@ export function epochDayOfGameSeconds(gameSeconds: number): number {
   return CALENDAR.startEpochDay + Math.floor(gameSeconds / SECONDS_PER_DAY);
 }
 
+/** Game hour at which "today's" clothes and daily items change over (a quiet hour, not midnight). */
+export const WARDROBE_ROLLOVER_H = 5;
+
+/**
+ * The day that keys clothes and daily items: like `epochDayOfGameSeconds` but rolling over at 05:00, so a person
+ * does not change clothes or pockets in the middle of a night shift.
+ */
+export function wardrobeDayOfGameSeconds(gameSeconds: number): number {
+  return CALENDAR.startEpochDay + Math.floor((gameSeconds - WARDROBE_ROLLOVER_H * 3600) / SECONDS_PER_DAY);
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }

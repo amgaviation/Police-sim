@@ -107,3 +107,11 @@ export function applyVariantRoles(
 export function presentRoles(roles: readonly RoleDef[]): RoleDef[] {
   return roles.filter((r) => r.count[1] >= 1);
 }
+
+/**
+ * The flags a branch sets in this build. The role-rewriting variants (`false`, `swatting`, `ambush`) remove the
+ * roles the branch's flags are about (`injury:victim`, `medicalEmergency`), so none of them apply.
+ */
+export function branchFlagsFor(branch: BranchDef, variants: readonly VariantKind[]): readonly string[] {
+  return variants.includes('false') || variants.includes('swatting') || variants.includes('ambush') ? [] : branch.flags;
+}

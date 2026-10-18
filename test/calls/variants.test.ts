@@ -3,6 +3,11 @@ import { createRng } from '../../src/core/rng';
 import { CALL_CATALOG, VARIANT_KINDS, type VariantKind } from '../../src/calls/catalog';
 import { pickBranch, pickVariants } from '../../src/calls/scenario';
 import { callTypeDef, familyDef } from '../../src/calls/catalog';
+import { outcomeFor, objectivesFor } from '../../src/calls/conditions';
+import { buildScenario } from '../../src/calls/scenario';
+import { scriptFor } from '../../src/scene/director';
+import { ScriptedRng } from '../../src/scene/text';
+import { rngFor, stubInput } from './stub';
 
 const RATES = CALL_CATALOG.variants.rates;
 const ONES = Object.fromEntries(VARIANT_KINDS.map((k) => [k, 1])) as Record<VariantKind, number>;
@@ -102,5 +107,38 @@ describe('pickBranch', () => {
     pickBranch(dui, null, a);
     b.next();
     expect(a.next()).toBe(b.next());
+  });
+});
+
+describe('ambush scenarios', () => {
+  const ambushFamilies = CALL_CATALOG.families.filter((f) => f.variants.ambush > 0);
+
+  it('every family that can be ambushed has an outcome for it', () => {
+    expect(ambushFamilies.length).toBeGreaterThanOrEqual(7);
+    for (const f of ambushFamilies) {
+      expect(JSON.stringify(f.outcomes.map((o) => o.when)), f.id).toContain('variant:ambush');
+      expect(JSON.stringify(f.outcomes.map((o) => o.when)), f.id).toContain('custody:ambusher');
+    }
+  });
+
+  it('keeps the branch flags of removed roles out of an ambush, so outcomes and objectives are about the ambush', () => {
+    let built = 0;
+    for (const f of ambushFamilies) {
+      const type = CALL_CATALOG.types.find((t) => t.family === f.id);
+      if (!type) continue;
+      for (let seed = 1; seed <= 30; seed++) {
+        const sc = buildScenario(stubInput({ typeId: type.id, seed }), new ScriptedRng(rngFor(seed, 1), scriptFor(['ambush'], type.variants ?? f.variants)));
+        expect(sc.variants, `${f.id} seed ${String(seed)}`).toContain('ambush');
+        built++;
+        const flags = new Set(sc.flags);
+        const branch = f.branches.find((b) => b.id === sc.branch);
+        for (const flag of branch?.flags ?? []) expect(flags.has(flag), `${f.id}/${sc.branch} ${flag}`).toBe(false);
+        expect(outcomeFor(f, flags).id, `${f.id}/${sc.branch}`).toBe('ambushed');
+        flags.add('custody:ambusher');
+        expect(outcomeFor(f, flags).disposition).toBe('arrestMade');
+        for (const o of objectivesFor(f, flags)) expect(o.text).not.toMatch(/Victim injured/);
+      }
+    }
+    expect(built).toBe(ambushFamilies.length * 30);
   });
 });

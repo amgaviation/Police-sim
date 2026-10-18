@@ -155,7 +155,7 @@ describe('openSelfInitiated', () => {
     expect(h.dispatcher.unitStates().every((u) => u.callId !== call.id)).toBe(true);
   });
 
-  it('a call the player leaves for it is not handed to the AI units', async () => {
+  it('a dispatched call the player leaves for it goes back to the AI units and is not stranded', async () => {
     const h = await makeHarness({ config: quietConfig() });
     const a = h.dispatcher.createCall('loudParty', at(0), { x: h.player.x, z: h.player.z })!;
     h.dispatcher.request('12', { kind: 'selfAssign', callId: a.id }, 'key');
@@ -164,10 +164,18 @@ describe('openSelfInitiated', () => {
     const b = h.dispatcher.openSelfInitiated('footPursuit', 2, { x: h.player.x, z: h.player.z }, 'Foot pursuit.', at(h.sim));
     expect(h.cad.playerUnit()?.callId).toBe(b.id);
     clearEvents(h);
-    run(h, 90);
+    run(h, 300);
     const aa = h.cad.call(a.id)!;
     expect(aa.units).not.toContain('12');
-    for (const u of h.dispatcher.unitStates()) expect(u.callId === a.id && u.role === 'call').toBe(false);
+    expect(aa.status === 'closed' || aa.units.length > 0).toBe(true);
+  });
+
+  it('a self-initiated call the player leaves for another one is closed', async () => {
+    const h = await makeHarness({ config: quietConfig() });
+    const a = h.dispatcher.openSelfInitiated('pedestrianStop', 3, { x: h.player.x, z: h.player.z }, 'Field contact.', at(0));
+    const b = h.dispatcher.openSelfInitiated('footPursuit', 2, { x: h.player.x, z: h.player.z }, 'Foot pursuit.', at(h.sim));
+    expect(h.cad.playerUnit()?.callId).toBe(b.id);
+    expect(h.cad.call(a.id)?.status).toBe('closed');
   });
 });
 

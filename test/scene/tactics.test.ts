@@ -29,9 +29,25 @@ function face(r: SceneRig, actor: number, d: number): void {
 }
 
 describe('officer weapon', () => {
+  it('is holstered when the officer gets into a vehicle', async () => {
+    const r = await makeRig();
+    r.scene.request({ kind: 'weapon' });
+    run(r, 0.1);
+    expect(r.scene.officerWeapon).toBe('sidearm');
+    r.officer.onFoot = false;
+    run(r, 0.1);
+    expect(r.scene.officerWeapon).toBe('none');
+    expect(r.scene.presence.weapon).toBe('none');
+    r.scene.request({ kind: 'weapon' });
+    run(r, 0.1);
+    expect(r.scene.officerWeapon).toBe('none');
+    r.officer.onFoot = true;
+  });
+
   it('cycles none -> sidearm -> taser -> none and reports a draw near a scene actor', async () => {
     const r = await makeRig();
-    const { id } = subjectScene(r);
+    const { id, actor } = subjectScene(r);
+    face(r, actor, 3);
     expect(r.scene.officerWeapon).toBe('none');
     r.scene.request({ kind: 'weapon' });
     run(r, 0.1);
