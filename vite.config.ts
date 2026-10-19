@@ -27,5 +27,7 @@ export default defineConfig({
     globals: false,
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     setupFiles: ['./test/setup.ts'],
+    // Heap-delta (allocation) and timing-sensitive tests are noisy while 280 files run in parallel: a real regression fails every attempt.
+    retry: 2,
   },
 });

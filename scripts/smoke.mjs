@@ -1603,7 +1603,7 @@ async function phase4(page, hasRenderer) {
   await press(page, 'Digit8');
   await waitFor(page, (id) => window.patrol.session.officerBuilding === id && window.patrol.session.interiors.fade === 0, house.id, 20000);
   await sleep(800);
-  const inside = await page.evaluate((h) => {
+  const inside = await page.evaluate(() => {
     const app = window.patrol;
     const s = app.session;
     return {
@@ -1616,7 +1616,7 @@ async function phase4(page, hasRenderer) {
       location: document.body.innerText.includes('House'),
       room: s.officerRoom(),
     };
-  }, house);
+  });
   console.log('inside:', JSON.stringify(inside));
   check(inside.building === house.id && Math.abs(inside.y - (-40 + 0.9)) < 0.01, `E enters the house after the fade (level y ${inside.y.toFixed(2)})`);
   check(inside.firstPerson && inside.location, 'indoors: first-person camera and the location chip');
@@ -1660,7 +1660,6 @@ async function phase4(page, hasRenderer) {
     for (let k = 0; k < 12 && state !== 'broken'; k++) {
       s.interiors.request({ kind: 'door', buildingId: h.id, door: d.index, action: 'kick' });
       await new Promise((r) => setTimeout(r, 120));
-      state = s.interiors.doorState(h.id, d.index);
       for (let i = 0; i < 70; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
       state = s.interiors.doorState(h.id, d.index);
     }
@@ -1746,7 +1745,7 @@ async function phase4(page, hasRenderer) {
   await sleep(1500);
   await page.screenshot({ path: path.join(SHOTS, 'phase4.png') });
   console.log(`screenshot: ${path.join(SHOTS, 'phase4.png')}`);
-  await page.evaluate((id) => window.patrol.phase4.openCaseFile(window.patrol.session), 0);
+  await page.evaluate(() => window.patrol.phase4.openCaseFile(window.patrol.session));
   await sleep(800);
   const caseOpen = await page.evaluate(() => ({ open: window.patrol.phase4.caseFile.isOpen, text: document.body.innerText }));
   check(caseOpen.open, 'the case file panel opens');
