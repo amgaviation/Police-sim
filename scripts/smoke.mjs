@@ -1715,7 +1715,10 @@ async function phase4(page, hasRenderer) {
     // The scene's own evidence may lie anywhere in the house: put a knife at the front door, as the scene would.
     const id = inv.placeItem({ callId, item: 'knife', label: 'Kitchen knife', x: door.exit.x, y: 0, z: door.exit.z + 0.5, buildingId: -1, room: -1, furniture: -1, container: 'none', concealed: false, ownerPersonId: -1, incriminating: true });
     const item = inv.store.item(id);
-    // The item lies outside at the door: collect it there.
+    // The item lies outside at the door: walk to the front door, leave and collect it there.
+    const entry = s.interiors.layout(s.officerBuilding).entry;
+    s.physics.getBody(s.player).setTranslation({ x: entry.x, y: -40 + 0.9, z: entry.z }, true);
+    for (let i = 0; i < 6; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     s.interiors.request({ kind: 'exit', door: door.index });
     for (let i = 0; i < 90; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     s.physics.getBody(s.player).setTranslation({ x: item.x, y: 0.9, z: item.z }, true);
