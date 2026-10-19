@@ -16,6 +16,9 @@
  * Phase 3: `traffic:fleeing` / `traffic:fleeEnded` (and `traffic:released` reason `fled`) in traffic/events.ts,
  * `npc:*` in npc/events.ts, `contact:*` in contact/events.ts, `scene:*` and `force:used` in scene/events.ts,
  * `cad:callUpdated` change `links` in cad/events.ts.
+ * Phase 4: `interior:*` in indoors/events.ts, `tactical:*` in tactical/events.ts, `npc:aware` in npc/events.ts,
+ * `contact:consent` in contact/events.ts, `investigation:*` in investigation/events.ts, `station:*` in station/events.ts,
+ * `scene:service` (and `scene:materialized.buildingId`) in scene/events.ts.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;

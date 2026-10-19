@@ -20,6 +20,9 @@ function stubSession(sim: { t: number }): GameSession {
     controller: { yaw: 0 },
     scene: { officerWeapon: 'none', props: { count: 0 } },
     npc: { view: { count: 0 } },
+    tactical: { stance: { crouched: false }, partner: { view: { count: 0 } } },
+    investigation: { props: { count: 0 }, dog: { count: 0 } },
+    station: { loadout: { uniform: 'longSleeve' } },
     clock: { get simTime() { return sim.t; } },
   } as unknown as GameSession;
 }

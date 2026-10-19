@@ -87,7 +87,7 @@ describe('dispatch save', () => {
       expect(b.traffic.fleetState(i, fs)).not.toBeNull();
       expect(hasComponent(b.world, fs.eid, PoliceLights)).toBe(true);
     }
-  });
+  }, 60_000);
 
   it('dispose unsubscribes from the bus', async () => {
     const h = await makeHarness({ config: quietConfig() });

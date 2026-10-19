@@ -6,6 +6,7 @@ import { roomAt } from '../../src/interior/nav';
 import type { InteriorDoor, InteriorLayout } from '../../src/interior/types';
 import { initRapier } from '../../src/physics/physics';
 import type { BuildingInfo } from '../../src/world/buildings';
+import { verifyLedger } from '../../src/evidence';
 import { migrateEnvelope } from '../../src/save/migrations';
 import { isSaveGame, type SaveGame } from '../../src/save/schema';
 import { Harness, roundTrip } from './harness';
@@ -266,6 +267,48 @@ describe('Phase 4 determinism and saves', () => {
     expect(loaded.station.flow.step).toBe('onPatrol');
     expect(loaded.station.weaponsAvailable()).toEqual({ sidearm: true, taser: true });
     expect(loaded.investigation.store.files().length).toBe(0);
+    h.dispose();
+  }, 60_000);
+});
+
+describe('Phase 4 evidence at the station', () => {
+  it('an item left at a door is found in plain view, collected, bagged, tagged and deposited: the chain is complete and verifies', () => {
+    const h = new Harness(undefined, undefined, true);
+    const session = h.start(SEED, true);
+    h.step(session, 30);
+    stationShift(h, session);
+    const home = nearestHouse(session);
+    const layout = session.interiors.layout(home.id);
+    const main = layout?.doors.find((d) => d.main);
+    if (!main?.exit) throw new Error('no front door');
+    session.teleport(main.exit.x, main.exit.z, main.exit.yaw + Math.PI);
+    h.step(session, 60);
+    const inv = session.investigation;
+    const id = inv.placeItem({
+      callId: 0, item: 'knife', label: 'Kitchen knife', x: main.exit.x, y: 0, z: main.exit.z + 0.5, buildingId: -1, room: -1,
+      furniture: -1, container: 'none', concealed: false, ownerPersonId: -1, incriminating: true,
+    });
+    h.step(session, 90);
+    expect(inv.store.item(id)?.state).toBe('found');
+    expect(session.collectTarget()).toBe(id);
+    for (const kind of ['collect', 'bag', 'tag'] as const) {
+      inv.request({ kind, itemId: id });
+      h.step(session, 6);
+    }
+    expect(inv.ledger.itemEntries(id).map((e) => e.action)).toEqual(['collect', 'bag', 'tag']);
+    expect(inv.ledger.complete(id)).toBe(false);
+    // Deposit: only at the station's evidence room.
+    const st = session.buildings.station();
+    const point = session.stationPoint('evidence');
+    if (!st || !point) throw new Error('no evidence point');
+    session.interiors.placeOfficerInside(st.id, point);
+    h.step(session, 10);
+    expect(session.nearEvidenceRoom()).toBe(true);
+    inv.request({ kind: 'deposit' });
+    h.step(session, 6);
+    expect(inv.ledger.complete(id)).toBe(true);
+    expect(inv.ledger.itemEntries(id).map((e) => e.action)).toEqual(['collect', 'bag', 'tag', 'deposit']);
+    expect(verifyLedger(inv.ledger.entries()).ok).toBe(true);
     h.dispose();
   }, 60_000);
 });

@@ -788,15 +788,15 @@ export class App {
   }
 
   /**
-   * The interact key: a tap acts at once, except at a plain door where a tap toggles it on release and holding the key
+   * The interact key: a tap acts at once, except near a door where a tap acts on release and holding the key
    * for `DOOR_HOLD_MS` opens the door panel (design §13).
    */
   private handleInteractKey(session: GameSession): void {
     const input = this.input;
     const now = performance.now();
     if (input.wasPressed('interact')) {
-      const hint = session.interactHint();
-      if (hint === 'door' || hint === 'enterBuilding') this.doorHoldMs = now;
+      // Near a door a tap acts on release and a hold opens the door panel (also when a person at the door wins the tap).
+      if (session.doorTarget() !== null) this.doorHoldMs = now;
       else this.interact(session);
     }
     if (this.doorHoldMs < 0) return;

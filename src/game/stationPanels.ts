@@ -4,7 +4,7 @@ import type { ActionPanelModel } from '../ui/panels/actionPanel';
 import type { DoorTarget, GameSession } from './session';
 
 /** Door panel rows, in order. */
-export const DOOR_ACTIONS = ['knock', 'announce', 'toggle', 'kick', 'ram', 'lock', 'canvass'] as const;
+export const DOOR_ACTIONS = ['knock', 'announce', 'toggle', 'kick', 'ram', 'lock', 'canvass', 'enter'] as const;
 export type DoorPanelAction = (typeof DOOR_ACTIONS)[number];
 
 /** Partner panel rows: the command each one sends ('dismiss' becomes 'summon' while the partner is away). */
@@ -30,7 +30,7 @@ export function buildingLabel(kind: string): string {
   return KIND_LABEL[kind] ?? 'Building';
 }
 
-/** Door panel for `t`: Knock, Announce, Open / Close, Kick, Ram (needs the ram), Lock / Unlock, Knock (canvass). */
+/** Door panel for `t`: Knock, Announce, Open / Close, Kick, Ram (needs the ram), Lock / Unlock, Knock (canvass), Enter. */
 export function doorPanelModel(session: GameSession, t: DoorTarget): ActionPanelModel {
   const layout = session.interiors.layout(t.buildingId);
   const d = layout?.doors[t.door];
@@ -50,8 +50,9 @@ export function doorPanelModel(session: GameSession, t: DoorTarget): ActionPanel
       { label: 'Ram', detail: hasRam ? '' : 'No ram (trunk)', enabled: !wide && hasRam && closed && (d?.strength ?? 0) < 0.95 },
       { label: state === 'locked' ? 'Unlock' : 'Lock', detail: d?.lockable ? '' : 'No lock', enabled: !wide && d?.lockable === true && state !== 'broken' && state !== 'open' },
       { label: 'Knock (canvass)', detail: t.outdoors ? (canvass ? 'Neighbour' : 'No call nearby') : 'Outside only', enabled: canvass },
+      { label: 'Enter', detail: !t.outdoors ? 'From outside' : state === 'locked' ? 'Locked' : '', enabled: t.outdoors && state !== 'locked' },
     ],
-    footer: '1-7 select · Esc close',
+    footer: '1-8 select · Esc close',
   };
 }
 
@@ -61,6 +62,10 @@ export function doorPanelRequest(session: GameSession, t: DoorTarget, index: num
   if (action === undefined) return null;
   if (action === 'canvass') {
     session.investigation.request({ kind: 'canvass', buildingId: t.buildingId });
+    return null;
+  }
+  if (action === 'enter') {
+    session.interiors.request({ kind: 'enter', buildingId: t.buildingId, door: t.door });
     return null;
   }
   const state = session.interiors.doorState(t.buildingId, t.door);

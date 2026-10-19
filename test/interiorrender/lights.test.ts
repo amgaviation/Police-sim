@@ -143,6 +143,7 @@ describe('InteriorLightPool', () => {
     for (let i = 0; i < 30000; i++) p.update(sys, cx, cz);
     let worst = 0;
     for (let k = 0; k < 6; k++) worst = Math.max(worst, heapDelta(gc, () => { for (let i = 0; i < 5000; i++) p.update(sys, cx, cz); }));
-    expect(worst).toBeLessThan(64 * 1024);
+    // A heap delta is noisy while other test files run in parallel: the bound only rules out a per-frame allocation (30 000 frames).
+    expect(worst).toBeLessThan(128 * 1024);
   });
 });

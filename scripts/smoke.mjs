@@ -15,10 +15,15 @@
  * the call stream from the 150+ type catalog, a spawned call's scene (scene panel, knock), the dialogue panel
  * answering to the real keys, weapon keys, an SFST panel run with the keys, foot and vehicle pursuits, and the
  * end-to-end flows through window.patrol (domestic with cage, shoplifting, lie detection, DUI to booking, a false
- * and a duplicate call), a v5 save/load and the Phase 3 console commands.
+ * and a duplicate call), a v5 save/load and the Phase 3 console commands. Phase 4: the new shift in the station's
+ * locker room (HUD objective, locker, roll call, armory, the garage door), entering a house with the real keys, the
+ * interior meshes and lights, flashlight / crouch / lean, a door kick, a domestic call bound to the house with its
+ * people inside, evidence markers, the camera (thumbnail), the case file, the deposit at the station's evidence room,
+ * a prisoner in a holding cell and the interview room, a v6 save/load and the Phase 4 console commands.
  * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
- * in-car MDT), phase2-mdt.png (the MDT overlay), phase3.png (a call scene with people) and
- * phase3-dialogue.png (the dialogue panel).
+ * in-car MDT), phase2-mdt.png (the MDT overlay), phase3.png (a call scene with people),
+ * phase3-dialogue.png (the dialogue panel), phase4.png (an interior with the flashlight and markers),
+ * phase4-station.png (the roll-call briefing) and phase4-case.png (the case file).
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
@@ -970,11 +975,10 @@ async function phase2(page, hasRenderer) {
 }
 
 /**
- * Phase 3 checks on a fresh shift: pedestrians downtown, the call stream, a spawned call's scene with the scene
- * panel, the dialogue panel answering to the real keys, the weapon keys, the SFST panel, a foot and a vehicle
- * pursuit, the end-to-end flows, a v5 save/load and the Phase 3 console commands. Returns the perf numbers.
+ * A new shift (it starts in the station's locker room) taken through the shift flow at once: duty pistol and taser
+ * signed out, out of the building at the station door, on patrol: the state the Phase 1-3 checks were written for.
  */
-async function phase3(page, hasRenderer) {
+async function startPatrolShift(page) {
   await page.evaluate(() => {
     const app = window.patrol;
     app.ui.closeAll();
@@ -982,6 +986,24 @@ async function phase3(page, hasRenderer) {
     app.perf.setVisible(false);
   });
   await waitFor(page, () => window.patrol.session !== null && (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  await page.evaluate(async () => {
+    const s = window.patrol.session;
+    s.station.request({ kind: 'armory', item: 'sidearm', action: 'out' });
+    s.station.request({ kind: 'armory', item: 'taser', action: 'out' });
+    s.station.request({ kind: 'complete', step: 'garage' });
+    await new Promise((r) => setTimeout(r, 300));
+    s.teleport(s.city.spawn.x, s.city.spawn.z, s.city.spawn.yaw);
+    await new Promise((r) => setTimeout(r, 300));
+  });
+}
+
+/**
+ * Phase 3 checks on a fresh shift: pedestrians downtown, the call stream, a spawned call's scene with the scene
+ * panel, the dialogue panel answering to the real keys, the weapon keys, the SFST panel, a foot and a vehicle
+ * pursuit, the end-to-end flows, a v5 save/load and the Phase 3 console commands. Returns the perf numbers.
+ */
+async function phase3(page, hasRenderer) {
+  await startPatrolShift(page);
   await page.evaluate(async () => {
     await window.patrol.console.execute('time 12:00');
     await window.patrol.console.execute('weather clear');
@@ -1375,6 +1397,479 @@ async function phase3(page, hasRenderer) {
   return { perf, frame, extras };
 }
 
+/** Moves the on-foot officer to station point `kind` (inside the station), facing it. */
+function placeAtStationPoint(kind) {
+  const s = window.patrol.session;
+  const p = s.stationPoint(kind);
+  if (!p) return null;
+  s.physics.getBody(s.player).setTranslation({ x: p.x, y: -40 + 0.9, z: p.z }, true);
+  s.controller.yaw = p.yaw;
+  return { x: p.x, z: p.z };
+}
+
+/** Snapshot of the shift flow, panels and menus for the checks. */
+function shiftState() {
+  const app = window.patrol;
+  const s = app.session;
+  return {
+    building: s.officerBuilding,
+    flow: s.station.flow.step,
+    hint: s.interactHint(),
+    panel: app.panels.kind,
+    menus: app.ui.menuStack.map((m) => m.id),
+    status: s.cad.unit(s.dispatcher.playerCallsign)?.status ?? '',
+    out: s.station.armory.out(),
+  };
+}
+
+/**
+ * Phase 4 checks on a fresh shift: the shift in the station (locker, roll call, armory, garage door) with the real
+ * keys, a house entered with E, the interior meshes and lights, flashlight / crouch / lean, a door kick, a domestic call
+ * bound to the house, evidence markers, the camera and its thumbnail, the case file, the deposit at the evidence room,
+ * a holding cell and the interview room, a v6 save/load and the console commands. Returns the perf numbers.
+ */
+async function phase4(page, hasRenderer) {
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.ui.closeAll();
+    app.newGame(42);
+    app.perf.setVisible(false);
+  });
+  await waitFor(page, () => window.patrol.session !== null && (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  await page.evaluate(async () => {
+    await window.patrol.console.execute('time 10:30');
+    await window.patrol.console.execute('weather clear');
+  });
+  await sleep(1500);
+
+  // --- The shift starts in the station's locker room ---------------------------------------------
+  const start = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const st = s.buildings.station();
+    return {
+      stationId: st?.id ?? -1,
+      state: s.officerBuilding,
+      flow: s.station.flow.step,
+      hint: s.interactHint(),
+      status: s.cad.unit(s.dispatcher.playerCallsign)?.status ?? '',
+      shiftLine: document.body.innerText.includes('Shift:'),
+      location: document.body.innerText.includes('Police station'),
+      floorPlan: app.worldView?.minimap.floorPlan !== null,
+      carried: s.officerKit.carried('camera') + s.officerKit.carried('evidenceMarkers'),
+      interiorDraw: app.phase4.interiorRenderer?.drawCalls ?? 0,
+      chunksHidden: app.worldView?.streamer ? !app.worldView.streamer.root.visible : true,
+    };
+  });
+  console.log('shift start:', JSON.stringify(start));
+  check(start.stationId >= 0 && start.state === start.stationId, `the new shift starts inside the police station (building ${start.state})`);
+  check(start.flow === 'locker' && start.hint === 'locker', `shift flow at the locker (${start.flow}, hint ${start.hint})`);
+  check(start.status === 'outOfService', `the unit is out of service until the garage step (${start.status})`);
+  check(start.shiftLine && start.location, 'the HUD shows the shift objective and the location chip');
+  check(start.floorPlan, 'the minimap draws the station floor plan');
+  check(start.carried >= 2, 'the field kit is carried');
+  if (hasRenderer) {
+    check(start.interiorDraw > 0 && start.interiorDraw <= 6, `the interior mesh draws in at most 6 draw calls (${start.interiorDraw})`);
+    check(start.chunksHidden, 'the city chunks are hidden indoors');
+  }
+
+  // Locker with the real keys: E opens the panel, 5 cycles the flashlight, 6 is Done.
+  await page.evaluate(placeAtStationPoint, 'locker');
+  await sleep(500);
+  await press(page, 'KeyE');
+  const locker = await page.evaluate(shiftState);
+  check(locker.panel === 'locker', 'E at the locker opens the locker panel');
+  await press(page, 'Digit5');
+  await press(page, 'Digit6');
+  await sleep(400);
+  const afterLocker = { ...(await page.evaluate(shiftState)), flashlight: await page.evaluate(() => window.patrol.session.station.loadout.flashlight) };
+  check(afterLocker.flow === 'briefing' && afterLocker.panel === null, `Done in the locker panel completes the locker step (${afterLocker.flow})`);
+  check(afterLocker.flashlight === 'mounted', `the locker loadout changed (flashlight ${afterLocker.flashlight})`);
+
+  // Roll call.
+  await page.evaluate(placeAtStationPoint, 'briefing');
+  await sleep(500);
+  await press(page, 'KeyE');
+  await sleep(600);
+  const briefing = await page.evaluate(() => {
+    const app = window.patrol;
+    return { open: app.phase4.briefing.isOpen, title: app.phase4.briefing.view?.title ?? '', menus: app.ui.menuStack.map((m) => m.id), paused: app.loop.paused };
+  });
+  check(briefing.open && briefing.paused, `E at the podium opens the roll-call sheet (${briefing.title})`);
+  await mkdir(SHOTS, { recursive: true });
+  await page.screenshot({ path: path.join(SHOTS, 'phase4-station.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase4-station.png')}`);
+  await press(page, 'Enter');
+  await sleep(500);
+  const afterBriefing = await page.evaluate(shiftState);
+  check(afterBriefing.flow === 'armory' && afterBriefing.menus.length === 0, `closing the sheet completes the briefing step (${afterBriefing.flow})`);
+
+  // Armory: pistol (1), taser (2), Done (7).
+  await page.evaluate(placeAtStationPoint, 'armory');
+  await sleep(500);
+  await press(page, 'KeyE');
+  await press(page, 'Digit1');
+  await press(page, 'Digit2');
+  await press(page, 'Digit7');
+  await sleep(400);
+  const armory = { ...(await page.evaluate(shiftState)), ...(await page.evaluate(() => ({ weapons: window.patrol.session.station.weaponsAvailable(), log: window.patrol.session.station.armory.entries().length }))) };
+  check(armory.out.includes('sidearm') && armory.out.includes('taser') && armory.log === 2, `the armory log records the sign-outs (${armory.out.join(', ')})`);
+  check(armory.weapons.sidearm && armory.flow === 'garage', `the duty pistol is available and the flow moves to the garage (${armory.flow})`);
+
+  // The garage door: E at the wide door leaves the building.
+  await page.evaluate(() => {
+    const s = window.patrol.session;
+    const st = s.buildings.station();
+    const d = s.interiors.layout(st.id).doors.find((x) => x.kind === 'wide' && x.exit && x.exit.z < st.minZ);
+    s.physics.getBody(s.player).setTranslation({ x: d.x, y: -40 + 0.9, z: d.z + 1 }, true);
+    s.controller.yaw = 0;
+  });
+  await sleep(500);
+  const garageHint = await page.evaluate(() => window.patrol.session.interactHint());
+  await press(page, 'KeyE');
+  await waitFor(page, () => window.patrol.session.officerBuilding === -1 && window.patrol.session.interiors.fade === 0, null, 15000);
+  await sleep(800);
+  const outside = await page.evaluate(shiftState);
+  check(garageHint === 'exitBuilding', `the garage door offers Exit (${garageHint})`);
+  check(outside.building === -1 && outside.flow === 'onPatrol', `leaving through the garage door completes the garage step (${outside.flow})`);
+  check(outside.status === 'available', `the unit goes available on patrol (${outside.status})`);
+
+  // --- A house: E enters with a fade, the interior is drawn --------------------------------------
+  const house = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const at = s.playerPosition({ x: 0, z: 0 });
+    const out = [];
+    s.buildings.near(at.x, at.z, 700, out);
+    const houses = out.filter((b) => b.kind === 'house' && s.interiors.layout(b.id) !== null);
+    houses.sort((a, b) => Math.hypot(a.door.x - at.x, a.door.z - at.z) - Math.hypot(b.door.x - at.x, b.door.z - at.z));
+    const h = houses[0];
+    const layout = s.interiors.layout(h.id);
+    const main = layout.doors.find((d) => d.main);
+    app.teleport(main.exit.x, main.exit.z, main.exit.yaw + Math.PI);
+    return { id: h.id, door: main.index, address: h.address, rooms: layout.rooms.length };
+  });
+  console.log('house:', JSON.stringify(house));
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 30000);
+  await sleep(800);
+
+  // A domestic call bound to this house with a victim and a suspect (retried until the roll gives both), then walk in.
+  const call = await page.evaluate(async (h) => {
+    const app = window.patrol;
+    const s = app.session;
+    const layout = s.interiors.layout(h.id);
+    const main = layout.doors[h.door];
+    let callId = 0;
+    for (let k = 0; k < 40 && callId === 0; k++) {
+      const id = s.scene.spawnCall('domesticDisturbance', s.now(), { x: main.x, z: main.z }, [], h.id);
+      const rt = s.scene.runtime(id);
+      if (rt && rt.buildingId === h.id && rt.scenario.variants.length === 0 && ['victim', 'suspect'].every((r) => rt.scenario.participants.some((p) => p.role === r))) callId = id;
+      else if (id > 0) s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId: id, disposition: 'unfounded' }, 'key');
+      for (let i = 0; i < 3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    }
+    if (callId === 0) return null;
+    s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'selfAssign', callId }, 'key');
+    return { id: callId, number: s.cad.call(callId)?.number ?? '', bound: s.scene.buildingOf(callId) };
+  }, house);
+  console.log('call:', JSON.stringify(call));
+  check(call !== null && call.bound === house.id, `a domestic call binds to the house (${call?.number ?? '-'})`);
+  await page.evaluate(stepSim, 240);
+  const people = await page.evaluate((h) => {
+    const s = window.patrol.session;
+    const ids = s.npc.actorsInBuilding(h.id, []);
+    return { inside: ids.length, roles: ids.map((id) => s.npc.actor(id, { id: 0, personId: -1, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 })?.role) };
+  }, house);
+  check(people.inside >= 1 && people.roles.includes('suspect'), `the scene's people stand inside the house (${people.roles.join(', ')})`);
+
+  // The front door is knocked; the resident answers at the door; holding E opens the door panel and 8 enters.
+  await page.evaluate((h) => {
+    const s = window.patrol.session;
+    s.interiors.request({ kind: 'door', buildingId: h.id, door: h.door, action: 'knock' });
+  }, house);
+  await page.evaluate(stepSim, 900);
+  await page.evaluate((h) => {
+    const s = window.patrol.session;
+    if (s.interiors.doorState(h.id, h.door) === 'locked') s.interiors.setDoorState(h.id, h.door, 'closed');
+    const d = s.interiors.layout(h.id).doors[h.door];
+    s.physics.getBody(s.player).setTranslation({ x: d.exit.x, y: 0.9, z: d.exit.z }, true);
+    s.controller.yaw = d.exit.yaw + Math.PI;
+  }, house);
+  await sleep(600);
+  const enterHint = await page.evaluate(() => window.patrol.session.interactHint());
+  // Software GL renders about 3 frames a second: hold the key long enough for a frame past the 0.4 s threshold.
+  await press(page, 'KeyE', 1500);
+  const doorPanel = await page.evaluate(() => window.patrol.panels.kind);
+  check(doorPanel === 'door', `holding E at the door opens the door panel (${doorPanel}; the tap hint was ${enterHint})`);
+  await press(page, 'Digit8');
+  await waitFor(page, (id) => window.patrol.session.officerBuilding === id && window.patrol.session.interiors.fade === 0, house.id, 20000);
+  await sleep(800);
+  const inside = await page.evaluate((h) => {
+    const app = window.patrol;
+    const s = app.session;
+    return {
+      building: s.officerBuilding,
+      y: s.physics.getBody(s.player).translation().y,
+      draw: app.phase4.interiorRenderer?.drawCalls ?? 0,
+      total: app.renderer?.stats.drawCalls ?? 0,
+      firstPerson: app.phase4.firstPerson(s),
+      lights: app.phase4.lightPool?.lights.length ?? 0,
+      location: document.body.innerText.includes('House'),
+      room: s.officerRoom(),
+    };
+  }, house);
+  console.log('inside:', JSON.stringify(inside));
+  check(inside.building === house.id && Math.abs(inside.y - (-40 + 0.9)) < 0.01, `E enters the house after the fade (level y ${inside.y.toFixed(2)})`);
+  check(inside.firstPerson && inside.location, 'indoors: first-person camera and the location chip');
+  if (hasRenderer) {
+    check(inside.draw > 0 && inside.draw <= 6, `the house interior draws in ${inside.draw} draw calls`);
+    check(inside.total <= DRAW_CALL_CAP, `total draw calls indoors within the cap (${inside.total})`);
+  }
+
+  // Flashlight (F), crouch (X) and lean (Q held) with the real keys.
+  await press(page, 'KeyF');
+  await press(page, 'KeyX');
+  await page.keyboard.down('KeyQ');
+  await sleep(700);
+  const tactical = await page.evaluate(() => {
+    const t = window.patrol.session.tactical;
+    return { light: t.flashlightOn, crouched: t.stance.crouched, lean: t.stance.lean, text: document.body.innerText };
+  });
+  await page.keyboard.up('KeyQ');
+  check(tactical.light && tactical.crouched, 'F toggles the flashlight and X crouches');
+  check(tactical.lean < -0.3, `Q held leans left (${tactical.lean.toFixed(2)})`);
+  check(tactical.text.includes('CROUCH') && tactical.text.includes('LIGHT'), 'the HUD shows the CROUCH and LIGHT chips');
+
+  // A door kick: an interior door is breached (retries: a kick can fail).
+  const kick = await page.evaluate(async (h) => {
+    const app = window.patrol;
+    const s = app.session;
+    const layout = s.interiors.layout(h.id);
+    const d = layout.doors.find((x) => x.kind === 'interior' && x.b >= 0 && s.interiors.doorState(h.id, x.index) !== 'open');
+    if (!d) return { door: -1, state: 'none' };
+    // Stand in room d.a, 0.8 m from the opening.
+    const room = layout.rooms[d.a].rect;
+    for (const sign of [1, -1]) {
+      const x = d.axis === 'x' ? d.x : d.x + sign * 0.8;
+      const z = d.axis === 'x' ? d.z + sign * 0.8 : d.z;
+      if (x > room.minX && x < room.maxX && z > room.minZ && z < room.maxZ) {
+        s.physics.getBody(s.player).setTranslation({ x, y: -40 + 0.9, z }, true);
+        break;
+      }
+    }
+    let state = s.interiors.doorState(h.id, d.index);
+    for (let k = 0; k < 12 && state !== 'broken'; k++) {
+      s.interiors.request({ kind: 'door', buildingId: h.id, door: d.index, action: 'kick' });
+      await new Promise((r) => setTimeout(r, 120));
+      state = s.interiors.doorState(h.id, d.index);
+      for (let i = 0; i < 70; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+      state = s.interiors.doorState(h.id, d.index);
+    }
+    return { door: d.index, state };
+  }, house);
+  check(kick.state === 'broken', `a door kick breaches an interior door (door ${kick.door}: ${kick.state})`);
+
+  // Evidence marker through the tools panel (I, 1) and the camera (O, Space).
+  await press(page, 'KeyX'); // stand up for the photo
+  await press(page, 'KeyI');
+  const tools = await page.evaluate(() => window.patrol.panels.kind);
+  check(tools === 'tools', 'I opens the investigation tools panel');
+  await press(page, 'Digit1');
+  await press(page, 'Escape');
+  await sleep(400);
+  const marker = await page.evaluate(() => {
+    const s = window.patrol.session;
+    return s.investigation.store.files().reduce((n, f) => n + f.markers.length, 0);
+  });
+  check(marker === 1, `the tools panel places a numbered evidence marker (${marker})`);
+  await press(page, 'KeyO');
+  const camera = await page.evaluate(() => window.patrol.phase4.camera.isOpen);
+  check(camera, 'O opens the camera viewfinder');
+  await press(page, 'Space');
+  const photo = await waitFor(
+    page,
+    () => {
+      const s = window.patrol.session;
+      const photos = s.investigation.store.files().flatMap((f) => f.photos);
+      return photos.length > 0 && (window.patrol.renderer === null || photos.every((p) => p.thumb !== null)) ? photos.length : 0;
+    },
+    null,
+    15000,
+  );
+  check(photo === 1, `the shutter records a photograph (${photo})`);
+  if (hasRenderer) {
+    const thumb = await page.evaluate(() => window.patrol.session.investigation.store.files().flatMap((f) => f.photos)[0]?.thumb ?? '');
+    check(thumb.startsWith('data:image/jpeg') && thumb.length < 12000, `the photo has a small JPEG thumbnail (${thumb.length} chars)`);
+  }
+  await press(page, 'Escape');
+  await page.evaluate(() => {
+    const s = window.patrol.session;
+    s.tactical.setHeld(0, false);
+  });
+
+  // Evidence custody: collect, bag, tag (the call's item), then the screenshot with light and markers.
+  const evidence = await page.evaluate(async (callId) => {
+    const app = window.patrol;
+    const s = app.session;
+    const inv = s.investigation;
+    const door = s.interiors.layout(s.officerBuilding).doors.find((d) => d.main);
+    // The scene's own evidence may lie anywhere in the house: put a knife at the front door, as the scene would.
+    const id = inv.placeItem({ callId, item: 'knife', label: 'Kitchen knife', x: door.exit.x, y: 0, z: door.exit.z + 0.5, buildingId: -1, room: -1, furniture: -1, container: 'none', concealed: false, ownerPersonId: -1, incriminating: true });
+    const item = inv.store.item(id);
+    // The item lies outside at the door: collect it there.
+    s.interiors.request({ kind: 'exit', door: door.index });
+    for (let i = 0; i < 90; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.physics.getBody(s.player).setTranslation({ x: item.x, y: 0.9, z: item.z }, true);
+    // The plain-view scan (2 Hz) flags it as found before it can be collected.
+    for (let i = 0; i < 90; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    for (const kind of ['collect', 'bag', 'tag']) {
+      inv.request({ kind, itemId: item.id });
+      for (let i = 0; i < 6; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    }
+    return { item: item.id, ledger: inv.ledger.itemEntries(item.id).length, building: s.officerBuilding };
+  }, call?.id ?? 0);
+  check(evidence.ledger === 3, `collect, bag and tag are recorded in the custody ledger (${evidence.item}: ${evidence.ledger} entries)`);
+  // Back in the house for the screenshots.
+  await page.evaluate((h) => {
+    const s = window.patrol.session;
+    s.interiors.request({ kind: 'enter', buildingId: h.id, door: h.door });
+  }, house);
+  await waitFor(page, (id) => window.patrol.session.officerBuilding === id && window.patrol.session.interiors.fade === 0, house.id, 20000);
+  await page.evaluate(() => {
+    const s = window.patrol.session;
+    if (!s.tactical.flashlightOn) s.tactical.request({ kind: 'flashlight' });
+    s.controller.pitch = 0.05;
+    s.investigation.request({ kind: 'marker' });
+  });
+  await sleep(1500);
+  await page.screenshot({ path: path.join(SHOTS, 'phase4.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase4.png')}`);
+  await page.evaluate((id) => window.patrol.phase4.openCaseFile(window.patrol.session), 0);
+  await sleep(800);
+  const caseOpen = await page.evaluate(() => ({ open: window.patrol.phase4.caseFile.isOpen, text: document.body.innerText }));
+  check(caseOpen.open, 'the case file panel opens');
+  await page.screenshot({ path: path.join(SHOTS, 'phase4-case.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase4-case.png')}`);
+  await press(page, 'Escape');
+
+  // --- Deposit at the station's evidence room, a prisoner in a cell, the interview room ----------
+  const station = await page.evaluate(async (itemId) => {
+    const app = window.patrol;
+    const s = app.session;
+    await app.console.execute('interior enter policeStation');
+    await new Promise((r) => setTimeout(r, 1500));
+    const p = s.stationPoint('evidence');
+    s.physics.getBody(s.player).setTranslation({ x: p.x, y: -40 + 0.9, z: p.z }, true);
+    s.controller.yaw = p.yaw;
+    await new Promise((r) => setTimeout(r, 500));
+    return { building: s.officerBuilding, hint: s.interactHint(), itemId };
+  }, evidence.item);
+  check(station.hint === 'evidence', `the station evidence point offers Deposit (${station.hint})`);
+  await press(page, 'KeyE');
+  await sleep(500);
+  const deposited = await page.evaluate((itemId) => {
+    const inv = window.patrol.session.investigation;
+    return { complete: inv.ledger.complete(itemId), verify: window.patrol.session.investigation.ledger.entries().length };
+  }, evidence.item);
+  check(deposited.complete, 'depositing at the evidence room completes the chain of custody');
+  const cells = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    s.station.request({ kind: 'hold', personId: 31337 });
+    await new Promise((r) => setTimeout(r, 400));
+    const id = s.npc.actorOfPerson(31337);
+    const info = id > 0 ? s.npc.actor(id, { id: 0, personId: -1, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 }) : null;
+    const p = s.stationPoint('interview');
+    s.physics.getBody(s.player).setTranslation({ x: p.x, y: -40 + 0.9, z: p.z }, true);
+    s.controller.yaw = p.yaw;
+    await new Promise((r) => setTimeout(r, 400));
+    app.panels.openInterview();
+    return { held: s.station.holding.occupants().length, actor: id, building: info?.building ?? -2, role: info?.role ?? '', panel: app.panels.kind };
+  });
+  check(cells.held === 1 && cells.building >= 0 && cells.role === 'prisoner', `a booked prisoner sits in a holding cell (${cells.role} in building ${cells.building})`);
+  check(cells.panel === 'interview', 'the interview panel lists the prisoner');
+  await press(page, 'Digit1');
+  await sleep(1200);
+  const interview = await page.evaluate(() => {
+    const s = window.patrol.session;
+    return { interviewing: s.station.interviewing, contact: s.contact.active };
+  });
+  check(interview.interviewing === 31337 && interview.contact >= 0, `bringing the prisoner in opens the interview (contact ${interview.contact})`);
+  await page.evaluate(() => window.patrol.ui.closeAll());
+
+  // --- A v6 save / load round trip ---------------------------------------------------------------
+  const save = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const before = {
+      building: s.officerBuilding,
+      files: s.investigation.store.files().length,
+      ledger: s.investigation.ledger.entries().length,
+      holding: s.station.holding.occupants().length,
+      flow: s.station.flow.step,
+      broken: 0,
+    };
+    await app.saveGame('p4');
+    const list = await app.saves.list();
+    await app.loadGame('p4');
+    const l = app.session;
+    await new Promise((r) => setTimeout(r, 1500));
+    return {
+      version: list.find((x) => x.slot === 'p4')?.version ?? 0,
+      before,
+      after: {
+        building: l.officerBuilding,
+        files: l.investigation.store.files().length,
+        ledger: l.investigation.ledger.entries().length,
+        holding: l.station.holding.occupants().length,
+        flow: l.station.flow.step,
+      },
+      verify: l.investigation.ledger.entries().length === 0 ? 'empty' : 'entries',
+    };
+  });
+  console.log('phase 4 save/load:', JSON.stringify(save));
+  check(save.version === 6, `the save is written as version 6 (${save.version})`);
+  check(save.after.building === save.before.building && save.after.building >= 0, 'the officer is back inside the station after the load');
+  check(save.after.files === save.before.files && save.after.ledger === save.before.ledger, `case files and the custody ledger survive (${save.after.files} files, ${save.after.ledger} entries)`);
+  check(save.after.holding === save.before.holding && save.after.flow === save.before.flow, 'holding cells and the shift flow survive');
+
+  // --- Console commands ---------------------------------------------------------------------------
+  const cmds = await page.evaluate(async () => {
+    const c = window.patrol.console;
+    const run = async (line) => {
+      const before = c.lines.length;
+      await c.execute(line);
+      return c.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    const out = [];
+    const itemId = window.patrol.session.investigation.store.files().flatMap((f) => f.items)[0]?.id ?? 'E-0-1';
+    for (const line of ['building here', 'interior info', 'interior gen house 7', 'interior gen bank 3', 'interior doors', 'shift', 'armory', 'loadout', 'case', 'evidence list', `custody ${itemId}`, 'ledger verify', 'sound debug', 'sound knock', 'partner summon', 'aware', 'tape clear', 'interior exit']) {
+      out.push(...(await run(line)));
+    }
+    return out;
+  });
+  console.log('phase 4 console commands:\n  ' + cmds.join('\n  '));
+  check(!cmds.some((l) => l.startsWith('error:')), 'Phase 4 console commands ran without errors');
+  check(cmds.some((l) => l.includes('deterministic: yes')), 'interior gen reports a deterministic layout');
+
+  // --- Perf ---------------------------------------------------------------------------------------
+  await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.console.execute('interior enter house');
+    await new Promise((r) => setTimeout(r, 1500));
+  });
+  const perf = await page.evaluate(perfSnapshot);
+  const extras = await page.evaluate(() => {
+    const s = window.patrol.session;
+    const out = {};
+    for (const [name, ms] of window.patrol.systems.timings) if (['interiors', 'investigation', 'station', 'tactical', 'scene', 'npc'].includes(name)) out[name] = Number(ms.toFixed(4));
+    return { systems: out, interiors: { ...s.interiors.stats }, indoorDraw: window.patrol.phase4.interiorRenderer?.drawCalls ?? 0 };
+  });
+  const frame = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+  console.log('perf phase 4:', JSON.stringify(perf));
+  console.log('phase 4 sim costs:', JSON.stringify(extras));
+  return { perf, frame, extras };
+}
+
 async function run() {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({
@@ -1404,6 +1899,17 @@ async function run() {
 
     const hasRenderer = await page.evaluate(() => window.patrol.renderer !== null);
     console.log(`renderer: ${hasRenderer ? 'WebGL available' : 'UNAVAILABLE (headless simulation only)'}`);
+
+    // SMOKE_ONLY=4 runs just the Phase 4 checks.
+    if (process.env.SMOKE_ONLY === '4') {
+      const only = await phase4(page, hasRenderer);
+      check(only.perf.drawCalls <= DRAW_CALL_CAP, `draw calls indoors within the cap (${only.perf.drawCalls})`);
+      check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+      check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
+      console.log('--- browser console ---');
+      for (const line of consoleLines) console.log(line);
+      return;
+    }
 
     // SMOKE_ONLY=3 runs just the Phase 3 checks (a quick loop while working on them); the full run is the default.
     if (process.env.SMOKE_ONLY === '3') {
@@ -1615,7 +2121,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v5'), "slot 'smoke' listed as a v5 save");
+    check(saveLoad.slots.includes('smoke v6'), "slot 'smoke' listed as a v6 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);

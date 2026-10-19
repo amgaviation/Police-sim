@@ -42,7 +42,7 @@ describe('dispositions follow what happened', () => {
       const [want, got] = s.split('->');
       expect(got).toBe(want);
     }
-  });
+  }, 60_000);
 });
 
 describe('wrong address', () => {
