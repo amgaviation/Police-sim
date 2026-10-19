@@ -11,11 +11,11 @@
  * to it, the MDT opening and closing without pausing, siren / tone / lights / pattern /
  * spotlight keys, a traffic stop (lights behind a car), its plate run (P), the driver
  * contact panel, a citation issued from the MDT, the radio log, the Phase 2 console
- * commands and a v5 save/load keeping CAD, records, radio and equipment. Phase 3: pedestrians downtown,
+ * commands and a save/load keeping CAD, records, radio and equipment. Phase 3: pedestrians downtown,
  * the call stream from the 150+ type catalog, a spawned call's scene (scene panel, knock), the dialogue panel
  * answering to the real keys, weapon keys, an SFST panel run with the keys, foot and vehicle pursuits, and the
  * end-to-end flows through window.patrol (domestic with cage, shoplifting, lie detection, DUI to booking, a false
- * and a duplicate call), a v5 save/load and the Phase 3 console commands. Phase 4: the new shift in the station's
+ * and a duplicate call), a save/load and the Phase 3 console commands. Phase 4: the new shift in the station's
  * locker room (HUD objective, locker, roll call, armory, the garage door), entering a house with the real keys, the
  * interior meshes and lights, flashlight / crouch / lean, a door kick, a domestic call bound to the house with its
  * people inside, evidence markers, the camera (thumbnail), the case file, the deposit at the station's evidence room,
@@ -939,11 +939,11 @@ async function phase2(page, hasRenderer) {
   });
   const same = (k) => saveLoad.before[k] === saveLoad.after[k];
   console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
-  check(saveLoad.slot === 5, `saved as v5 (${saveLoad.slot})`);
-  check(same('calls') && same('docs') && same('units'), 'save/load v5 keeps the CAD (calls, units, documents)');
-  check(same('records'), 'save/load v5 keeps the records (touched persons and vehicles, contacts, query log)');
-  check(same('radio'), `save/load v5 keeps the radio (${saveLoad.after.radio})`);
-  check(same('equipment') && same('kit'), 'save/load v5 keeps the patrol car equipment, trunk and the officer kit');
+  check(saveLoad.slot === 6, `saved as v6 (${saveLoad.slot})`);
+  check(same('calls') && same('docs') && same('units'), 'save/load v6 keeps the CAD (calls, units, documents)');
+  check(same('records'), 'save/load v6 keeps the records (touched persons and vehicles, contacts, query log)');
+  check(same('radio'), `save/load v6 keeps the radio (${saveLoad.after.radio})`);
+  check(same('equipment') && same('kit'), 'save/load v6 keeps the patrol car equipment, trunk and the officer kit');
 
   // --- Cockpit with the in-car MDT --------------------------------------------------------------
   await page.evaluate(() => {
@@ -1000,7 +1000,7 @@ async function startPatrolShift(page) {
 /**
  * Phase 3 checks on a fresh shift: pedestrians downtown, the call stream, a spawned call's scene with the scene
  * panel, the dialogue panel answering to the real keys, the weapon keys, the SFST panel, a foot and a vehicle
- * pursuit, the end-to-end flows, a v5 save/load and the Phase 3 console commands. Returns the perf numbers.
+ * pursuit, the end-to-end flows, a save/load and the Phase 3 console commands. Returns the perf numbers.
  */
 async function phase3(page, hasRenderer) {
   await startPatrolShift(page);
@@ -1340,7 +1340,7 @@ async function phase3(page, hasRenderer) {
   await sleep(300);
   await page.evaluate(() => window.patrol.ui.closeAll());
 
-  // --- Save / load v5 --------------------------------------------------------------------------------
+  // --- Save / load (v6) --------------------------------------------------------------------------------
   const v5 = await page.evaluate(async () => {
     const app = window.patrol;
     const people = () => app.session.people.serialize().persons.map((p) => p.id).sort((a, b) => a - b);
@@ -1365,10 +1365,10 @@ async function phase3(page, hasRenderer) {
     return { before, after, version: list.find((x) => x.slot === 'smoke-phase3')?.version ?? -1 };
   });
   console.log('phase 3 save/load:', JSON.stringify({ version: v5.version, people: v5.after.people.length, scenarios: v5.after.scenarios, closed: v5.after.closed.length, contacts: v5.after.contacts, peds: v5.after.peds }));
-  check(v5.version === 5, `saved as v5 (${v5.version})`);
-  check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v5 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
-  check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v5 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
-  check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v5 keeps the open contacts and the pedestrians/actors');
+  check(v5.version === 6, `saved as v6 (${v5.version})`);
+  check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v6 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
+  check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v6 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
+  check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v6 keeps the open contacts and the pedestrians/actors');
 
   // --- Console commands ------------------------------------------------------------------------------
   const cmds = await page.evaluate(async () => {
@@ -1431,6 +1431,7 @@ function shiftState() {
 async function phase4(page, hasRenderer) {
   await page.evaluate(() => {
     const app = window.patrol;
+    app.indoorScenes = true;
     app.ui.closeAll();
     app.newGame(42);
     app.perf.setVisible(false);
@@ -1915,12 +1916,20 @@ async function run() {
 
     // SMOKE_ONLY=3 runs just the Phase 3 checks (a quick loop while working on them); the full run is the default.
     if (process.env.SMOKE_ONLY === '3') {
+      await page.evaluate(() => {
+        window.patrol.indoorScenes = false;
+      });
       const only = await phase3(page, hasRenderer);
       console.log('perf phase 3:', JSON.stringify(only.perf));
       check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
       check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
       return;
     }
+
+    // The Phase 1-3 checks were written for outdoor call scenes; Phase 4 turns the interiors on again.
+    await page.evaluate(() => {
+      window.patrol.indoorScenes = false;
+    });
 
     // --- New shift ---------------------------------------------------------------
     const newGame = page.getByRole('button', { name: 'New game' });
@@ -2183,6 +2192,7 @@ async function run() {
 
     const phase2Perf = await phase2(page, hasRenderer);
     const phase3Perf = await phase3(page, hasRenderer);
+    const phase4Perf = await phase4(page, hasRenderer);
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -2201,6 +2211,10 @@ async function run() {
     console.log('perf phase 3:', JSON.stringify(phase3Perf.perf));
     console.log('phase 3 sim costs:', JSON.stringify(phase3Perf.extras));
     check(phase3Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls with people within the cap (${phase3Perf.perf.drawCalls})`);
+    console.log(describe('Phase 4 interior (house, flashlight):', phase4Perf.frame));
+    console.log('perf phase 4:', JSON.stringify(phase4Perf.perf));
+    console.log('phase 4 sim costs:', JSON.stringify(phase4Perf.extras));
+    check(phase4Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls indoors within the cap (${phase4Perf.perf.drawCalls})`);
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
   } finally {

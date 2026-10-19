@@ -191,6 +191,11 @@ export class App {
   readonly mdtScreen: MdtScreen;
   /** Patrol-car interior in cockpit view (null without a renderer). */
   readonly cockpit: CockpitRenderer | null;
+  /**
+   * Dev and test switch: calls bind to building interiors (default). False keeps the Phase 3 outdoor scenes for the
+   * next new or loaded session (the browser smoke test uses it for the Phase 1-3 flows, which were written for them).
+   */
+  indoorScenes = true;
   /** Phase 4 presentation: interiors, flashlight, fade, briefing, viewfinder, case file, dusting, labels, thumbnails. */
   readonly phase4: Phase4Presenter;
 
@@ -1204,6 +1209,7 @@ export class App {
       bus: this.bus,
       city: this.cityFor(seed),
       radioMode: () => this.radioMode,
+      indoorScenes: this.indoorScenes,
     };
   }
 

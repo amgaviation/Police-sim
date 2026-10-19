@@ -1425,6 +1425,8 @@ export class GameSession {
 
   /** Fixed step -810. */
   private stepInteriors(dt: number): void {
+    // In a car nothing indoors is within reach: no residency churn (colliders, ambient occupants) while driving past buildings.
+    if (this.driving) return;
     const at = this.playerPosition(scratchPoint);
     const o = scratchOfficerAt;
     o.x = at.x;
