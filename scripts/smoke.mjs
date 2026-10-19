@@ -738,41 +738,51 @@ async function phase2(page, hasRenderer) {
   await press(page, 'KeyQ'); // siren off: lights alone stop a car (lights + siren make traffic yield)
 
   // --- Traffic stop: lights behind a car ------------------------------------------------------
+  // The stop depends on the ambient traffic around the arterial at that moment (and so on timing): up to three attempts.
   const stop = await page.evaluate((stepSrc) => {
     const step = new Function(`return ${stepSrc}`)();
     const app = window.patrol;
     const s = app.session;
     const car = s.drivenVehicle;
-    car.lightbar = false;
     const g = s.city.graph;
     const lane = 58 * 16; // laneRef(58, 0, 0): a straight arterial curb lane
-    const s0 = g.laneStart(lane) + 40;
-    const p = g.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
-    app.teleport(p.x, p.z, p.yaw);
-    step(30);
-    const slot = s.traffic.spawnAt(lane, s0 + 14, { speed: 4, behavior: 0, desiredFactor: 0.3 });
-    const vehicleId = s.traffic.view.vehicleId[slot];
-    car.lightbar = true;
-    // Creep after it (stop detection needs the patrol car moving), then brake once it is the stop target.
     const d = s.driverInput;
-    d.handbrake = false;
-    d.brake = 0;
-    d.accelerate = 0.35;
-    let n = 0;
-    while (s.cad.trafficStop === null && n < 900) {
-      step(1);
-      n++;
+    let result = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      car.lightbar = false;
+      const s0 = g.laneStart(lane) + 40;
+      const p = g.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+      app.teleport(p.x, p.z, p.yaw);
+      step(30);
+      const slot = s.traffic.spawnAt(lane, s0 + 14, { speed: 4, behavior: 0, desiredFactor: 0.3 });
+      const vehicleId = s.traffic.view.vehicleId[slot];
+      car.lightbar = true;
+      // Creep after it (stop detection needs the patrol car moving), then brake once it is the stop target.
+      d.handbrake = false;
+      d.brake = 0;
+      d.accelerate = 0.35;
+      let n = 0;
+      while (s.cad.trafficStop === null && n < 900) {
+        step(1);
+        n++;
+      }
+      // Brake only while still rolling forwards (a held brake at a standstill is reverse), then hold the handbrake.
+      d.accelerate = 0;
+      d.brake = 1;
+      for (let i = 0; i < 300 && car.telemetry.speed > 0.2; i++) step(1);
+      d.brake = 0;
+      d.handbrake = true;
+      step(30);
+      d.handbrake = false;
+      const st = s.cad.trafficStop;
+      result = { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1, attempt };
+      if (result.active) break;
+      d.handbrake = true;
+      step(60);
+      d.handbrake = false;
+      s.traffic.clear(true);
     }
-    // Brake only while still rolling forwards (a held brake at a standstill is reverse), then hold the handbrake.
-    d.accelerate = 0;
-    d.brake = 1;
-    for (let i = 0; i < 300 && car.telemetry.speed > 0.2; i++) step(1);
-    d.brake = 0;
-    d.handbrake = true;
-    step(30);
-    d.handbrake = false;
-    const st = s.cad.trafficStop;
-    return { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1 };
+    return result;
   }, stepSim.toString());
   console.log('traffic stop:', JSON.stringify(stop));
   check(stop.active && stop.stopVehicle === stop.vehicleId, `the car ahead pulled over for the light bar (${stop.plate}, ${stop.seconds} s)`);
