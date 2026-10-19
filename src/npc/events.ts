@@ -22,6 +22,13 @@ export interface NpcWeaponDroppedEvent extends NpcActorEvent {
   z: number;
 }
 
+/** An actor noticed something (design §8.1): `alert` turns it towards the source, `aware` carries the rolled reaction. */
+export interface NpcAwareEvent extends NpcActorEvent {
+  level: 'alert' | 'aware';
+  reaction: 'none' | 'hide' | 'flee' | 'confront' | 'surrender' | 'arm';
+  cause: 'sound' | 'sight' | 'light';
+}
+
 declare module '../core/event-map' {
   interface EventMap {
     'npc:fled': NpcActorEvent;
@@ -32,5 +39,6 @@ declare module '../core/event-map' {
     'npc:weaponDropped': NpcWeaponDroppedEvent;
     'npc:left': NpcActorEvent;
     'npc:revealed': NpcActorEvent;
+    'npc:aware': NpcAwareEvent;
   }
 }

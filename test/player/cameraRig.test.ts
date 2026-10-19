@@ -12,6 +12,7 @@ import {
   chaseCameraPose,
   chaseDistance,
   cockpitCameraPose,
+  firstPersonPose,
   hoodCameraPose,
   smoothDamp,
   smoothDampAngle,
@@ -250,5 +251,89 @@ describe('CameraRig', () => {
     camera.position.set(1, 2, 3);
     r.updateVehicle(1 / 60, target(0), NO_LOOK, camera);
     expect(camera.position.toArray()).toEqual([1, 2, 3]);
+  });
+});
+
+describe('first-person camera', () => {
+  const eye0 = { x: 0, y: 1.65, z: 0, roll: 0 };
+
+  it('puts the eye above the feet at the eye offset', () => {
+    const p = firstPersonPose(10, -40, 20, 0, 0, { x: 0.35, y: 1.65, z: -0.1 }, pose());
+    expect(p.x).toBeCloseTo(10.35, 9);
+    expect(p.y).toBeCloseTo(-38.35, 9);
+    expect(p.z).toBeCloseTo(19.9, 9);
+  });
+
+  it('looks along yaw (0 faces -Z) with pitch positive looking down', () => {
+    const level = firstPersonPose(0, 0, 0, 0, 0, eye0, pose());
+    expect(level.lookX - level.x).toBeCloseTo(0, 9);
+    expect(level.lookZ - level.z).toBeLessThan(-9.9);
+    expect(level.lookY).toBeCloseTo(level.y, 9);
+    // Yaw +90 degrees turns left: -X.
+    const left = firstPersonPose(0, 0, 0, Math.PI / 2, 0, eye0, pose());
+    expect(left.lookX - left.x).toBeLessThan(-9.9);
+    expect(left.lookZ - left.z).toBeCloseTo(0, 9);
+    // Positive pitch looks down.
+    const down = firstPersonPose(0, 0, 0, 0, 0.5, eye0, pose());
+    expect(down.lookY).toBeLessThan(down.y - 4);
+    const up = firstPersonPose(0, 0, 0, 0, -0.35, eye0, pose());
+    expect(up.lookY).toBeGreaterThan(up.y + 3);
+    // The look point stays 10 m away whatever the angles.
+    const d = Math.hypot(down.lookX - down.x, down.lookY - down.y, down.lookZ - down.z);
+    expect(d).toBeCloseTo(10, 9);
+  });
+
+  it('updateFirstPerson writes the camera: position, forward direction, no roll when upright', () => {
+    const rig = new CameraRig();
+    const cam = new THREE.PerspectiveCamera(70, 1.6, 0.1, 500);
+    rig.updateFirstPerson(5, -40, 7, Math.PI / 2, 0.3, eye0, cam);
+    expect(cam.position.x).toBeCloseTo(5, 6);
+    expect(cam.position.y).toBeCloseTo(-38.35, 6);
+    expect(cam.position.z).toBeCloseTo(7, 6);
+    const dir = cam.getWorldDirection(new THREE.Vector3());
+    // yaw 90: -X; pitch 0.3 down.
+    expect(dir.x).toBeCloseTo(-Math.cos(0.3), 6);
+    expect(dir.y).toBeCloseTo(-Math.sin(0.3), 6);
+    expect(dir.z).toBeCloseTo(0, 6);
+    // Upright: the camera's right vector is horizontal.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+    expect(right.y).toBeCloseTo(0, 6);
+  });
+
+  it('rolls by eye.roll about the view direction (negative = leaning right: the right side dips)', () => {
+    const rig = new CameraRig();
+    const cam = new THREE.PerspectiveCamera();
+    rig.updateFirstPerson(0, 0, 0, 0, 0, { x: 0.35, y: 1.65, z: 0, roll: -0.17 }, cam);
+    const dir = cam.getWorldDirection(new THREE.Vector3());
+    expect(dir.z).toBeCloseTo(-1, 6); // the view direction is unchanged by the roll
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+    expect(right.y).toBeCloseTo(-Math.sin(0.17), 6);
+    const left = new THREE.PerspectiveCamera();
+    rig.updateFirstPerson(0, 0, 0, 0, 0, { x: -0.35, y: 1.65, z: 0, roll: 0.17 }, left);
+    expect(new THREE.Vector3(1, 0, 0).applyQuaternion(left.quaternion).y).toBeCloseTo(Math.sin(0.17), 6);
+    // A later upright update clears the roll.
+    rig.updateFirstPerson(0, 0, 0, 0, 0, eye0, cam);
+    expect(new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion).y).toBeCloseTo(0, 6);
+  });
+
+  it('does not change the mode or emit events, and does not allocate a pose per call', () => {
+    const bus = new EventBus<EventMap>();
+    const modes: string[] = [];
+    bus.on('camera:mode', (e) => modes.push(e.mode));
+    const rig = new CameraRig(bus);
+    const cam = new THREE.PerspectiveCamera();
+    rig.updateFirstPerson(1, 0, 1, 0.2, 0.1, eye0, cam);
+    expect(rig.mode).toBe(CAMERA_MODE.onFoot);
+    expect(modes).toEqual([]);
+  });
+
+  it('works alongside the vehicle modes', () => {
+    const rig = new CameraRig();
+    const cam = new THREE.PerspectiveCamera();
+    rig.setVehicle(DIMS);
+    rig.updateFirstPerson(0, 0, 0, 0, 0, eye0, cam);
+    expect(rig.mode).toBe(CAMERA_MODE.chase);
+    rig.updateVehicle(1 / 60, target(), NO_LOOK, cam);
+    expect(Number.isFinite(cam.position.x)).toBe(true);
   });
 });

@@ -279,7 +279,7 @@ describe('views', () => {
     expect(v?.actions).toHaveLength(22);
     for (const a of v?.actions ?? []) if (!a.enabled) expect(a.hint ?? '').not.toBe('');
     expect(v?.topics.map((t) => t.id)).toEqual(['greeting', 'reason', 'id', 'questions', 'consent', 'commands', 'support', 'miranda', 'closing']);
-    expect(v?.topics.flatMap((t) => t.options).length).toBe(42);
+    expect(v?.topics.flatMap((t) => t.options).length).toBe(46);
     expect(v?.title).toMatch(/^Unknown (male|female), ~\d+ \(Suspect\)$/);
     expect(rig.mgr.view(9999)).toBeNull();
   });

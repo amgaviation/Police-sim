@@ -7,7 +7,7 @@ import type { ActorInfo } from '../../src/npc';
 import { initRapier } from '../../src/physics/physics';
 import { driverDoorPoint } from '../../src/player/mode';
 import { migrateEnvelope } from '../../src/save/migrations';
-import { isSaveGame, type SaveGame } from '../../src/save/schema';
+import { CURRENT_SAVE_VERSION, isSaveGame, type SaveGame } from '../../src/save/schema';
 import { BEHAVIOR } from '../../src/traffic/trafficSystem';
 import { MdtOverlay } from '../../src/ui/mdt/overlay';
 import { VehicleLook } from '../../src/vehicles/components';
@@ -302,7 +302,7 @@ describe('Phase 3 session', () => {
     h.dispose();
   }, 180_000);
 
-  it('a migrated v4 save with an open call gets a scenario for it (adoptOpenCalls) and loads as v5', () => {
+  it('a migrated v4 save with an open call gets a scenario for it (adoptOpenCalls) and loads as the current version', () => {
     const h = fresh();
     const session = h.start(SEED);
     h.step(session, 60);
@@ -310,10 +310,10 @@ describe('Phase 3 session', () => {
     expect(id).not.toBeNull();
     const v5 = roundTrip(serializeGame(session));
     // A v4 save has none of the Phase 3 blocks.
-    const { people: _p, npc: _n, contacts: _c, scenes: _s, ...v4 } = v5;
+    const { people: _p, npc: _n, contacts: _c, scenes: _s, interiors: _i, tactical: _t, investigation: _v, station: _st, ...v4 } = v5;
     h.reset(session);
     const migrated = migrateEnvelope({ version: 4, createdAt: 1, updatedAt: 1, slot: 't', data: v4 });
-    expect(migrated.version).toBe(5);
+    expect(migrated.version).toBe(CURRENT_SAVE_VERSION);
     const loaded = h.load(migrated.data);
     const open = loaded.cad.openCalls().filter((c) => c.typeId === 'noiseComplaint');
     expect(open.length).toBeGreaterThan(0);

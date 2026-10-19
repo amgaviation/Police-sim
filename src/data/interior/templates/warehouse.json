@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "kind": "warehouse",
+  "label": "Warehouse",
+  "layout": "bsp",
+  "minWidth": 14,
+  "minDepth": 12,
+  "maxWidth": 40,
+  "maxDepth": 30,
+  "minRoomArea": 25,
+  "entry": "floor",
+  "residential": false,
+  "exteriorLocked": true,
+  "exteriorStrength": 0.6,
+  "lockableRooms": ["office", "restroom"],
+  "lockedRooms": [],
+  "corridor": null,
+  "exteriorDoors": [{ "room": "loading", "side": "back", "width": 2.8 }, { "room": "floor", "side": "back", "width": 2.8, "chance": 0.6 }, { "room": "loading", "side": "right", "width": 2.8, "chance": 0.4 }],
+  "occupants": { "day": [1, 4], "night": [0, 1], "profile": "bystander", "role": "staff", "openHours": [6, 18] },
+  "rooms": [
+    { "kind": "floor", "label": "Warehouse floor", "size": 8, "required": true, "surface": "concrete", "public": false,
+      "furniture": [
+        { "id": "palletRack", "place": "wall", "count": [2, 6] },
+        { "id": "crate", "place": "center", "count": [2, 6], "chance": 0.9 },
+        { "id": "pillar", "place": "center", "count": [0, 3], "chance": 0.6 }
+      ] },
+    { "kind": "office", "label": "Office", "size": 1.5, "required": true, "surface": "linoleum",
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.7 },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "loading", "label": "Loading area", "size": 3, "required": true, "surface": "concrete",
+      "furniture": [
+        { "id": "crate", "place": "center", "count": [1, 3], "chance": 0.8 },
+        { "id": "palletRack", "place": "wall", "chance": 0.5 }
+      ] },
+    { "kind": "restroom", "label": "Restroom", "size": 1, "required": true, "surface": "tile",
+      "furniture": [
+        { "id": "toilet", "place": "wall" },
+        { "id": "sink", "place": "wall", "chance": 0.7 }
+      ] }
+  ]
+}

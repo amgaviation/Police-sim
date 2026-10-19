@@ -4,6 +4,7 @@
     "taserDownS": 6, "tackleDownS": 4, "struggleS": 3, "officerWinBase": 0.6, "officerWinPerBackup": 0.1,
     "escapeDistanceM": 120, "escapeS": 15, "fleeRouteM": [150, 350], "armedActionS": [4, 9],
     "leaveDistanceM": 40, "crowdRadiusM": 12,
+    "awareDecayPerS": 0.05, "alertAt": 0.3, "awareAt": 0.7,
     "lod": { "nearM": 60, "midM": 200, "nearHz": 10, "midHz": 2, "farHz": 0.5 } },
   "occupants": { "renderRadiusM": 60, "seatY": -0.25,
                  "seats": [ [-0.22, -0.05], [0.22, -0.05], [-0.22, 0.28], [0.22, 0.28] ] },

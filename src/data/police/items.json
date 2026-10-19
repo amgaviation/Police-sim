@@ -8,6 +8,12 @@
     { "id": "spikeStrip", "label": "Spike strip", "carryMax": 1, "deployable": true },
     { "id": "evidenceKit", "label": "Evidence kit", "carryMax": 1, "deployable": false },
     { "id": "fireExtinguisher", "label": "Fire extinguisher", "carryMax": 1, "deployable": false },
-    { "id": "trafficVest", "label": "Traffic vest", "carryMax": 1, "deployable": false }
+    { "id": "trafficVest", "label": "Traffic vest", "carryMax": 1, "deployable": false },
+    { "id": "ram", "label": "Door ram", "carryMax": 1, "deployable": false },
+    { "id": "sceneTape", "label": "Scene tape roll", "carryMax": 1, "deployable": false },
+    { "id": "evidenceMarkers", "label": "Evidence marker tents", "carryMax": 20, "deployable": true },
+    { "id": "evidenceBags", "label": "Evidence bags", "carryMax": 20, "deployable": false },
+    { "id": "fingerprintKit", "label": "Fingerprint kit", "carryMax": 1, "deployable": false },
+    { "id": "camera", "label": "Evidence camera", "carryMax": 1, "deployable": false }
   ]
 }

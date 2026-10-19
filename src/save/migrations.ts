@@ -3,11 +3,16 @@ import { emptyContactSave } from '../contact/save';
 import { createRng } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { CAMERA_MODE } from '../player/cameraRig';
+import { emptyInteriorSave } from '../indoors/save';
+import { emptyInvestigationSave } from '../investigation/save';
 import { emptyPeopleSave } from '../people';
+import { EQUIPMENT_DATA } from '../police/data';
 import { emptyOfficerKit } from '../police/inventory';
 import { defaultRadioSave } from '../radio/save';
 import { emptyRecordsSave } from '../records/db';
 import { emptySceneSave } from '../scene/save';
+import { migratedStationSave } from '../station/stationState';
+import { defaultTacticalSave } from '../tactical/save';
 import {
   CURRENT_SAVE_VERSION,
   isSaveGame,
@@ -15,12 +20,14 @@ import {
   isSaveGameV2,
   isSaveGameV3,
   isSaveGameV4,
+  isSaveGameV5,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
   type SaveGameV3,
   type SaveGameV4,
   type SaveGameV5,
+  type SaveGameV6,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -109,8 +116,45 @@ export function migrateV4ToV5(data: unknown): unknown {
   return v5;
 }
 
+/**
+ * v5 -> v6: a Phase 3 shift gets interiors and scene work. Everything is kept and the officer stays outdoors; the new
+ * blocks start empty with the seed's own 'interior', 'tactical' and 'investigation' streams, the station state is a shift
+ * already on patrol with the pistol and the taser signed out, and each patrol car's trunk gains the Phase 4 items it lacks
+ * (counts from the `patrol` trunk loadout).
+ */
+export function migrateV5ToV6(data: unknown): unknown {
+  if (!isSaveGameV5(data)) return data;
+  const stream = (name: string) => createRng(data.seed).stream(name).state();
+  const loadout = EQUIPMENT_DATA.trunkLoadouts['patrol'] ?? {};
+  const v6: SaveGameV6 = {
+    ...data,
+    equipment: data.equipment.map((eq) => {
+      if (eq === null) return null;
+      const trunk = { ...eq.trunk };
+      for (const id of PHASE4_TRUNK_ITEMS) {
+        if (trunk[id] === undefined) trunk[id] = loadout[id] ?? 0;
+      }
+      return { ...eq, trunk };
+    }),
+    interiors: emptyInteriorSave(stream('interior')),
+    tactical: defaultTacticalSave(stream('tactical')),
+    investigation: emptyInvestigationSave(stream('investigation')),
+    station: migratedStationSave(data.officer.badge),
+  };
+  return v6;
+}
+
+/** Trunk items Phase 4 added (a v5 trunk lacks them). */
+const PHASE4_TRUNK_ITEMS = ['ram', 'sceneTape', 'evidenceMarkers', 'evidenceBags', 'fingerprintKit', 'camera'] as const;
+
 /** Forward migrations keyed by the version they migrate FROM. */
-export const migrations: MigrationTable = { 1: migrateV1ToV2, 2: migrateV2ToV3, 3: migrateV3ToV4, 4: migrateV4ToV5 };
+export const migrations: MigrationTable = {
+  1: migrateV1ToV2,
+  2: migrateV2ToV3,
+  3: migrateV3ToV4,
+  4: migrateV4ToV5,
+  5: migrateV5ToV6,
+};
 
 export const MIGRATION_FAILURES = {
   missingStep: 'missing-step',

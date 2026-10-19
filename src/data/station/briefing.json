@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "general": [
+    "Wear your vest and check your bodycam before you leave the lot.",
+    "Report all use of force, no matter how minor.",
+    "Back each other up: no unit should handle a hot call alone."
+  ],
+  "districts": {
+    "downtown": [
+      "Bars close at 02:00; expect disturbances around {street}.",
+      "Heavy foot traffic in {district}: watch for pickpockets and vehicle break-ins.",
+      "Delivery vehicles block lanes on {street} during the morning rush.",
+      "Alarm calls from closed shops are common overnight."
+    ],
+    "suburbs": [
+      "Residents report package thefts near {street}.",
+      "School runs make {district} streets busy before 09:00 and after 15:00.",
+      "Check on welfare calls promptly: many residents live alone.",
+      "Watch for speeding on the long straights around {street}."
+    ],
+    "industrial": [
+      "Copper and equipment thefts reported at closed yards near {street}.",
+      "Trucks use {street} all night; expect wide turns and blocked lanes.",
+      "Most buildings in {district} are empty after dark: treat alarms as possible burglaries.",
+      "Mind the rail crossings during traffic stops."
+    ],
+    "highway": [
+      "Keep a safe distance from live lanes on every stop; use the shoulder and your lights.",
+      "Disabled vehicles are common on {street}; check on the drivers.",
+      "Impaired drivers peak after midnight on the {district} corridor.",
+      "Report debris in the roadway immediately."
+    ],
+    "rural": [
+      "Backup is slow in {district}: tell dispatch your exact position.",
+      "Livestock on the road near {street} after dusk.",
+      "Isolated farms: approach calls on foot with extra care.",
+      "Cell coverage is patchy; rely on your radio."
+    ],
+    "campus": [
+      "Term is in session: expect noise complaints and bike thefts around {street}.",
+      "Escort requests are frequent after dark in {district}.",
+      "Be patient and clear with students; many are first-time contacts.",
+      "Event traffic is heavy on {street} on weekends."
+    ],
+    "hospital": [
+      "Keep the ambulance bay clear at all times.",
+      "Expect welfare and psychiatric calls in {district}; use calm, simple language.",
+      "Security staff on site will assist with disturbances around {street}.",
+      "Visitors' parking fills early; watch for illegal stopping."
+    ],
+    "airport": [
+      "Do not stop on the access roads near {street}; move to a pull-out.",
+      "Unattended bags are always treated seriously in {district}.",
+      "Rental-car fraud complaints are common here.",
+      "Airfield perimeter checks are on the half hour."
+    ],
+    "harbor": [
+      "Cargo thefts reported from containers near {street}.",
+      "Fog reduces visibility in {district} before sunrise.",
+      "Night crews are on site: do not assume an open gate means a break-in.",
+      "Watch for pedestrians crossing {street} between ships."
+    ],
+    "park": [
+      "Park closes at dusk; check the lots near {street} for after-hours loiterers.",
+      "Report downed trees and blocked paths in {district}.",
+      "Joggers and cyclists share the roads: slow down.",
+      "Vandalism of restrooms and benches is a recurring complaint."
+    ],
+    "water": [
+      "Report anything seen in the water near {street} right away.",
+      "Bridge approaches in {district} ice up first.",
+      "Boat launches are busy on weekends.",
+      "Do not enter the water; call for the marine unit."
+    ]
+  }
+}

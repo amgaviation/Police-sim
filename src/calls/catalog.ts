@@ -34,6 +34,7 @@ import {
   SERVICE_EFFECTS,
   SERVICE_KINDS,
   SPOTS,
+  TOOL_KINDS,
   VARIANT_KINDS,
   WEAPON_ITEM_IDS,
   type ActionDef,
@@ -242,7 +243,7 @@ function validateActions(data: unknown, file: string, trunkItems: readonly strin
     const o = readObject(v, file, path);
     rejectUnknown(
       o,
-      ['id', 'label', 'requires', 'sets', 'service', 'reveals', 'durationS', 'once', 'consumes', 'props', 'narrative', 'radio', 'command', 'opens'],
+      ['id', 'label', 'requires', 'sets', 'service', 'reveals', 'durationS', 'once', 'consumes', 'props', 'narrative', 'radio', 'command', 'opens', 'tool'],
       file,
       path,
     );
@@ -297,6 +298,7 @@ function validateActions(data: unknown, file: string, trunkItems: readonly strin
       radio: o.radio === undefined || o.radio === null ? null : readText(o.radio, file, `${path}.radio`),
       command,
       opens: o.opens === undefined || o.opens === null ? null : readOneOf(o.opens, ['citation', 'report'] as const, file, `${path}.opens`),
+      tool: o.tool === undefined || o.tool === null ? null : readOneOf(o.tool, TOOL_KINDS, file, `${path}.tool`),
     });
   });
   for (const id of REQUIRED_ACTIONS) {

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "kind": "parkingStructure",
+  "label": "Parking structure",
+  "layout": "bsp",
+  "minWidth": 16,
+  "minDepth": 14,
+  "maxWidth": 40,
+  "maxDepth": 30,
+  "minRoomArea": 40,
+  "entry": "deck",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.1,
+  "mainDoorWidth": 2.8,
+  "lockableRooms": [],
+  "lockedRooms": [],
+  "corridor": null,
+  "exteriorDoors": [],
+  "occupants": { "day": [0, 2], "night": [0, 1], "profile": "bystander", "role": "patron", "openHours": null },
+  "rooms": [
+    { "kind": "deck", "label": "Parking deck", "size": 10, "required": true, "surface": "concrete",
+      "furniture": [
+        { "id": "parkedCar", "place": "wall", "count": [2, 5] },
+        { "id": "pillar", "place": "center", "count": [2, 6], "chance": 0.9 },
+        { "id": "parkedCar", "place": "center", "count": [0, 2], "chance": 0.6 }
+      ] },
+    { "kind": "stairwell", "label": "Stairwell", "size": 1.5, "required": true, "surface": "concrete",
+      "furniture": [] }
+  ]
+}

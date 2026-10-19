@@ -65,6 +65,16 @@ export const ACTIONS = {
   'officer.tackle': { kind: 'button', label: 'Tackle' },
   'officer.shout': { kind: 'button', label: 'Shout command' },
   'scene.menu': { kind: 'button', label: 'Scene menu' },
+  // Phase 4: tactical movement, investigation, camera and partner (design §11.4).
+  'officer.crouch': { kind: 'button', label: 'Crouch' },
+  'officer.leanLeft': { kind: 'button', label: 'Lean left (hold)' },
+  'officer.leanRight': { kind: 'button', label: 'Lean right (hold)' },
+  'officer.slice': { kind: 'button', label: 'Slice the pie (hold)' },
+  'officer.flashlight': { kind: 'button', label: 'Flashlight' },
+  'officer.bodycam': { kind: 'button', label: 'Bodycam' },
+  'investigate.menu': { kind: 'button', label: 'Investigation tools' },
+  'camera.photo': { kind: 'button', label: 'Evidence camera' },
+  'partner.menu': { kind: 'button', label: 'Partner commands' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

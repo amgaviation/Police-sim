@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "kind": "jail",
+  "label": "Jail",
+  "layout": "corridor",
+  "minWidth": 16,
+  "minDepth": 16,
+  "maxWidth": 40,
+  "maxDepth": 26,
+  "minRoomArea": 12,
+  "entry": "lobby",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.9,
+  "lockableRooms": ["control"],
+  "lockedRooms": ["control"],
+  "corridor": { "kind": "corridor", "label": "Corridor", "width": 2.2, "frontShare": 0.4, "surface": "concrete" },
+  "exteriorDoors": [{ "room": "sallyPort", "side": "back", "width": 2.8 }],
+  "occupants": { "day": [1, 3], "night": [1, 3], "profile": "securityGuard", "role": "staff", "openHours": null },
+  "rooms": [
+    { "kind": "lobby", "label": "Lobby", "size": 3, "required": true, "surface": "tile", "band": "front", "public": true,
+      "furniture": [
+        { "id": "frontDesk", "place": "wall", "chance": 0.7 },
+        { "id": "waitingBench", "place": "wall", "chance": 0.8 },
+        { "id": "plant", "place": "corner", "chance": 0.3 }
+      ] },
+    { "kind": "booking", "label": "Booking", "size": 2, "required": true, "surface": "linoleum", "band": "front",
+      "furniture": [
+        { "id": "desk", "place": "wall", "point": "booking" },
+        { "id": "bench", "place": "wall", "chance": 0.8 },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.5 }
+      ] },
+    { "kind": "control", "label": "Control room", "size": 1.5, "required": true, "surface": "linoleum", "band": "front",
+      "furniture": [
+        { "id": "computerDesk", "place": "wall" },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "visiting", "label": "Visiting room", "size": 1.5, "required": false, "chance": 0.7, "surface": "linoleum", "band": "front",
+      "furniture": [
+        { "id": "table", "place": "center" },
+        { "id": "chair", "place": "wall", "count": [2, 3] }
+      ] },
+    { "kind": "cell", "label": "Cell", "size": 1, "required": true, "surface": "concrete", "band": "back", "count": [4, 6],
+      "furniture": [
+        { "id": "cellBench", "place": "wall", "point": "cell" },
+        { "id": "toilet", "place": "corner", "chance": 0.8 }
+      ] },
+    { "kind": "sallyPort", "label": "Sally port", "size": 1.5, "required": true, "surface": "concrete", "band": "back",
+      "furniture": [] }
+  ]
+}

@@ -731,3 +731,15 @@ function boundaryWalls(cx: number, cz: number, minX: number, minZ: number, maxX:
   if (cz <= MIN_CHUNK) pushCollider(walls, (minX + maxX) / 2, h, -c, (maxX - minX) / 2, h, t, 0);
   if (cz >= MAX_CHUNK) pushCollider(walls, (minX + maxX) / 2, h, c, (maxX - minX) / 2, h, t, 0);
 }
+
+/**
+ * The buildings of one block (BUILDING_STRIDE floats each: minX, minZ, maxX, maxZ, height, roof, color, style),
+ * exactly as `chunkLayout` places them (same `world:block:<id>` stream).
+ */
+export function blockBuildingRects(city: City, blockId: number): Float32Array {
+  const b = city.blocks[blockId];
+  if (b === undefined) return new Float32Array(0);
+  const sink: Sink = { buildings: [], props: [] };
+  blockContents(city, b, sink);
+  return new Float32Array(sink.buildings);
+}

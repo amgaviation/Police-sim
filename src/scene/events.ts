@@ -7,6 +7,15 @@ import type { CallOutcome } from './types';
 
 export interface SceneMaterializedEvent {
   callId: number;
+  /** Phase 4 (present when the scene runs with interiors): the bound building, -1 outdoors. */
+  buildingId?: number;
+}
+
+/** A service (EMS, K9, ...) was requested or arrived on a call (the integrator starts the K9 sweep on `k9` + `arrived`). */
+export interface SceneServiceEvent {
+  callId: number;
+  kind: string;
+  phase: 'requested' | 'arrived';
 }
 
 /** A dispatch radio line (the integrator bridges it to `RadioSystem.say('dispatch', text, speaker)`). */
@@ -65,6 +74,19 @@ export interface ContactEventPayload {
   flag: string;
 }
 
+/** Payload of the contact module's `contact:consent` topic (design phase 4 §8.2). */
+export interface ContactConsentPayload {
+  incident: string;
+  callId: number;
+  personId: number;
+  kind: string;
+  granted: boolean;
+  valid: boolean;
+  buildingId: number;
+  room: number;
+  sim: number;
+}
+
 /** Payload of the contact module's `contact:needsCall` topic. */
 export interface ContactNeedsCallPayload {
   personId: number;
@@ -76,6 +98,7 @@ export interface ContactNeedsCallPayload {
 declare module '../core/event-map' {
   interface EventMap {
     'scene:materialized': SceneMaterializedEvent;
+    'scene:service': SceneServiceEvent;
     'scene:radio': SceneRadioEvent;
     'scene:line': SceneLineEvent;
     'scene:flash': SceneFlashEvent;

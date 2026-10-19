@@ -223,6 +223,29 @@ export function cockpitCameraPose(target: FollowTarget, dims: BodyDims, yawOffse
   );
 }
 
+/**
+ * First-person pose: the camera sits at (x + eye.x, feetY + eye.y, z + eye.z) and looks along `yaw` / `pitch`
+ * (yaw 0 faces -Z; positive pitch looks down, like the on-foot mouse look). Writes `out` and returns it.
+ */
+export function firstPersonPose(
+  x: number,
+  feetY: number,
+  z: number,
+  yaw: number,
+  pitch: number,
+  eye: { readonly x: number; readonly y: number; readonly z: number },
+  out: CameraPose,
+): CameraPose {
+  const cp = Math.cos(pitch);
+  out.x = x + eye.x;
+  out.y = feetY + eye.y;
+  out.z = z + eye.z;
+  out.lookX = out.x - Math.sin(yaw) * cp * LOOK_DISTANCE;
+  out.lookY = out.y - Math.sin(pitch) * LOOK_DISTANCE;
+  out.lookZ = out.z - Math.cos(yaw) * cp * LOOK_DISTANCE;
+  return out;
+}
+
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 const reset = (s: SmoothState, value: number): void => {
   s.value = value;
@@ -310,6 +333,26 @@ export class CameraRig {
     camera.position.copy(scratchPos);
     scratchLook.set(target.x, target.y + 1, target.z);
     camera.lookAt(scratchLook);
+  }
+
+  /**
+   * First-person camera at the officer's eye (`feetY` is the level's floor height; `eye` comes from the tactical
+   * stance), rolled by `eye.roll` radians (negative = leaning right, clockwise). Does not touch the vehicle state.
+   */
+  updateFirstPerson(
+    x: number,
+    feetY: number,
+    z: number,
+    yaw: number,
+    pitch: number,
+    eye: { readonly x: number; readonly y: number; readonly z: number; readonly roll: number },
+    camera: THREE.PerspectiveCamera,
+  ): void {
+    const pose = firstPersonPose(x, feetY, z, yaw, pitch, eye, this.pose);
+    camera.position.set(pose.x, pose.y, pose.z);
+    scratchLook.set(pose.lookX, pose.lookY, pose.lookZ);
+    camera.lookAt(scratchLook);
+    if (eye.roll !== 0) camera.rotateZ(eye.roll);
   }
 
   /** Follows the driven vehicle in the current vehicle mode. Does nothing without `setVehicle(dims)`. */

@@ -47,6 +47,20 @@ export interface ContactNeedsCallEvent {
   incident: string;
 }
 
+/** A consent was asked and answered (also the Phase 3 kinds; `buildingId` and `room` are -1 when unknown). */
+export interface ContactConsentEvent {
+  incident: string;
+  callId: number;
+  personId: number;
+  kind: 'entry' | 'searchPremises' | 'searchRoom' | 'searchPerson' | 'searchVehicle' | 'pbt' | 'sfst';
+  granted: boolean;
+  /** False when the answer carries no legal weight (a juvenile without a guardian, a person with dementia). */
+  valid: boolean;
+  buildingId: number;
+  room: number;
+  sim: number;
+}
+
 declare module '../core/event-map' {
   interface EventMap {
     'contact:event': ContactEventEvent;
@@ -54,5 +68,6 @@ declare module '../core/event-map' {
     'contact:caged': ContactCagedEvent;
     'contact:openForm': ContactOpenFormEvent;
     'contact:needsCall': ContactNeedsCallEvent;
+    'contact:consent': ContactConsentEvent;
   }
 }

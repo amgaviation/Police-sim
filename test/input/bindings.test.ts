@@ -77,7 +77,12 @@ describe('Phase 2 default bindings', () => {
     // Space is the handbrake and the tackle, G the horn and the shout, GamepadButton1 and GamepadButton7 the
     // handbrake / throttle and the tackle / fire. GamepadButton9 (Start) is both the menu and the weapon cycle
     // as the design table says.
-    const shared = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyG', 'GamepadButton1', 'GamepadButton7']);
+    // Phase 4 adds on-foot X / Q / R / F, right mouse button and pads 6 / 11 / 12 (equipment, siren, siren tone, manual
+    // siren, spotlight aim, brake, horn, headlights in a car).
+    const shared = new Set([
+      'KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyG', 'GamepadButton1', 'GamepadButton7',
+      'KeyX', 'KeyQ', 'KeyR', 'KeyF', 'MouseButton2', 'GamepadButton6', 'GamepadButton11', 'GamepadButton12',
+    ]);
     const owners = new Map<string, string[]>();
     for (const id of ACTION_IDS) {
       for (const b of DEFAULT_BINDINGS[id]) {
@@ -157,6 +162,71 @@ describe('Phase 3 default bindings', () => {
     expect(resolveActions(DEFAULT_BINDINGS, raw([], [0]))['officer.fire']).toBe(1);
     expect(resolveActions(DEFAULT_BINDINGS, raw(['KeyY']))['scene.menu']).toBe(1);
     expect(resolveActions(DEFAULT_BINDINGS, raw(['KeyG']))['officer.shout']).toBe(1);
+  });
+});
+
+describe('Phase 4 default bindings', () => {
+  it('match the design table (§11.4)', () => {
+    const table: [keyof typeof DEFAULT_BINDINGS, readonly { device: string; code: string }[]][] = [
+      ['officer.crouch', [{ device: 'keyboard', code: 'KeyX' }, { device: 'gamepad', code: 'GamepadButton11' }]],
+      ['officer.leanLeft', [{ device: 'keyboard', code: 'KeyQ' }]],
+      ['officer.leanRight', [{ device: 'keyboard', code: 'KeyR' }]],
+      ['officer.slice', [{ device: 'mouse', code: 'MouseButton2' }, { device: 'gamepad', code: 'GamepadButton6' }]],
+      ['officer.flashlight', [{ device: 'keyboard', code: 'KeyF' }, { device: 'gamepad', code: 'GamepadButton12' }]],
+      ['officer.bodycam', [{ device: 'keyboard', code: 'KeyU' }]],
+      ['investigate.menu', [{ device: 'keyboard', code: 'KeyI' }]],
+      ['camera.photo', [{ device: 'keyboard', code: 'KeyO' }]],
+      ['partner.menu', [{ device: 'keyboard', code: 'KeyN' }]],
+    ];
+    for (const [id, expected] of table) {
+      expect(DEFAULT_BINDINGS[id], id).toEqual(expected);
+      for (const b of DEFAULT_BINDINGS[id]) expect(isBinding(b), `${id}: ${b.code}`).toBe(true);
+    }
+  });
+
+  it('only reuse inputs of driving actions (X, Q, R, F, RMB, pads 6 / 11 / 12), never of another on-foot action', () => {
+    const onFoot = new Map<string, string[]>();
+    for (const id of ACTION_IDS) {
+      if (id.startsWith('vehicle.') || id.startsWith('radio.') || id === 'mdt.toggle') continue;
+      for (const b of DEFAULT_BINDINGS[id]) {
+        if (b.device === 'gamepad' && b.code.startsWith('GamepadAxis')) continue;
+        const k = `${b.device}:${b.code}`;
+        onFoot.set(k, [...(onFoot.get(k) ?? []), id]);
+      }
+    }
+    for (const id of ['officer.crouch', 'officer.leanLeft', 'officer.leanRight', 'officer.slice', 'officer.flashlight', 'officer.bodycam', 'investigate.menu', 'camera.photo', 'partner.menu'] as const) {
+      for (const b of DEFAULT_BINDINGS[id]) expect(onFoot.get(`${b.device}:${b.code}`), `${id} ${b.code}`).toEqual([id]);
+    }
+  });
+
+  it('survive a serialize / parse round trip and an old save without them gets the defaults', () => {
+    expect(parseBindings(JSON.parse(JSON.stringify(serializeBindings(DEFAULT_BINDINGS))))).toEqual(DEFAULT_BINDINGS);
+    const ids = ['officer.crouch', 'officer.leanLeft', 'officer.leanRight', 'officer.slice', 'officer.flashlight', 'officer.bodycam', 'investigate.menu', 'camera.photo', 'partner.menu'];
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([id]) => !ids.includes(id)));
+    expect(parseBindings({ version: BINDINGS_SCHEMA_VERSION, bindings: old })).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('has no action bound twice to the same input within one action', () => {
+    for (const id of ACTION_IDS) {
+      const keys = DEFAULT_BINDINGS[id].map((b) => `${b.device}:${b.code}:${String(b.scale ?? 1)}`);
+      expect(new Set(keys).size, id).toBe(keys.length);
+    }
+  });
+
+  it('resolves the new actions from their default inputs', () => {
+    const raw = (keys: string[], mouseButtons: number[] = [], pad: number[] = []): RawInputState => ({
+      keys: new Set(keys),
+      mouseButtons: new Set(mouseButtons),
+      mouse: { x: 0, y: 0, wheel: 0 },
+      gamepadButtons: pad.map((n) => n),
+      gamepadAxes: [],
+    });
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['KeyX']))['officer.crouch']).toBe(1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['KeyU']))['officer.bodycam']).toBe(1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw([], [2]))['officer.slice']).toBe(1);
+    const a = resolveActions(DEFAULT_BINDINGS, raw(['KeyQ']));
+    // Q is the siren in a car and the left lean on foot; the game picks by context.
+    expect([a['vehicle.siren'], a['officer.leanLeft'], a['officer.leanRight']]).toEqual([1, 1, 0]);
   });
 });
 

@@ -6,7 +6,7 @@
 import type { Scenario } from '../calls';
 import { GRADES, SPOTS, VARIANT_KINDS } from '../calls/types';
 import type { RngState } from '../core/rng';
-import type { ActionState, CallOutcome, OfficerWeapon, SceneRequest, ServiceState } from './types';
+import type { ActionState, CallOutcome, OfficerWeapon, SceneArrest, SceneRequest, ServiceState } from './types';
 
 export interface SceneScenarioSave {
   scenario: Scenario;
@@ -22,6 +22,15 @@ export interface SceneScenarioSave {
   forceUsed: string[];
   /** Call ids whose scenarios receive this one's pursuit and driver flags (absent: none). */
   mirror?: number[];
+  /** Phase 4: the building the call is bound to (absent: -1, outdoors). */
+  buildingId?: number;
+  /** Phase 4: hiding spot per participant (absent: none). */
+  hideSpots?: number[];
+  /** Phase 4: sim second of the knock / of the pending answer (absent: -1). */
+  knockedSim?: number;
+  answerDueSim?: number;
+  /** Phase 4: arrests made on the call (absent: none). */
+  arrests?: SceneArrest[];
 }
 
 /** A requested service; `ackDueSim` is absent in saves of the bare design shape (no pending acknowledgement). */
@@ -148,6 +157,16 @@ function isServiceState(x: unknown): x is SceneServiceSave {
   return isObj(x) && isStr(x.kind) && isNum(x.dueSim) && isBool(x.arrived) && isNum(x.effectDueSim) && (x.ackDueSim === undefined || isNum(x.ackDueSim));
 }
 
+function isArrest(x: unknown): x is SceneArrest {
+  return isObj(x) && isInt(x.personId, -1) && isInt(x.buildingId, -1) && isInt(x.room, -1) && isNum(x.sim);
+}
+
+function isCaseSummary(x: unknown): boolean {
+  if (!isObj(x)) return false;
+  const nums = ['items', 'found', 'plainView', 'suppressed', 'collected', 'photos', 'markers', 'prints', 'canvass', 'consents'];
+  return nums.every((k) => isInt(x[k], 0)) && isBool(x.custodyComplete) && isBool(x.bodycam);
+}
+
 function isScenarioSave(x: unknown): x is SceneScenarioSave {
   if (!isObj(x) || !isScenario(x.scenario)) return false;
   const sc = x.scenario;
@@ -155,7 +174,11 @@ function isScenarioSave(x: unknown): x is SceneScenarioSave {
     isArrayOf(x.actorIds, (v): v is number => isInt(v, 0)) && x.actorIds.length === sc.participants.length &&
     isInt(x.timelineIdx, 0) && x.timelineIdx <= sc.timeline.length && isNum(x.arrivedSim) &&
     isArrayOf(x.actions, isActionState) && isArrayOf(x.services, isServiceState) && isBool(x.ambushArmed) &&
-    isStrArray(x.forceUsed) && (x.mirror === undefined || isArrayOf(x.mirror, (v): v is number => isInt(v, 1)));
+    isStrArray(x.forceUsed) && (x.mirror === undefined || isArrayOf(x.mirror, (v): v is number => isInt(v, 1))) &&
+    (x.buildingId === undefined || isInt(x.buildingId, -1)) &&
+    (x.hideSpots === undefined || (isArrayOf(x.hideSpots, (v): v is number => isInt(v, -1)) && x.hideSpots.length === sc.participants.length)) &&
+    (x.knockedSim === undefined || isNum(x.knockedSim)) && (x.answerDueSim === undefined || isNum(x.answerDueSim)) &&
+    (x.arrests === undefined || isArrayOf(x.arrests, isArrest));
 }
 
 /** Structural check of a call outcome. */
@@ -164,7 +187,8 @@ export function isCallOutcome(x: unknown): x is CallOutcome {
     isArrayOf(x.variants, (v): v is string => isOneOf(v, VARIANT_KINDS)) && isStr(x.branch) && isStr(x.outcomeId) &&
     isStr(x.suggested) && isStr(x.disposition) && isOneOf(x.grade, GRADES) && isStrArray(x.flags) && isBool(x.materialized) &&
     (x.resolvedBy === 'player' || x.resolvedBy === 'ai') && isNum(x.createdSim) && isNum(x.arrivedSim) && isNum(x.closedSim) &&
-    isStrArray(x.forceUsed);
+    isStrArray(x.forceUsed) && (x.buildingId === undefined || isInt(x.buildingId, -1)) &&
+    (x.entry === undefined || x.entry === null || isStr(x.entry)) && (x.case === undefined || isCaseSummary(x.case));
 }
 
 function isProp(x: unknown): x is ScenePropSave {

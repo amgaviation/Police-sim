@@ -4,6 +4,7 @@
   "spotlight": { "yawMin": -1.0, "yawMax": 2.6, "pitchMin": -0.5, "pitchMax": 0.25, "defaultYaw": 0.25, "defaultPitch": -0.08, "aimRate": 0.0025 },
   "rack": { "items": [{ "id": "shotgun", "label": "Patrol shotgun" }, { "id": "rifle", "label": "Patrol rifle" }], "unlockRequiresStop": true },
   "trunkLoadouts": {
-    "patrol": { "cones": 6, "flares": 8, "firstAid": 1, "aed": 1, "spikeStrip": 1, "evidenceKit": 1, "fireExtinguisher": 1, "trafficVest": 1 }
+    "patrol": { "cones": 6, "flares": 8, "firstAid": 1, "aed": 1, "spikeStrip": 1, "evidenceKit": 1, "fireExtinguisher": 1, "trafficVest": 1,
+      "ram": 1, "sceneTape": 1, "evidenceMarkers": 20, "evidenceBags": 20, "fingerprintKit": 1, "camera": 1 }
   }
 }

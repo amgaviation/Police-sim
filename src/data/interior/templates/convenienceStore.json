@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "kind": "convenienceStore",
+  "label": "Convenience store",
+  "layout": "bsp",
+  "minWidth": 10,
+  "minDepth": 10,
+  "maxWidth": 20,
+  "maxDepth": 16,
+  "minRoomArea": 12,
+  "entry": "salesFloor",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.5,
+  "lockableRooms": ["backOffice", "restroom", "storage"],
+  "lockedRooms": [],
+  "corridor": null,
+  "exteriorDoors": [],
+  "occupants": { "day": [1, 2], "night": [1, 2], "profile": "bystander", "role": "staff", "openHours": [6, 24] },
+  "rooms": [
+    { "kind": "salesFloor", "label": "Sales floor", "size": 6, "required": true, "surface": "linoleum", "public": true,
+      "furniture": [
+        { "id": "checkoutCounter", "place": "wall" },
+        { "id": "shelf", "place": "center", "count": [1, 3], "chance": 0.9 },
+        { "id": "cooler", "place": "wall", "chance": 0.8 },
+        { "id": "vendingMachine", "place": "corner", "chance": 0.5 }
+      ] },
+    { "kind": "storage", "label": "Storage", "size": 2, "required": true, "surface": "concrete",
+      "furniture": [
+        { "id": "shelf", "place": "wall", "count": [1, 2] },
+        { "id": "crate", "place": "center", "count": [1, 3], "chance": 0.8 }
+      ] },
+    { "kind": "backOffice", "label": "Back office", "size": 1.5, "required": true, "surface": "linoleum",
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "safe", "place": "corner" },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.6 },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "restroom", "label": "Restroom", "size": 1, "required": true, "surface": "tile",
+      "furniture": [
+        { "id": "toilet", "place": "wall" },
+        { "id": "sink", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "cooler", "label": "Walk-in cooler", "size": 1.5, "required": false, "chance": 0.5, "surface": "concrete",
+      "furniture": [
+        { "id": "shelf", "place": "wall" }
+      ] }
+  ]
+}

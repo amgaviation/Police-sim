@@ -60,6 +60,10 @@ export const DRUG_KINDS = ['none', 'cannabis', 'stimulant', 'opioid', 'depressan
 /** Prop kinds (`PROP` names of the people renderer, design §12.1) an action may lay out. */
 export const PROP_KINDS = ['cone', 'flare', 'tape', 'marker', 'bottle', 'bag', 'knife', 'handgun', 'package', 'casing', 'glass', 'note'] as const;
 
+/** Investigation tools an action may be done with (Phase 4 design §12.2): the scene panel shows such a row as a hint. */
+export const TOOL_KINDS = ['camera', 'evidence', 'canvass', 'tape'] as const;
+export type ToolKind = (typeof TOOL_KINDS)[number];
+
 export const SERVICE_EFFECTS = [
   'none', 'transportInjured', 'resolveBarricade', 'revealHidden', 'removeDeceased', 'interpreter', 'secureAnimal', 'towVehicles',
 ] as const;
@@ -215,6 +219,8 @@ export interface ActionDef {
   readonly radio: string | null;
   readonly command: { readonly command: string; readonly roles: readonly string[] } | null;
   readonly opens: 'citation' | 'report' | null;
+  /** Phase 4: done with an investigation tool (camera, evidence kit, canvass, tape) instead of this row; null for none. */
+  readonly tool: ToolKind | null;
 }
 
 export interface ServiceDef {

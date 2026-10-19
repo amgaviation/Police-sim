@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "items": [
+    { "id": "sidearm", "label": "Duty pistol", "serialPrefix": "SA", "weapon": "sidearm" },
+    { "id": "taser", "label": "Conducted energy device", "serialPrefix": "CED", "weapon": "taser" },
+    { "id": "ocSpray", "label": "OC spray", "serialPrefix": "OC", "weapon": null },
+    { "id": "baton", "label": "Expandable baton", "serialPrefix": "EB", "weapon": null },
+    { "id": "beanbag", "label": "Less-lethal shotgun", "serialPrefix": "LLS", "weapon": null },
+    { "id": "rifle", "label": "Patrol rifle", "serialPrefix": "PR", "weapon": null }
+  ]
+}

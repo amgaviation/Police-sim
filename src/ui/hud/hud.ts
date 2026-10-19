@@ -28,6 +28,16 @@ import {
   type HudOfficer,
   type HudScene,
 } from './scene';
+import {
+  NOISE_STEPS,
+  bodycamChipText,
+  locationChipText,
+  noiseMeterText,
+  noiseSteps,
+  tacticalChipsText,
+  visibilityText,
+} from './tactical';
+import type { HudBodycam, HudLocation, HudTactical } from './types';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
 export interface HudSnapshot {
@@ -67,6 +77,17 @@ export interface HudSnapshot {
   scene?: Readonly<HudScene> | null;
   /** Pursuit line (red), e.g. 'PURSUIT  Foot  suspect fleeing north'; null hides it. */
   pursuit?: string | null;
+  // Phase 4 (design §11.3): optional as well.
+  /** Stance and exposure on foot (chips CROUCH / LEAN L·R / SLICE / LIGHT, noise meter, visibility). */
+  tactical?: Readonly<HudTactical> | null;
+  /** Bodycam: red '● REC' while recording, grey 'CAM' when worn and off. */
+  bodycam?: Readonly<HudBodycam> | null;
+  /** Shift objective line under the call strip, e.g. 'Shift: attend roll call (E at the podium)'. */
+  shift?: string | null;
+  /** Building and room the officer is in (chip 'House · Kitchen'). */
+  location?: Readonly<HudLocation> | null;
+  /** Case line, e.g. 'Case C-00042 · 3 items · 1 photo'. */
+  caseLine?: string | null;
 }
 
 export interface HudOptions {
@@ -139,6 +160,22 @@ export interface HudText {
   sceneDone: boolean[];
   /** Red pursuit line; '' hides it. */
   pursuit: string;
+  /** Active stance chips ('CROUCH · LEAN L · SLICE · LIGHT'); '' hides them. */
+  tactical: string;
+  /** Lit noise steps (0..`NOISE_STEPS`) and the meter text ('■■■□□'); the meter text is '' without tactical state. */
+  noise: number;
+  noiseMeter: string;
+  /** 'VIS 60%'; '' without tactical state. */
+  visibility: string;
+  /** '● REC' / 'CAM'; '' hides the chip. */
+  bodycam: string;
+  bodycamRecording: boolean;
+  /** Shift objective line; '' hides it. */
+  shift: string;
+  /** Location chip ('House · Kitchen'); '' hides it. */
+  location: string;
+  /** Case line; '' hides it. */
+  caseLine: string;
 }
 
 export function createHudText(): HudText {
@@ -182,6 +219,15 @@ export function createHudText(): HudText {
     sceneLines: new Array<string>(SCENE_LINES).fill(''),
     sceneDone: new Array<boolean>(SCENE_LINES).fill(false),
     pursuit: '',
+    tactical: '',
+    noise: 0,
+    noiseMeter: '',
+    visibility: '',
+    bodycam: '',
+    bodycamRecording: false,
+    shift: '',
+    location: '',
+    caseLine: '',
   };
 }
 
@@ -245,6 +291,16 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
     out.sceneDone[i] = scene.done[i] ?? false;
   }
   out.pursuit = s.pursuit ?? '';
+  const tac = s.tactical ?? null;
+  out.tactical = tacticalChipsText(tac);
+  out.noise = tac ? noiseSteps(tac.noise) : 0;
+  out.noiseMeter = tac ? noiseMeterText(tac.noise) : '';
+  out.visibility = visibilityText(tac);
+  out.bodycam = bodycamChipText(s.bodycam);
+  out.bodycamRecording = s.bodycam ? s.bodycam.recording : false;
+  out.shift = s.shift ?? '';
+  out.location = locationChipText(s.location);
+  out.caseLine = s.caseLine ?? '';
   return out;
 }
 
@@ -307,6 +363,12 @@ const STYLES = {
   sceneTitle: `font-weight:700;font-size:${px(14)};white-space:nowrap`,
   sceneLine: 'display:flex;gap:6px;align-items:baseline',
   sceneMark: `font-weight:700;min-width:${px(12)}`,
+  tacticalRow: 'display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap',
+  tacticalChips: `${PANEL};position:relative;padding:2px 8px;font-size:${px(12)};font-weight:700;letter-spacing:0.05em`,
+  meter: `${PANEL};position:relative;padding:2px 8px;font:700 ${px(12)}/1.3 ui-monospace, Menlo, Consolas, monospace;letter-spacing:0.05em`,
+  shiftLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(13)};font-weight:600`,
+  caseLine: `${PANEL};position:relative;border-left:4px solid #9fd0ff;font-size:${px(12)}`,
+  location: `margin-top:4px;font-size:${px(12)};font-weight:700;opacity:0.9`,
   pursuit: `${PANEL};left:50%;top:16px;transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(15)};letter-spacing:0.05em;white-space:nowrap`,
 } as const;
 
@@ -367,6 +429,14 @@ interface HudView {
   sceneMarks: HTMLSpanElement[];
   sceneTexts: HTMLSpanElement[];
   pursuit: HTMLDivElement;
+  tacticalRow: HTMLDivElement;
+  tactical: HTMLDivElement;
+  noise: HTMLDivElement;
+  visibility: HTMLDivElement;
+  bodycam: HTMLSpanElement;
+  shift: HTMLDivElement;
+  caseLine: HTMLDivElement;
+  location: HTMLDivElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -392,6 +462,13 @@ function buildView(parent: HTMLElement): HudView {
   const contact = node('div', STYLES.contact, chipRow);
   contact.style.display = 'none';
   const weapon = chip('', '#ff9a3c', chipRow);
+  const bodycam = chip('', '#9a9a9a', chipRow);
+  const tacticalRow = node('div', STYLES.tacticalRow, bottomRight);
+  tacticalRow.style.display = 'none';
+  const tactical = node('div', STYLES.tacticalChips, tacticalRow);
+  tactical.style.display = 'none';
+  const noise = node('div', STYLES.meter, tacticalRow);
+  const visibility = node('div', STYLES.meter, tacticalRow);
   const carried = node('div', STYLES.carried, bottomRight);
   carried.style.display = 'none';
   const unitRow = node('div', STYLES.unitRow, bottomRight);
@@ -427,6 +504,8 @@ function buildView(parent: HTMLElement): HudView {
   const callStatus = node('div', STYLES.callStatus, callPanel);
   const offer = node('div', STYLES.offer, topLeft);
   offer.style.display = 'none';
+  const shift = node('div', STYLES.shiftLine, topLeft);
+  shift.style.display = 'none';
   const scenePanel = node('div', STYLES.scenePanel, topLeft);
   scenePanel.style.display = 'none';
   const sceneTitle = node('div', STYLES.sceneTitle, scenePanel);
@@ -440,6 +519,8 @@ function buildView(parent: HTMLElement): HudView {
     sceneTexts.push(node('span', '', row));
     sceneRows.push(row);
   }
+  const caseLine = node('div', STYLES.caseLine, topLeft);
+  caseLine.style.display = 'none';
   const pursuit = node('div', STYLES.pursuit, root);
   pursuit.style.display = 'none';
 
@@ -455,6 +536,8 @@ function buildView(parent: HTMLElement): HudView {
   const topRight = node('div', STYLES.topRight, root);
   const clock = node('div', STYLES.clock, topRight);
   const weather = node('div', '', topRight);
+  const location = node('div', STYLES.location, topRight);
+  location.style.display = 'none';
 
   const roadPanel = node('div', STYLES.bottomCentre, root);
   const road = node('span', STYLES.road, roadPanel);
@@ -474,6 +557,7 @@ function buildView(parent: HTMLElement): HudView {
     police, unitRow, unit, unitEmergency, unitStatusCheck, carried, callPanel, callTitle, callAddress, callStatus,
     offer, reticle, targetInfo, targetLabel, targetResult,
     weapon, contact, scenePanel, sceneTitle, sceneRows, sceneMarks, sceneTexts, pursuit,
+    tacticalRow, tactical, noise, visibility, bodycam, shift, caseLine, location,
   };
 }
 
@@ -638,6 +722,7 @@ export class Hud {
     }
     this.applyPolice(all);
     this.applyScene(all);
+    this.applyTactical(all);
   }
 
   /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
@@ -771,6 +856,68 @@ export class Hud {
       if (v) {
         v.pursuit.textContent = n.pursuit;
         show(v.pursuit, n.pursuit !== '');
+      }
+    }
+  }
+
+  /** Phase 4 fields (stance chips and meters, bodycam chip, shift line, location chip, case line). */
+  private applyTactical(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    if (all || n.tactical !== o.tactical) {
+      o.tactical = n.tactical;
+      if (v) {
+        v.tactical.textContent = n.tactical;
+        show(v.tactical, n.tactical !== '');
+      }
+    }
+    if (all || n.noiseMeter !== o.noiseMeter || n.noise !== o.noise) {
+      o.noiseMeter = n.noiseMeter;
+      o.noise = n.noise;
+      if (v) {
+        v.noise.textContent = `NOISE ${n.noiseMeter}`;
+        // Loud (4+ of 5 steps) turns amber.
+        v.noise.style.color = n.noise >= NOISE_STEPS - 1 ? '#ffa34a' : '#f2f2f2';
+        show(v.noise, n.noiseMeter !== '');
+      }
+    }
+    if (all || n.visibility !== o.visibility) {
+      o.visibility = n.visibility;
+      if (v) {
+        v.visibility.textContent = n.visibility;
+        show(v.visibility, n.visibility !== '');
+        show(v.tacticalRow, n.visibility !== '', 'flex');
+      }
+    }
+    if (all || n.bodycam !== o.bodycam || n.bodycamRecording !== o.bodycamRecording) {
+      o.bodycam = n.bodycam;
+      o.bodycamRecording = n.bodycamRecording;
+      if (v) {
+        v.bodycam.textContent = n.bodycam;
+        v.bodycam.style.background = n.bodycamRecording ? '#ff4d4d' : '#9a9a9a';
+        show(v.bodycam, n.bodycam !== '', 'inline');
+      }
+    }
+    if (all || n.shift !== o.shift) {
+      o.shift = n.shift;
+      if (v) {
+        v.shift.textContent = n.shift;
+        show(v.shift, n.shift !== '');
+      }
+    }
+    if (all || n.location !== o.location) {
+      o.location = n.location;
+      if (v) {
+        v.location.textContent = n.location;
+        show(v.location, n.location !== '');
+      }
+    }
+    if (all || n.caseLine !== o.caseLine) {
+      o.caseLine = n.caseLine;
+      if (v) {
+        v.caseLine.textContent = n.caseLine;
+        show(v.caseLine, n.caseLine !== '');
       }
     }
   }

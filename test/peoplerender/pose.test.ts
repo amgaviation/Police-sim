@@ -18,7 +18,7 @@ const HALF_PI = Math.PI / 2;
 
 describe('pose constants', () => {
   it('match the design table', () => {
-    expect(POSE).toEqual({ stand: 0, walk: 1, run: 2, handsUp: 3, kneel: 4, prone: 5, cuffed: 6, seated: 7, aim: 8, fight: 9, lying: 10, sit: 11 });
+    expect(POSE).toEqual({ stand: 0, walk: 1, run: 2, handsUp: 3, kneel: 4, prone: 5, cuffed: 6, seated: 7, aim: 8, fight: 9, lying: 10, sit: 11, crouch: 12 });
     expect(HELD).toEqual({ none: 0, knife: 1, handgun: 2, bottle: 3, phone: 4, taser: 5, sidearm: 6 });
     expect(BODY).toEqual({ human: 0, dog: 1 });
     expect(FIGURE_FLAG).toEqual({ highlight: 1, hidden: 2 });
@@ -134,6 +134,34 @@ describe('limbPose', () => {
     expect(a.leftArm).toBeGreaterThan(a.rightArm);
     expect(b.rightArm).toBeGreaterThan(b.leftArm);
     expect(Math.max(a.leftArm, a.rightArm)).toBeCloseTo(0.9, 10);
+  });
+
+  it('crouches with the hips dropped, thighs forward, knees bent and the torso leaning', () => {
+    const p = limbPose(POSE.crouch, 0, 0, out());
+    expect(p.drop).toBeCloseTo(0.35, 10);
+    expect(p.leftKnee).toBeCloseTo(1.2, 10);
+    expect(p.rightKnee).toBeCloseTo(1.2, 10);
+    expect(p.leftLeg).toBeCloseTo(-0.6, 10);
+    expect(p.rightLeg).toBeCloseTo(-0.6, 10);
+    expect(p.torsoPitch).toBeCloseTo(0.25, 10);
+    expect(p.leftArm).toBe(0);
+    expect(p.rightArm).toBe(0);
+    expect(p.bodyPitch).toBe(0);
+    // Standing still ignores the gait phase.
+    const still = limbPose(POSE.crouch, 0.25, 0, out());
+    expect(still.leftLeg).toBeCloseTo(-0.6, 10);
+  });
+
+  it('swings the legs by 0.3 around the crouch while moving', () => {
+    const q = limbPose(POSE.crouch, 0.25, 1, out());
+    expect(q.leftLeg).toBeCloseTo(-0.3, 10);
+    expect(q.rightLeg).toBeCloseTo(-0.9, 10);
+    const h = limbPose(POSE.crouch, 0.75, 1, out());
+    expect(h.leftLeg).toBeCloseTo(-0.9, 10);
+    expect(h.rightLeg).toBeCloseTo(-0.3, 10);
+    // The knees and drop do not change with the gait.
+    expect(q.leftKnee).toBe(h.leftKnee);
+    expect(q.drop).toBe(h.drop);
   });
 
   it('resets every field on each call and returns the same object', () => {

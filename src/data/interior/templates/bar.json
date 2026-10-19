@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "kind": "bar",
+  "label": "Bar",
+  "layout": "bsp",
+  "minWidth": 12,
+  "minDepth": 10,
+  "maxWidth": 20,
+  "maxDepth": 16,
+  "minRoomArea": 12,
+  "entry": "barRoom",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.5,
+  "lockableRooms": ["restroom", "office", "storage"],
+  "lockedRooms": [],
+  "corridor": null,
+  "exteriorDoors": [],
+  "occupants": { "day": [3, 8], "night": [3, 8], "profile": "bystander", "role": "patron", "openHours": [16, 2] },
+  "rooms": [
+    { "kind": "barRoom", "label": "Bar room", "size": 6, "required": true, "surface": "wood", "public": true,
+      "furniture": [
+        { "id": "barCounter", "place": "wall" },
+        { "id": "barTable", "place": "center", "count": [2, 4] },
+        { "id": "stool", "place": "wall", "count": [2, 4] }
+      ] },
+    { "kind": "restroom", "label": "Restroom", "size": 1, "required": true, "surface": "tile", "count": [2, 2],
+      "furniture": [
+        { "id": "toilet", "place": "wall" },
+        { "id": "sink", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "kitchen", "label": "Kitchen", "size": 2, "required": true, "surface": "tile",
+      "furniture": [
+        { "id": "kitchenCounter", "place": "wall" },
+        { "id": "fridge", "place": "corner" },
+        { "id": "stove", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "storage", "label": "Storage", "size": 1.5, "required": true, "surface": "concrete",
+      "furniture": [
+        { "id": "shelf", "place": "wall" },
+        { "id": "crate", "place": "center", "count": [1, 2], "chance": 0.8 }
+      ] },
+    { "kind": "office", "label": "Office", "size": 1.5, "required": true, "surface": "linoleum",
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "safe", "place": "corner", "chance": 0.6 },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] }
+  ]
+}

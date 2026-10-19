@@ -2,7 +2,7 @@ import type { EventMap } from '../../src/core/event-map';
 import { EventBus } from '../../src/core/events';
 import { createRng } from '../../src/core/rng';
 import { NpcSystem } from '../../src/npc/npcSystem';
-import type { ActorInfo, ActorSpawn, CommandContext, NpcFocus } from '../../src/npc/types';
+import type { ActorInfo, ActorSpawn, CommandContext, IndoorNavPort, NpcFocus } from '../../src/npc/types';
 import { Population } from '../../src/people/population';
 import { CALENDAR } from '../../src/records/calendar';
 import { RecordsDb } from '../../src/records/db';
@@ -35,7 +35,7 @@ export interface NpcRig {
   run(steps: number, dt?: number): void;
 }
 
-const TOPICS = ['npc:fled', 'npc:caught', 'npc:escaped', 'npc:surrendered', 'npc:attack', 'npc:weaponDropped', 'npc:left', 'npc:revealed'] as const;
+const TOPICS = ['npc:fled', 'npc:caught', 'npc:escaped', 'npc:surrendered', 'npc:attack', 'npc:weaponDropped', 'npc:left', 'npc:revealed', 'npc:aware'] as const;
 
 let cityCache: { seed: number; city: City } | null = null;
 
@@ -137,3 +137,47 @@ export function ctx(over: Partial<CommandContext> = {}): CommandContext {
 }
 
 export type { TrafficSystem };
+
+/** A scripted `IndoorNavPort`: straight paths, one fixed way out, one fixed hiding spot; every call is recorded. */
+export class StubNav implements IndoorNavPort {
+  /** Route to the way out (x, z pairs); empty = no way out. */
+  exitRoute: number[] = [];
+  exitPose = { x: 0, z: 0, yaw: 0 };
+  /** Index of the hiding spot, -1 = none. */
+  hideIndex = -1;
+  hidePose = { x: 0, z: 0, yaw: 0 };
+  readonly paths: { building: number; x: number; z: number; tx: number; tz: number }[] = [];
+  readonly exits: number[] = [];
+  readonly hides: { building: number; awayX: number; awayZ: number }[] = [];
+  readonly released: { building: number; index: number }[] = [];
+
+  path(building: number, x: number, z: number, tx: number, tz: number, out: Float32Array): number {
+    this.paths.push({ building, x, z, tx, tz });
+    out[0] = tx;
+    out[1] = tz;
+    return 1;
+  }
+
+  exit(building: number, _x: number, _z: number, out: Float32Array, pose: { x: number; z: number; yaw: number }): number {
+    this.exits.push(building);
+    if (this.exitRoute.length === 0) return 0;
+    for (let i = 0; i < this.exitRoute.length; i++) out[i] = this.exitRoute[i] as number;
+    pose.x = this.exitPose.x;
+    pose.z = this.exitPose.z;
+    pose.yaw = this.exitPose.yaw;
+    return this.exitRoute.length / 2;
+  }
+
+  hideSpot(building: number, _x: number, _z: number, awayX: number, awayZ: number, pose: { x: number; z: number; yaw: number }): number {
+    this.hides.push({ building, awayX, awayZ });
+    if (this.hideIndex < 0) return -1;
+    pose.x = this.hidePose.x;
+    pose.z = this.hidePose.z;
+    pose.yaw = this.hidePose.yaw;
+    return this.hideIndex;
+  }
+
+  releaseHide(building: number, index: number): void {
+    this.released.push({ building, index });
+  }
+}

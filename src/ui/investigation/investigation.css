@@ -1,0 +1,150 @@
+/* Investigation UI (src/ui/investigation): camera viewfinder, case file, fingerprint minigame, marker labels.
+   Prefix inv-; palette from src/ui/styles.css. Sizes in em so --text-scale scales them. Nothing flashes. */
+
+.inv-camera,
+.inv-case,
+.inv-dust,
+.inv-labels {
+  --inv-dim: var(--fg-dim, #8fa3b5);
+  --inv-line: var(--panel-border, #2a3a4a);
+  --inv-accent: var(--accent, #3b9eff);
+  --inv-ok: #6fd08c;
+  --inv-bad: #ff5a5a;
+  --inv-marker: #ffd400;
+}
+
+.inv-camera [hidden],
+.inv-case [hidden],
+.inv-dust [hidden],
+.inv-labels [hidden] { display: none !important; }
+
+/* The viewfinder lets the world show through and swallows no clicks. */
+.menu-layer[data-menu="inv-camera"] {
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+  padding: 0;
+}
+
+/* --- Camera viewfinder ---------------------------------------------------------------------- */
+
+.inv-camera {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: #fff;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.inv-cam-frame {
+  position: absolute;
+  inset: 8% 10%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.inv-cam-frame::before,
+.inv-cam-frame::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.7);
+}
+.inv-cam-frame::before { left: 50%; top: calc(50% - 0.8em); width: 1px; height: 1.6em; }
+.inv-cam-frame::after { top: 50%; left: calc(50% - 0.8em); height: 1px; width: 1.6em; }
+.inv-cam-top,
+.inv-cam-bottom {
+  position: absolute;
+  left: 10%;
+  right: 10%;
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.3em 0.2em;
+}
+.inv-cam-top { top: calc(8% - 2em); }
+.inv-cam-bottom { bottom: calc(8% - 2.6em); flex-direction: column; align-items: flex-start; }
+.inv-cam-fov { font-weight: 700; }
+.inv-cam-caption { color: var(--inv-marker); min-height: 1.4em; }
+.inv-cam-hint { color: #cfd8e0; font-size: 0.85em; }
+
+/* --- Case file panel -------------------------------------------------------------------------- */
+
+.inv-case {
+  background: var(--panel, #121a23);
+  border: 1px solid var(--inv-line);
+  border-radius: var(--radius, 4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  padding: 0.9em 1.1em;
+  width: min(94vw, 38em);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  pointer-events: auto;
+}
+.inv-case-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1em; }
+.inv-case-title { font-size: 1.2em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.inv-case-verdict { font-size: 0.85em; color: var(--inv-ok); text-align: right; }
+.inv-case-verdict.inv-bad { color: var(--inv-bad); }
+.inv-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--inv-line); }
+.inv-tab { padding: 0.25em 0.7em; cursor: pointer; color: var(--inv-dim); border-radius: var(--radius, 4px) var(--radius, 4px) 0 0; }
+.inv-tab.inv-on { color: var(--fg, #dfe7ee); background: rgba(59, 158, 255, 0.22); box-shadow: inset 0 -2px 0 var(--inv-accent); }
+.inv-list { flex: 1 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; min-height: 8em; outline: none; }
+.inv-row { display: flex; align-items: center; gap: 0.7em; padding: 0.3em 0.5em; border-radius: var(--radius, 4px); cursor: pointer; }
+.inv-row:hover { background: rgba(255, 255, 255, 0.06); }
+.inv-row.inv-focus { background: rgba(59, 158, 255, 0.22); box-shadow: inset 3px 0 0 var(--inv-accent); }
+.inv-row-text { flex: 1; }
+.inv-row-detail { color: var(--inv-dim); font-size: 0.9em; text-align: right; }
+.inv-row-thumb { width: 5.6em; height: 3.15em; object-fit: cover; border: 1px solid var(--inv-line); background: #000; }
+.inv-empty { color: var(--inv-dim); padding: 0.5em; }
+.inv-footer { color: var(--inv-dim); font-size: 0.8em; border-top: 1px solid var(--inv-line); padding-top: 0.4em; }
+
+/* --- Fingerprint panel ------------------------------------------------------------------------ */
+
+.inv-dust {
+  background: var(--panel, #121a23);
+  border: 1px solid var(--inv-line);
+  border-radius: var(--radius, 4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  padding: 0.9em 1.1em;
+  width: min(92vw, 22em);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  pointer-events: auto;
+}
+.inv-dust-title { font-size: 1.2em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.inv-dust-sub { color: var(--inv-dim); font-size: 0.9em; }
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  aspect-ratio: 1;
+  background: #1c242d;
+  padding: 3px;
+  border: 1px solid var(--inv-line);
+}
+.inv-cell {
+  --cov: 0;
+  background: color-mix(in srgb, #d9dde0 calc(var(--cov) * 66%), #11161b);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.inv-cell.inv-over { background: color-mix(in srgb, #8d9398 100%, #11161b); outline: 1px dashed var(--inv-bad); }
+.inv-cell.inv-cursor { outline: 2px solid var(--inv-accent); outline-offset: -2px; }
+.inv-quality { height: 0.7em; background: #1c242d; border: 1px solid var(--inv-line); }
+.inv-quality-fill { height: 100%; width: 0; background: var(--inv-ok); }
+.inv-quality-fill.inv-low { background: var(--inv-marker); }
+
+/* --- Marker number labels (HUD layer) ----------------------------------------------------------- */
+
+.inv-labels { position: absolute; inset: 0; pointer-events: none; }
+.inv-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  min-width: 1.6em;
+  padding: 0 0.35em;
+  background: var(--inv-marker);
+  color: #1a1a1a;
+  border-radius: 3px;
+  font: 700 0.95em/1.5 var(--font-mono, ui-monospace, monospace);
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}

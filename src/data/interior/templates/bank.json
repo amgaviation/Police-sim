@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "kind": "bank",
+  "label": "Bank",
+  "layout": "bsp",
+  "minWidth": 14,
+  "minDepth": 12,
+  "maxWidth": 24,
+  "maxDepth": 18,
+  "minRoomArea": 12,
+  "entry": "lobby",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.7,
+  "lockableRooms": ["vault", "office", "tellerArea"],
+  "lockedRooms": ["vault"],
+  "corridor": null,
+  "exteriorDoors": [],
+  "occupants": { "day": [2, 4], "night": [0, 0], "profile": "bystander", "role": "staff", "openHours": [9, 17] },
+  "rooms": [
+    { "kind": "lobby", "label": "Lobby", "size": 5, "required": true, "surface": "carpet", "public": true,
+      "furniture": [
+        { "id": "waitingBench", "place": "wall", "count": [1, 2] },
+        { "id": "plant", "place": "corner", "chance": 0.6 },
+        { "id": "desk", "place": "wall", "chance": 0.6 }
+      ] },
+    { "kind": "tellerArea", "label": "Teller area", "size": 3, "required": true, "surface": "carpet",
+      "furniture": [
+        { "id": "tellerCounter", "place": "wall" },
+        { "id": "chair", "place": "center", "chance": 0.7 },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.5 }
+      ] },
+    { "kind": "vault", "label": "Vault", "size": 1.5, "required": true, "surface": "concrete", "light": true,
+      "furniture": [
+        { "id": "safe", "place": "wall", "count": [1, 2] },
+        { "id": "shelf", "place": "wall", "chance": 0.5 }
+      ] },
+    { "kind": "office", "label": "Office", "size": 2, "required": true, "surface": "carpet", "count": [1, 2],
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "chair", "place": "center", "chance": 0.8 },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.6 }
+      ] },
+    { "kind": "breakRoom", "label": "Break room", "size": 1.2, "required": true, "surface": "linoleum",
+      "furniture": [
+        { "id": "table", "place": "center" },
+        { "id": "fridge", "place": "corner", "chance": 0.7 },
+        { "id": "kitchenCounter", "place": "wall", "chance": 0.6 }
+      ] }
+  ]
+}

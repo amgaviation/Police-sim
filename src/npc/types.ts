@@ -44,6 +44,8 @@ export interface ActorSpawn {
   /** Associated vehicle (not seated: seated people are occupants, see `setOccupants`), -1 for none. */
   readonly vehicleId: number;
   readonly pose?: 'stand' | 'sit' | 'lying' | 'kneel';
+  /** Building the actor stands in (interior level), -1 (default) outdoors. */
+  readonly building?: number;
 }
 
 /** `NpcSystem.actor` output. */
@@ -67,6 +69,10 @@ export interface ActorInfo {
   profile: string;
   /** `BODY.human` or `BODY.dog`. */
   body: number;
+  /** Building the actor is in, -1 outdoors (always written by `actor()`). */
+  building?: number;
+  /** Awareness 0..1 (always written by `actor()`). */
+  aware?: number;
 }
 
 /** The officer as seen by the NPC system, passed to every `step`. */
@@ -79,6 +85,8 @@ export interface NpcFocus {
   weapon: 'none' | 'sidearm' | 'taser';
   lights: boolean;
   backup: number;
+  /** Building the officer is in, -1 (default) outdoors. */
+  building?: number;
 }
 
 export interface NpcDeps {
@@ -159,6 +167,12 @@ export interface ActorSave {
   lostTimer: number;
   acc?: number;
   age?: number;
+  /** Absent = -1 (outdoors). */
+  building?: number;
+  /** Absent = 0. */
+  aware?: number;
+  /** Absent = -1. */
+  hideSpot?: number;
 }
 
 export interface NpcSave {
@@ -178,4 +192,42 @@ export interface NpcSave {
   occupantsSince?: [number, number][];
   /** Seats stepped out, per vehicle id. */
   out: [number, number[]][];
+}
+
+/** What an awake actor can do when it becomes aware of something (`behaviors.json` `onAware`). */
+export const AWARE_REACTIONS = ['none', 'hide', 'flee', 'confront', 'surrender', 'arm'] as const;
+export type AwareReaction = (typeof AWARE_REACTIONS)[number];
+
+/** Navigation inside buildings, implemented by the interior system (design §8.1, §6.4). Point counts, not float counts. */
+export interface IndoorNavPort {
+  /** Writes up to 32 waypoints (x, z pairs) from (x, z) to (tx, tz) into `out`; returns the point count, 0 when unreachable. */
+  path(buildingId: number, x: number, z: number, tx: number, tz: number, out: Float32Array): number;
+  /** Writes the route to the nearest way out into `out` and the outdoor pose into `pose`; returns the point count, 0 when none. */
+  exit(buildingId: number, x: number, z: number, out: Float32Array, pose: { x: number; z: number; yaw: number }): number;
+  /** Claims the hiding spot farthest from (awayX, awayZ), writes where to stand into `pose`; returns its index, -1 when none. */
+  hideSpot(buildingId: number, x: number, z: number, awayX: number, awayZ: number, pose: { x: number; z: number; yaw: number }): number;
+  releaseHide(buildingId: number, index: number): void;
+}
+
+/** A closed polygon pedestrians do not enter (scene tape). `points` are x, z pairs; the box is its bounds. */
+export interface NoGoZone {
+  readonly id: number;
+  readonly points: Float32Array;
+  readonly minX: number;
+  readonly minZ: number;
+  readonly maxX: number;
+  readonly maxZ: number;
+}
+
+/** One actor as a listener (tactical's `ListenerPort`, §7.3): the same shape is declared structurally in `src/tactical`. */
+export interface Listener {
+  actorId: number;
+  personId: number;
+  x: number;
+  z: number;
+  building: number;
+  hearing: 'normal' | 'hardOfHearing' | 'deaf';
+  asleep: boolean;
+  yaw: number;
+  eyeY: number;
 }

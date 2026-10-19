@@ -11,6 +11,7 @@
  * (no open scenario, nothing queued) allocates nothing.
  */
 import { addressOnEdge } from '../cad/address';
+import { findCallType } from '../cad/data';
 import type { CadCall, CadTime, Priority } from '../cad/types';
 import '../cad/events';
 import {
@@ -34,17 +35,22 @@ import {
   type Scenario,
   type ScenarioInput,
   type ServiceKind,
+  type ToolKind,
   type VariantChange,
   type VariantKind,
 } from '../calls';
 import { CRISIS_PROFILES, INJURED_PROFILES, evalCond } from '../calls/conditions';
 import { LOCATION_CORRECTION, topPhrase } from '../calls/scenario';
 import { createRng, type Rng } from '../core/rng';
+import { lawfulPresence, type ConsentRecord } from '../evidence/searchRules';
+import { hourOf, isOpenAt } from '../indoors/occupants';
+import { roomAt } from '../interior/nav';
+import type { InteriorLayout } from '../interior/types';
 import { commandLine, RESPONSES, trustOf, type DialogueContext, type SubjectProfile, type Tone } from '../dialogue';
 import type { ActionPanelModel, PanelOption } from '../ui/panels/actionPanel';
 import '../npc/events';
 import { ACTOR_STATE, NPC_COMMANDS, NPC_CONFIG, BEHAVIORS, behavior as behaviorOf, type ActorInfo, type CommandContext, type NpcCommand } from '../npc';
-import { yawOf } from '../npc/geometry';
+import { pointInPolygon, yawOf } from '../npc/geometry';
 import { describePerson, itemDef, ITEMS, riskOf, type DrugKind, type NpcIdentity } from '../people';
 import { ageOn, epochDayOfGameSeconds } from '../records/calendar';
 import { isItemId } from '../people/items';
@@ -58,10 +64,23 @@ import { REGISTRY_POPULATION } from '../traffic/registry';
 import { BEHAVIOR, isFleetVehicleId, type FleeState } from '../traffic/trafficSystem';
 import { Transform } from '../ecs/components';
 import { DISTRICT_NAMES } from '../world/ids';
-import type { ContactEventPayload, ContactNeedsCallPayload } from './events';
+import type { ContactConsentPayload, ContactEventPayload, ContactNeedsCallPayload } from './events';
 import './events';
 import { isQueuedEvent, type NpcEventKind, type QueuedEvent } from './queue';
 import { SCENE_CONFIG, type SceneConfig } from './data';
+import {
+  INDOOR,
+  bindingKinds,
+  doorSlot,
+  fallbackKinds,
+  indoorFamily,
+  lockRoll,
+  mainDoor,
+  planInterior,
+  type IndoorConfig,
+  type IndoorPlace,
+  type IndoorPlan,
+} from './indoor';
 import { emptySceneSave, isSceneSave, type SceneSave, type SceneScenarioSave, type ScenePropSave, type ScenePursuitSave } from './save';
 import { createSpotPosition, edgeLaterals, edgePoint, spotPosition } from './spots';
 import { compass, fill, ScriptedRng } from './text';
@@ -71,10 +90,16 @@ import type {
   ContactTarget,
   IncidentInfo,
   IncidentResolver,
+  InvestigationPayloads,
+  InvestigationTopic,
   OfficerFocus,
   OfficerWeapon,
   Presence,
+  SceneAwareEvent,
+  SceneCallContext,
   SceneDeps,
+  SceneDoorEvent,
+  ScenePlaceItem,
   SceneHud,
   SceneRequest,
   SceneStats,
@@ -172,6 +197,16 @@ interface StopTruth {
 /** Roles that live where the call is when they wait at the door or inside (the others are guards, suspects of shops, callers). */
 const RESIDENT_ROLES: ReadonlySet<string> = new Set(['subject', 'suspect', 'victim', 'resident', 'owner', 'reporter', 'hostage', 'deceased']);
 
+/** Profiles that never walk to the door when somebody knocks (suspects, the barricaded, the dead and the unconscious). */
+const NO_ANSWER_PROFILE = /^(suspect|ambusher|barricaded|subjectDeceased|subjectUnconscious)/;
+/** Flags that make a call exigent (Phase 4 design §12.2); `injury:*` and `deceased:*` match by prefix. */
+const EXIGENT_FLAGS: ReadonlySet<string> = new Set(['shotsFired', 'attacked', 'fight', 'medicalEmergency', 'hostage', 'branch:hostage', 'pursuit']);
+const EXIGENT_FAMILIES: ReadonlySet<string> = new Set(['inProgress', 'barricade', 'activeAssailant']);
+/** Roles with authority over the premises of a call (consent to enter or search). */
+const AUTHORITY_ROLES: ReadonlySet<string> = new Set(['victim', 'subject', 'resident', 'owner', 'reporter', 'hostage', 'guard']);
+/** Consent kinds the scene records as flags. */
+const CONSENT_FLAG_KINDS: ReadonlySet<string> = new Set(['entry', 'searchPremises', 'searchRoom', 'searchPerson', 'searchVehicle']);
+
 /** Self-initiated scene calls (field contacts, pursuits) clear themselves: idle for this long (sim s)... */
 const SELF_IDLE_CLEAR_S = 600;
 /** ...or with the officer this far from the scene (m) for this long (sim s)... */
@@ -183,6 +218,7 @@ const SELF_PURSUIT_OVER_S = 20;
 export class SceneDirector implements IncidentResolver {
   private readonly deps: SceneDeps;
   private readonly cfg: SceneConfig;
+  private readonly indoor: IndoorConfig;
   private readonly shoutCone: number;
   private readonly taserCone: number;
   private readonly seed: number;
@@ -202,11 +238,14 @@ export class SceneDirector implements IncidentResolver {
   private requests: SceneRequest[] = [];
   private events: QueuedEvent[] = [];
   private readonly forced = new Map<number, readonly VariantKind[]>();
+  /** Debug: call id -> building the call must bind to. */
+  private readonly forcedBuilding = new Map<number, number>();
+  private readonly witnesses = new Map<number, number>();
   private weapon: OfficerWeapon = 'none';
   private readonly pres: MutablePresence = { lights: false, siren: false, backup: 0, weapon: 'none' };
   private rev = 0;
   private slowTick = -1;
-  private readonly officer: OfficerFocus = { x: 0, z: 0, yaw: 0, speed: 0, onFoot: true };
+  private readonly officer = { x: 0, z: 0, yaw: 0, speed: 0, onFoot: true, building: -1 };
   private time: CadTime = { sim: 0, game: 0 };
   private readonly leaveScratch: number[] = [];
   private readonly unsubscribers: (() => void)[] = [];
@@ -228,6 +267,7 @@ export class SceneDirector implements IncidentResolver {
     verifyContentIds();
     this.deps = deps;
     this.cfg = deps.config ?? SCENE_CONFIG;
+    this.indoor = deps.indoorConfig ?? INDOOR;
     this.shoutCone = Math.cos((this.cfg.tactics.shoutConeDeg * Math.PI) / 180);
     this.taserCone = Math.cos((this.cfg.tactics.taserConeDeg * Math.PI) / 180);
     this.propSource = createPropSource(this.cfg.limits.propCap);
@@ -290,19 +330,24 @@ export class SceneDirector implements IncidentResolver {
     return this.byCall.get(callId)?.flags.has('arrived:interpreter') ?? false;
   }
 
-  /** The player's materialized call whose anchor is within 80 m of (x, z), else -1. */
-  sceneAt(x: number, z: number): number {
+  /**
+   * The player's materialized call whose anchor is within 80 m of (x, z), else -1. `building` is the level of the
+   * asker (-1 outdoors): inside a building other than the call's bound one the scene is not at hand.
+   */
+  sceneAt(x: number, z: number, building = -1): number {
     const rt = this.playerRuntime();
     if (!rt || !rt.materialized) return -1;
+    if (building >= 0 && rt.buildingId >= 0 && building !== rt.buildingId) return -1;
     const a = rt.scenario.anchor;
     return dist(a.x, a.z, x, z) <= this.cfg.distances.sceneAtM ? rt.scenario.callId : -1;
   }
 
   /** Debug: creates a call of `typeId` through the dispatcher (optionally with forced variants) and builds its scenario now; 0 when impossible. */
-  spawnCall(typeId: string, t: CadTime, at: { x: number; z: number } | undefined, variants?: VariantKind[]): number {
+  spawnCall(typeId: string, t: CadTime, at: { x: number; z: number } | undefined, variants?: VariantKind[], building = -1): number {
     const call = this.deps.dispatcher.createCall(typeId, t, at);
     if (!call) return 0;
     if (variants && variants.length > 0) this.forced.set(call.id, variants);
+    if (building >= 0) this.forcedBuilding.set(call.id, building);
     this.time = t;
     this.adopt(call, t);
     return call.id;
@@ -374,6 +419,9 @@ export class SceneDirector implements IncidentResolver {
         push({ t: 'contact', callId: e.callId, incident: e.incident, personId: e.personId, role: e.role, flag: e.flag }),
       ),
       loose.on('contact:needsCall', (e: ContactNeedsCallPayload) => push({ t: 'needsCall', personId: e.personId, x: e.x, z: e.z, incident: e.incident })),
+      loose.on('contact:consent', (e: ContactConsentPayload) =>
+        push({ t: 'consent', callId: e.callId, personId: e.personId, kind: e.kind, granted: e.granted, valid: e.valid, buildingId: e.buildingId, room: e.room }),
+      ),
     );
   }
 
@@ -389,6 +437,7 @@ export class SceneDirector implements IncidentResolver {
     this.officer.yaw = officer.yaw;
     this.officer.speed = officer.speed;
     this.officer.onFoot = officer.onFoot;
+    this.officer.building = officer.building ?? this.deps.interiors?.officerBuilding ?? -1;
     // Getting into a car holsters whatever was drawn (the weapon cannot be put away from the seat).
     if (!officer.onFoot && this.weapon !== 'none') {
       this.weapon = 'none';
@@ -425,6 +474,10 @@ export class SceneDirector implements IncidentResolver {
         const a = rt.actions[i];
         if (a && a.state === 'running' && t.sim >= a.dueSim) this.completeAction(rt, a, t);
       }
+    }
+    if (rt.buildingId >= 0) {
+      if (rt.answerDueSim >= 0 && t.sim >= rt.answerDueSim) this.answerDoor(rt);
+      if (rt.materialized && this.officer.building === rt.buildingId && !rt.flags.has('entered')) this.onEntered(rt, t);
     }
     if (rt.services.length > 0) {
       for (const s of rt.services) this.stepService(rt, s, t);
@@ -504,6 +557,9 @@ export class SceneDirector implements IncidentResolver {
       case 'force':
         this.onForce(e.kind, e.callId);
         return;
+      case 'consent':
+        this.onConsent(e);
+        return;
     }
   }
 
@@ -569,6 +625,12 @@ export class SceneDirector implements IncidentResolver {
     this.deps.cad.addNarrative(callId, callsign, text, t);
   }
 
+  /** The legal basis of the officer's entry (`entry:<basis>` flag), null when the officer never went inside. */
+  private entryOf(rt: ScenarioRuntime): string | null {
+    for (const f of rt.flags) if (f.startsWith('entry:')) return f.slice(6);
+    return null;
+  }
+
   private anyFlagPrefix(rt: ScenarioRuntime, prefix: string): boolean {
     for (const f of rt.flags) if (f.startsWith(prefix)) return true;
     return false;
@@ -617,6 +679,7 @@ export class SceneDirector implements IncidentResolver {
         return;
       case 'revealed':
         if (rt && role !== '') this.setFlag(rt, `revealed:${role}`);
+        if (rt && found && (rt.hideSpots[found.index] ?? -1) >= 0) rt.hideSpots[found.index] = -1;
         return;
     }
   }
@@ -651,6 +714,7 @@ export class SceneDirector implements IncidentResolver {
     if (!rt.flags.has(flag)) {
       rt.flags.add(flag);
       if (!flag.startsWith('near:') && !flag.startsWith('found:')) this.activity.set(rt.scenario.callId, this.time.sim);
+      if (flag.startsWith('custody:')) this.noteArrest(rt, flag.slice(8));
       this.rev++;
     }
     if (rt.mirror.length === 0) return;
@@ -765,7 +829,13 @@ export class SceneDirector implements IncidentResolver {
       ambushArmed: false,
       forceUsed: [],
       mirror: opts.mirror,
+      buildingId: -1,
+      hideSpots: scenario.participants.map(() => -1),
+      knockedSim: -1,
+      answerDueSim: -1,
+      arrests: [],
     };
+    rt.buildingId = this.bindBuilding(scenario);
     this.open.push(rt);
     this.byCall.set(call.id, rt);
     this.rev++;
@@ -924,7 +994,7 @@ export class SceneDirector implements IncidentResolver {
       if (ov.weapon && p.personId >= 0 && !people.itemsOn(p.personId).some((it) => it.item === ov.weapon)) {
         people.addItem({ kind: 'person', id: p.personId }, ov.weapon, 'waistband', false);
       }
-      if (actor > 0 && ov.spot !== undefined && ov.spot !== p.spot) {
+      if (actor > 0 && ov.spot !== undefined && ov.spot !== p.spot && (npc.actor(actor, this.info)?.building ?? -1) < 0) {
         spotPosition(this.deps.city.graph.edges, sc.anchor, ov.spot, p.spotIndex, this.rng, this.spot);
         npc.walkTo(actor, this.spot.x, this.spot.z);
       }
@@ -1043,6 +1113,8 @@ export class SceneDirector implements IncidentResolver {
 
     // People: deltas first (the identity must carry them when the actor appears), then bodies.
     const seated = new Map<number, { seat: number; personId: number }[]>();
+    const layout = rt.buildingId >= 0 ? (this.deps.interiors?.layout(rt.buildingId) ?? null) : null;
+    const plan = layout ? this.planScene(rt, layout) : null;
     for (let i = 0; i < sc.participants.length; i++) {
       const p = sc.participants[i];
       if (!p) continue;
@@ -1058,7 +1130,7 @@ export class SceneDirector implements IncidentResolver {
         list.push({ seat: p.seat, personId: p.personId });
         continue;
       }
-      this.spawnParticipant(rt, i, p.spot === 'vehicle' ? 'curb' : p.spot);
+      this.spawnParticipant(rt, i, p.spot === 'vehicle' ? 'curb' : p.spot, plan?.places.find((pl) => pl.index === i) ?? null);
     }
     for (const [vehicleId, list] of seated) {
       const spec = sc.vehicles.find((v) => v.vehicleId === vehicleId);
@@ -1068,13 +1140,19 @@ export class SceneDirector implements IncidentResolver {
       }
     }
 
-    // Ground evidence.
-    for (const e of sc.evidence) {
-      spotPosition(edges, anchor, e.spot, e.spotIndex, this.rng, this.spot);
-      this.addGroundItem(e.item, this.spot.x, this.spot.z, callId);
+    // Ground evidence (Phase 4 with an evidence port: placed items of the investigation module, props of the scene otherwise).
+    if (this.deps.evidence) {
+      this.placeEvidence(rt, layout, plan);
+    } else {
+      for (const e of sc.evidence) {
+        spotPosition(edges, anchor, e.spot, e.spotIndex, this.rng, this.spot);
+        this.addGroundItem(e.item, this.spot.x, this.spot.z, callId);
+      }
     }
+    if (layout) this.lockMainDoor(rt, layout);
     void people;
-    this.deps.bus.emit('scene:materialized', { callId });
+    if (this.deps.interiors !== undefined && this.deps.buildings !== undefined) this.deps.bus.emit('scene:materialized', { callId, buildingId: rt.buildingId });
+    else this.deps.bus.emit('scene:materialized', { callId });
   }
 
   /** Scenario deltas of one human participant: intoxication, injury, deceased, items and the carried weapon. */
@@ -1110,7 +1188,12 @@ export class SceneDirector implements IncidentResolver {
   }
 
   /** Spawns (or adopts) the actor of participant `i` at `spotName`. */
-  private spawnParticipant(rt: ScenarioRuntime, i: number, spotName: ScenarioRuntime['scenario']['participants'][number]['spot']): void {
+  private spawnParticipant(
+    rt: ScenarioRuntime,
+    i: number,
+    spotName: ScenarioRuntime['scenario']['participants'][number]['spot'],
+    place: IndoorPlace | null = null,
+  ): void {
     const { npc, city } = this.deps;
     const sc = rt.scenario;
     const p = sc.participants[i];
@@ -1123,6 +1206,31 @@ export class SceneDirector implements IncidentResolver {
         rt.actorIds[i] = existing;
         return;
       }
+    }
+    if (place !== null) {
+      // Inside the bound building (rooms, hiding spots) or at its main door; the level is the building's for the first two.
+      const indoors = place.mode !== 'door';
+      const id = npc.spawnActor({
+        personId: p.personId,
+        x: place.x,
+        z: place.z,
+        yaw: place.yaw,
+        profile,
+        role: p.role,
+        callId: sc.callId,
+        hidden: place.mode === 'hidden',
+        body: p.body,
+        weapon: this.effectiveWeapon(rt, p.role, p.weapon),
+        vehicleId: this.vehicleIdOf(rt, p.vehicle),
+        pose: place.pose,
+        building: indoors ? rt.buildingId : -1,
+      });
+      rt.actorIds[i] = id;
+      if (id > 0 && place.mode === 'hidden') {
+        rt.hideSpots[i] = place.spotIndex;
+        this.deps.interiors?.claimHideSpot?.(rt.buildingId, place.spotIndex);
+      }
+      return;
     }
     spotPosition(city.graph.edges, sc.anchor, spotName, p.spotIndex, this.rng, this.spot, familyAnchorIsStreet(sc.family));
     const id = npc.spawnActor({
@@ -1197,6 +1305,335 @@ export class SceneDirector implements IncidentResolver {
     }
   }
 
+  // --- Indoor scenes (Phase 4 design §12) --------------------------------------------------------------
+
+  /** The building `scenario` binds to (design §12.1), -1 when it stays outdoors or the scene has no interiors. */
+  private bindBuilding(scenario: Scenario): number {
+    const { interiors, buildings, city } = this.deps;
+    if (!interiors || !buildings) return -1;
+    // Debug: `call spawn <type> building <id>` binds the call to that building.
+    const forcedId = this.forcedBuilding.get(scenario.callId);
+    if (forcedId !== undefined && interiors.layout(forcedId)) return forcedId;
+    const kinds = bindingKinds(this.indoor, scenario.typeId, scenario.family, findCallType(scenario.typeId)?.location ?? 'block');
+    if (!kinds) return -1;
+    // The door spot of the anchor (no random draws for this spot).
+    spotPosition(city.graph.edges, scenario.anchor, 'door', 0, this.rng, this.spot);
+    const radius = this.cfg.indoor.bindRadiusM;
+    let b = buildings.nearestEntrance(this.spot.x, this.spot.z, radius, kinds);
+    if (!b) {
+      const fallback = fallbackKinds(kinds);
+      if (fallback.length > 0) b = buildings.nearestEntrance(this.spot.x, this.spot.z, radius, fallback);
+    }
+    return b && interiors.layout(b.id) ? b.id : -1;
+  }
+
+  /** True when an open scenario is bound to `buildingId` (no ambient occupants are spawned there). */
+  ownsBuilding(buildingId: number): boolean {
+    for (const rt of this.open) if (rt.buildingId === buildingId) return true;
+    return false;
+  }
+
+  /** The building a call is bound to, -1 for none (or an unknown call). */
+  buildingOf(callId: number): number {
+    return this.byCall.get(callId)?.buildingId ?? -1;
+  }
+
+  /** Does participant `p` lie on the floor (the dead, the unconscious)? */
+  private lies(rt: ScenarioRuntime, p: ScenarioRuntime['scenario']['participants'][number]): boolean {
+    return p.deceased || /^subject(Deceased|Unconscious)$/.test(this.effectiveProfile(rt, p.role, p.profile));
+  }
+
+  private planScene(rt: ScenarioRuntime, layout: InteriorLayout): IndoorPlan {
+    const sc = rt.scenario;
+    const people = sc.participants.map((p) => ({
+      index: p.index,
+      role: p.role,
+      spot: p.spot,
+      lying: this.lies(rt, p),
+      skip: p.body !== 'human' || p.personId < 0 || this.roleRemoved(rt, p.role),
+    }));
+    return planInterior(this.seed, sc.callId, layout, indoorFamily(this.indoor, sc.family), people);
+  }
+
+  /** Who the person on a placed item belongs to: the suspect's tools, the victim's blood, the dead person's pills. */
+  private ownerFor(rt: ScenarioRuntime, item: string): number {
+    const category = isItemId(item) ? itemDef(item).category : '';
+    const roles = category === 'weapon' || category === 'tools' || category === 'property' ? ['suspect'] : category === 'drugs' ? ['deceased', 'subject'] : category === 'evidence' ? ['victim'] : [];
+    for (const role of roles) {
+      const p = rt.scenario.participants.find((x) => x.role === role && x.personId >= 0);
+      if (p) return p.personId;
+    }
+    return -1;
+  }
+
+  private placeOne(rt: ScenarioRuntime, item: string, x: number, y: number, z: number, at: { buildingId: number; room: number; furniture: number; container: ScenePlaceItem['container']; concealed: boolean }): void {
+    const ev = this.deps.evidence;
+    if (!ev || !isItemId(item)) return;
+    const def = itemDef(item);
+    ev.placeItem({
+      callId: rt.scenario.callId,
+      item,
+      label: def.label,
+      x,
+      y,
+      z,
+      buildingId: at.buildingId,
+      room: at.room,
+      furniture: at.furniture,
+      container: at.container,
+      concealed: at.concealed,
+      ownerPersonId: this.ownerFor(rt, item),
+      incriminating: def.weapon || def.contraband || def.category === 'evidence',
+    });
+  }
+
+  /** Scenario ground evidence (at the door or the Phase 3 spots) and the indoor evidence of the plan, through the evidence port. */
+  private placeEvidence(rt: ScenarioRuntime, layout: InteriorLayout | null, plan: IndoorPlan | null): void {
+    const sc = rt.scenario;
+    const exit = layout?.doors.find((d) => d.main)?.exit ?? null;
+    for (const e of sc.evidence) {
+      if (exit !== null) {
+        // Just outside the door, side by side.
+        const fx = -Math.sin(exit.yaw);
+        const fz = -Math.cos(exit.yaw);
+        const lateral = (e.spotIndex % 2 === 0 ? 1 : -1) * Math.ceil((e.spotIndex + 1) / 2) * 0.6;
+        this.placeOne(rt, e.item, exit.x + fx + Math.cos(exit.yaw) * lateral, 0, exit.z + fz - Math.sin(exit.yaw) * lateral, { buildingId: -1, room: -1, furniture: -1, container: 'none', concealed: false });
+      } else {
+        spotPosition(this.deps.city.graph.edges, sc.anchor, e.spot, e.spotIndex, this.rng, this.spot);
+        this.placeOne(rt, e.item, this.spot.x, 0, this.spot.z, { buildingId: -1, room: -1, furniture: -1, container: 'none', concealed: false });
+      }
+    }
+    for (const it of plan?.items ?? []) {
+      this.placeOne(rt, it.item, it.x, it.y, it.z, { buildingId: rt.buildingId, room: it.room, furniture: it.furniture, container: it.container, concealed: it.concealed });
+    }
+  }
+
+  /** The main door starts locked or unlocked (design §12.2): `unitHash(seed, 0x51ce, callId) < doorLocked`, welfare no-answer branches always. */
+  private lockMainDoor(rt: ScenarioRuntime, layout: InteriorLayout): void {
+    const { interiors } = this.deps;
+    const idx = mainDoor(layout);
+    const door = layout.doors[idx];
+    if (!interiors || !door || door.kind === 'wide') return;
+    const sc = rt.scenario;
+    const fam = indoorFamily(this.indoor, sc.family);
+    const locked = lockRoll(this.seed, sc.callId, fam?.doorLocked ?? 0) || (sc.family === 'welfare' && (sc.branch === 'notHome' || sc.branch === 'deceased'));
+    const want = locked ? 'locked' : 'closed';
+    if (interiors.doorState(rt.buildingId, idx) !== want) interiors.setDoorState(rt.buildingId, idx, want);
+  }
+
+  /** Door pose for the n-th person at the bound building's main door; false when the call has no such door. */
+  private doorPose(rt: ScenarioRuntime, n: number, out: { x: number; z: number; yaw: number }): boolean {
+    const exit = rt.buildingId >= 0 ? this.deps.interiors?.layout(rt.buildingId)?.doors.find((d) => d.main)?.exit : undefined;
+    if (!exit) return false;
+    doorSlot(exit, n, out);
+    return true;
+  }
+
+  /** Records an arrest (`custody:<role>`) with where the person was (the search-incident-to-arrest rules need the room). */
+  private noteArrest(rt: ScenarioRuntime, role: string): void {
+    const idx = rt.scenario.participants.findIndex((p) => p.role === role && p.personId >= 0);
+    const p = rt.scenario.participants[idx];
+    if (!p || rt.arrests.some((a) => a.personId === p.personId)) return;
+    let building = -1;
+    let room = -1;
+    const id = rt.actorIds[idx] ?? 0;
+    const info = id > 0 ? this.deps.npc.actor(id, this.info2) : null;
+    if (info && (info.building ?? -1) >= 0) {
+      building = info.building ?? -1;
+      const layout = this.deps.interiors?.layout(building);
+      if (layout) room = roomAt(layout, info.x, info.z);
+    }
+    rt.arrests.push({ personId: p.personId, buildingId: building, room, sim: this.time.sim });
+    if (rt.arrests.length > 8) rt.arrests.shift();
+  }
+
+  /** The officer knocked on the bound building's door: a resident may answer in 4-10 s (the scene stream decides). */
+  private noteKnock(rt: ScenarioRuntime, t: CadTime): void {
+    if (rt.knockedSim < 0) rt.knockedSim = t.sim;
+    this.setFlag(rt, 'knocked');
+    if (rt.buildingId < 0 || rt.answerDueSim >= 0 || this.anyFlagPrefix(rt, 'answered:')) return;
+    const [lo, hi] = this.cfg.indoor.knockAnswerS;
+    rt.answerDueSim = t.sim + this.rng.nextFloat(lo, hi);
+    this.rev++;
+  }
+
+  /** A resident who can answer walks to the door (the npc system moves them to the exit pose) and unlocks it. */
+  private answerDoor(rt: ScenarioRuntime): void {
+    rt.answerDueSim = -1;
+    const { npc, interiors } = this.deps;
+    const layout = interiors?.layout(rt.buildingId);
+    if (!interiors || !layout || rt.flags.has('variant:false') || rt.flags.has('variant:swatting')) return;
+    const mainIdx = mainDoor(layout);
+    const sc = rt.scenario;
+    let slot = sc.participants.filter((p) => p.spot === 'door' && !this.roleRemoved(rt, p.role)).length;
+    let answered = 0;
+    for (let i = 0; i < sc.participants.length; i++) {
+      const p = sc.participants[i];
+      const id = rt.actorIds[i] ?? 0;
+      if (!p || id <= 0 || this.roleRemoved(rt, p.role) || NO_ANSWER_PROFILE.test(this.effectiveProfile(rt, p.role, p.profile))) continue;
+      const info = npc.actor(id, this.info);
+      if (!info || (info.building ?? -1) !== rt.buildingId || info.hidden || info.cuffed || info.state === ACTOR_STATE.lying) continue;
+      if (!this.doorPose(rt, slot++, this.edgePt)) return;
+      npc.setActorPosition(id, -1, this.edgePt.x, this.edgePt.z, this.edgePt.yaw);
+      this.setFlag(rt, `answered:${p.role}`);
+      answered++;
+    }
+    if (answered > 0 && mainIdx >= 0 && interiors.doorState(rt.buildingId, mainIdx) === 'locked') interiors.setDoorState(rt.buildingId, mainIdx, 'closed');
+    this.rev++;
+  }
+
+  /** Exigent circumstances of the call (design §12.2). */
+  private exigent(rt: ScenarioRuntime): boolean {
+    if (EXIGENT_FAMILIES.has(rt.scenario.family)) return true;
+    for (const f of rt.flags) if (EXIGENT_FLAGS.has(f) || f.startsWith('injury:') || f.startsWith('deceased:')) return true;
+    return rt.scenario.family === 'welfare' && rt.knockedSim >= 0 && !this.anyFlagPrefix(rt, 'answered:') && this.time.sim - rt.knockedSim >= this.cfg.indoor.noAnswerExigencyS;
+  }
+
+  /** Implements `InvestigationPorts.callContext` (the integrator forwards it); null for a call without a scenario. */
+  callContext(callId: number): SceneCallContext | null {
+    const rt = this.byCall.get(callId);
+    if (!rt) return null;
+    const sc = rt.scenario;
+    const suspect = sc.participants.find((p) => (p.role === 'suspect' || (sc.family === 'barricade' && p.role === 'subject')) && p.personId >= 0 && !this.roleRemoved(rt, p.role));
+    return {
+      exigency: this.exigent(rt),
+      warrant: sc.typeId === 'warrantService',
+      arrests: rt.arrests,
+      buildingId: rt.buildingId,
+      family: sc.family,
+      suspectPersonId: suspect?.personId ?? -1,
+      anchorX: sc.anchor.x,
+      anchorZ: sc.anchor.z,
+    };
+  }
+
+  /**
+   * `ContactDeps.premises` helper: the premises a scene person belongs to (the bound building, their authority over it
+   * and the officer's room, -1 outdoors); null for a person who is on no bound call.
+   */
+  premises(personId: number): { buildingId: number; authority: boolean; room: number } | null {
+    for (const rt of this.open) {
+      if (rt.buildingId < 0) continue;
+      const p = rt.scenario.participants.find((x) => x.personId === personId);
+      if (!p) continue;
+      let room = -1;
+      if (this.officer.building === rt.buildingId) {
+        const layout = this.deps.interiors?.layout(rt.buildingId);
+        if (layout) room = roomAt(layout, this.officer.x, this.officer.z);
+      }
+      return { buildingId: rt.buildingId, authority: this.hasAuthority(rt, p.role), room };
+    }
+    return null;
+  }
+
+  private hasAuthority(rt: ScenarioRuntime, role: string): boolean {
+    return AUTHORITY_ROLES.has(role) || (rt.scenario.family === 'domestic' && role === 'suspect');
+  }
+
+  /** A consent from the contact module: granted, free and from somebody with authority becomes the flag `consent:<kind>`. */
+  private onConsent(e: Extract<QueuedEvent, { t: 'consent' }>): void {
+    const rt = this.byCall.get(e.callId);
+    if (!rt || !CONSENT_FLAG_KINDS.has(e.kind) || !e.granted || !e.valid) return;
+    if (e.buildingId >= 0 && rt.buildingId >= 0 && e.buildingId !== rt.buildingId) return;
+    const p = rt.scenario.participants.find((x) => x.personId === e.personId);
+    const personal = e.kind === 'searchPerson' || e.kind === 'searchVehicle';
+    if (!personal && !(p && this.hasAuthority(rt, p.role))) return;
+    this.setFlag(rt, `consent:${e.kind}`);
+  }
+
+  /** The officer's level became the bound building: flag `entered` and the legal basis `entry:<basis>`. */
+  private onEntered(rt: ScenarioRuntime, t: CadTime): void {
+    this.setFlag(rt, 'entered');
+    const layout = this.deps.interiors?.layout(rt.buildingId);
+    if (!layout) return;
+    const room = roomAt(layout, this.officer.x, this.officer.z);
+    const consents: ConsentRecord[] = [];
+    for (const kind of ['entry', 'searchPremises', 'searchRoom'] as const) {
+      if (rt.flags.has(`consent:${kind}`)) {
+        consents.push({ id: consents.length, personId: -1, kind, granted: true, valid: true, authority: true, buildingId: rt.buildingId, room, vehicleId: -1, sim: t.sim, revokedSim: -1 });
+      }
+    }
+    const presence = lawfulPresence({
+      buildingId: rt.buildingId,
+      room,
+      roomPublic: layout.rooms[room]?.public ?? false,
+      businessOpen: !layout.residential && isOpenAt(layout.occupants.openHours, hourOf(t.game)),
+      consents,
+      exigency: this.exigent(rt),
+      warrant: rt.scenario.typeId === 'warrantService',
+      sim: t.sim,
+    });
+    const basis = !presence.lawful || presence.basis === null ? 'none' : presence.basis === 'invited' ? 'consent' : presence.basis;
+    this.setFlag(rt, `entry:${basis}`);
+  }
+
+  /** `interior:door` (bridged by the integrator): a real knock on the bound door starts the answer, a breach sets `forcedEntry`. */
+  onDoorEvent(e: SceneDoorEvent): void {
+    if (e.by !== 'officer') return;
+    for (const rt of this.open) {
+      if (rt.buildingId < 0 || rt.buildingId !== e.buildingId) continue;
+      if (e.action === 'breached') {
+        this.setFlag(rt, 'forcedEntry');
+      } else if (e.action === 'knock') {
+        const layout = this.deps.interiors?.layout(rt.buildingId);
+        if (layout && e.door === mainDoor(layout)) this.noteKnock(rt, this.time);
+      }
+    }
+  }
+
+  /** `investigation:*` topics (bridged by the integrator) become scene flags (design §12.2). */
+  onInvestigation<T extends InvestigationTopic>(topic: T, payload: InvestigationPayloads[T]): void {
+    const rt = this.byCall.get(payload.callId);
+    if (!rt) return;
+    switch (topic) {
+      case 'investigation:photo':
+        this.setFlag(rt, 'photographed');
+        return;
+      case 'investigation:collected':
+        this.setFlag(rt, 'evidenceCollected');
+        return;
+      case 'investigation:canvass': {
+        let hits = 0;
+        for (const f of rt.flags) if (f.startsWith('canvassHit:')) hits++;
+        this.setFlag(rt, `canvassHit:${hits + 1}`);
+        if (hits + 1 >= this.cfg.indoor.canvassHits) this.setFlag(rt, 'canvassed');
+        return;
+      }
+      case 'investigation:tape': {
+        const e = payload as InvestigationPayloads['investigation:tape'];
+        if (!e.closed || e.points.length < 6) return;
+        const poly = Float32Array.from(e.points);
+        const a = rt.scenario.anchor;
+        const door = rt.buildingId >= 0 ? this.deps.interiors?.layout(rt.buildingId)?.doors.find((d) => d.main) : undefined;
+        if (pointInPolygon(poly, a.x, a.z) || (door !== undefined && pointInPolygon(poly, door.x, door.z))) {
+          this.setFlag(rt, 'perimeter');
+          this.setFlag(rt, 'scenePreserved');
+        }
+        return;
+      }
+      case 'investigation:plainView':
+        this.setFlag(rt, `plainView:${(payload as InvestigationPayloads['investigation:plainView']).itemId}`);
+        return;
+      case 'investigation:custodyComplete':
+        this.setFlag(rt, 'custodyComplete');
+        return;
+      case 'investigation:k9Alert': {
+        const e = payload as InvestigationPayloads['investigation:k9Alert'];
+        if (e.kind !== 'person') return;
+        if (e.actorId > 0) this.deps.npc.reveal(e.actorId);
+        this.setFlag(rt, 'k9Indicated');
+        return;
+      }
+    }
+  }
+
+  /** `npc:aware` (bridged by the integrator): a scene person noticed something, flag `aware:<role>`. */
+  onNpcAware(e: SceneAwareEvent): void {
+    const found = this.runtimeOfActor(e.actorId, e.personId, e.callId);
+    const role = found ? (found.rt.scenario.participants[found.index]?.role ?? '') : '';
+    if (found && role !== '') this.setFlag(found.rt, `aware:${role}`);
+  }
+
   // --- Close / outcome ---------------------------------------------------------------------------------
 
   private onClosed(callId: number, disposition: string, t: CadTime): void {
@@ -1233,12 +1670,18 @@ export class SceneDirector implements IncidentResolver {
           closedSim: t.sim,
           forceUsed: [...rt.forceUsed],
         };
+        if (rt.buildingId >= 0) {
+          outcome.buildingId = rt.buildingId;
+          outcome.entry = this.entryOf(rt);
+        }
+        if (this.deps.evidence) outcome.case = this.deps.evidence.summary(callId);
         this.closedList.push(outcome);
         if (this.closedList.length > this.cfg.limits.closedCap) this.closedList.shift();
         this.deps.bus.emit('scene:outcome', { outcome });
       }
     }
     this.dematerialize(rt);
+    this.deps.evidence?.removeCallItems(callId);
     const idx = this.open.indexOf(rt);
     if (idx >= 0) this.open.splice(idx, 1);
     this.byCall.delete(callId);
@@ -1265,6 +1708,7 @@ export class SceneDirector implements IncidentResolver {
 
   /** Why the action cannot run now (null = may), with the same rules the panel shows. */
   private actionBlocked(rt: ScenarioRuntime, def: ActionDef): string | null {
+    if (def.tool !== null && this.deps.evidence) return toolHint(def.tool);
     const st = this.actionState(rt, def.id);
     if (st && (st.state === 'running' || (def.once && (st.state === 'done' || st.state === 'requested')))) return st.state === 'running' ? 'In progress' : 'Already done';
     if (def.requires !== null && !evalCond(def.requires, this.flagsWithNear(rt))) return 'Not available yet';
@@ -1334,6 +1778,7 @@ export class SceneDirector implements IncidentResolver {
   /** Sets the flags / effects of a finished action. */
   private finishAction(rt: ScenarioRuntime, def: ActionDef, t: CadTime): void {
     for (const f of def.sets) this.setFlag(rt, f);
+    if (def.sets.includes('knocked')) this.noteKnock(rt, t);
     if (def.sets.includes('animalSecured')) this.removeAnimals(rt);
     if (def.id === 'collectEvidence') this.collectEvidence(rt, t);
   }
@@ -1512,6 +1957,7 @@ export class SceneDirector implements IncidentResolver {
     });
     this.setFlag(rt, `service:${kind}`);
     this.radio(fill(def.radio, vars), this.pc);
+    this.deps.bus.emit('scene:service', { callId: rt.scenario.callId, kind, phase: 'requested' });
   }
 
   private stepService(rt: ScenarioRuntime, s: ServiceState, t: CadTime): void {
@@ -1530,6 +1976,7 @@ export class SceneDirector implements IncidentResolver {
       const st = this.actionState(rt, `request${s.kind.charAt(0).toUpperCase()}${s.kind.slice(1)}`);
       if (st) st.state = 'done';
       this.applyServiceEffect(rt, s, def.effect, t);
+      this.deps.bus.emit('scene:service', { callId: rt.scenario.callId, kind: s.kind, phase: 'arrived' });
       this.rev++;
     }
     if (s.effectDueSim >= 0 && t.sim >= s.effectDueSim) {
@@ -1547,6 +1994,8 @@ export class SceneDirector implements IncidentResolver {
         s.effectDueSim = t.sim + this.rng.nextFloat(this.cfg.tactics.standoffResolveS[0], this.cfg.tactics.standoffResolveS[1]);
         return;
       case 'revealHidden':
+        // A bound call's K9 sweep (investigation module, started from `scene:service`) reveals the people itself.
+        if (rt.buildingId >= 0) return;
         this.revealParticipants(rt, 'hidden', true);
         this.findEscaped(rt);
         return;
@@ -1619,7 +2068,9 @@ export class SceneDirector implements IncidentResolver {
       if (rt.flags.has(`custody:${p.role}`)) continue;
       const old = this.actorOfParticipant(rt, i);
       if (old > 0) npc.removeActor(old);
-      spotPosition(city.graph.edges, sc.anchor, 'door', p.spotIndex, this.rng, this.spot);
+      // A bound call's subject comes out of the building's front door.
+      if (!this.doorPose(rt, p.spotIndex, this.edgePt)) spotPosition(city.graph.edges, sc.anchor, 'door', p.spotIndex, this.rng, this.spot);
+      else Object.assign(this.spot, { x: this.edgePt.x, z: this.edgePt.z, yaw: this.edgePt.yaw });
       const id = npc.spawnActor({
         personId: p.personId,
         x: this.spot.x,
@@ -1715,7 +2166,7 @@ export class SceneDirector implements IncidentResolver {
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i] ?? 0;
       const info = npc.actor(id, this.info);
-      if (!info || info.hidden) continue;
+      if (!info || info.hidden || (info.building ?? -1) !== this.officer.building) continue;
       const dx = info.x - this.officer.x;
       const dz = info.z - this.officer.z;
       const d = Math.hypot(dx, dz);
@@ -1732,7 +2183,23 @@ export class SceneDirector implements IncidentResolver {
       this.flash('Exit the vehicle to draw a weapon');
       return;
     }
-    this.weapon = this.weapon === 'none' ? 'sidearm' : this.weapon === 'sidearm' ? 'taser' : 'none';
+    const avail = this.deps.weaponsAvailable?.() ?? { sidearm: true, taser: true };
+    if (!avail.sidearm && !avail.taser) {
+      if (this.weapon !== 'none') {
+        this.weapon = 'none';
+        this.pres.weapon = 'none';
+        this.rev++;
+      }
+      this.flash('No weapon signed out (armory)');
+      return;
+    }
+    // none -> sidearm -> taser -> none, skipping what is not signed out.
+    let next: OfficerWeapon = this.weapon;
+    for (let k = 0; k < 3; k++) {
+      next = next === 'none' ? 'sidearm' : next === 'sidearm' ? 'taser' : 'none';
+      if (next === 'none' || avail[next]) break;
+    }
+    this.weapon = next;
     this.pres.weapon = this.weapon;
     this.rev++;
     if (this.weapon === 'none') return;
@@ -1770,7 +2237,7 @@ export class SceneDirector implements IncidentResolver {
 
   private tackle(): void {
     const { npc, bus } = this.deps;
-    const id = npc.tackle(this.officer.x, this.officer.z, this.officer.yaw);
+    const id = npc.tackle(this.officer.x, this.officer.z, this.officer.yaw, this.officer.building);
     if (id <= 0) {
       this.flash('Nobody in reach');
       return;
@@ -2282,7 +2749,7 @@ export class SceneDirector implements IncidentResolver {
         rt.actorIds[i] = 0;
         continue;
       }
-      if (!info.hidden && dist(info.x, info.z, this.officer.x, this.officer.z) <= this.cfg.distances.nearM) nearRoles.push(p.role);
+      if (!info.hidden && (info.building ?? -1) === this.officer.building && dist(info.x, info.z, this.officer.x, this.officer.z) <= this.cfg.distances.nearM) nearRoles.push(p.role);
       const st = info.state;
       if (st === ACTOR_STATE.handsUp || st === ACTOR_STATE.kneel || st === ACTOR_STATE.prone || st === ACTOR_STATE.down) this.setFlag(rt, `detained:${p.role}`);
       if (info.weaponDrawn) this.setFlag(rt, `weaponDrawn:${p.role}`);
@@ -2313,7 +2780,7 @@ export class SceneDirector implements IncidentResolver {
     if (prefer) scan(prefer);
     for (const rt of this.open) scan(rt);
     const found = hit as { rt: ScenarioRuntime; index: number } | null;
-    if (!found) return null;
+    if (!found) return this.witnessIncident(personId);
     const { rt, index } = found;
     const p = rt.scenario.participants[index];
     if (!p) return null;
@@ -2333,6 +2800,27 @@ export class SceneDirector implements IncidentResolver {
     };
   }
 
+  /** Canvass witnesses (Phase 4): neighbours who may have seen something on call `callId`; not saved. */
+  addWitness(callId: number, personId: number): void {
+    this.witnesses.set(personId, callId);
+  }
+
+  private witnessIncident(personId: number): IncidentInfo | null {
+    const callId = this.witnesses.get(personId);
+    const rt = callId === undefined ? undefined : this.byCall.get(callId);
+    if (callId === undefined || !rt) return null;
+    const call = this.deps.cad.call(callId);
+    return {
+      key: call?.number ?? `C-${String(callId).padStart(5, '0')}`,
+      callId,
+      role: 'witness',
+      truth: this.truthFor(rt, personId, call?.nature ?? ''),
+      guilty: false,
+      vehicleId: -1,
+      stop: false,
+    };
+  }
+
   private truthFor(rt: ScenarioRuntime, personId: number, nature: string): IncidentInfo['truth'] {
     const h = hash3(this.seed ^ rt.scenario.callId, SALT_TRUTH, personId);
     const list = (key: string): string => {
@@ -2341,13 +2829,18 @@ export class SceneDirector implements IncidentResolver {
     };
     const family = rt.scenario.family;
     const reason = family === 'trafficStop' ? 'a traffic stop' : family === 'contact' ? 'a field check' : `the report of ${nature.toLowerCase() || 'an incident'}`;
-    return {
+    const truth: IncidentInfo['truth'] = {
       destination: list('destination'),
       origin: list('origin'),
       account: list('account'),
       suspectWhereabouts: list('suspectWhereabouts'),
       reason,
     };
+    // Bound calls name their suspect (consent to enter / search is less likely from the person under suspicion).
+    if (rt.buildingId >= 0 && rt.scenario.participants.some((p) => p.personId === personId && (p.role === 'suspect' || (family === 'barricade' && p.role === 'subject')))) {
+      return { ...truth, suspect: true };
+    }
+    return truth;
   }
 
   /** Has a motive to lie: a suspect-like role, a wanted person, contraband, an impaired driver or a stolen car. */
@@ -2394,6 +2887,12 @@ export class SceneDirector implements IncidentResolver {
       const st = this.actionState(rt, id);
       const blocked = this.actionBlocked(rt, def);
       let detail: string | undefined;
+      if (def.tool !== null && this.deps.evidence) {
+        // Done with the investigation tools: the row is a hint until the tool set its flags.
+        detail = def.sets.length > 0 && def.sets.every((f) => rt.flags.has(f)) ? 'Done' : toolHint(def.tool);
+        options.push({ label: def.label, detail, enabled: false });
+        continue;
+      }
       if (st?.state === 'running') detail = `In progress ${Math.max(0, Math.ceil(st.dueSim - this.time.sim))} s`;
       else if (st?.state === 'requested') detail = 'Requested';
       else if (st?.state === 'done') detail = def.service !== null ? 'On scene' : 'Done';
@@ -2436,6 +2935,11 @@ export class SceneDirector implements IncidentResolver {
       ambushArmed: rt.ambushArmed,
       forceUsed: [...rt.forceUsed],
       mirror: [...rt.mirror],
+      ...(rt.buildingId >= 0 ? { buildingId: rt.buildingId } : {}),
+      ...(rt.hideSpots.some((h) => h >= 0) ? { hideSpots: [...rt.hideSpots] } : {}),
+      ...(rt.knockedSim >= 0 ? { knockedSim: rt.knockedSim } : {}),
+      ...(rt.answerDueSim >= 0 ? { answerDueSim: rt.answerDueSim } : {}),
+      ...(rt.arrests.length > 0 ? { arrests: rt.arrests.map((a) => ({ ...a })) } : {}),
     }));
     const empty = emptySceneSave(this.rng.state());
     return {
@@ -2478,7 +2982,16 @@ export class SceneDirector implements IncidentResolver {
         ambushArmed: s.ambushArmed,
         forceUsed: [...s.forceUsed],
         mirror: [...(s.mirror ?? [])],
+        buildingId: s.buildingId ?? -1,
+        hideSpots: s.hideSpots ? [...s.hideSpots] : s.scenario.participants.map(() => -1),
+        knockedSim: s.knockedSim ?? -1,
+        answerDueSim: s.answerDueSim ?? -1,
+        arrests: (s.arrests ?? []).map((a) => ({ ...a })),
       };
+      // Hidden actors keep their reserved hiding spot across a load (claims are not part of the interior save).
+      rt.hideSpots.forEach((h, i) => {
+        if (h >= 0 && rt.buildingId >= 0 && (rt.actorIds[i] ?? 0) > 0) this.deps.interiors?.claimHideSpot?.(rt.buildingId, h);
+      });
       this.open.push(rt);
       this.byCall.set(rt.scenario.callId, rt);
     }
@@ -2507,6 +3020,11 @@ function dispositionLabel(id: string): string {
 
 function labelOf(id: string): string {
   return id.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+}
+
+/** The row text of an action that is done with an investigation tool. */
+function toolHint(tool: ToolKind): string {
+  return tool === 'camera' ? 'Use the camera (O)' : 'Use the tools (I)';
 }
 
 function familyAnchorIsStreet(familyId: string): boolean {

@@ -8,9 +8,13 @@ import { defaultRadioSave } from '../../src/radio/save';
 import { RecordsDb } from '../../src/records/db';
 import { DETACHED_CONTEXT } from '../../src/records/person';
 import { emptyContactSave } from '../../src/contact/save';
+import { emptyInteriorSave } from '../../src/indoors/save';
+import { emptyInvestigationSave } from '../../src/investigation/save';
+import { migratedStationSave, newShiftStationSave } from '../../src/station/stationState';
+import { defaultTacticalSave } from '../../src/tactical/save';
 import { Population } from '../../src/people/population';
 import { emptySceneSave } from '../../src/scene/save';
-import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SavedVehicle } from '../../src/save/schema';
+import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SavedVehicle } from '../../src/save/schema';
 import type { TrafficSnapshot } from '../../src/traffic/trafficSystem';
 import { vehicleModel } from '../../src/vehicles/model';
 
@@ -199,6 +203,17 @@ export function makePeopleSave(): SaveGame['people'] {
   return pop.serialize();
 }
 
+/** Trunk items Phase 4 added (absent from a pre-v6 trunk). */
+export const PHASE4_TRUNK_ITEMS = ['ram', 'sceneTape', 'evidenceMarkers', 'evidenceBags', 'fingerprintKit', 'camera'] as const;
+
+/** `makeEquipmentSave()` as a pre-Phase-4 build wrote it: without the six Phase 4 trunk items. */
+export function makeLegacyEquipmentSave(): NonNullable<SaveGame['equipment'][number]> {
+  const eq = makeEquipmentSave();
+  const trunk = { ...eq.trunk };
+  for (const id of PHASE4_TRUNK_ITEMS) delete trunk[id];
+  return { ...eq, trunk };
+}
+
 /** A complete v4 (Phase 2) payload: the v3 fixture plus every Phase 2 block. */
 export function makeSaveGameV4(overrides: Partial<SaveGameV4> = {}): SaveGameV4 {
   const kit = new OfficerKit();
@@ -209,15 +224,15 @@ export function makeSaveGameV4(overrides: Partial<SaveGameV4> = {}): SaveGameV4 
     dispatch: makeDispatchSave(),
     records: makeRecordsSave(),
     radio: defaultRadioSave(createRng(42).stream('radio').state()),
-    equipment: [makeEquipmentSave(), null],
+    equipment: [makeLegacyEquipmentSave(), null],
     officerKit: kit.serialize(),
     speeding: [[1234, 52.5, 35]],
     ...overrides,
   };
 }
 
-/** A complete current-version (v5) payload: the v4 fixture plus the people, npc, contact and scene blocks. */
-export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+/** A complete v5 (Phase 3) payload: the v4 fixture plus the people, npc, contact and scene blocks. */
+export function makeSaveGameV5(overrides: Partial<SaveGameV5> = {}): SaveGameV5 {
   return {
     ...makeSaveGameV4(),
     people: makePeopleSave(),
@@ -227,3 +242,19 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
     ...overrides,
   };
 }
+
+/** A complete current-version (v6) payload: the v5 fixture plus the interior, tactical, investigation and station blocks. */
+export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  return {
+    ...makeSaveGameV5(),
+    equipment: [makeEquipmentSave(), null],
+    interiors: emptyInteriorSave(createRng(42).stream('interior').state()),
+    tactical: defaultTacticalSave(createRng(42).stream('tactical').state()),
+    investigation: emptyInvestigationSave(createRng(42).stream('investigation').state()),
+    station: newShiftStationSave(),
+    ...overrides,
+  };
+}
+
+/** The station block a migrated v5 save gets (on patrol, pistol and taser out to `badge`). */
+export { migratedStationSave };

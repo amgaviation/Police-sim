@@ -67,7 +67,7 @@ export const INTENTS = [
 ] as const;
 export type Intent = (typeof INTENTS)[number];
 
-export const CONSENT_KINDS = ['searchPerson', 'searchVehicle', 'pbt', 'sfst'] as const;
+export const CONSENT_KINDS = ['searchPerson', 'searchVehicle', 'pbt', 'sfst', 'entry', 'searchPremises', 'searchRoom'] as const;
 export type ConsentKind = (typeof CONSENT_KINDS)[number];
 
 /** Conditions that gate an utterance in the menu (`notRestrainedOrAny` is always satisfied). */
@@ -83,6 +83,7 @@ export const REQUIREMENTS = [
   'notJuvenile',
   'identityGiven',
   'notRestrainedOrAny',
+  'premisesAuthority',
 ] as const;
 export type Requirement = (typeof REQUIREMENTS)[number];
 
@@ -140,6 +141,8 @@ export interface IncidentTruth {
   readonly suspectWhereabouts: string;
   /** '' for a field contact without a call (the `onCall` requirement is false then). */
   readonly reason: string;
+  /** True when this person is the scenario's suspect (the consent chance drops). Absent = false. */
+  readonly suspect?: boolean;
 }
 
 /** A person's public record facts, as the contact module reads them from the records database. */
@@ -182,6 +185,8 @@ export interface DialogueContext {
   readonly guardianPresent: boolean;
   readonly interpreterAvailable: boolean;
   readonly directory?: DialogueDirectory;
+  /** The premises the officer is at, when indoors or at a door: `authority` is true for a resident or owner. */
+  readonly premises?: { readonly buildingId: number; readonly authority: boolean; readonly room: number };
 }
 
 /** Plain JSON (saved with the contact). */

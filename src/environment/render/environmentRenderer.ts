@@ -71,6 +71,8 @@ export class EnvironmentRenderer {
   /** Created on first use and kept (rebuilding allocates an MSAA target and compiles a program). */
   private haze: HeatHazePass | null = null;
   private hazeInstalled = false;
+  /** True while the camera is inside an interior: no precipitation, no heat haze. */
+  private indoor = false;
   private shadowQuality: ShadowQuality = 'off';
   private time = 0;
   /** Precipitation motion integrated per frame (see PRECIP_FALL_WRAP): fall distance, sway clock, wind drift. */
@@ -166,7 +168,7 @@ export class EnvironmentRenderer {
     this.hemisphere.intensity = sky.ambientIntensity * AMBIENT_SCALE;
 
     this.updatePrecipitation(env, camera, cameraPos, Math.max(0, realDt));
-    this.updateHaze(w.heatHaze, camera);
+    this.updateHaze(this.indoor ? 0 : w.heatHaze, camera);
   }
 
   /**
@@ -186,6 +188,11 @@ export class EnvironmentRenderer {
     renderer.gl.compile(this.scene, camera);
     this.haze.compile(renderer.gl, this.scene, camera);
     points.visible = visible;
+  }
+
+  /** Indoors (an interior is resident under the camera): hides the precipitation points and skips the heat-haze pass. */
+  setIndoor(on: boolean): void {
+    this.indoor = on;
   }
 
   /** Enables/sizes the sun shadow map; call alongside `Renderer.setShadows`. */
@@ -241,7 +248,7 @@ export class EnvironmentRenderer {
     const w = env.weather;
     const points = this.precip.points;
     const count = Math.round(PRECIP_MAX_PARTICLES * Math.min(1, w.precipitation));
-    points.visible = count > 0;
+    points.visible = count > 0 && !this.indoor;
     if (!points.visible) return;
     points.geometry.setDrawRange(0, count);
     const u = this.precip.uniforms;

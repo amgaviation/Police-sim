@@ -3,6 +3,7 @@ import { ROAD_CLASS } from '../../world/ids';
 import type { RoadEdge } from '../../world/roadGraph';
 import { worldToMap, type MapPoint } from './format';
 import { PRIORITY_COLORS } from './police';
+import type { FloorPlan } from './types';
 
 /** Canvas size in CSS pixels (square). */
 export const MINIMAP_SIZE = 200;
@@ -118,6 +119,33 @@ const POI_COLOR: Record<PoiKind, string> = {
   park: '#5fbf5f',
 };
 
+/** Fraction of the circle's diameter the floor plan may fill. */
+const PLAN_FILL = 0.84;
+const PLAN_ROOM_FILL = '#2b3640';
+const PLAN_ROOM_STROKE = '#8fa3b5';
+const PLAN_DOOR_OPEN = '#5fd35f';
+const PLAN_DOOR_CLOSED = '#8a8a8a';
+
+/** Placement of a floor plan on the map: pixels per metre and the world point at the map centre. */
+export interface PlanFit {
+  scale: number;
+  centerX: number;
+  centerZ: number;
+}
+
+/**
+ * Scale that fits the plan's rectangle into the circular map (its diagonal inside `PLAN_FILL` of the diameter) and the
+ * rectangle's centre. A degenerate rectangle gets scale 1. Allocation-free; returns `out`.
+ */
+export function fitFloorPlan(plan: Readonly<FloorPlan>, out: PlanFit): PlanFit {
+  const r = plan.rect;
+  const diagonal = Math.hypot(r.maxX - r.minX, r.maxZ - r.minZ);
+  out.scale = diagonal > 0 ? (MINIMAP_SIZE * PLAN_FILL) / diagonal : 1;
+  out.centerX = (r.minX + r.maxX) / 2;
+  out.centerZ = (r.minZ + r.maxZ) / 2;
+  return out;
+}
+
 const ROOT_STYLE = [
   'position:absolute',
   'left:16px',
@@ -143,6 +171,10 @@ export class Minimap {
   private readonly p: MapPoint = { x: 0, y: 0 };
   private readonly mp: MarkerPoint = { x: 0, y: 0, clamped: false };
   private zoom = 0;
+  private plan: FloorPlan | null = null;
+  private planX = 0;
+  private planZ = 0;
+  private readonly fit: PlanFit = { scale: 1, centerX: 0, centerZ: 0 };
   private lastDraw = -Infinity;
   private drawCount = 0;
 
@@ -181,6 +213,25 @@ export class Minimap {
     this.lastDraw = -Infinity;
   }
 
+  /** The floor plan drawn instead of the city while set (null = city map), and the officer's position on it. */
+  get floorPlan(): FloorPlan | null {
+    return this.plan;
+  }
+
+  /**
+   * Indoors the minimap shows the building: room rectangles and doors (open green, closed grey) scaled to fit, north
+   * up, with the officer at (officerX, officerZ). `null` returns to the city map. Redraws on the next update.
+   */
+  setFloorPlan(plan: FloorPlan | null, officerX: number, officerZ: number): void {
+    if (plan !== this.plan) {
+      this.plan = plan;
+      this.lastDraw = -Infinity;
+      if (plan) fitFloorPlan(plan, this.fit);
+    }
+    this.planX = officerX;
+    this.planZ = officerZ;
+  }
+
   update(
     x: number,
     z: number,
@@ -206,6 +257,11 @@ export class Minimap {
     ctx.fillStyle = 'rgba(20,24,28,0.82)';
     ctx.fillRect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE);
 
+    if (this.plan) {
+      this.drawFloorPlan(ctx, this.plan, yaw);
+      ctx.restore();
+      return;
+    }
     this.drawRoads(ctx, x, z, yaw, radius, mpp);
     if (route) this.drawRoute(ctx, x, z, yaw, route, mpp);
     this.drawPois(ctx, x, z, yaw, radius, mpp);
@@ -218,6 +274,43 @@ export class Minimap {
 
   dispose(): void {
     this.canvas?.remove();
+  }
+
+  /** Rooms, doors and the officer arrow of the floor plan (north up). */
+  private drawFloorPlan(ctx: CanvasRenderingContext2D, plan: Readonly<FloorPlan>, yaw: number): void {
+    const { scale, centerX, centerZ } = this.fit;
+    const rooms = plan.rooms;
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = PLAN_ROOM_FILL;
+    ctx.strokeStyle = PLAN_ROOM_STROKE;
+    for (let i = 0; i + 3 < rooms.length; i += 4) {
+      const x0 = HALF + ((rooms[i] ?? 0) - centerX) * scale;
+      const z0 = HALF + ((rooms[i + 1] ?? 0) - centerZ) * scale;
+      const w = ((rooms[i + 2] ?? 0) - (rooms[i] ?? 0)) * scale;
+      const h = ((rooms[i + 3] ?? 0) - (rooms[i + 1] ?? 0)) * scale;
+      ctx.fillRect(x0, z0, w, h);
+      ctx.strokeRect(x0, z0, w, h);
+    }
+    const doors = plan.doors;
+    for (let i = 0; i + 2 < doors.length; i += 3) {
+      ctx.fillStyle = (doors[i + 2] ?? 0) > 0 ? PLAN_DOOR_OPEN : PLAN_DOOR_CLOSED;
+      ctx.fillRect(HALF + ((doors[i] ?? 0) - centerX) * scale - 2.5, HALF + ((doors[i + 1] ?? 0) - centerZ) * scale - 2.5, 5, 5);
+    }
+    // Officer arrow: north up, so a yaw turns it by -yaw (yaw 0 faces -Z = up the map).
+    ctx.save();
+    ctx.translate(HALF + (this.planX - centerX) * scale, HALF + (this.planZ - centerZ) * scale);
+    ctx.rotate(-yaw);
+    ctx.beginPath();
+    ctx.moveTo(0, -7);
+    ctx.lineTo(5, 5);
+    ctx.lineTo(0, 2);
+    ctx.lineTo(-5, 5);
+    ctx.closePath();
+    ctx.fillStyle = '#4f8cff';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawRoads(ctx: CanvasRenderingContext2D, x: number, z: number, yaw: number, radius: number, mpp: number): void {

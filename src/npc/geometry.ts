@@ -64,3 +64,17 @@ export function turnToward(a: number, b: number, maxStep: number): number {
   else if (d < -maxStep) d = -maxStep;
   return a + d;
 }
+
+/** Is (x, z) inside the closed polygon `pts` (x, z pairs)? Even-odd ray casting, allocation-free. */
+export function pointInPolygon(pts: Float32Array, x: number, z: number): boolean {
+  const n = pts.length >> 1;
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = pts[2 * i] as number;
+    const zi = pts[2 * i + 1] as number;
+    const xj = pts[2 * j] as number;
+    const zj = pts[2 * j + 1] as number;
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}

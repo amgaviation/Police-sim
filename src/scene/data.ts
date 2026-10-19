@@ -40,10 +40,24 @@ export interface SceneConfig {
     readonly contraband: number;
     readonly bacThreshold: number;
   };
+  /** Calls bound to a building (Phase 4 design §12). */
+  readonly indoor: {
+    /** Search radius around the call's door spot for the building (m). */
+    readonly bindRadiusM: number;
+    /** A resident answers a knock after this long (sim s, drawn from the scene stream). */
+    readonly knockAnswerS: readonly [number, number];
+    /** A welfare knock nobody answers is exigent after this long (sim s). */
+    readonly noAnswerExigencyS: number;
+    /** Canvass knocks on a call that count as `canvassed`. */
+    readonly canvassHits: number;
+  };
   readonly limits: { readonly closedCap: number; readonly propCap: number };
 }
 
 const FILE = 'scene.json';
+
+/** Used when a scene.json predates Phase 4 (no `indoor` section). */
+const DEFAULT_INDOOR: JsonObject = { bindRadiusM: 60, knockAnswerS: [4, 10], noAnswerExigencyS: 60, canvassHits: 2 };
 
 function section(root: JsonObject, key: string, keys: readonly string[]): JsonObject {
   const obj = readObject(root[key], FILE, key);
@@ -67,12 +81,13 @@ function range(o: JsonObject, sec: string, key: string): readonly [number, numbe
 export function parseSceneConfig(json: unknown): SceneConfig {
   const root = readObject(json, FILE, '');
   readVersion(root, FILE);
-  for (const k of Object.keys(root)) if (!['version', 'distances', 'tactics', 'people', 'ambientFlee', 'limits'].includes(k)) fail(FILE, k, 'is not a known section');
+  for (const k of Object.keys(root)) if (!['version', 'distances', 'tactics', 'people', 'ambientFlee', 'indoor', 'limits'].includes(k)) fail(FILE, k, 'is not a known section');
   const d = section(root, 'distances', ['materializeM', 'arriveM', 'actionRangeM', 'nearM', 'propClearM', 'sceneAtM', 'hudM', 'lightsM', 'backupM', 'driveAwayM', 'vehicleGapM', 'forceNearM', 'shoutM']);
   const t = section(root, 'tactics', ['shoutConeDeg', 'taserConeDeg', 'disperseShare', 'ackDelayS', 'revealChance', 'foundEscapedChance', 'crashFootFleeChance', 'standoffResolveS']);
   const p = section(root, 'people', ['pickTries', 'riskMin', 'injuryValue']);
   const f = section(root, 'ambientFlee', ['base', 'wanted', 'stolen', 'intoxicated', 'contraband', 'bacThreshold']);
   const l = section(root, 'limits', ['closedCap', 'propCap']);
+  const ind = root.indoor === undefined ? DEFAULT_INDOOR : section(root, 'indoor', ['bindRadiusM', 'knockAnswerS', 'noAnswerExigencyS', 'canvassHits']);
   const dist = (k: string): number => num(d, 'distances', k, 0.1, 100000);
   const prob = (o: JsonObject, sec: string, k: string): number => num(o, sec, k, 0, 1);
   const materializeM = dist('materializeM');
@@ -116,6 +131,12 @@ export function parseSceneConfig(json: unknown): SceneConfig {
       intoxicated: prob(f, 'ambientFlee', 'intoxicated'),
       contraband: prob(f, 'ambientFlee', 'contraband'),
       bacThreshold: num(f, 'ambientFlee', 'bacThreshold', 0, 1),
+    },
+    indoor: {
+      bindRadiusM: num(ind, 'indoor', 'bindRadiusM', 1, 1000),
+      knockAnswerS: range(ind, 'indoor', 'knockAnswerS'),
+      noAnswerExigencyS: num(ind, 'indoor', 'noAnswerExigencyS', 0, 3600),
+      canvassHits: Math.floor(num(ind, 'indoor', 'canvassHits', 1, 100)),
     },
     limits: { closedCap: Math.floor(num(l, 'limits', 'closedCap', 1, 100000)), propCap: Math.floor(num(l, 'limits', 'propCap', 1, 4096)) },
   };

@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "kind": "policeStation",
+  "label": "Police station",
+  "layout": "corridor",
+  "minWidth": 36,
+  "minDepth": 16,
+  "maxWidth": 60,
+  "maxDepth": 28,
+  "minRoomArea": 12,
+  "entry": "lobby",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.8,
+  "lockableRooms": ["armory", "evidenceRoom", "interview"],
+  "lockedRooms": [],
+  "corridor": { "kind": "corridor", "label": "Corridor", "width": 2.2, "frontShare": 0.5, "surface": "linoleum" },
+  "exteriorDoors": [{ "room": "garage", "side": "front", "width": 2.8 }, { "room": "sallyPort", "side": "back", "width": 2.8 }],
+  "occupants": { "day": [0, 0], "night": [0, 0], "profile": "securityGuard", "role": "staff", "openHours": null },
+  "rooms": [
+    { "kind": "garage", "label": "Garage", "size": 4, "required": true, "surface": "concrete", "band": "front",
+      "furniture": [
+        { "id": "parkedCar", "place": "center", "point": "garage" },
+        { "id": "shelf", "place": "wall", "chance": 0.6 },
+        { "id": "crate", "place": "wall", "chance": 0.4 }
+      ] },
+    { "kind": "lockerRoom", "label": "Locker room", "size": 2, "required": true, "surface": "tile", "band": "front",
+      "furniture": [
+        { "id": "locker", "place": "wall", "point": "locker" },
+        { "id": "locker", "place": "wall", "count": [3, 6], "chance": 0.9 },
+        { "id": "bench", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "lobby", "label": "Lobby", "size": 3, "required": true, "surface": "tile", "band": "front", "public": true,
+      "furniture": [
+        { "id": "frontDesk", "place": "wall", "point": "frontDesk" },
+        { "id": "waitingBench", "place": "wall", "count": [1, 2], "chance": 0.9 },
+        { "id": "plant", "place": "corner", "chance": 0.5 }
+      ] },
+    { "kind": "rollCall", "label": "Roll call room", "size": 3, "required": true, "surface": "carpet", "band": "front",
+      "furniture": [
+        { "id": "podium", "place": "wall", "point": "briefing" },
+        { "id": "chair", "place": "center", "count": [4, 6], "chance": 0.9 },
+        { "id": "whiteboard", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "reportRoom", "label": "Report room", "size": 2, "required": true, "surface": "carpet", "band": "front",
+      "furniture": [
+        { "id": "computerDesk", "place": "wall", "point": "reportDesk" },
+        { "id": "computerDesk", "place": "wall", "count": [1, 2], "chance": 0.8 },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "armory", "label": "Armory", "size": 2, "required": true, "surface": "concrete", "band": "back",
+      "furniture": [
+        { "id": "armoryCounter", "place": "wall", "point": "armory" },
+        { "id": "locker", "place": "wall", "count": [1, 2], "chance": 0.8 }
+      ] },
+    { "kind": "evidenceRoom", "label": "Evidence room", "size": 2, "required": true, "surface": "concrete", "band": "back",
+      "furniture": [
+        { "id": "evidenceLocker", "place": "wall", "point": "evidence" },
+        { "id": "shelf", "place": "wall", "chance": 0.8 }
+      ] },
+    { "kind": "interview", "label": "Interview room", "size": 2, "required": true, "surface": "linoleum", "band": "back",
+      "furniture": [
+        { "id": "interviewTable", "place": "center", "point": "interview" },
+        { "id": "chair", "place": "wall", "count": [2, 2] }
+      ] },
+    { "kind": "cell", "label": "Holding cell", "size": 1.5, "required": true, "surface": "concrete", "band": "back", "count": [3, 3],
+      "furniture": [
+        { "id": "cellBench", "place": "wall", "point": "cell" },
+        { "id": "toilet", "place": "corner", "chance": 0.8 }
+      ] },
+    { "kind": "sallyPort", "label": "Sally port", "size": 2, "required": true, "surface": "concrete", "band": "back",
+      "furniture": [] }
+  ]
+}

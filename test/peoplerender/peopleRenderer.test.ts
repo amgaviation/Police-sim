@@ -331,6 +331,22 @@ describe('PeopleRenderer poses', () => {
     expect(foot.y).toBeLessThan(at(legs, 1).y - 0.4);
   });
 
+  it('crouches: the torso drops about 0.35 m and the thighs point forward', () => {
+    const { scene, people } = setup();
+    const s = createHumanoidSource(2);
+    add(s, 0, 0, { pose: POSE.stand });
+    add(s, 5, 0, { pose: POSE.crouch });
+    people.update(1, [s], 0, 0, 100);
+    const torso = mesh(scene, 'people-torso');
+    expect(at(torso, 0).y - at(torso, 1).y).toBeCloseTo(0.35, 1);
+    const head = mesh(scene, 'people-head');
+    expect(at(head, 0).y - at(head, 1).y).toBeGreaterThan(0.3);
+    const legs = mesh(scene, 'people-legs');
+    // Each figure has four leg segments; the second figure's left knee is in front of its hip.
+    expect(at(legs, 5).z - at(legs, 4).z).toBeLessThan(-0.2);
+    expect(at(legs, 1).z - at(legs, 0).z).toBeCloseTo(0, 5);
+  });
+
   it('holds a raised gun with two hands when aiming', () => {
     const { scene, people } = setup();
     const s = createHumanoidSource(2);

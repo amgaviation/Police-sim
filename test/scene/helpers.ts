@@ -6,7 +6,7 @@ import { Population } from '../../src/people/population';
 import '../../src/scene/events';
 import { SCENE_CONFIG } from '../../src/scene/data';
 import { SceneDirector } from '../../src/scene/director';
-import type { ContactPort, ContactTarget, IncidentInfo, OfficerFocus, ScenarioRuntime } from '../../src/scene/types';
+import type { ContactPort, ContactTarget, IncidentInfo, OfficerFocus, SceneDeps, ScenarioRuntime } from '../../src/scene/types';
 import { DT, GAME0, at, makeHarness, quietConfig, type Harness, type HarnessOptions } from '../dispatch/helpers';
 
 export { DT, GAME0, at };
@@ -24,7 +24,7 @@ export class StubContact implements ContactPort {
   }
 }
 
-export const CAPTURED = ['scene:materialized', 'scene:radio', 'scene:line', 'scene:flash', 'scene:pursuit', 'scene:outcome', 'scene:openForm', 'force:used'] as const;
+export const CAPTURED = ['scene:materialized', 'scene:service', 'scene:radio', 'scene:line', 'scene:flash', 'scene:pursuit', 'scene:outcome', 'scene:openForm', 'force:used'] as const;
 
 export interface SceneRig extends Harness {
   readonly people: Population;
@@ -46,6 +46,8 @@ export interface RigOptions extends HarnessOptions {
   missing?: string[];
   /** Pulled-over cars never flee on their own (scenario `flee` still applies). */
   noAmbientFlee?: boolean;
+  /** Extra scene deps built from the harness (the Phase 4 ports). */
+  deps?: (h: Harness, npc: NpcSystem) => Partial<SceneDeps>;
 }
 
 /** The full scene stack on a generated city: dispatch, traffic, people, npc, scene and a stub contact port. */
@@ -89,6 +91,7 @@ export async function makeRig(options: RigOptions = {}): Promise<SceneRig> {
     }),
     patrolCars: () => cars,
     config: options.noAmbientFlee ? { ...SCENE_CONFIG, ambientFlee: { ...SCENE_CONFIG.ambientFlee, base: 0, wanted: 0, stolen: 0, intoxicated: 0, contraband: 0 } } : undefined,
+    ...(options.deps ? options.deps(h, npc) : {}),
   });
   const seen: SceneRig['seen'] = [];
   for (const topic of CAPTURED) h.bus.on(topic, (payload) => seen.push({ topic, payload }));
@@ -132,6 +135,7 @@ export function step(r: SceneRig): void {
   r.npcFocus.weapon = r.scene.officerWeapon;
   r.npcFocus.lights = r.scene.presence.lights;
   r.npcFocus.backup = r.scene.presence.backup;
+  r.npcFocus.building = r.officer.building ?? -1;
   r.npc.step(DT, r.sim, r.npcFocus);
   r.physics.step();
 }

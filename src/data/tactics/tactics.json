@@ -1,0 +1,12 @@
+{ "version": 1,
+  "sound": { "wallDb": 35, "exteriorWallDb": 40, "doorOpenDb": 2, "doorClosedDb": 18, "cellDoorDb": 6, "stimulusRangeDb": 30,
+    "hearing": { "normal": 20, "hardOfHearing": 40, "asleepBonus": 20 },
+    "footstepDb": { "carpet": 28, "wood": 40, "tile": 42, "concrete": 38, "linoleum": 36, "asphalt": 36, "grass": 24, "gravel": 44, "dirt": 28, "sand": 26 },
+    "sources": { "doorOpen": 45, "doorClose": 55, "knock": 65, "kick": 95, "ram": 100, "radioChirp": 62, "radioEarpiece": 22,
+                 "voiceTalk": 58, "voiceShout": 85, "announce": 90, "taser": 70, "flashlightClick": 25 },
+    "footstepIntervalS": { "walk": 0.5, "run": 0.33, "crouch": 0.7 }, "listenRadiusM": 40 },
+  "stance": { "standEye": 1.65, "crouchEye": 1.05, "crouchSpeed": 0.5, "leanOffset": 0.35, "leanRoll": 0.17, "leanSpeedFactor": 0.5, "leanRate": 6 },
+  "slice": { "speed": 0.6, "radiusMin": 1.2, "radiusMax": 3.0, "radialSpeed": 0.5, "maxAngle": 1.4, "engageM": 3.0, "engageCone": 1.22 },
+  "notice": { "rangeM": 25, "periodS": 0.25, "fovCos": 0.5, "peripheral": 0.3, "sightRate": 0.8, "lightRate": 0.6,
+              "flashlightCone": 0.35, "flashlightRange": 20, "darkFactor": 0.3, "nightOutdoor": 0.5, "decayPerS": 0.05 },
+  "partner": { "followM": 1.6, "speed": 3.0, "stackOffset": 0.6, "colors": { "top": 1985647, "bottom": 1250067 } } }

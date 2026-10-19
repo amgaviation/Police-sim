@@ -89,6 +89,8 @@ import {
  */
 
 const MAX_CONTACTS = 8;
+/** `opos.building` when the integrator does not report the officer's level (no level checks then). */
+const UNKNOWN_LEVEL = -2;
 const TRANSCRIPT_CAP = 40;
 /** Frisk, search, cuff: the officer must be this close. */
 const ACTION_RANGE_M = 3.5;
@@ -204,7 +206,7 @@ export class ContactManager {
   private rev = 0;
   private stepCount = 0;
   private t: CadTime = { sim: 0, game: 0 };
-  private readonly opos = { x: 0, z: 0, yaw: 0 };
+  private readonly opos = { x: 0, z: 0, yaw: 0, building: UNKNOWN_LEVEL };
   private readonly vpos = { x: 0, z: 0 };
   private readonly ainfo: ActorInfo = {
     id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false,
@@ -322,15 +324,17 @@ export class ContactManager {
     const npc = this.deps.npc;
     let actorId = 0;
     let personId = -1;
+    this.officerAt();
     switch (target.kind) {
       case 'actor': {
         const a = npc.actor(target.actorId, this.ainfo);
-        if (!a || a.personId < 0 || a.hidden) return -1;
+        if (!a || a.personId < 0 || a.hidden || this.otherLevel(a.building ?? -1)) return -1;
         actorId = a.id;
         personId = a.personId;
         break;
       }
       case 'ped': {
+        if (this.otherLevel(-1)) return -1;
         const existing = npc.promotePedestrian(target.slot);
         const a = existing > 0 ? npc.actor(existing, this.ainfo) : null;
         if (!a) return -1;
@@ -339,6 +343,7 @@ export class ContactManager {
         break;
       }
       case 'occupant': {
+        if (this.otherLevel(-1)) return -1;
         personId = npc.occupantsOf(target.vehicleId)[target.seat] ?? -1;
         if (personId < 0) return -1;
         actorId = npc.actorOfPerson(personId);
@@ -639,17 +644,28 @@ export class ContactManager {
     return c.actorId > 0 ? this.deps.npc.actor(c.actorId, this.ainfo) : null;
   }
 
-  /** Distance between the officer and the subject; 0 for a seated occupant of the stopped car. */
-  private distanceTo(c: Contact): number {
+  /** Refreshes `opos`; `building` stays UNKNOWN_LEVEL when the dependency does not set it. */
+  private officerAt(): void {
+    this.opos.building = UNKNOWN_LEVEL;
     this.deps.officerPosition(this.opos);
+  }
+
+  /** Whether the officer is on a known level other than `building` (the subject cannot be reached or heard). */
+  private otherLevel(building: number): boolean {
+    return this.opos.building !== UNKNOWN_LEVEL && this.opos.building !== building;
+  }
+
+  /** Distance between the officer and the subject; 0 for a seated occupant of the stopped car, Infinity from another level. */
+  private distanceTo(c: Contact): number {
+    this.officerAt();
     const a = this.actorOf(c);
-    if (a) return Math.hypot(a.x - this.opos.x, a.z - this.opos.z);
-    return this.vehicleDistance(c);
+    if (a) return this.otherLevel(a.building ?? -1) ? Infinity : Math.hypot(a.x - this.opos.x, a.z - this.opos.z);
+    return this.otherLevel(-1) ? Infinity : this.vehicleDistance(c);
   }
 
   private vehicleDistance(c: Contact): number {
     if (c.vehicleId >= 0 && this.deps.vehiclePosition?.(c.vehicleId, this.vpos)) {
-      this.deps.officerPosition(this.opos);
+      this.officerAt();
       return Math.hypot(this.vpos.x - this.opos.x, this.vpos.z - this.opos.z);
     }
     return 0;
@@ -756,12 +772,13 @@ export class ContactManager {
   }
 
   private dctx(c: Contact, tone: Tone): DialogueContext {
-    this.deps.officerPosition(this.opos);
+    this.officerAt();
     const a = this.actorOf(c);
     const x = a ? a.x : this.opos.x;
     const z = a ? a.z : this.opos.z;
     const p = this.deps.presence();
     const juvenile = this.deps.people.identity(c.personId).juvenile;
+    const premises = this.deps.premises?.(c.personId) ?? null;
     return {
       tone,
       commMode: c.commMode,
@@ -770,10 +787,11 @@ export class ContactManager {
       presence: { lights: p.lights, backup: p.backup, weapon: p.weapon, uniform: true },
       history: this.deps.people.officerHistory(c.personId),
       trust: this.deps.trustAt(x, z),
-      truth: c.truth,
+      truth: c.truth.suspect === undefined && c.role === 'suspect' ? { ...c.truth, suspect: true } : c.truth,
       guardianPresent: !juvenile || (c.guardianNotifiedAt >= 0 && this.t.sim >= c.guardianNotifiedAt),
       interpreterAvailable: c.callId > 0 && this.deps.interpreterAvailable(c.callId),
       directory: this.directory,
+      ...(premises ? { premises } : {}),
     };
   }
 
@@ -922,7 +940,7 @@ export class ContactManager {
   private needCall(c: Contact): void {
     if (c.callId !== 0 || !c.incident.startsWith('FC-') || c.flags.has('needsCall')) return;
     c.flags.add('needsCall');
-    this.deps.officerPosition(this.opos);
+    this.officerAt();
     const a = this.actorOf(c);
     this.deps.bus.emit('contact:needsCall', {
       personId: c.personId,
@@ -996,9 +1014,26 @@ export class ContactManager {
       this.line(c, 'system', res.escalate === 'flee' ? 'The subject runs!' : 'The subject attacks!');
       if (this.activeId === c.id) this.activeId = -1;
     }
+    if (res.consent) this.emitConsent(c, res.consent);
     if (res.calmed) this.flagOnce(c, 'calmed');
     if (c.actorId > 0) this.deps.npc.setStress(c.actorId, c.memory.stress);
     this.rev++;
+  }
+
+  /** `contact:consent` for every consent answer, with the premises the officer is at (-1 when unknown). */
+  private emitConsent(c: Contact, consent: NonNullable<DialogueResult['consent']>): void {
+    const premises = this.deps.premises?.(c.personId) ?? null;
+    this.deps.bus.emit('contact:consent', {
+      incident: c.incident,
+      callId: c.callId,
+      personId: c.personId,
+      kind: consent.kind,
+      granted: consent.granted,
+      valid: consent.valid,
+      buildingId: premises ? premises.buildingId : -1,
+      room: premises ? premises.room : -1,
+      sim: this.t.sim,
+    });
   }
 
   /** Writes the claim facts of a statement. Name and date of birth questions write only that fact (nothing else leaks). */
@@ -1668,7 +1703,7 @@ export class ContactManager {
   private collect(c: Contact, items: readonly CarriedItem[]): void {
     const { cad, people } = this.deps;
     const officer = this.deps.officer();
-    this.deps.officerPosition(this.opos);
+    this.officerAt();
     const call = c.callId > 0 ? cad.call(c.callId) : null;
     const foundAt = call ? call.location.text : this.deps.districtOf(this.opos.x, this.opos.z);
     const claim = c.memory.identity;

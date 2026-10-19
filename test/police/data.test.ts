@@ -20,7 +20,11 @@ describe('police data', () => {
       for (const f of p.frames) expect(f.colors).toHaveLength(8);
       expect(p.periodS).toBeCloseTo(p.frames.reduce((s, f) => s + f.durationS, 0), 10);
     }
-    expect(ITEMS_DATA.map((i) => i.id)).toEqual([...REQUIRED_TRUNK_ITEMS]);
+    // Phase 4 appends the six scene-work trunk items after the eight required ones.
+    expect(ITEMS_DATA.map((i) => i.id)).toEqual([
+      ...REQUIRED_TRUNK_ITEMS,
+      'ram', 'sceneTape', 'evidenceMarkers', 'evidenceBags', 'fingerprintKit', 'camera',
+    ]);
     const eq = parseEquipment(equipmentJson, 'equipment.json', ITEMS_DATA);
     expect(eq.siren.tones).toEqual(['wail', 'yelp', 'phaser', 'hilo']);
     expect(eq.siren.defaultTone).toBe('wail');
@@ -61,7 +65,7 @@ describe('police data', () => {
     // Extra items are fine: content scales without code changes.
     const more = clone(itemsJson);
     (more.items as unknown[]).push({ id: 'blanket', label: 'Blanket', carryMax: 2, deployable: false });
-    expect(parseItems(more, 'it.json')).toHaveLength(9);
+    expect(parseItems(more, 'it.json')).toHaveLength(ITEMS_DATA.length + 1);
   });
 
   it('equipment.json errors name the file and field; tones are checked against the union', () => {

@@ -40,6 +40,10 @@ export interface ContactRig {
   readonly officer: { x: number; z: number; yaw: number };
   readonly presence: { value: Presence };
   readonly stop: { vehicleId: number };
+  /** The officer's level reported through `officerPosition` (undefined: not reported). */
+  readonly level: { building: number | undefined };
+  /** What `premises()` returns for every person (null: none). */
+  readonly premises: { value: { buildingId: number; authority: boolean; room: number } | null };
   readonly interpreter: { available: boolean };
   readonly clock: { sim: number; game: number };
   readonly spot: { x: number; z: number };
@@ -102,13 +106,15 @@ export async function makeRig(start = NOON): Promise<ContactRig> {
   const emitted: { topic: string; payload: unknown }[] = [];
   bus.on('contact:event', (e) => events.push({ ...e }));
   bus.on('contact:line', (e) => lines.push({ ...e }));
-  for (const topic of ['contact:caged', 'contact:openForm', 'contact:needsCall'] as const) {
+  for (const topic of ['contact:caged', 'contact:openForm', 'contact:needsCall', 'contact:consent'] as const) {
     bus.on(topic, (payload) => emitted.push({ topic, payload }));
   }
   (bus as unknown as { on(topic: string, h: (p: unknown) => void): void }).on('force:used', (p) => emitted.push({ topic: 'force:used', payload: p }));
   const officer = { x: spot.x, z: spot.z, yaw: 0 };
   const presence = { value: { lights: false, siren: false, backup: 0, weapon: 'none' } as Presence };
   const stop = { vehicleId: -1 };
+  const level: { building: number | undefined } = { building: undefined };
+  const premises: { value: { buildingId: number; authority: boolean; room: number } | null } = { value: null };
   const interpreter = { available: false };
   const focus = { x: spot.x, z: spot.z, yaw: 0, speed: 0, onFoot: true, weapon: 'none' as const, lights: false, backup: 0 };
 
@@ -129,7 +135,9 @@ export async function makeRig(start = NOON): Promise<ContactRig> {
         out.x = officer.x;
         out.z = officer.z;
         out.yaw = officer.yaw;
+        if (level.building !== undefined) out.building = level.building;
       },
+      premises: () => premises.value,
       trustAt: () => 0.5,
       districtOf: () => 'downtown',
       stopVehicleId: () => stop.vehicleId,
@@ -153,6 +161,8 @@ export async function makeRig(start = NOON): Promise<ContactRig> {
     officer,
     presence,
     stop,
+    level,
+    premises,
     interpreter,
     clock,
     spot,

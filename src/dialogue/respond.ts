@@ -217,10 +217,18 @@ export function lieChance(subject: SubjectProfile, memory: SubjectMemory): numbe
 
 /** Chance of granting a consent (§9.3), clamped to [0, 1]. */
 export function consentChance(kind: ConsentKind, subject: SubjectProfile, ctx: DialogueContext, memory: SubjectMemory): number {
-  let p = 0.6 + 0.3 * memory.rapport - 0.2 * memory.stress;
+  const premises = kind === 'entry' || kind === 'searchPremises' || kind === 'searchRoom';
+  let p = premises ? 0.7 + 0.3 * memory.rapport - 0.2 * memory.stress : 0.6 + 0.3 * memory.rapport - 0.2 * memory.stress;
   if (ctx.tone === 'polite') p += 0.1;
-  const items = kind === 'searchVehicle' ? subject.vehicleItems : kind === 'searchPerson' ? subject.items : [];
-  if (items.some(isIncriminating)) p -= 0.4;
+  if (premises) {
+    // Letting the officer in or look around: less likely for somebody with something to hide or the one being looked for.
+    if (subject.items.some(isIncriminating)) p -= 0.3;
+    if (ctx.truth.suspect === true) p -= 0.4;
+    if (kind === 'searchPremises') p -= 0.2;
+  } else {
+    const items = kind === 'searchVehicle' ? subject.vehicleItems : kind === 'searchPerson' ? subject.items : [];
+    if (items.some(isIncriminating)) p -= 0.4;
+  }
   if ((kind === 'pbt' || kind === 'sfst') && subject.intoxication.bac > 0 && subject.intoxication.bac < 0.08) p += 0.1;
   return clamp(p, 0, 1);
 }
@@ -308,6 +316,7 @@ const REQUIREMENT_REASON: Readonly<Record<Requirement, string>> = {
   notJuvenile: 'The subject is a juvenile',
   identityGiven: 'No identity given yet',
   notRestrainedOrAny: '',
+  premisesAuthority: 'Not the resident or owner',
 };
 
 /** Whether `req` holds for this subject and moment. */
@@ -335,6 +344,8 @@ export function requirementMet(req: Requirement, subject: SubjectProfile, ctx: D
       return memory.identity !== null;
     case 'notRestrainedOrAny':
       return true;
+    case 'premisesAuthority':
+      return ctx.premises?.authority === true;
   }
 }
 

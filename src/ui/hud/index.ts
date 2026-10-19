@@ -21,6 +21,7 @@ export {
   type HudSnapshot,
   type HudText,
 } from './hud';
+export { FadeOverlay } from './fade';
 export {
   MARKER,
   MARKER_RIM,
@@ -29,6 +30,8 @@ export {
   MINIMAP_SIZE,
   Minimap,
   createMinimapMarkers,
+  fitFloorPlan,
+  type PlanFit,
   markerProjection,
   type MarkerKind,
   type MarkerPoint,
@@ -66,3 +69,13 @@ export {
   type HudScene,
   type SceneText,
 } from './scene';
+export {
+  NOISE_STEPS,
+  bodycamChipText,
+  locationChipText,
+  noiseMeterText,
+  noiseSteps,
+  tacticalChipsText,
+  visibilityText,
+} from './tactical';
+export type { FloorPlan, HudBodycam, HudLocation, HudTactical } from './types';

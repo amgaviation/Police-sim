@@ -1,6 +1,7 @@
 import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
 import type { Rng } from '../core/rng';
+import { levelY } from '../interior/constants';
 import { itemDef } from '../people/items';
 import type { Population } from '../people/population';
 import type { Intoxication } from '../people/types';
@@ -18,12 +19,17 @@ import { ActorRec, FLAG, PedRec } from './pool';
 import { isNpcSave } from './save';
 import {
   ACTOR_STATE,
+  AWARE_REACTIONS,
   type ActorInfo,
   type ActorSave,
   type ActorSpawn,
   type ActorStateId,
   type CommandContext,
+  type AwareReaction,
   type CommandOutcome,
+  type IndoorNavPort,
+  type Listener,
+  type NoGoZone,
   type NpcCommand,
   type NpcDeps,
   type NpcFocus,
@@ -77,6 +83,19 @@ const OVERRIDE_GRACE_STEPS = 900;
 const OVERRIDE_CAP = 64;
 /** Door offset beyond the body side (m). */
 const DOOR_OFFSET_M = 0.7;
+/** Seconds between the path updates of an actor that follows the officer indoors. */
+const INDOOR_REPATH_S = 1;
+/** An escorted actor placed on a new level stands this far behind the officer (m). */
+const FOLLOWER_GAP_M = 1;
+/** Within this distance of the officer a `confront` reaction starts a fight (m). */
+const CONFRONT_FIGHT_M = 3;
+/** Awareness gained per unit of light stimulus (sound and sight count 1). */
+const LIGHT_GAIN = 1.5;
+/** Eye heights by pose (m). */
+const EYE_STAND = 1.6;
+const EYE_SIT = 1.1;
+const EYE_LYING = 0.3;
+const EYE_DOG = 0.5;
 
 const SALT_WALK = 0x4e50_0001;
 const SALT_RUN = 0x4e50_0002;
@@ -114,6 +133,14 @@ const FOLLOWABLE = new Set<number>([
   ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.talk, ACTOR_STATE.hold, ACTOR_STATE.handsUp, ACTOR_STATE.kneel,
   ACTOR_STATE.sit, ACTOR_STATE.walkTo, ACTOR_STATE.follow, ACTOR_STATE.crowd,
 ]);
+/** States of a loose ambient actor that walks away when it stands inside a no-go zone. */
+const ZONE_LEAVABLE = new Set<number>([
+  ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.hold, ACTOR_STATE.talk, ACTOR_STATE.crowd, ACTOR_STATE.sit, ACTOR_STATE.walkTo,
+]);
+/** States in which an alert actor snaps round to face a stimulus. */
+const TURNABLE = new Set<number>([
+  ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.hold, ACTOR_STATE.talk, ACTOR_STATE.crowd, ACTOR_STATE.sit, ACTOR_STATE.handsUp, ACTOR_STATE.kneel,
+]);
 /** States a tackle cannot reach. */
 const UNTACKLEABLE = new Set<number>([
   ACTOR_STATE.cuffed, ACTOR_STATE.down, ACTOR_STATE.prone, ACTOR_STATE.lying, ACTOR_STATE.hide, ACTOR_STATE.seated,
@@ -145,6 +172,22 @@ function heldOf(weapon: string): number {
   if (weapon === 'handgun') return HELD.handgun;
   if (weapon === 'liquorBottle' || weapon === 'openContainer') return HELD.bottle;
   return HELD.knife;
+}
+
+/** Eye height (m) of an actor in `state`. */
+function eyeHeight(state: number): number {
+  switch (state) {
+    case ACTOR_STATE.lying:
+    case ACTOR_STATE.prone:
+    case ACTOR_STATE.down:
+      return EYE_LYING;
+    case ACTOR_STATE.sit:
+    case ACTOR_STATE.seated:
+    case ACTOR_STATE.kneel:
+      return EYE_SIT;
+    default:
+      return EYE_STAND;
+  }
 }
 
 export class NpcSystem {
@@ -183,6 +226,7 @@ export class NpcSystem {
   /** 0 none, 1 sidearm, 2 taser. */
   private fweapon = 0;
   private fbackup = 0;
+  private fbuilding = -1;
 
   // pedestrians
   private readonly peds: PedRec[];
@@ -211,6 +255,8 @@ export class NpcSystem {
   private gz = 0;
   private gmax = 0;
   private gface = true;
+  /** Whether the actor being stepped is on the officer's level. */
+  private rsame = true;
   private periodNear = 1;
   private periodMid = 1;
   private periodFar = 1;
@@ -228,6 +274,20 @@ export class NpcSystem {
   private readonly modelWidth: Float32Array;
   private readonly modelLength: Float32Array;
   private readonly door = { x: 0, z: 0, yaw: 0 };
+
+  // indoors
+  private nav: IndoorNavPort | null = null;
+  private zones: readonly NoGoZone[] = [];
+  private zoneBox = new Float64Array(0);
+  private zx = 0;
+  private zz = 0;
+  private zedge = 0;
+  private zs = 0;
+  private zside = 1;
+  private zox = 0;
+  private zoz = 0;
+  private readonly pose = { x: 0, z: 0, yaw: 0 };
+  private readonly exitRoute = new Float32Array(64);
 
   constructor(deps: NpcDeps) {
     this.seed = deps.seed;
@@ -265,6 +325,7 @@ export class NpcSystem {
     this.fonFoot = focus.onFoot;
     this.fweapon = focus.weapon === 'sidearm' ? 1 : focus.weapon === 'taser' ? 2 : 0;
     this.fbackup = focus.backup;
+    this.fbuilding = focus.building ?? -1;
 
     for (let i = 0; i < this.pedCount; i++) {
       const p = this.peds[i] as PedRec;
@@ -374,7 +435,7 @@ export class NpcSystem {
       const dx = p.x - this.fx;
       const dz = p.z - this.fz;
       const d2 = dx * dx + dz * dz;
-      if (d2 > despawnSq) {
+      if (d2 > despawnSq || (this.zones.length > 0 && this.pedInZone(p))) {
         this.removePed(i);
         continue;
       }
@@ -405,6 +466,15 @@ export class NpcSystem {
     const speed = p.flee > 0 ? this.cfg.actors.runSpeed[0] : p.base;
     if (p.flee > 0) p.flee = Math.max(0, p.flee - dt);
     p.speed = speed;
+    const zoned = this.zones.length > 0;
+    if (zoned) {
+      // Remembered for the step back at a no-go zone (scratch registers, not locals: no boxing).
+      this.zedge = p.edge;
+      this.zs = p.s;
+      this.zside = p.side;
+      this.zox = p.ox;
+      this.zoz = p.oz;
+    }
     p.s += p.dir * speed * dt;
     const e = this.edges[p.edge] as RoadEdge;
     if (p.s < 0 || p.s > e.length) {
@@ -421,6 +491,18 @@ export class NpcSystem {
       p.oz *= k;
     }
     this.placePed(p);
+    if (zoned && this.pedInZone(p)) {
+      // Scene tape: step back to where it came from and walk the other way.
+      p.edge = this.zedge;
+      p.s = this.zs;
+      p.side = this.zside;
+      p.ox = this.zox;
+      p.oz = this.zoz;
+      p.dir = -p.dir;
+      this.placePed(p);
+      p.speed = 0;
+      return;
+    }
     p.gait += (speed * dt) / ((1.4 * p.height) / 1.75);
   }
 
@@ -547,6 +629,7 @@ export class NpcSystem {
       const dz = p.z - this.fz;
       const d2 = dx * dx + dz * dz;
       if (d2 < minSq || d2 > maxSq) continue;
+      if (this.zones.length > 0 && this.pedInZone(p)) continue;
       let person = -1;
       for (let t = 0; t < 4 && person < 0; t++) {
         const id = rng.nextInt(0, PERSON_POPULATION - 1);
@@ -636,6 +719,7 @@ export class NpcSystem {
     if (!profile) throw new RangeError(`spawnActor: unknown profile "${spec.profile}"`);
     const person = spec.personId;
     if (!Number.isInteger(person) || person < -1 || person >= PERSON_POPULATION) throw new RangeError(`spawnActor: invalid person id ${String(person)}`);
+    if (spec.building !== undefined && (!Number.isInteger(spec.building) || spec.building < -1)) throw new RangeError(`spawnActor: invalid building ${String(spec.building)}`);
     if (person >= 0) {
       for (let i = 0; i < this.actorCount; i++) {
         const other = this.actors[i] as ActorRec;
@@ -668,6 +752,7 @@ export class NpcSystem {
     a.body = spec.body === 'dog' ? BODY.dog : BODY.human;
     a.tx = spec.x;
     a.tz = spec.z;
+    a.building = spec.building ?? -1;
     this.derive(a);
     a.stamina = a.staminaMax;
     const pose = spec.pose ?? profile.startPose;
@@ -675,7 +760,7 @@ export class NpcSystem {
       a.flags |= FLAG.hidden;
       a.state = ACTOR_STATE.hide;
     } else {
-      a.state = this.restingState(profile, pose);
+      a.state = this.restingState(profile, pose, a.building >= 0);
     }
     if (a.state === ACTOR_STATE.wander || a.state === ACTOR_STATE.crowd) this.pickGoal(a);
     this.byId.set(a.id, a);
@@ -684,11 +769,12 @@ export class NpcSystem {
     return a.id;
   }
 
-  /** The state a visible actor of `profile` rests in: the pose it starts in, else crowd, wander or idle. */
-  private restingState(profile: BehaviorProfile, pose: string): number {
+  /** The state a visible actor of `profile` rests in: the pose it starts in, else crowd, wander or idle (idle indoors). */
+  private restingState(profile: BehaviorProfile, pose: string, indoors = false): number {
     if (pose === 'lying') return ACTOR_STATE.lying;
     if (pose === 'sit') return ACTOR_STATE.sit;
     if (pose === 'kneel') return ACTOR_STATE.kneel;
+    if (indoors) return ACTOR_STATE.idle;
     if (profile.crowd) return ACTOR_STATE.crowd;
     return profile.wander ? ACTOR_STATE.wander : ACTOR_STATE.idle;
   }
@@ -714,6 +800,12 @@ export class NpcSystem {
     a.lost = 0;
     a.acc = 0;
     a.age = 0;
+    a.building = -1;
+    a.aware = 0;
+    a.awareLevel = 0;
+    a.hideSpot = -1;
+    a.srcX = 0;
+    a.srcZ = 0;
   }
 
   /** Values derived from the person (or the actor id): speeds, stamina, look, flee bonus. */
@@ -723,6 +815,7 @@ export class NpcSystem {
     a.runSpeed = lerp(cfg.runSpeed, unitHash(this.seed, SALT_RUN, a.id));
     a.staminaMax = lerp(cfg.staminaS, unitHash(this.seed, SALT_STAMINA, a.id));
     a.fleeBonus = 0;
+    a.hearing = 'normal';
     if (a.body === BODY.dog) {
       a.height = 0.6;
       a.build = 1;
@@ -741,6 +834,7 @@ export class NpcSystem {
       a.top = ap.top;
       a.bottom = ap.bottom;
       const ident = this.people.identity(a.person);
+      a.hearing = ident.hearing;
       if (ident.wanted) a.fleeBonus += 0.15;
       if (ident.juvenile) a.fleeBonus += 0.1;
       const items = this.people.itemsOn(a.person);
@@ -778,6 +872,7 @@ export class NpcSystem {
     if (i < 0) return;
     this.byId.delete(a.id);
     if (a.person >= 0) this.active.delete(a.person);
+    this.releaseSpot(a);
     const last = this.actorCount - 1;
     this.actors[i] = this.actors[last] as ActorRec;
     this.actors[last] = a;
@@ -788,16 +883,17 @@ export class NpcSystem {
 
   /**
    * The person nearest to (x, z) within `maxDist` and inside the cone around `yaw` (`coneCos` = cosine of the
-   * half angle): actors that are not hidden, pedestrians and occupants of the traffic-stop car.
+   * half angle): actors that are not hidden, pedestrians and occupants of the traffic-stop car. Only people on
+   * `building` count (default -1: outdoors, where the pedestrians and occupants are).
    */
-  nearestPerson(x: number, z: number, yaw: number, maxDist: number, coneCos: number, out: PersonPick): PersonPick | null {
+  nearestPerson(x: number, z: number, yaw: number, maxDist: number, coneCos: number, out: PersonPick, building = -1): PersonPick | null {
     const hx = -Math.sin(yaw);
     const hz = -Math.cos(yaw);
     let best = maxDist;
     let found = false;
     for (let i = 0; i < this.actorCount; i++) {
       const a = this.actors[i] as ActorRec;
-      if ((a.flags & FLAG.hidden) !== 0 || a.state === ACTOR_STATE.seated) continue;
+      if ((a.flags & FLAG.hidden) !== 0 || a.state === ACTOR_STATE.seated || a.building !== building) continue;
       const d = this.inCone(a.x, a.z, x, z, hx, hz, best, coneCos);
       if (d < 0) continue;
       best = d;
@@ -808,6 +904,7 @@ export class NpcSystem {
       out.personId = a.person;
       out.distance = d;
     }
+    if (building >= 0) return found ? out : null;
     for (let i = 0; i < this.pedCount; i++) {
       const p = this.peds[i] as PedRec;
       const d = this.inCone(p.x, p.z, x, z, hx, hz, best, coneCos);
@@ -876,6 +973,8 @@ export class NpcSystem {
     out.seat = a.seat;
     out.profile = a.profile.id;
     out.body = a.body;
+    out.building = a.building;
+    out.aware = a.aware;
     return out;
   }
 
@@ -906,6 +1005,16 @@ export class NpcSystem {
     return out;
   }
 
+  /** Clears `out` and fills it with the ids of the actors in building `buildingId` (-1: outdoors). */
+  actorsInBuilding(buildingId: number, out: number[]): number[] {
+    out.length = 0;
+    for (let i = 0; i < this.actorCount; i++) {
+      const a = this.actors[i] as ActorRec;
+      if (a.building === buildingId) out.push(a.id);
+    }
+    return out;
+  }
+
   /** Is the person a pedestrian, an actor or a seated occupant right now? */
   isActivePerson(personId: number): boolean {
     if (this.active.has(personId)) return true;
@@ -923,14 +1032,27 @@ export class NpcSystem {
   }
 
   private revealRec(a: ActorRec): void {
+    this.unhide(a);
+    this.approachRoll(a);
+  }
+
+  /** Comes out of hiding: frees a claimed hiding spot, takes the resting pose and raises `npc:revealed`. */
+  private unhide(a: ActorRec): void {
     a.flags &= ~FLAG.hidden;
+    this.releaseSpot(a);
     if (a.state === ACTOR_STATE.hide) {
       // Out of hiding the actor takes the pose it would have had in plain view (a body stays lying).
-      a.state = this.restingState(a.profile, a.profile.startPose);
+      a.state = this.restingState(a.profile, a.profile.startPose, a.building >= 0);
       if (a.state === ACTOR_STATE.wander || a.state === ACTOR_STATE.crowd) this.pickGoal(a);
     }
     this.note('npc:revealed', a);
-    this.approachRoll(a);
+  }
+
+  /** Gives a claimed hiding spot back to the nav port. */
+  private releaseSpot(a: ActorRec): void {
+    if (a.hideSpot < 0) return;
+    this.nav?.releaseHide(a.building, a.hideSpot);
+    a.hideSpot = -1;
   }
 
   setProfile(id: number, profile: string): void {
@@ -1128,6 +1250,10 @@ export class NpcSystem {
       case 'crowd':
         a.tx = a.x;
         a.tz = a.z;
+        if (a.building >= 0) {
+          this.setHold(a);
+          break;
+        }
         this.setPose(a, ACTOR_STATE.crowd);
         this.pickGoal(a);
         break;
@@ -1192,9 +1318,11 @@ export class NpcSystem {
     if (!on || a.body === BODY.dog) return false;
     if (a.state === ACTOR_STATE.cuffed) {
       a.flags |= FLAG.following;
+      a.repath = 0;
       return true;
     }
     if (!FOLLOWABLE.has(a.state)) return false;
+    a.repath = 0;
     a.state = ACTOR_STATE.follow;
     a.flags = (a.flags | FLAG.following) & ~(FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.advance);
     return true;
@@ -1204,7 +1332,7 @@ export class NpcSystem {
    * Brings down the nearest actor in front of the officer (within `tackleRangeM` and the 70 degree cone) who is
    * standing or running; returns its id, 0 when there is none.
    */
-  tackle(officerX: number, officerZ: number, officerYaw: number): number {
+  tackle(officerX: number, officerZ: number, officerYaw: number, building = -1): number {
     const hx = -Math.sin(officerYaw);
     const hz = -Math.cos(officerYaw);
     const cos = Math.cos(TACKLE_HALF_CONE);
@@ -1212,7 +1340,7 @@ export class NpcSystem {
     let bestD = this.cfg.actors.tackleRangeM;
     for (let i = 0; i < this.actorCount; i++) {
       const a = this.actors[i] as ActorRec;
-      if (a.body === BODY.dog || (a.flags & FLAG.hidden) !== 0 || UNTACKLEABLE.has(a.state)) continue;
+      if (a.body === BODY.dog || a.building !== building || (a.flags & FLAG.hidden) !== 0 || UNTACKLEABLE.has(a.state)) continue;
       const d = this.inCone(a.x, a.z, officerX, officerZ, hx, hz, bestD, cos);
       if (d < 0) continue;
       bestD = d;
@@ -1223,10 +1351,13 @@ export class NpcSystem {
     return best.id;
   }
 
-  /** TASER shot at actor `id` from `distance`: within `taserRangeM` it hits with `taserHit` and brings the actor down. */
-  taser(id: number, distance: number): boolean {
+  /**
+   * TASER shot at actor `id` from `distance`: within `taserRangeM` it hits with `taserHit` and brings the actor down.
+   * With `building` given the actor must be on that level.
+   */
+  taser(id: number, distance: number, building?: number): boolean {
     const a = this.byId.get(id);
-    if (!a || a.body === BODY.dog || (a.flags & FLAG.hidden) !== 0 || UNTACKLEABLE.has(a.state)) return false;
+    if (!a || (building !== undefined && a.building !== building) || a.body === BODY.dog || (a.flags & FLAG.hidden) !== 0 || UNTACKLEABLE.has(a.state)) return false;
     if (!(distance <= this.cfg.actors.taserRangeM)) return false;
     if (this.actorsRng.next() >= this.cfg.actors.taserHit) return false;
     this.takeDown(a, this.cfg.actors.taserDownS, 'taser');
@@ -1282,12 +1413,82 @@ export class NpcSystem {
   // --- Actors: state helpers -------------------------------------------------------------
 
   private startWalkTo(a: ActorRec, x: number, z: number): void {
+    let n = 0;
+    if (a.building >= 0) {
+      // Indoors the route comes from the nav port; without one (or without a way) the actor stays put.
+      n = this.nav ? Math.min(MAX_ROUTE_POINTS, this.nav.path(a.building, a.x, a.z, x, z, a.route)) : 0;
+      if (n <= 0) {
+        this.setHold(a);
+        return;
+      }
+    }
     a.state = ACTOR_STATE.walkTo;
     a.tx = x;
     a.tz = z;
-    a.routeLen = 0;
+    a.routeLen = 2 * n;
     a.routePos = 0;
     a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning);
+  }
+
+  /**
+   * Loads the route to the nearest way out into the actor (indoors). When there is none the actor hides (`canHide`) or
+   * holds; false then.
+   */
+  private planExit(a: ActorRec, canHide: boolean): boolean {
+    a.routeLen = 0;
+    a.routePos = 0;
+    const nav = this.nav;
+    if (!nav) {
+      this.setHold(a);
+      return false;
+    }
+    const n = Math.min(MAX_ROUTE_POINTS, nav.exit(a.building, a.x, a.z, a.route, this.pose));
+    if (n > 0) {
+      a.routeLen = 2 * n;
+      return true;
+    }
+    if (!canHide || !this.hideAt(a, this.fx, this.fz)) this.setHold(a);
+    return false;
+  }
+
+  /** Moves the actor to the nav port's hiding spot away from (awayX, awayZ) and hides it; false when there is none. */
+  private hideAt(a: ActorRec, awayX: number, awayZ: number): boolean {
+    const nav = this.nav;
+    if (!nav || a.building < 0) return false;
+    const idx = nav.hideSpot(a.building, a.x, a.z, awayX, awayZ, this.pose);
+    if (idx < 0) return false;
+    this.releaseSpot(a);
+    a.hideSpot = idx;
+    a.x = a.prevX = this.pose.x;
+    a.z = a.prevZ = this.pose.z;
+    a.yaw = a.prevYaw = this.pose.yaw;
+    a.tx = a.x;
+    a.tz = a.z;
+    a.routeLen = 0;
+    a.routePos = 0;
+    a.speed = 0;
+    a.flags = (a.flags | FLAG.hidden) & ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.weaponDrawn);
+    a.state = ACTOR_STATE.hide;
+    return true;
+  }
+
+  /** The actor reached the end of its way out: it steps outdoors at the exit pose and continues like an outdoor actor. */
+  private exitBuilding(a: ActorRec, fleeing: boolean): void {
+    const nav = this.nav;
+    if (!nav || nav.exit(a.building, a.x, a.z, this.exitRoute, this.pose) <= 0) {
+      this.setHold(a);
+      return;
+    }
+    this.releaseSpot(a);
+    a.building = -1;
+    a.x = a.prevX = this.pose.x;
+    a.z = a.prevZ = this.pose.z;
+    a.yaw = a.prevYaw = this.pose.yaw;
+    a.tx = a.x;
+    a.tz = a.z;
+    a.lost = 0;
+    if (fleeing) this.planAway(a, this.cfg.actors.fleeRouteM[0], this.cfg.actors.fleeRouteM[1]);
+    else this.planAway(a, this.cfg.actors.leaveDistanceM, this.cfg.actors.leaveDistanceM * 1.6);
   }
 
   /** Stand still (hold) and clear movement flags. */
@@ -1305,12 +1506,13 @@ export class NpcSystem {
   }
 
   private startFlee(a: ActorRec): void {
+    a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.cuffed);
+    if (a.building >= 0 && !this.planExit(a, true)) return;
     a.state = ACTOR_STATE.flee;
     a.timer = 0;
     a.lost = 0;
-    a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.cuffed);
     if (a.stamina <= 0) a.stamina = a.staminaMax;
-    this.planAway(a, this.cfg.actors.fleeRouteM[0], this.cfg.actors.fleeRouteM[1]);
+    if (a.building < 0) this.planAway(a, this.cfg.actors.fleeRouteM[0], this.cfg.actors.fleeRouteM[1]);
     this.note('npc:fled', a);
   }
 
@@ -1332,11 +1534,12 @@ export class NpcSystem {
   }
 
   private startLeave(a: ActorRec): void {
+    a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.cuffed);
+    if (a.building >= 0 && !this.planExit(a, false)) return;
     a.state = ACTOR_STATE.leave;
     a.lost = 0;
-    a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.cuffed);
     const d = this.cfg.actors.leaveDistanceM;
-    this.planAway(a, d, d * 1.6);
+    if (a.building < 0) this.planAway(a, d, d * 1.6);
   }
 
   /** New wander / crowd goal around the home point (tx, tz) kept in route[0..1]. */
@@ -1447,6 +1650,7 @@ export class NpcSystem {
       const dx = a.x - this.fx;
       const dz = a.z - this.fz;
       const d = Math.sqrt(dx * dx + dz * dz);
+      this.rsame = a.building === this.fbuilding;
       const period = d < lod.nearM ? this.periodNear : d < lod.midM ? this.periodMid : this.periodFar;
       const decide = period <= 1 || (this.stepCount + a.id) % period === 0;
       // Scratch registers instead of arguments: doubles passed to calls that are not inlined are boxed (garbage).
@@ -1475,7 +1679,7 @@ export class NpcSystem {
     switch (a.state) {
       case ACTOR_STATE.wander:
       case ACTOR_STATE.crowd:
-        if (a.routeLen >= 2) {
+        if (a.routeLen >= 2 && a.building < 0) {
           this.gx = a.route[0] as number;
           this.gz = a.route[1] as number;
           this.gmax = a.walkSpeed * 0.5 * this.rdt;
@@ -1484,11 +1688,16 @@ export class NpcSystem {
         }
         break;
       case ACTOR_STATE.walkTo: {
-        this.gx = a.tx;
-        this.gz = a.tz;
-        this.gmax = a.walkSpeed * this.rdt;
-        this.gface = (a.flags & FLAG.backward) === 0;
-        this.advance(a);
+        if (a.building >= 0) {
+          this.gmax = a.walkSpeed * this.rdt;
+          this.followRoute(a);
+        } else {
+          this.gx = a.tx;
+          this.gz = a.tz;
+          this.gmax = a.walkSpeed * this.rdt;
+          this.gface = (a.flags & FLAG.backward) === 0;
+          this.advance(a);
+        }
         const dx = a.tx - a.x;
         const dz = a.tz - a.z;
         if (dx * dx + dz * dz < 1e-4) {
@@ -1511,14 +1720,17 @@ export class NpcSystem {
       case ACTOR_STATE.flee:
         this.gmax = (a.stamina > 0 ? a.runSpeed : a.runSpeed * this.cfg.actors.tiredFactor) * this.rdt;
         this.followRoute(a);
+        if (a.building >= 0 && a.routePos * 2 >= a.routeLen) this.exitBuilding(a, true);
         break;
       case ACTOR_STATE.leave:
         this.gmax = a.walkSpeed * this.rdt;
         this.followRoute(a);
-        a.lost += this.rmoved;
+        if (a.building >= 0) {
+          if (a.routePos * 2 >= a.routeLen) this.exitBuilding(a, false);
+        } else a.lost += this.rmoved;
         break;
       case ACTOR_STATE.armed:
-        if ((a.flags & FLAG.advance) !== 0) {
+        if ((a.flags & FLAG.advance) !== 0 && this.rsame) {
           this.gx = this.fx;
           this.gz = this.fz;
           this.gmax = a.walkSpeed * 1.6 * this.rdt;
@@ -1545,7 +1757,7 @@ export class NpcSystem {
 
   /** Slow turn towards the officer when close and not told otherwise. */
   private faceOfficer(a: ActorRec): void {
-    if (a.body === BODY.dog || (a.flags & FLAG.faceAway) !== 0) return;
+    if (a.body === BODY.dog || (a.flags & FLAG.faceAway) !== 0 || a.building !== this.fbuilding) return;
     const dx = this.fx - a.x;
     const dz = this.fz - a.z;
     const d2 = dx * dx + dz * dz;
@@ -1610,8 +1822,13 @@ export class NpcSystem {
 
   /** Walks to the point `followDistance` behind the officer, speeding up when left behind. */
   private followOfficer(a: ActorRec): void {
-    if (!this.fonFoot) return;
+    // On another level the follower waits (`transferFollowers` brings it along).
+    if (!this.fonFoot || a.building !== this.fbuilding) return;
     const fd = this.cfg.actors.followDistance;
+    if (a.building >= 0) {
+      this.followIndoors(a, fd);
+      return;
+    }
     this.gx = this.fx + Math.sin(this.fyaw) * fd;
     this.gz = this.fz + Math.cos(this.fyaw) * fd;
     const dx = this.gx - a.x;
@@ -1624,6 +1841,28 @@ export class NpcSystem {
     this.gmax = Math.min(a.runSpeed, Math.max(a.walkSpeed, this.fspeed * 1.1) + d * 1.2) * this.rdt;
     this.gface = true;
     this.advance(a);
+  }
+
+  /** Follows the officer through the rooms: a path to the officer's position, recomputed every second. */
+  private followIndoors(a: ActorRec, fd: number): void {
+    const nav = this.nav;
+    if (!nav) return;
+    const dx = this.fx - a.x;
+    const dz = this.fz - a.z;
+    const d = Math.sqrt(dx * dx + dz * dz);
+    a.repath -= this.rdt;
+    if (d <= fd) {
+      this.faceOfficer(a);
+      return;
+    }
+    if (a.repath <= 0) {
+      a.repath = INDOOR_REPATH_S;
+      a.routeLen = 2 * Math.min(MAX_ROUTE_POINTS, nav.path(a.building, a.x, a.z, this.fx, this.fz, a.route));
+      a.routePos = 0;
+    }
+    if (a.routeLen === 0) return;
+    this.gmax = Math.min(a.runSpeed, Math.max(a.walkSpeed, this.fspeed * 1.1) + d * 1.2) * this.rdt;
+    this.followRoute(a);
   }
 
   /** Re-seats an actor that walked back to its vehicle: the seat is free again and the actor is removed. */
@@ -1642,8 +1881,15 @@ export class NpcSystem {
     const cfg = this.cfg.actors;
     const ddt = this.rdd;
     const d = this.rdist;
+    if (a.aware > 0) this.decayAware(a, ddt);
+    if (
+      this.zones.length > 0 && a.callId === 0 && ZONE_LEAVABLE.has(a.state) && (a.flags & (FLAG.cuffed | FLAG.following)) === 0 &&
+      (a.building < 0 || this.nav !== null) && this.actorInZone(a)
+    ) {
+      this.startLeave(a);
+    }
     if (a.state === ACTOR_STATE.hide) {
-      if (d <= cfg.revealDistanceM) this.revealRec(a);
+      if (this.rsame && d <= cfg.revealDistanceM) this.revealRec(a);
       return false;
     }
     a.age += ddt;
@@ -1655,7 +1901,7 @@ export class NpcSystem {
       this.removeActorRec(a);
       return true;
     }
-    if ((a.flags & FLAG.approached) === 0 && APPROACHABLE.has(a.state) && d <= cfg.approachTriggerM) this.approachRoll(a);
+    if ((a.flags & FLAG.approached) === 0 && APPROACHABLE.has(a.state) && this.rsame && d <= cfg.approachTriggerM) this.approachRoll(a);
     const rng = this.actorsRng;
     switch (a.state) {
       case ACTOR_STATE.flee: {
@@ -1678,7 +1924,7 @@ export class NpcSystem {
             return false;
           }
         }
-        if (this.routeDone(a)) this.planAway(a, cfg.fleeRouteM[0], cfg.fleeRouteM[1]);
+        if (a.building < 0 && this.routeDone(a)) this.planAway(a, cfg.fleeRouteM[0], cfg.fleeRouteM[1]);
         return false;
       }
       case ACTOR_STATE.armed:
@@ -1703,7 +1949,7 @@ export class NpcSystem {
         return false;
       }
       case ACTOR_STATE.leave:
-        if (a.lost >= cfg.leaveDistanceM || this.routeDone(a)) {
+        if (a.building < 0 && (a.lost >= cfg.leaveDistanceM || this.routeDone(a))) {
           this.note('npc:left', a);
           this.removeActorRec(a);
           return true;
@@ -1746,7 +1992,7 @@ export class NpcSystem {
       this.note('npc:surrendered', a);
       return;
     }
-    if (a.profile.demeanor === 'hostile' && d <= ATTACK_RANGE_M && rng.next() < ATTACK_CHANCE) {
+    if (a.profile.demeanor === 'hostile' && this.rsame && d <= ATTACK_RANGE_M && rng.next() < ATTACK_CHANCE) {
       if (a.weapon === 'handgun') {
         this.noteAttack(a, 'fire');
       } else if (a.weapon !== '') {
@@ -1936,12 +2182,13 @@ export class NpcSystem {
     }
     for (let i = 0; i < this.actorCount; i++, k++) {
       const a = this.actors[i] as ActorRec;
+      const y = levelY(a.building);
       v.x[k] = a.x;
-      v.y[k] = 0;
+      v.y[k] = y;
       v.z[k] = a.z;
       v.yaw[k] = a.yaw;
       v.prevX[k] = a.prevX;
-      v.prevY[k] = 0;
+      v.prevY[k] = y;
       v.prevZ[k] = a.prevZ;
       v.prevYaw[k] = a.prevYaw;
       v.anchor[k] = 0;
@@ -2043,6 +2290,261 @@ export class NpcSystem {
     return k;
   }
 
+  // --- Indoors (design §8.1) -----------------------------------------------------------------
+
+  /** Sets (or clears) the navigation inside buildings. Without it indoor actors only idle and hold. */
+  setIndoorNav(nav: IndoorNavPort | null): void {
+    this.nav = nav;
+  }
+
+  /** Moves actor `id` to a level and position (residents to the door, prisoners to cells). Clears its route. */
+  setActorPosition(id: number, building: number, x: number, z: number, yaw: number): void {
+    const a = this.byId.get(id);
+    if (!a || !Number.isInteger(building) || building < -1 || !Number.isFinite(x) || !Number.isFinite(z) || !Number.isFinite(yaw)) return;
+    this.releaseSpot(a);
+    a.building = building;
+    a.x = a.prevX = x;
+    a.z = a.prevZ = z;
+    a.yaw = a.prevYaw = yaw;
+    a.tx = x;
+    a.tz = z;
+    a.routeLen = 0;
+    a.routePos = 0;
+    a.repath = 0;
+    if (a.state === ACTOR_STATE.flee || a.state === ACTOR_STATE.leave) {
+      const fleeing = a.state === ACTOR_STATE.flee;
+      if (building >= 0) this.planExit(a, fleeing);
+      else if (fleeing) this.planAway(a, this.cfg.actors.fleeRouteM[0], this.cfg.actors.fleeRouteM[1]);
+      else this.planAway(a, this.cfg.actors.leaveDistanceM, this.cfg.actors.leaveDistanceM * 1.6);
+    }
+  }
+
+  /** Every following (escorted) actor joins the officer on a level change, placed 1 m behind (x, z, yaw). */
+  transferFollowers(building: number, x: number, z: number, yaw: number): void {
+    if (!Number.isInteger(building) || building < -1) return;
+    const px = x + Math.sin(yaw) * FOLLOWER_GAP_M;
+    const pz = z + Math.cos(yaw) * FOLLOWER_GAP_M;
+    for (let i = 0; i < this.actorCount; i++) {
+      const a = this.actors[i] as ActorRec;
+      if ((a.flags & FLAG.following) === 0) continue;
+      this.releaseSpot(a);
+      a.building = building;
+      a.x = a.prevX = px;
+      a.z = a.prevZ = pz;
+      a.yaw = a.prevYaw = yaw;
+      a.tx = px;
+      a.tz = pz;
+      a.routeLen = 0;
+      a.routePos = 0;
+      a.repath = 0;
+    }
+  }
+
+  /**
+   * ListenerPort (design §7.3): fills `out` with the actors within `radius` of (x, z) on any level, reusing the
+   * objects already in the array (it only grows), and returns how many were written.
+   */
+  listeners(x: number, z: number, radius: number, out: Listener[]): number {
+    const r2 = radius * radius;
+    const hour = this.hourOfDay();
+    let n = 0;
+    for (let i = 0; i < this.actorCount; i++) {
+      const a = this.actors[i] as ActorRec;
+      const dx = a.x - x;
+      const dz = a.z - z;
+      if (dx * dx + dz * dz > r2) continue;
+      let l = out[n];
+      if (!l) {
+        l = { actorId: 0, personId: -1, x: 0, z: 0, building: -1, hearing: 'normal', asleep: false, yaw: 0, eyeY: EYE_STAND };
+        out.push(l);
+      }
+      const dead = a.profile.id === 'subjectDeceased' || a.profile.id === 'subjectUnconscious';
+      l.actorId = a.id;
+      l.personId = a.person;
+      l.x = a.x;
+      l.z = a.z;
+      l.building = a.building;
+      l.hearing = dead ? 'deaf' : a.hearing;
+      l.asleep = a.state === ACTOR_STATE.lying && !dead && hour < 6;
+      l.yaw = a.yaw;
+      l.eyeY = a.body === BODY.dog ? EYE_DOG : eyeHeight(a.state);
+      n++;
+    }
+    return n;
+  }
+
+  /**
+   * Something reached actor `actorId` (design §8.1): `sound` and `sight` add `amount` to its awareness, `light` 1.5 times
+   * that. Hidden actors ignore sight; people who cannot react (unconscious, dead) ignore everything. Crossing `alertAt`
+   * turns the actor towards the source and raises `npc:aware` (level `alert`); crossing `awareAt` rolls the profile's
+   * `onAware` reaction once per actor and raises `npc:aware` (level `aware`).
+   */
+  stimulate(actorId: number, kind: 'sound' | 'sight' | 'light', amount: number, srcX: number, srcZ: number): void {
+    const a = this.byId.get(actorId);
+    if (!a || !(amount > 0) || a.profile.demeanor === 'unresponsive') return;
+    if (kind === 'sight' && (a.flags & FLAG.hidden) !== 0) return;
+    a.aware = Math.min(1, a.aware + (kind === 'light' ? amount * LIGHT_GAIN : amount));
+    a.srcX = srcX;
+    a.srcZ = srcZ;
+    const level = this.levelOfAware(a.aware);
+    if (level <= a.awareLevel) return;
+    const from = a.awareLevel;
+    a.awareLevel = level;
+    if (from < 1) {
+      this.faceSource(a);
+      this.noteAware(a, 'alert', 'none', kind);
+    }
+    if (level >= 2 && (a.flags & FLAG.awareRolled) === 0) {
+      a.flags |= FLAG.awareRolled;
+      const reaction = this.react(a, this.rollAware(a));
+      this.noteAware(a, 'aware', reaction, kind);
+    }
+  }
+
+  private levelOfAware(aware: number): number {
+    const cfg = this.cfg.actors;
+    return aware >= cfg.awareAt ? 2 : aware >= cfg.alertAt ? 1 : 0;
+  }
+
+  private decayAware(a: ActorRec, ddt: number): void {
+    a.aware = Math.max(0, a.aware - this.cfg.actors.awareDecayPerS * ddt);
+    a.awareLevel = Math.min(a.awareLevel, this.levelOfAware(a.aware));
+  }
+
+  /** Snaps a resting actor round to face the last stimulus. */
+  private faceSource(a: ActorRec): void {
+    if ((a.flags & (FLAG.hidden | FLAG.cuffed)) !== 0 || !TURNABLE.has(a.state)) return;
+    const dx = a.srcX - a.x;
+    const dz = a.srcZ - a.z;
+    if (dx * dx + dz * dz > 1e-4) a.yaw = yawOf(dx, dz);
+  }
+
+  private noteAware(a: ActorRec, level: 'alert' | 'aware', reaction: AwareReaction, cause: 'sound' | 'sight' | 'light'): void {
+    const ev = { actorId: a.id, personId: a.person, callId: a.callId, level, reaction, cause };
+    this.fire(() => this.bus.emit('npc:aware', ev));
+  }
+
+  /** Picks a reaction by the profile's `onAware` weights with one draw of the actors stream. */
+  private rollAware(a: ActorRec): AwareReaction {
+    const w = a.profile.onAware;
+    let total = 0;
+    for (let i = 0; i < AWARE_REACTIONS.length; i++) total += w[AWARE_REACTIONS[i] as AwareReaction];
+    let u = this.actorsRng.next() * total;
+    for (let i = 0; i < AWARE_REACTIONS.length; i++) {
+      const r = AWARE_REACTIONS[i] as AwareReaction;
+      const weight = w[r];
+      if (weight <= 0) continue;
+      if (u < weight) return r;
+      u -= weight;
+    }
+    return 'none';
+  }
+
+  /** Carries out a rolled reaction; returns the one that actually happened (the others need a way out, a weapon or a free body). */
+  private react(a: ActorRec, reaction: AwareReaction): AwareReaction {
+    const stuck = (a.flags & FLAG.cuffed) !== 0 || RESTRAINED.has(a.state) || a.state === ACTOR_STATE.lying || a.state === ACTOR_STATE.seated;
+    if (stuck || reaction === 'none') return 'none';
+    const hidden = (a.flags & FLAG.hidden) !== 0;
+    switch (reaction) {
+      case 'hide':
+        if (hidden || a.building < 0) return 'none';
+        return this.hideAt(a, a.srcX, a.srcZ) ? 'hide' : 'none';
+      case 'flee':
+        if (hidden) this.unhide(a);
+        this.startFlee(a);
+        return this.reactionOfState(a);
+      case 'confront': {
+        if (hidden) this.unhide(a);
+        if (a.weapon !== '') {
+          this.startArmed(a);
+          return 'confront';
+        }
+        const dx = a.x - this.fx;
+        const dz = a.z - this.fz;
+        if (this.fbuilding === a.building && dx * dx + dz * dz <= CONFRONT_FIGHT_M * CONFRONT_FIGHT_M) this.startFight(a);
+        else {
+          this.setHold(a);
+          this.faceSource(a);
+        }
+        return 'confront';
+      }
+      case 'surrender':
+        if (hidden) this.unhide(a);
+        this.setPose(a, ACTOR_STATE.handsUp);
+        this.note('npc:surrendered', a);
+        return 'surrender';
+      case 'arm':
+        if (a.weapon === '') return 'none';
+        if (!hidden) this.setHold(a);
+        a.flags |= FLAG.weaponDrawn;
+        return 'arm';
+      default:
+        return 'none';
+    }
+  }
+
+  /** The reaction a state stands for after `startFlee` (it may have hidden or held the actor instead). */
+  private reactionOfState(a: ActorRec): AwareReaction {
+    const state: number = a.state;
+    return state === ACTOR_STATE.flee ? 'flee' : state === ACTOR_STATE.hide ? 'hide' : 'none';
+  }
+
+  /** Sets the areas pedestrians keep out of (scene tape). Ambient actors standing in one walk away. */
+  setNoGoZones(zones: readonly NoGoZone[]): void {
+    this.zones = zones.slice();
+    // The boxes live in a typed array (minX, minZ, maxX, maxZ per zone): reading them allocates nothing.
+    this.zoneBox = new Float64Array(zones.length * 4);
+    zones.forEach((zone, i) => {
+      this.zoneBox[i * 4] = zone.minX;
+      this.zoneBox[i * 4 + 1] = zone.minZ;
+      this.zoneBox[i * 4 + 2] = zone.maxX;
+      this.zoneBox[i * 4 + 3] = zone.maxZ;
+    });
+  }
+
+  // The position travels in scratch registers: doubles passed to calls that are not inlined are boxed (garbage).
+  private pedInZone(p: PedRec): boolean {
+    this.zx = p.x;
+    this.zz = p.z;
+    return this.zoneHit();
+  }
+
+  private actorInZone(a: ActorRec): boolean {
+    this.zx = a.x;
+    this.zz = a.z;
+    return this.zoneHit();
+  }
+
+  /** Is (zx, zz) inside a no-go zone (box first, then the polygon)? */
+  private zoneHit(): boolean {
+    const zones = this.zones;
+    const box = this.zoneBox;
+    const x = this.zx;
+    const z = this.zz;
+    for (let i = 0; i < zones.length; i++) {
+      const k = i * 4;
+      if (x < (box[k] as number) || x > (box[k + 2] as number) || z < (box[k + 1] as number) || z > (box[k + 3] as number)) continue;
+      if (this.polygonHit((zones[i] as NoGoZone).points)) return true;
+    }
+    return false;
+  }
+
+  /** `pointInPolygon` for (zx, zz): the point travels in scratch registers (no boxed arguments). */
+  private polygonHit(pts: Float32Array): boolean {
+    const x = this.zx;
+    const z = this.zz;
+    const n = pts.length >> 1;
+    let inside = false;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = pts[2 * i] as number;
+      const zi = pts[2 * i + 1] as number;
+      const xj = pts[2 * j] as number;
+      const zj = pts[2 * j + 1] as number;
+      if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
   // --- Debug ------------------------------------------------------------------------------
 
   /** Debug: scales the pedestrian density target (default 1). */
@@ -2088,6 +2590,10 @@ export class NpcSystem {
         speed: a.speed, stress: a.stress, timer: a.timer, stamina: a.stamina, flags: a.flags, weapon: a.weapon, vehicleId: a.vehicleId,
         seat: a.seat, body: a.body, targetX: a.tx, targetZ: a.tz, route, routePos: a.routePos, lostTimer: a.lost, acc: a.acc, age: a.age,
       });
+      const saved = actors[actors.length - 1] as ActorSave;
+      if (a.building !== -1) saved.building = a.building;
+      if (a.aware > 0) saved.aware = a.aware;
+      if (a.hideSpot >= 0) saved.hideSpot = a.hideSpot;
     }
     const pairs = (m: Map<number, number[]>): [number, number[]][] =>
       [...m.entries()].filter(([, v]) => v.length > 0).sort((x, y) => x[0] - y[0]).map(([k, v]) => [k, v.slice()]);
@@ -2180,6 +2686,10 @@ export class NpcSystem {
       a.lost = s.lostTimer;
       a.acc = s.acc ?? 0;
       a.age = s.age ?? 0;
+      a.building = s.building !== undefined && s.building >= -1 ? s.building : -1;
+      a.aware = clamp(s.aware ?? 0, 0, 1);
+      a.awareLevel = this.levelOfAware(a.aware);
+      a.hideSpot = s.hideSpot !== undefined && s.hideSpot >= 0 ? s.hideSpot : -1;
       this.derive(a);
       this.byId.set(a.id, a);
       if (a.person >= 0) this.active.add(a.person);

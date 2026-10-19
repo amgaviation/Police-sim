@@ -5,6 +5,8 @@ import { isDispatchSave, type DispatchSave } from '../dispatch/save';
 import type { ContactSave } from '../contact';
 import { isContactSave } from '../contact/save';
 import { isEnvironmentSave, type EnvironmentSave } from '../environment/environment';
+import { isInteriorSave, type InteriorSave } from '../indoors/save';
+import { isInvestigationSave, type InvestigationSave } from '../investigation/save';
 import { isNpcSave } from '../npc/save';
 import type { NpcSave } from '../npc/types';
 import { isPeopleSave, type PeopleSave } from '../people';
@@ -15,13 +17,15 @@ import { isOfficerKitSave, type OfficerKitSave } from '../police/inventory';
 import { isRadioSave, type RadioSave } from '../radio/save';
 import { isRecordsSave, type RecordsSave } from '../records/db';
 import { isSceneSave, type SceneSave } from '../scene/save';
+import { isStationSave, type StationSave } from '../station/stationState';
+import { isTacticalSave, type TacticalSave } from '../tactical/save';
 import type { TrafficViolationKind } from '../traffic/events';
 import { isTrafficSnapshot, type TrafficSnapshot } from '../traffic/trafficSystem';
 import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 5;
+export const CURRENT_SAVE_VERSION = 6;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -145,8 +149,22 @@ export interface SaveGameV5 extends SaveGameV4 {
   scenes: SceneSave;
 }
 
+/**
+ * v6 (Phase 4): interiors and scene work. `interiors` holds the officer's level, door and light overrides and
+ * the pending fade, `tactical` the stance, flashlight, partner and queued sounds, `investigation` the case files
+ * (items, markers, photos with thumbnails, prints, canvass, consents, statements, bodycam), the custody ledger,
+ * tapes, the K9 sweep and dusting, and `station` the shift flow, armory log, loadout, holding cells and interview.
+ * Frozen after Phase 4.
+ */
+export interface SaveGameV6 extends SaveGameV5 {
+  interiors: InteriorSave;
+  tactical: TacticalSave;
+  investigation: InvestigationSave;
+  station: StationSave;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV5;
+export type SaveGame = SaveGameV6;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -337,8 +355,20 @@ export function isSaveGameV5(x: unknown): x is SaveGameV5 {
   );
 }
 
+/** Structural check for the v6 payload: v5 plus the Phase 4 blocks (each module's own validator). */
+export function isSaveGameV6(x: unknown): x is SaveGameV6 {
+  if (!isSaveGameV5(x)) return false;
+  const v6 = x as unknown as Record<string, unknown>;
+  return (
+    isInteriorSave(v6['interiors']) &&
+    isTacticalSave(v6['tactical']) &&
+    isInvestigationSave(v6['investigation']) &&
+    isStationSave(v6['station'])
+  );
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV5;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV6;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

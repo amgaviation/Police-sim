@@ -1,0 +1,22 @@
+{ "version": 1,
+  "families": {
+    "domestic":      { "kinds": ["house", "apartment"], "rooms": { "suspect": ["living", "kitchen", "bedroom", "unitLiving"], "victim": ["living", "kitchen", "unitLiving"] },
+                       "evidence": [ { "item": "bloodEvidence", "rooms": ["kitchen", "living", "unitLiving"], "chance": 0.4, "where": "floor" },
+                                     { "item": "knife", "rooms": ["kitchen"], "chance": 0.3, "where": "container" } ], "doorLocked": 0.3 },
+    "welfare":       { "kinds": ["house", "apartment"], "rooms": { "subject": ["bedroom", "living", "bathroom", "unitBedroom", "unitLiving"] }, "doorLocked": 0.7 },
+    "property":      { "kinds": ["house", "apartment", "convenienceStore", "office"], "rooms": {},
+                       "evidence": [ { "item": "brokenGlass", "rooms": ["living", "kitchen", "salesFloor", "lobby", "unitLiving"], "chance": 0.6, "where": "floor" },
+                                     { "item": "burglaryTools", "rooms": ["bedroom", "office", "unitBedroom"], "chance": 0.3, "where": "surface" } ], "doorLocked": 0.0 },
+    "inProgress":    { "kinds": ["house", "apartment", "convenienceStore", "warehouse", "office"], "rooms": { "suspect": ["bedroom", "office", "storage", "backOffice", "unitBedroom"] },
+                       "evidence": [ { "item": "brokenGlass", "rooms": ["living", "salesFloor", "lobby", "floor"], "chance": 0.7, "where": "floor" } ], "doorLocked": 0.0 },
+    "retail":        { "kinds": ["convenienceStore"], "rooms": { "guard": ["backOffice", "salesFloor"], "suspect": ["backOffice", "salesFloor"] },
+                       "moveInside": ["guard", "suspect"],
+                       "evidence": [ { "item": "stolenGoods", "rooms": ["backOffice", "salesFloor"], "chance": 0.9, "where": "surface" } ], "doorLocked": 0.0 },
+    "barricade":     { "kinds": ["house", "apartment"], "rooms": { "subject": ["bedroom", "bathroom", "unitBedroom"], "hostage": ["bedroom", "unitBedroom"] }, "doorLocked": 1.0 },
+    "investigation": { "kinds": ["house", "apartment"], "rooms": { "deceased": ["bedroom", "living", "bathroom", "unitBedroom", "unitLiving"] },
+                       "evidence": [ { "item": "pills", "rooms": ["bathroom", "bedroom", "unitBath"], "chance": 0.3, "where": "container" } ], "doorLocked": 0.5 } },
+  "types": {
+    "schoolThreat": { "kinds": ["school"] }, "commercialBurglaryInProgress": { "kinds": ["convenienceStore", "warehouse", "office"] },
+    "loudParty": { "kinds": ["house", "apartment"], "family": "disturbance" }, "squatters": { "kinds": ["house", "warehouse"], "family": "trespass" },
+    "trespassVacantBuilding": { "kinds": ["warehouse"], "family": "trespass" }, "customerDispute": { "kinds": ["bar", "convenienceStore"], "family": "disturbance" } },
+  "excludeTypes": ["vehicleBurglaryCold", "vehicleBreakInProgress", "slumpedInVehicle", "foundPersonConfused", "citizenAssist", "strandedMotorist", "gasDriveOff"] }

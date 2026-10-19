@@ -16,9 +16,10 @@ export type QueuedEvent =
   | { t: 'needsCall'; personId: number; x: number; z: number; incident: string }
   | { t: 'npc'; kind: NpcEventKind; actorId: number; personId: number; callId: number; extra: string; x: number; z: number }
   | { t: 'doc'; id: string; kind: string }
-  | { t: 'force'; kind: string; personId: number; callId: number };
+  | { t: 'force'; kind: string; personId: number; callId: number }
+  | { t: 'consent'; callId: number; personId: number; kind: string; granted: boolean; valid: boolean; buildingId: number; room: number };
 
-const KINDS: ReadonlySet<string> = new Set(['created', 'closed', 'onScene', 'stop', 'pulling', 'fleeEnded', 'contact', 'needsCall', 'npc', 'doc', 'force']);
+const KINDS: ReadonlySet<string> = new Set(['created', 'closed', 'onScene', 'stop', 'pulling', 'fleeEnded', 'contact', 'needsCall', 'npc', 'doc', 'force', 'consent']);
 
 /** True for a plain object with a known `t` tag (restore drops anything else). */
 export function isQueuedEvent(x: unknown): x is QueuedEvent {

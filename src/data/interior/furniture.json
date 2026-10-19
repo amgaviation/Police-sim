@@ -1,0 +1,417 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "sofa",
+      "size": [2, 0.9, 0.85],
+      "color": 7043727,
+      "solid": true,
+      "seat": "sit"
+    },
+    {
+      "id": "armchair",
+      "size": [0.9, 0.9, 0.85],
+      "color": 8022877,
+      "solid": true,
+      "seat": "sit"
+    },
+    {
+      "id": "chair",
+      "size": [0.5, 0.5, 0.9],
+      "color": 9137998,
+      "solid": true,
+      "seat": "sit"
+    },
+    {
+      "id": "stool",
+      "size": [0.4, 0.4, 0.75],
+      "color": 7237230,
+      "solid": true,
+      "seat": "sit"
+    },
+    {
+      "id": "bed",
+      "size": [1.6, 2, 0.55],
+      "color": 9473952,
+      "solid": true,
+      "seat": "lie",
+      "hide": "underBed"
+    },
+    {
+      "id": "wardrobe",
+      "size": [1.2, 0.6, 2],
+      "color": 8018995,
+      "solid": true,
+      "container": "closet",
+      "hide": "closet"
+    },
+    {
+      "id": "dresser",
+      "size": [1.2, 0.5, 0.9],
+      "color": 9202245,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer"
+    },
+    {
+      "id": "nightstand",
+      "size": [0.5, 0.4, 0.55],
+      "color": 9202245,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer"
+    },
+    {
+      "id": "table",
+      "size": [1.4, 0.9, 0.75],
+      "color": 9136971,
+      "solid": true,
+      "surface": "wood"
+    },
+    {
+      "id": "coffeeTable",
+      "size": [1, 0.5, 0.45],
+      "color": 8084543,
+      "solid": true,
+      "surface": "glass"
+    },
+    {
+      "id": "desk",
+      "size": [1.4, 0.7, 0.75],
+      "color": 6047539,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer"
+    },
+    {
+      "id": "counter",
+      "size": [2.4, 0.7, 1],
+      "color": 12632256,
+      "solid": true,
+      "surface": "stone",
+      "container": "cabinet",
+      "hide": "behindCounter"
+    },
+    {
+      "id": "kitchenCounter",
+      "size": [2, 0.65, 0.9],
+      "color": 12104874,
+      "solid": true,
+      "surface": "stone",
+      "container": "cabinet"
+    },
+    {
+      "id": "fridge",
+      "size": [0.8, 0.75, 1.8],
+      "color": 14737632,
+      "solid": true,
+      "surface": "metal",
+      "container": "cabinet"
+    },
+    {
+      "id": "stove",
+      "size": [0.75, 0.7, 0.9],
+      "color": 4868682,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "sink",
+      "size": [0.7, 0.5, 0.85],
+      "color": 14474460,
+      "solid": true,
+      "surface": "metal",
+      "container": "cabinet"
+    },
+    {
+      "id": "toilet",
+      "size": [0.45, 0.7, 0.4],
+      "color": 15790320,
+      "solid": true,
+      "surface": "stone"
+    },
+    {
+      "id": "bathtub",
+      "size": [0.8, 1.7, 0.6],
+      "color": 15790320,
+      "solid": true,
+      "hide": "shower"
+    },
+    {
+      "id": "tvStand",
+      "size": [1.3, 0.45, 0.5],
+      "color": 3815994,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer"
+    },
+    {
+      "id": "bookshelf",
+      "size": [1, 0.35, 1.9],
+      "color": 8018488,
+      "solid": true,
+      "surface": "wood"
+    },
+    {
+      "id": "shelf",
+      "size": [1.8, 0.5, 1.8],
+      "color": 10066329,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "cupboard",
+      "size": [1, 0.5, 2],
+      "color": 9206364,
+      "solid": true,
+      "container": "cabinet",
+      "hide": "cabinet"
+    },
+    {
+      "id": "checkoutCounter",
+      "size": [1.8, 0.7, 1],
+      "color": 11119008,
+      "solid": true,
+      "surface": "stone",
+      "container": "drawer",
+      "hide": "behindCounter"
+    },
+    {
+      "id": "cooler",
+      "size": [2.4, 0.8, 1.9],
+      "color": 11194592,
+      "solid": true,
+      "surface": "glass"
+    },
+    {
+      "id": "tellerCounter",
+      "size": [3, 0.7, 1.1],
+      "color": 11576719,
+      "solid": true,
+      "surface": "stone",
+      "container": "drawer",
+      "hide": "behindCounter"
+    },
+    {
+      "id": "safe",
+      "size": [0.8, 0.7, 1.2],
+      "color": 3487029,
+      "solid": true,
+      "surface": "metal",
+      "container": "safe"
+    },
+    {
+      "id": "barCounter",
+      "size": [3.5, 0.7, 1.1],
+      "color": 5978665,
+      "solid": true,
+      "surface": "wood",
+      "container": "cabinet",
+      "hide": "behindCounter"
+    },
+    {
+      "id": "barTable",
+      "size": [0.8, 0.8, 1.05],
+      "color": 7031347,
+      "solid": true,
+      "surface": "wood"
+    },
+    {
+      "id": "hospitalBed",
+      "size": [1, 2.1, 0.7],
+      "color": 14212576,
+      "solid": true,
+      "seat": "lie",
+      "surface": "metal"
+    },
+    {
+      "id": "examTable",
+      "size": [0.7, 1.9, 0.8],
+      "color": 13620954,
+      "solid": true,
+      "seat": "lie",
+      "surface": "fabric"
+    },
+    {
+      "id": "schoolDesk",
+      "size": [0.7, 0.55, 0.75],
+      "color": 11569755,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer",
+      "seat": "sit"
+    },
+    {
+      "id": "teacherDesk",
+      "size": [1.5, 0.75, 0.75],
+      "color": 8018490,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer"
+    },
+    {
+      "id": "whiteboard",
+      "size": [2.4, 0.1, 1.2],
+      "color": 16119280,
+      "solid": true,
+      "surface": "glass"
+    },
+    {
+      "id": "filingCabinet",
+      "size": [0.5, 0.6, 1.3],
+      "color": 8028036,
+      "solid": true,
+      "surface": "metal",
+      "container": "drawer"
+    },
+    {
+      "id": "conferenceTable",
+      "size": [3, 1.2, 0.75],
+      "color": 7032880,
+      "solid": true,
+      "surface": "wood"
+    },
+    {
+      "id": "crate",
+      "size": [1, 1, 1],
+      "color": 10255178,
+      "solid": true,
+      "container": "cabinet"
+    },
+    {
+      "id": "palletRack",
+      "size": [2.4, 0.9, 2.4],
+      "color": 5205919,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "pillar",
+      "size": [0.5, 0.5, 3],
+      "color": 10132118,
+      "solid": true
+    },
+    {
+      "id": "parkedCar",
+      "size": [4.5, 1.9, 1.4],
+      "color": 6254463,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "locker",
+      "size": [0.9, 0.5, 1.8],
+      "color": 5927056,
+      "solid": true,
+      "surface": "metal",
+      "container": "cabinet"
+    },
+    {
+      "id": "bench",
+      "size": [1.6, 0.45, 0.45],
+      "color": 9072458,
+      "solid": true,
+      "seat": "sit",
+      "surface": "wood"
+    },
+    {
+      "id": "podium",
+      "size": [0.7, 0.5, 1.1],
+      "color": 4868682,
+      "solid": true,
+      "surface": "wood"
+    },
+    {
+      "id": "armoryCounter",
+      "size": [2.4, 0.7, 1],
+      "color": 5593438,
+      "solid": true,
+      "surface": "metal",
+      "container": "cabinet"
+    },
+    {
+      "id": "evidenceLocker",
+      "size": [1.2, 0.6, 1.9],
+      "color": 7370880,
+      "solid": true,
+      "surface": "metal",
+      "container": "safe"
+    },
+    {
+      "id": "cellBench",
+      "size": [1.8, 0.6, 0.45],
+      "color": 8421504,
+      "solid": true,
+      "seat": "lie",
+      "surface": "metal"
+    },
+    {
+      "id": "interviewTable",
+      "size": [1.4, 0.9, 0.75],
+      "color": 7237230,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "frontDesk",
+      "size": [2.4, 0.8, 1.05],
+      "color": 9410204,
+      "solid": true,
+      "surface": "wood",
+      "container": "drawer",
+      "hide": "behindCounter"
+    },
+    {
+      "id": "computerDesk",
+      "size": [1.4, 0.7, 0.75],
+      "color": 5067352,
+      "solid": true,
+      "surface": "metal",
+      "container": "drawer"
+    },
+    {
+      "id": "washer",
+      "size": [0.65, 0.65, 0.9],
+      "color": 15263976,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "dryer",
+      "size": [0.65, 0.65, 0.9],
+      "color": 14869218,
+      "solid": true,
+      "surface": "metal"
+    },
+    {
+      "id": "plant",
+      "size": [0.5, 0.5, 1],
+      "color": 4160074,
+      "solid": true
+    },
+    {
+      "id": "mailboxes",
+      "size": [1.6, 0.3, 1.2],
+      "color": 9080724,
+      "solid": true,
+      "surface": "metal",
+      "container": "cabinet"
+    },
+    {
+      "id": "vendingMachine",
+      "size": [0.9, 0.8, 1.8],
+      "color": 10111562,
+      "solid": true,
+      "surface": "glass",
+      "container": "cabinet"
+    },
+    {
+      "id": "waitingBench",
+      "size": [2, 0.5, 0.45],
+      "color": 6976640,
+      "solid": true,
+      "seat": "sit",
+      "surface": "fabric"
+    }
+  ]
+}

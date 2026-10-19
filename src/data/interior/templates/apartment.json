@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "kind": "apartment",
+  "label": "Apartment block",
+  "layout": "corridor",
+  "minWidth": 20,
+  "minDepth": 15,
+  "maxWidth": 30,
+  "maxDepth": 22,
+  "minRoomArea": 9,
+  "entry": "mailroom",
+  "residential": true,
+  "exteriorLocked": true,
+  "exteriorStrength": 0.6,
+  "lockableRooms": ["unitLiving", "unitBedroom", "unitBath"],
+  "lockedRooms": [],
+  "corridor": { "kind": "corridor", "label": "Corridor", "width": 2, "frontShare": 0.5, "surface": "carpet" },
+  "exteriorDoors": [],
+  "occupants": { "day": [1, 4], "night": [2, 6], "profile": "residentInnocent", "role": "resident", "openHours": null },
+  "rooms": [
+    { "kind": "mailroom", "label": "Mail room", "size": 1.2, "required": true, "surface": "tile", "band": "front",
+      "furniture": [
+        { "id": "mailboxes", "place": "wall" },
+        { "id": "plant", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "unitLiving", "label": "Apartment", "size": 3, "required": true, "surface": "carpet", "band": "front", "count": [1, 3], "suite": ["unitLiving", "unitBedroom", "unitBath"],
+      "furniture": [] },
+    { "kind": "unitLiving", "label": "Apartment", "size": 3, "required": true, "surface": "carpet", "band": "back", "count": [1, 3], "suite": ["unitLiving", "unitBedroom", "unitBath"],
+      "furniture": [] },
+    { "kind": "laundry", "label": "Laundry", "size": 1.2, "required": false, "chance": 0.6, "surface": "tile", "band": "back",
+      "furniture": [
+        { "id": "washer", "place": "wall" },
+        { "id": "dryer", "place": "wall" }
+      ] },
+    { "kind": "unitLiving", "label": "Living room", "size": 1, "required": true, "surface": "carpet", "child": true,
+      "furniture": [
+        { "id": "sofa", "place": "wall" },
+        { "id": "coffeeTable", "place": "center", "chance": 0.7 },
+        { "id": "tvStand", "place": "wall", "chance": 0.8 },
+        { "id": "kitchenCounter", "place": "wall", "chance": 0.6 },
+        { "id": "fridge", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "unitBedroom", "label": "Bedroom", "size": 1, "required": true, "surface": "carpet", "child": true,
+      "furniture": [
+        { "id": "bed", "place": "wall" },
+        { "id": "wardrobe", "place": "wall", "chance": 0.8 },
+        { "id": "nightstand", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "unitBath", "label": "Bathroom", "size": 1, "required": true, "surface": "tile", "child": true,
+      "furniture": [
+        { "id": "bathtub", "place": "corner" },
+        { "id": "toilet", "place": "wall", "chance": 0.8 }
+      ] }
+  ]
+}

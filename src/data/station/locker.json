@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "uniforms": [
+    { "id": "longSleeve", "label": "Long sleeve", "top": "#1f3350", "bottom": "#1a2433" },
+    { "id": "shortSleeve", "label": "Short sleeve", "top": "#2a4468", "bottom": "#1a2433" },
+    { "id": "jacket", "label": "Jacket", "top": "#2b2f36", "bottom": "#20242b" },
+    { "id": "rainGear", "label": "Rain gear", "top": "#6a5d43", "bottom": "#3a3a3a" }
+  ]
+}

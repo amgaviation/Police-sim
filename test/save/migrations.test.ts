@@ -7,7 +7,10 @@ import { emptyPeopleSave } from '../../src/people';
 import { emptyOfficerKit } from '../../src/police/inventory';
 import { defaultRadioSave } from '../../src/radio/save';
 import { emptyRecordsSave } from '../../src/records/db';
+import { emptyInteriorSave } from '../../src/indoors/save';
+import { emptyInvestigationSave } from '../../src/investigation/save';
 import { emptySceneSave } from '../../src/scene/save';
+import { defaultTacticalSave } from '../../src/tactical/save';
 import {
   MIGRATION_FAILURES,
   SaveMigrationError,
@@ -17,6 +20,7 @@ import {
   migrateV2ToV3,
   migrateV3ToV4,
   migrateV4ToV5,
+  migrateV5ToV6,
   migrations,
   type MigrationTable,
 } from '../../src/save/migrations';
@@ -28,6 +32,7 @@ import {
   isSaveGameV3,
   isSaveGameV4,
   isSaveGameV5,
+  isSaveGameV6,
   isSavedVehicle,
   type SaveEnvelope,
   type SaveGame,
@@ -43,6 +48,10 @@ import {
   makeSaveGameV2,
   makeSaveGameV3,
   makeSaveGameV4,
+  makeSaveGameV5,
+  makeLegacyEquipmentSave,
+  migratedStationSave,
+  PHASE4_TRUNK_ITEMS,
   makeSavedVehicle,
   makeTrafficSnapshot,
 } from './fixtures';
@@ -78,6 +87,22 @@ function v5Defaults(seed: number): Partial<SaveGame> {
   };
 }
 
+/** Defaults every migrated pre-v6 save gets (streams depend on the seed; the station block on the badge). */
+function v6Defaults(seed: number, badge: string): Partial<SaveGame> {
+  return {
+    interiors: emptyInteriorSave(createRng(seed).stream('interior').state()),
+    tactical: defaultTacticalSave(createRng(seed).stream('tactical').state()),
+    investigation: emptyInvestigationSave(createRng(seed).stream('investigation').state()),
+    station: migratedStationSave(badge),
+  };
+}
+
+/** The saved patrol-car equipment of the fixtures after the v6 migration (trunks gain the Phase 4 items from the patrol loadout). */
+function migratedEquipment(): SaveGame['equipment'] {
+  const eq = makeLegacyEquipmentSave();
+  return [{ ...eq, trunk: { ...eq.trunk, ram: 1, sceneTape: 1, evidenceMarkers: 20, evidenceBags: 20, fingerprintKit: 1, camera: 1 } }, null];
+}
+
 /** Throwaway "legacy" v0 shape used only to exercise the migration chain. */
 interface LegacyV0 {
   seed: number;
@@ -108,13 +133,13 @@ function envelope<T>(version: number, data: T): SaveEnvelope<T> {
 
 describe('migrateEnvelope', () => {
   it('ships a step for every version below the current one', () => {
-    expect(CURRENT_SAVE_VERSION).toBe(5);
+    expect(CURRENT_SAVE_VERSION).toBe(6);
     for (let v = 1; v < CURRENT_SAVE_VERSION; v++) expect(migrations[v]).toBeTypeOf('function');
   });
 
-  it('migrates v1 saves to v5: bodies at rest and awake, default camera, v3 and v4 defaults', () => {
+  it('migrates v1 saves to v6: bodies at rest and awake, default camera, v3 and v4 defaults', () => {
     const out = migrateEnvelope(envelope<unknown>(1, makeSaveGameV1()));
-    expect(out.version).toBe(5);
+    expect(out.version).toBe(6);
     expect(out.data.camera).toEqual({ pitch: V1_DEFAULT_PITCH, mode: CAMERA_MODE.chase });
     expect(out.data.world.entities).toEqual([
       { kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, sleeping: false },
@@ -122,25 +147,26 @@ describe('migrateEnvelope', () => {
     expect(out.data).toMatchObject(V3_DEFAULTS);
     expect(out.data).toMatchObject(v4Defaults(42, 0));
     expect(out.data).toMatchObject(v5Defaults(42));
+    expect(out.data).toMatchObject(v6Defaults(42, '4471'));
     expect(isSaveGame(out.data)).toBe(true);
   });
 
-  it('migrates v2 saves to v5: everything kept, on foot, chase camera, fresh traffic, environment and patrol state', () => {
+  it('migrates v2 saves to v6: everything kept, on foot, chase camera, fresh traffic, environment and patrol state', () => {
     const v2 = makeSaveGameV2();
     const out = migrateEnvelope(envelope<unknown>(2, v2));
-    expect(out.version).toBe(5);
-    expect(out.data).toEqual({ ...v2, camera: { pitch: 0.4, mode: CAMERA_MODE.chase }, ...V3_DEFAULTS, ...v4Defaults(42, 0), ...v5Defaults(42) });
+    expect(out.version).toBe(6);
+    expect(out.data).toEqual({ ...v2, camera: { pitch: 0.4, mode: CAMERA_MODE.chase }, ...V3_DEFAULTS, ...v4Defaults(42, 0), ...v5Defaults(42), ...v6Defaults(42, '4471') });
     expect(isSaveGame(out.data)).toBe(true);
     expect(isSaveGameV2(out.data)).toBe(true);
   });
 
-  it('migrates v3 saves to v5: everything kept, empty CAD and records, no dispatcher, default radio, null equipment, empty kit', () => {
+  it('migrates v3 saves to v6: everything kept, empty CAD and records, no dispatcher, default radio, null equipment, empty kit', () => {
     const v3 = makeSaveGameV3();
     expect(isSaveGameV3(v3)).toBe(true);
     expect(isSaveGameV4(v3)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(3, v3));
-    expect(out.version).toBe(5);
-    expect(out.data).toEqual({ ...v3, ...v4Defaults(42, 2), ...v5Defaults(42) });
+    expect(out.version).toBe(6);
+    expect(out.data).toEqual({ ...v3, ...v4Defaults(42, 2), ...v5Defaults(42), ...v6Defaults(42, '4471') });
     expect(out.data.equipment).toEqual([null, null]);
     // The radio continues from the seed's own 'radio' stream, as a new game would.
     expect(out.data.radio.rng).toEqual(createRng(42).stream('radio').state());
@@ -149,13 +175,13 @@ describe('migrateEnvelope', () => {
     expect(isSaveGameV4(out.data)).toBe(true);
   });
 
-  it('migrates v4 saves to v5: everything kept, no touched people, no saved pedestrians, empty contacts, empty scenes on the seed stream', () => {
+  it('migrates v4 saves to v6: everything kept, no touched people, no saved pedestrians, empty contacts, empty scenes on the seed stream, Phase 4 blocks', () => {
     const v4 = makeSaveGameV4();
     expect(isSaveGameV4(v4)).toBe(true);
     expect(isSaveGameV5(v4)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(4, v4));
-    expect(out.version).toBe(5);
-    expect(out.data).toEqual({ ...v4, ...v5Defaults(42) });
+    expect(out.version).toBe(6);
+    expect(out.data).toEqual({ ...v4, ...v5Defaults(42), ...v6Defaults(42, '4471'), equipment: migratedEquipment() });
     expect(out.data.npc).toBeNull();
     expect(out.data.scenes.rng).toEqual(createRng(42).stream('scene').state());
     expect(out.data.scenes.scenarios).toEqual([]);
@@ -163,19 +189,37 @@ describe('migrateEnvelope', () => {
     expect(isSaveGameV4(out.data)).toBe(true);
   });
 
+  it('migrates v5 saves to v6: everything kept, outdoors, empty interior / tactical / investigation on the seed streams, patrol station state, trunks gain the Phase 4 items', () => {
+    const v5 = makeSaveGameV5();
+    expect(isSaveGameV5(v5)).toBe(true);
+    expect(isSaveGameV6(v5)).toBe(false);
+    const out = migrateEnvelope(envelope<unknown>(5, v5));
+    expect(out.version).toBe(6);
+    expect(out.data).toEqual({ ...v5, ...v6Defaults(42, '4471'), equipment: migratedEquipment() });
+    expect(out.data.station.flow).toBe('onPatrol');
+    expect(out.data.station.armory.map((e) => e.item)).toEqual(['sidearm', 'taser']);
+    expect(out.data.interiors.rng).toEqual(createRng(42).stream('interior').state());
+    for (const id of PHASE4_TRUNK_ITEMS) expect(out.data.equipment[0]?.trunk[id]).toBeGreaterThan(0);
+    // The old trunk contents are untouched.
+    expect(out.data.equipment[0]?.trunk['cones']).toBe(v5.equipment[0]?.trunk['cones']);
+    expect(isSaveGame(out.data)).toBe(true);
+    expect(migrateV5ToV6(out.data)).toEqual(out.data);
+  });
+
   it('migrateV2ToV3 and migrateV3ToV4 pass invalid data through for validation to reject', () => {
     expect(migrateV2ToV3({ seed: 1 })).toEqual({ seed: 1 });
     expect(migrateV3ToV4({ seed: 1 })).toEqual({ seed: 1 });
     expect(migrateV4ToV5({ seed: 1 })).toEqual({ seed: 1 });
+    expect(migrateV5ToV6({ seed: 1 })).toEqual({ seed: 1 });
     expect(() => migrateEnvelope(envelope<unknown>(2, { ...makeSaveGameV2(), camera: {} }))).toThrow(SaveMigrationError);
     expect(() => migrateEnvelope(envelope<unknown>(3, { ...makeSaveGameV3(), vehicles: undefined }))).toThrow(SaveMigrationError);
   });
 
-  it('round-trips a v5 save through structured clone and JSON unchanged', () => {
+  it('round-trips a v6 save through structured clone and JSON unchanged', () => {
     const v5 = makeSaveGame();
     expect(isSaveGame(v5)).toBe(true);
     const cloned = structuredClone(v5);
-    expect(migrateEnvelope(envelope<unknown>(5, cloned)).data).toEqual(v5);
+    expect(migrateEnvelope(envelope<unknown>(CURRENT_SAVE_VERSION, cloned)).data).toEqual(v5);
     const json = JSON.parse(JSON.stringify(v5)) as unknown;
     expect(isSaveGame(json)).toBe(true);
     expect(json).toEqual(v5);
@@ -449,10 +493,10 @@ describe('v4 nested state', () => {
     }
   });
 
-  it('rejects a future version even when the payload is a valid v5 save', () => {
+  it('rejects a future version even when the payload is a valid v6 save', () => {
     let caught: unknown;
     try {
-      migrateEnvelope(envelope<unknown>(6, makeSaveGame()));
+      migrateEnvelope(envelope<unknown>(7, makeSaveGame()));
     } catch (error) {
       caught = error;
     }
@@ -487,6 +531,36 @@ describe('v5 nested state', () => {
       ['scenes bad weapon', { ...good, scenes: { ...good.scenes, officerWeapon: 'rifle' } }],
       ['scenes scenario malformed', { ...good, scenes: { ...good.scenes, scenarios: [{ scenario: {} }] } }],
       ['scenes outcome malformed', { ...good, scenes: { ...good.scenes, closed: [{ callId: 'x' }] } }],
+    ];
+    for (const [label, data] of bad) {
+      expect(isSaveGame(data), label).toBe(false);
+      expect(() => migrateEnvelope(envelope<unknown>(CURRENT_SAVE_VERSION, data)), label).toThrow(SaveMigrationError);
+    }
+  });
+});
+
+describe('v6 nested state', () => {
+  it('accepts the Phase 4 blocks in their valid forms', () => {
+    expect(isSaveGame(makeSaveGame({ station: migratedStationSave('4071') }))).toBe(true);
+    expect(isSaveGame(makeSaveGame())).toBe(true);
+  });
+
+  it('rejects each malformed block', () => {
+    const good = makeSaveGame();
+    const bad: Array<[string, unknown]> = [
+      ['interiors missing', { ...good, interiors: undefined }],
+      ['interiors wrong version', { ...good, interiors: { ...good.interiors, version: 9 } }],
+      ['interiors bad rng', { ...good, interiors: { ...good.interiors, rng: { seed: 1, s: [1, 2] } } }],
+      ['tactical missing', { ...good, tactical: undefined }],
+      ['tactical wrong version', { ...good, tactical: { ...good.tactical, version: 9 } }],
+      ['tactical bad rng', { ...good, tactical: { ...good.tactical, rng: { seed: 1, s: [1] } } }],
+      ['investigation missing', { ...good, investigation: undefined }],
+      ['investigation wrong version', { ...good, investigation: { ...good.investigation, version: 9 } }],
+      ['investigation ledger malformed', { ...good, investigation: { ...good.investigation, ledger: [{ seq: 'x' }] } }],
+      ['station missing', { ...good, station: undefined }],
+      ['station wrong version', { ...good, station: { ...good.station, version: 2 } }],
+      ['station bad flow', { ...good, station: { ...good.station, flow: 'lunch' } }],
+      ['station bad loadout', { ...good, station: { ...good.station, loadout: {} } }],
     ];
     for (const [label, data] of bad) {
       expect(isSaveGame(data), label).toBe(false);

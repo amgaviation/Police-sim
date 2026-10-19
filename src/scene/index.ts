@@ -3,6 +3,7 @@ export * from './types';
 export * from './events';
 export * from './save';
 export * from './spots';
+export * from './indoor';
 export { SCENE_CONFIG, parseSceneConfig, type SceneConfig } from './data';
 export * from './commands';
 export { SceneDirector, verifyContentIds, scriptFor } from './director';

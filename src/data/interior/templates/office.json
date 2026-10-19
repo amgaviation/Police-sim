@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "office",
+  "label": "Office building",
+  "layout": "corridor",
+  "minWidth": 22,
+  "minDepth": 14,
+  "maxWidth": 36,
+  "maxDepth": 22,
+  "minRoomArea": 12,
+  "entry": "lobby",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.6,
+  "lockableRooms": ["office", "conference", "breakRoom", "restroom"],
+  "lockedRooms": [],
+  "corridor": { "kind": "corridor", "label": "Corridor", "width": 2.2, "frontShare": 0.4, "surface": "carpet" },
+  "exteriorDoors": [],
+  "occupants": { "day": [2, 6], "night": [0, 1], "profile": "bystander", "role": "staff", "openHours": [8, 18] },
+  "rooms": [
+    { "kind": "lobby", "label": "Lobby", "size": 3, "required": true, "surface": "carpet", "band": "front", "public": true,
+      "furniture": [
+        { "id": "frontDesk", "place": "wall" },
+        { "id": "waitingBench", "place": "wall", "chance": 0.7 },
+        { "id": "plant", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "conference", "label": "Conference room", "size": 3, "required": true, "surface": "carpet", "band": "front",
+      "furniture": [
+        { "id": "conferenceTable", "place": "center" },
+        { "id": "chair", "place": "wall", "count": [3, 6] },
+        { "id": "whiteboard", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "breakRoom", "label": "Break room", "size": 2, "required": true, "surface": "linoleum", "band": "front",
+      "furniture": [
+        { "id": "table", "place": "center" },
+        { "id": "kitchenCounter", "place": "wall", "chance": 0.7 },
+        { "id": "fridge", "place": "corner", "chance": 0.7 },
+        { "id": "vendingMachine", "place": "corner", "chance": 0.4 }
+      ] },
+    { "kind": "restroom", "label": "Restroom", "size": 1, "required": true, "surface": "tile", "band": "front",
+      "furniture": [
+        { "id": "toilet", "place": "wall" },
+        { "id": "sink", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "office", "label": "Office", "size": 2, "required": true, "surface": "carpet", "band": "back", "count": [3, 8],
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "chair", "place": "center", "chance": 0.8 },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.6 },
+        { "id": "bookshelf", "place": "wall", "chance": 0.4 }
+      ] }
+  ]
+}

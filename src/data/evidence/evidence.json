@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "sawChance": { "default": 0.25, "domestic": 0.4, "property": 0.3, "inProgress": 0.35 },
+  "canvassTexts": {
+    "noAnswer": "No answer at {address}.",
+    "nothingSeen": "Resident at {address} saw nothing.",
+    "refused": "Resident at {address} declined to talk.",
+    "sawSomething": "Resident at {address} saw {description} heading {direction}."
+  },
+  "labels": { "latentPrint": "Latent print" }
+}

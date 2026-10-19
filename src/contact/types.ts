@@ -102,7 +102,14 @@ export interface ContactDeps {
   request(r: UnitRequest): void;
   officer(): { name: string; badge: string };
   presence(): Presence;
-  officerPosition(out: { x: number; z: number; yaw: number }): void;
+  /** Fills the officer's position; `building` (-1 outdoors) is optional: without it every level check is skipped. */
+  officerPosition(out: { x: number; z: number; yaw: number; building?: number }): void;
+  /**
+   * Optional: the premises `personId` is at relative to the officer (the building the officer is in or at), or null.
+   * `authority` is true for a resident or owner (records address = building address, or an ambient resident / staff
+   * actor of it); `room` is the officer's room (-1 outdoors).
+   */
+  premises?(personId: number): { buildingId: number; authority: boolean; room: number } | null;
   trustAt(x: number, z: number): number;
   districtOf(x: number, z: number): string;
   /** Vehicle id of the active traffic stop, -1 for none. */

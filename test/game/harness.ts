@@ -28,8 +28,12 @@ export class Harness {
   private readonly city: City | undefined;
   private detach: (() => void) | null = null;
 
-  constructor(city?: City, boxPoolSize?: number) {
+  /** Calls bind to building interiors (Phase 4 tests); the Phase 1-3 tests keep their outdoor scenes. */
+  private readonly indoorScenes: boolean;
+
+  constructor(city?: City, boxPoolSize?: number, indoorScenes = false) {
     this.city = city;
+    this.indoorScenes = indoorScenes;
     this.meshes = new MeshRegistry(new THREE.Scene(), { world: this.world, shadows: false, boxPoolSize });
     this.registry.register(copyPrevTransform, -1000);
     this.registry.register(integrateVelocity, 0);
@@ -46,12 +50,12 @@ export class Harness {
   }
 
   get ctx(): GameContext {
-    return { world: this.world, physics: this.physics, meshes: this.meshes, bus: this.bus, city: this.city };
+    return { world: this.world, physics: this.physics, meshes: this.meshes, bus: this.bus, city: this.city, indoorScenes: this.indoorScenes };
   }
 
-  /** New game for `seed` with its systems registered. */
-  start(seed: number | string): GameSession {
-    return this.attach(startNewGame(this.ctx, seed));
+  /** New game for `seed` with its systems registered (outdoors at the station door, as before Phase 4, unless `inStation`). */
+  start(seed: number | string, inStation = false): GameSession {
+    return this.attach(startNewGame(this.ctx, seed, { inStation }));
   }
 
   /** Loaded game with its systems registered. */

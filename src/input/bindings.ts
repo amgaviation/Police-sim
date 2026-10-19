@@ -90,6 +90,16 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'officer.tackle': [key('Space'), pad('GamepadButton1')],
   'officer.shout': [key('KeyG')],
   'scene.menu': [key('KeyY')],
+  // Phase 4 (design §11.4): same-key reuse with driving actions is intended (X, Q, R, F, RMB, pads 6 / 11 / 12), on foot vs in a car.
+  'officer.crouch': [key('KeyX'), pad('GamepadButton11')],
+  'officer.leanLeft': [key('KeyQ')],
+  'officer.leanRight': [key('KeyR')],
+  'officer.slice': [mouse('MouseButton2'), pad('GamepadButton6')],
+  'officer.flashlight': [key('KeyF'), pad('GamepadButton12')],
+  'officer.bodycam': [key('KeyU')],
+  'investigate.menu': [key('KeyI')],
+  'camera.photo': [key('KeyO')],
+  'partner.menu': [key('KeyN')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

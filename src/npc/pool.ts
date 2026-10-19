@@ -17,6 +17,8 @@ export const FLAG = {
   faceAway: 256,
   /** Walking to the vehicle door to be seated again (returnToVehicle). */
   returning: 512,
+  /** The `onAware` reaction was rolled (once per actor). */
+  awareRolled: 1024,
 } as const;
 
 /** One ambient pedestrian; preallocated, dense in `NpcSystem.peds`. */
@@ -91,11 +93,26 @@ export class ActorRec {
   acc = 0;
   /** Seconds since the actor appeared (loose bystanders are culled by age). */
   age = 0;
+  /** Building the actor is in (-1 outdoors). */
+  building = -1;
+  /** Awareness 0..1 (design §8.1). */
+  aware = 0;
+  /** Awareness level reached: 0 none, 1 alert, 2 aware (not saved: derived from `aware`). */
+  awareLevel = 0;
+  /** Hiding spot index claimed from the indoor nav port, -1 for none. */
+  hideSpot = -1;
+  /** Seconds until an indoor follower recomputes its path (not saved). */
+  repath = 0;
+  /** Source of the last stimulus. */
+  srcX = 0;
+  srcZ = 0;
   // Derived at spawn and restore (not saved).
   walkSpeed = 1.3;
   runSpeed = 6;
   staminaMax = 25;
   fleeBonus = 0;
+  /** Hearing of the person (a trait: read once at spawn and restore). */
+  hearing: 'normal' | 'hardOfHearing' | 'deaf' = 'normal';
   height = 1.75;
   build = 1;
   skin = 0;

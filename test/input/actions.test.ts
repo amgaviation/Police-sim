@@ -70,6 +70,30 @@ describe('actions', () => {
     }
   });
 
+  it('adds the nine Phase 4 button actions with readable labels', () => {
+    const expected: Record<string, string> = {
+      'officer.crouch': 'Crouch',
+      'officer.leanLeft': 'Lean left (hold)',
+      'officer.leanRight': 'Lean right (hold)',
+      'officer.slice': 'Slice the pie (hold)',
+      'officer.flashlight': 'Flashlight',
+      'officer.bodycam': 'Bodycam',
+      'investigate.menu': 'Investigation tools',
+      'camera.photo': 'Evidence camera',
+      'partner.menu': 'Partner commands',
+    };
+    expect(Object.keys(expected)).toHaveLength(9);
+    for (const [id, label] of Object.entries(expected)) {
+      expect(isActionId(id), id).toBe(true);
+      if (!isActionId(id)) continue;
+      expect(ACTIONS[id]).toEqual({ kind: 'button', label });
+      expect(actionKind(id)).toBe('button');
+    }
+    // Appended after the Phase 3 actions, in the design's order.
+    const tail = ACTION_IDS.slice(-9);
+    expect(tail).toEqual(Object.keys(expected));
+  });
+
   it('has a distinct non-empty label for every action', () => {
     const labels = ACTION_IDS.map((id) => ACTIONS[id].label);
     expect(labels.every((l) => l.length > 0)).toBe(true);

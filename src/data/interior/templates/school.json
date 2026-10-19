@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "kind": "school",
+  "label": "School",
+  "layout": "corridor",
+  "minWidth": 24,
+  "minDepth": 16,
+  "maxWidth": 40,
+  "maxDepth": 24,
+  "minRoomArea": 12,
+  "entry": "lobby",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.6,
+  "lockableRooms": ["office", "classroom", "library"],
+  "lockedRooms": [],
+  "corridor": { "kind": "corridor", "label": "Corridor", "width": 2.4, "frontShare": 0.45, "surface": "linoleum" },
+  "exteriorDoors": [],
+  "occupants": { "day": [2, 6], "night": [0, 0], "profile": "bystander", "role": "staff", "openHours": [7, 16] },
+  "rooms": [
+    { "kind": "lobby", "label": "Lobby", "size": 3, "required": true, "surface": "tile", "band": "front", "public": true,
+      "furniture": [
+        { "id": "frontDesk", "place": "wall" },
+        { "id": "waitingBench", "place": "wall", "chance": 0.7 },
+        { "id": "plant", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "office", "label": "Office", "size": 2, "required": true, "surface": "carpet", "band": "front",
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.7 },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "restroom", "label": "Restroom", "size": 1, "required": true, "surface": "tile", "band": "front", "count": [2, 2],
+      "furniture": [
+        { "id": "toilet", "place": "wall" },
+        { "id": "sink", "place": "wall", "chance": 0.7 }
+      ] },
+    { "kind": "cafeteria", "label": "Cafeteria", "size": 3, "required": false, "chance": 0.5, "surface": "tile", "band": "front",
+      "furniture": [
+        { "id": "table", "place": "center", "count": [2, 4] },
+        { "id": "bench", "place": "wall", "count": [1, 2] }
+      ] },
+    { "kind": "classroom", "label": "Classroom", "size": 3, "required": true, "surface": "linoleum", "band": "back", "count": [3, 6],
+      "furniture": [
+        { "id": "teacherDesk", "place": "wall" },
+        { "id": "whiteboard", "place": "wall" },
+        { "id": "schoolDesk", "place": "center", "count": [3, 6] }
+      ] },
+    { "kind": "library", "label": "Library", "size": 3, "required": true, "surface": "carpet", "band": "back",
+      "furniture": [
+        { "id": "bookshelf", "place": "wall", "count": [2, 4] },
+        { "id": "table", "place": "center", "chance": 0.8 },
+        { "id": "chair", "place": "center", "count": [1, 2], "chance": 0.7 }
+      ] }
+  ]
+}

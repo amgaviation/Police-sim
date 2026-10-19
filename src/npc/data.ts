@@ -13,6 +13,7 @@ import {
   type JsonObject,
 } from '../vehicles/json';
 import { DISTRICT_NAMES } from '../world/ids';
+import { AWARE_REACTIONS, type AwareReaction } from './types';
 
 /**
  * Validated NPC tables (design §4.4): behaviour profiles, simulation constants, pedestrian density.
@@ -54,6 +55,8 @@ export interface BehaviorProfile {
   readonly crowd: boolean;
   /** Initial stress 0..1. */
   readonly stress: number;
+  /** Weights of the reactions rolled once when the actor becomes aware (all 0 but `none` = 1 by default). */
+  readonly onAware: Readonly<Record<AwareReaction, number>>;
 }
 
 export type Range = readonly [number, number];
@@ -82,6 +85,12 @@ export interface NpcConfig {
     readonly armedActionS: Range;
     readonly leaveDistanceM: number;
     readonly crowdRadiusM: number;
+    /** Awareness lost per second. */
+    readonly awareDecayPerS: number;
+    /** Awareness at which an actor turns towards a stimulus. */
+    readonly alertAt: number;
+    /** Awareness at which an actor reacts (`onAware`). */
+    readonly awareAt: number;
     readonly lod: { readonly nearM: number; readonly midM: number; readonly nearHz: number; readonly midHz: number; readonly farHz: number };
   };
   readonly occupants: {
@@ -133,6 +142,24 @@ function onlyKeys(obj: JsonObject, allowed: readonly string[], file: string, pat
   }
 }
 
+/** `onAware` weights: absent = `{ none: 1 }`; keys are reaction ids, the weights are non-negative and not all 0. */
+function readOnAware(value: unknown, file: string, path: string): Record<AwareReaction, number> {
+  const out: Record<AwareReaction, number> = { none: 0, hide: 0, flee: 0, confront: 0, surrender: 0, arm: 0 };
+  if (value === undefined) {
+    out.none = 1;
+    return out;
+  }
+  const o = readObject(value, file, path);
+  let sum = 0;
+  for (const key of Object.keys(o)) {
+    const reaction = readOneOf(key, AWARE_REACTIONS, file, `${path}.${key}`);
+    out[reaction] = readNumber(o[key], file, `${path}.${key}`, 0, 1);
+    sum += out[reaction];
+  }
+  if (!(sum > 0)) fail(file, path, 'must have at least one positive weight');
+  return out;
+}
+
 /** Validates `behaviors.json`: exactly one profile per `PROFILE_IDS` id (extra ids are allowed). */
 export function parseBehaviors(raw: unknown, file = 'behaviors.json'): readonly BehaviorProfile[] {
   const root = readObject(raw, file, '');
@@ -144,7 +171,7 @@ export function parseBehaviors(raw: unknown, file = 'behaviors.json'): readonly 
   rows.forEach((row, i) => {
     const path = `profiles[${i}]`;
     const o = readObject(row, file, path);
-    onlyKeys(o, ['id', 'demeanor', 'compliance', 'fleeChance', 'fightChance', 'weaponDrawChance', 'surrenderPerMin', 'startPose', 'wander', 'crowd', 'stress'], file, path);
+    onlyKeys(o, ['id', 'demeanor', 'compliance', 'fleeChance', 'fightChance', 'weaponDrawChance', 'surrenderPerMin', 'startPose', 'wander', 'crowd', 'stress', 'onAware'], file, path);
     const id = readString(o.id, file, `${path}.id`);
     if (seen.has(id)) fail(file, `${path}.id`, `duplicate profile "${id}"`);
     seen.add(id);
@@ -160,6 +187,7 @@ export function parseBehaviors(raw: unknown, file = 'behaviors.json'): readonly 
       wander: readBoolean(o.wander, file, `${path}.wander`),
       crowd: o.crowd === undefined ? false : readBoolean(o.crowd, file, `${path}.crowd`),
       stress: readNumber(o.stress, file, `${path}.stress`, 0, 1),
+      onAware: readOnAware(o.onAware, file, `${path}.onAware`),
     });
   });
   for (const id of PROFILE_IDS) if (!seen.has(id)) fail(file, 'profiles', `is missing the required profile "${id}"`);
@@ -187,6 +215,9 @@ export function parseNpcConfig(raw: unknown, file = 'npc.json'): NpcConfig {
   const a = readObject(root.actors, file, 'actors');
   const o = readObject(root.occupants, file, 'occupants');
   const p = readObject(root.peds, file, 'peds');
+  if (!(readNumber(a.alertAt, file, 'actors.alertAt', 0, 1) <= readNumber(a.awareAt, file, 'actors.awareAt', 0, 1))) {
+    fail(file, 'actors.awareAt', 'must be >= alertAt');
+  }
   const seatRows = readArray(o.seats, file, 'occupants.seats', 1);
   const seats = seatRows.map((row, i) => {
     const pair = readArray(row, file, `occupants.seats[${i}]`, 2);
@@ -226,6 +257,9 @@ export function parseNpcConfig(raw: unknown, file = 'npc.json'): NpcConfig {
       armedActionS: readRange(a.armedActionS, file, 'actors.armedActionS', 0.5, 120),
       leaveDistanceM: readNumber(a.leaveDistanceM, file, 'actors.leaveDistanceM', 5, 1000),
       crowdRadiusM: readNumber(a.crowdRadiusM, file, 'actors.crowdRadiusM', 1, 200),
+      awareDecayPerS: readNumber(a.awareDecayPerS, file, 'actors.awareDecayPerS', 0, 10),
+      alertAt: readNumber(a.alertAt, file, 'actors.alertAt', 0, 1),
+      awareAt: readNumber(a.awareAt, file, 'actors.awareAt', 0, 1),
       lod: readLod(a.lod, file, 'actors.lod'),
     },
     occupants: {

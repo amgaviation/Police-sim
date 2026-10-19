@@ -1,0 +1,19 @@
+{ "version": 1,
+  "districts": {
+    "downtown":  [ { "kind": "office", "weight": 0.40, "minArea": 150 }, { "kind": "apartment", "weight": 0.22, "minArea": 200 },
+                   { "kind": "bar", "weight": 0.08 }, { "kind": "bank", "weight": 0.05, "minArea": 150 },
+                   { "kind": "convenienceStore", "weight": 0.12, "maxArea": 900 }, { "kind": "parkingStructure", "weight": 0.06, "minArea": 700 },
+                   { "kind": "hospital", "weight": 0.01, "minArea": 1500 }, { "kind": "school", "weight": 0.01, "minArea": 1200 },
+                   { "kind": "house", "weight": 0.05, "maxArea": 300 } ],
+    "suburbs":   [ { "kind": "house", "weight": 0.84, "maxArea": 450 }, { "kind": "apartment", "weight": 0.08, "minArea": 300 },
+                   { "kind": "convenienceStore", "weight": 0.04 }, { "kind": "bar", "weight": 0.02 }, { "kind": "bank", "weight": 0.02, "minArea": 150 } ],
+    "industrial":[ { "kind": "warehouse", "weight": 0.7 }, { "kind": "office", "weight": 0.15, "minArea": 120 }, { "kind": "bar", "weight": 0.05 },
+                   { "kind": "parkingStructure", "weight": 0.05, "minArea": 700 }, { "kind": "convenienceStore", "weight": 0.05 } ],
+    "rural":     [ { "kind": "house", "weight": 0.85, "maxArea": 500 }, { "kind": "warehouse", "weight": 0.1 }, { "kind": "convenienceStore", "weight": 0.05 } ],
+    "campus":    [ { "kind": "school", "weight": 0.6, "minArea": 400 }, { "kind": "office", "weight": 0.4 } ],
+    "hospital":  [ { "kind": "hospital", "weight": 0.5, "minArea": 600 }, { "kind": "office", "weight": 0.5 } ],
+    "airport":   [ { "kind": "office", "weight": 0.6 }, { "kind": "warehouse", "weight": 0.4 } ],
+    "harbor":    [ { "kind": "warehouse", "weight": 0.85 }, { "kind": "office", "weight": 0.1 }, { "kind": "bar", "weight": 0.05 } ],
+    "highway":   [ { "kind": "convenienceStore", "weight": 0.5 }, { "kind": "warehouse", "weight": 0.3 }, { "kind": "house", "weight": 0.2, "maxArea": 400 } ],
+    "park": [], "water": []
+  } }

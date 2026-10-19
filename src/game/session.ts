@@ -1,7 +1,7 @@
 import RAPIER, { type Collider, type KinematicCharacterController, type RigidBody } from '@dimforge/rapier3d-compat';
 import type { EntityId } from 'bitecs';
-import { addressOnEdge } from '../cad/address';
-import { CadState } from '../cad/cadState';
+import { addressAt, addressOnEdge } from '../cad/address';
+import { CadState, callNumber } from '../cad/cadState';
 import '../cad/events';
 import { ContactManager } from '../contact';
 import '../contact/events';
@@ -16,8 +16,24 @@ import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTr
 import type { System, SystemRegistry } from '../ecs/systems';
 import { advanceTime, despawn, spawn, type GameWorld } from '../ecs/world';
 import { Environment } from '../environment/environment';
+import {
+  InteriorSystem,
+  isOpenAt,
+  hourOf,
+  residentPerson,
+  type InteriorInteractable,
+  type OccupantSpawn,
+  type OfficerAt,
+} from '../indoors';
+import type { InteriorDoorEvent, InteriorMoveOfficerEvent } from '../indoors/events';
+import { InvestigationSystem, type InvestigationOfficer, type InvestigationPorts, type NoGoZone } from '../investigation';
+import { levelY } from '../interior/constants';
+import { lineOfSight } from '../interior/los';
+import { roomAt } from '../interior/nav';
+import { StationState, migratedStationSave, newShiftStationSave, type ShiftStep } from '../station';
+import { TacticalSystem, type OfficerPose, type SoundKind } from '../tactical';
 import { NpcSystem, type ActorInfo, type NpcFocus, type PersonPick } from '../npc';
-import { Population } from '../people';
+import { Population, describePerson } from '../people';
 import { PhysicsWorld, type Vec3 } from '../physics/physics';
 import { CAMERA_MODE, type VehicleCameraModeId } from '../player/cameraRig';
 import type { DriverInput } from '../player/driverInput';
@@ -54,6 +70,7 @@ import { WorldColliders } from '../world/colliders';
 import { MPH, WORLD_HALF_SIZE, WORLD_WALL } from '../world/constants';
 import { LANDMARKS } from '../world/data';
 import { generateCity } from '../world/generate';
+import { BuildingIndex } from '../world/buildings';
 import { DISTRICT_NAMES } from '../world/ids';
 import { stationLayout } from '../world/stationLayout';
 import { PlayerController, moveVelocity, yawFromQuaternion, yawQuaternion, type MoveInput } from './playerController';
@@ -70,6 +87,8 @@ export interface GameContext {
   city?: City;
   /** Radio language (settings `audio.radioMode`), read when the radio composes; ten-codes without it. */
   radioMode?: () => RadioMode;
+  /** Calls bind to real building interiors (Phase 4); false keeps the Phase 3 outdoor scenes (older tests). Default true. */
+  indoorScenes?: boolean;
 }
 
 /** Rigid-body motion state restored onto a spawned body (saves). */
@@ -100,9 +119,56 @@ export type InteractResult =
   | 'trunk'
   | 'contact'
   | 'talk'
-  | 'cage';
+  | 'cage'
+  | 'interior'
+  | 'doorPanel'
+  | 'collect'
+  | 'locker'
+  | 'briefing'
+  | 'armory'
+  | 'evidence'
+  | 'reportDesk'
+  | 'interview'
+  | 'cell';
 /** What `interact` would do right now (HUD prompt). */
-export type InteractHint = 'enter' | 'exit' | 'refuel' | 'repair' | 'trunk' | 'driver' | 'talk' | 'cage' | null;
+export type InteractHint =
+  | 'enter'
+  | 'exit'
+  | 'refuel'
+  | 'repair'
+  | 'trunk'
+  | 'driver'
+  | 'talk'
+  | 'cage'
+  | 'enterBuilding'
+  | 'exitBuilding'
+  | 'door'
+  | 'locked'
+  | 'switch'
+  | 'locker'
+  | 'briefing'
+  | 'armory'
+  | 'evidence'
+  | 'reportDesk'
+  | 'interview'
+  | 'cell'
+  | 'collect'
+  | null;
+
+/** The door `interact` / the door panel acts on (an exterior door from outside, or an interior door). */
+export interface DoorTarget {
+  buildingId: number;
+  door: number;
+  /** An exterior door seen from outdoors. */
+  outdoors: boolean;
+  locked: boolean;
+}
+
+/** Options of `startNewGame`. */
+export interface NewGameOptions {
+  /** The shift starts in the station's locker room (default); false starts outdoors at the station door (Phase 1-3 tests). */
+  inStation?: boolean;
+}
 
 /** One ambient traffic car for the `traffic list` command. */
 export interface TrafficCarRow {
@@ -206,6 +272,29 @@ const scratchActor: ActorInfo = {
   id: 0, personId: -1, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false,
   following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0,
 };
+const scratchOfficerAt: OfficerAt = { x: 0, z: 0, yaw: 0, building: -1, onFoot: true };
+const scratchMove: MoveInput = { forward: 0, strafe: 0, sprint: false };
+const scratchSlice = { vx: 0, vz: 0, yaw: 0 };
+/** Door events that make a sound (`TacticalSystem` `sound` request source). */
+const DOOR_SOUND: Readonly<Partial<Record<InteriorDoorEvent['action'], SoundKind>>> = {
+  open: 'doorOpen',
+  close: 'doorClose',
+  knock: 'knock',
+  kick: 'kick',
+  ram: 'ram',
+  announce: 'announce',
+  breached: 'kick',
+};
+/** Canvass residents stay at their door this long (sim s). */
+const CANVASS_STAY_S = 90;
+/** Default reach for the report-desk MDT (m). */
+const DESK_REACH = 2.5;
+/** Reach for collecting a found item (m). */
+const COLLECT_REACH = 1.5;
+/** The prisoner stands this far beyond the interview point (m). */
+const INTERVIEW_DISTANCE = 1.2;
+/** What a new shift's officer carries at the start (item, count). */
+const FIELD_KIT: readonly (readonly [string, number])[] = [['evidenceMarkers', 8], ['evidenceBags', 8], ['camera', 1], ['fingerprintKit', 1], ['sceneTape', 1]];
 const scratchStop: StopState = { vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 };
 
 /** Heading (yaw about +Y, 0 = facing -Z) of a rotation's forward axis, ignoring pitch and roll. */
@@ -266,6 +355,16 @@ export class GameSession {
   readonly contact: ContactManager;
   /** Scenarios of the calls: materialization, tactics, services, pursuits; fixed step -690. */
   readonly scene: SceneDirector;
+  /** Building ids, kinds and entrances (Phase 4). */
+  readonly buildings: BuildingIndex;
+  /** Interiors: residency, doors, lights, the officer's level; fixed step -810. */
+  readonly interiors: InteriorSystem;
+  /** Stance, flashlight, sound field, notice, partner; fixed step -640. */
+  readonly tactical: TacticalSystem;
+  /** Markers, photos, custody ledger, dusting, tape, canvass, K9; fixed step -675. */
+  readonly investigation: InvestigationSystem;
+  /** Shift flow, armory log, loadout, holding cells; fixed step -670. */
+  readonly station: StationState;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -332,6 +431,14 @@ export class GameSession {
   /** The officer body's collider (null while driving); kept so the fixed step does not allocate a wrapper. */
   private officerCollider: Collider | null = null;
   private readonly unsubscribe: () => void;
+  /** Last line each person said (statement text for the case file). */
+  private readonly lastLine = new Map<number, string>();
+  /** Canvass residents (actor id, sim second they leave). */
+  private readonly canvassActors: { id: number; until: number }[] = [];
+  /** Prisoner moved to the interview room: the cell they return to is `HoldingCells.cellOf`. */
+  private interviewActor = 0;
+  /** Level of the officer before the last `interior:moveOfficer` (-1 outdoors). */
+  private levelBefore = -1;
   private disposed = false;
 
   /** Also rewinds the world clock to match `clock` (one world step per fixed step of simulated time). */
@@ -405,6 +512,26 @@ export class GameSession {
       bus: this.bus,
       now: () => this.env.time.totalSeconds,
     });
+    // Phase 4 (design §20): buildings, interiors (the officer's level), the station.
+    this.buildings = new BuildingIndex(city, { addressAt: (x, z) => addressAt(graph, x, z, districtOf)?.text ?? '' });
+    this.interiors = new InteriorSystem({
+      seed,
+      city,
+      physics: ctx.physics,
+      bus: this.bus,
+      rng: rng.stream('interior'),
+      buildings: this.buildings,
+      occupants: {
+        spawn: (spec) => this.spawnOccupant(spec),
+        remove: (id) => this.npc.removeActor(id),
+        busy: (id) => this.occupantBusy(id),
+        sceneOwns: (b) => this.scene.ownsBuilding(b),
+      },
+      now: () => this.env.time.totalSeconds,
+      kit: () => ({ carried: (item) => this.kit.carried(item) }),
+    });
+    this.npc.setIndoorNav(this.interiors.navPort());
+    this.station = new StationState(seed, () => this.officer, this.bus);
     this.contact = new ContactManager({
       seed,
       bus: this.bus,
@@ -422,7 +549,9 @@ export class GameSession {
         out.x = f.x;
         out.z = f.z;
         out.yaw = f.yaw;
+        out.building = this.interiors.officerBuilding;
       },
+      premises: (personId) => this.premisesOf(personId),
       trustAt: (x, z) => trustOf(districtOf(x, z)),
       districtOf,
       stopVehicleId: () => this.traffic.stopVehicleId,
@@ -434,6 +563,24 @@ export class GameSession {
         out.z = this.traffic.view.z[slot] ?? 0;
         return true;
       },
+    });
+    this.investigation = new InvestigationSystem({
+      seed,
+      bus: this.bus,
+      rng: rng.stream('investigation'),
+      ports: this.investigationPorts(districtOf),
+      officer: (out) => this.fillInvestigationOfficer(out),
+    });
+    this.tactical = new TacticalSystem({
+      seed,
+      bus: this.bus,
+      rng: rng.stream('tactical'),
+      city,
+      interiors: this.interiors,
+      listeners: this.npc,
+      officer: (out) => this.fillTacticalOfficer(out),
+      radioEarpiece: () => this.station.loadout.radioAudio === 'earpiece',
+      nightFactor: () => this.env.lighting.nightFactor,
     });
     this.scene = new SceneDirector({
       seed,
@@ -449,6 +596,8 @@ export class GameSession {
       rng: rng.stream('scene'),
       kit: () => ({ carried: (item) => this.kit.carried(item), use: (item, n) => this.kit.consume(item, n) }),
       patrolCars: () => this.patrolCars(),
+      ...(ctx.indoorScenes === false ? {} : { interiors: this.interiors, buildings: this.buildings, evidence: this.investigation }),
+      weaponsAvailable: () => this.station.weaponsAvailable(),
     });
     this.contact.setResolver(this.scene);
     this.stationRect = stationRectOf(city);
@@ -465,17 +614,21 @@ export class GameSession {
     const offRadio = this.bus.on('scene:radio', (e) => {
       this.radio.say(e.channel, e.text, e.speaker ?? undefined);
     });
-    // A completed booking puts the person in jail (the contact module records the booking fact itself).
+    // A completed booking puts the person in jail (the contact module records the booking fact itself) and in a cell.
     const offBooking = this.bus.on('cad:documentSaved', (e) => {
       if (e.kind !== 'booking' || !e.final) return;
       const doc = this.cad.docs.get(e.id);
-      if (doc?.kind === 'booking' && doc.personId >= 0) this.people.setCustody(doc.personId, 'jailed');
+      if (doc?.kind !== 'booking' || doc.personId < 0) return;
+      this.people.setCustody(doc.personId, 'jailed');
+      this.station.request({ kind: 'hold', personId: doc.personId });
     });
+    const offBridges = this.wireBridges();
     this.unsubscribe = () => {
       offViolation();
       offCaged();
       offRadio();
       offBooking();
+      offBridges();
     };
     this.mover = ctx.physics.raw.createCharacterController(OFFICER_SKIN);
     this.mover.disableSnapToGround();
@@ -487,11 +640,16 @@ export class GameSession {
     };
     this.systems = [
       { order: -900, system: { name: 'environment', run: () => this.env.update(this.clock.simTime) } },
+      { order: -810, system: { name: 'interiors', run: (_world, dt) => this.stepInteriors(dt) } },
       { order: -800, system: { name: 'colliders', run: () => this.updateColliders() } },
       { order: -700, system: { name: 'dispatch', run: (_world, dt) => this.stepDispatch(dt) } },
       { order: -690, system: { name: 'scene', run: (_world, dt) => this.stepScene(dt) } },
       { order: -680, system: { name: 'contact', run: (_world, dt) => this.contact.step(dt, this.syncCadTime()) } },
+      { order: -675, system: { name: 'investigation', run: (_world, dt) => this.investigation.step(dt, this.syncCadTime()) } },
+      { order: -670, system: { name: 'station', run: (_world, dt) => this.station.step(dt, this.syncCadTime()) } },
       { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
+      // Phase 1-3 compatibility mode (`indoorScenes: false`, older tests) leaves the tactical awareness off: it draws on the npc streams.
+      { order: -640, system: { name: 'tactical', run: (_world, dt) => { if (ctx.indoorScenes !== false) this.tactical.step(dt, this.syncCadTime()); } } },
       { order: 40, system: { name: 'vehicles.pre', run: (_world, dt) => this.preStepVehicles(dt) } },
       { order: 50, system: { name: 'traffic', run: (_world, dt) => this.stepTraffic(dt) } },
       { order: 60, system: { name: 'npc', run: (_world, dt) => this.npc.step(dt, this.clock.simTime, this.syncFocus()) } },
@@ -710,8 +868,26 @@ export class GameSession {
     const body = this.ctx.physics.getBody(this.playerEid);
     const collider = this.officerCollider;
     if (!body || !collider) return;
+    const tactical = this.tactical;
+    const px = Transform.x[this.playerEid] ?? 0;
+    const pz = Transform.z[this.playerEid] ?? 0;
+    const v = scratchVel;
+    if (tactical.sliceMove(px, pz, input.forward, input.strafe, dt, scratchSlice)) {
+      // Door slicing: a slow pie around the frame, facing where the officer is stepping.
+      v.x = scratchSlice.vx;
+      v.y = 0;
+      v.z = scratchSlice.vz;
+      this.controller.yaw = scratchSlice.yaw;
+    } else {
+      scratchMove.forward = input.forward;
+      scratchMove.strafe = input.strafe;
+      scratchMove.sprint = input.sprint && !tactical.stance.crouched;
+      moveVelocity(scratchMove, this.controller.yaw, v);
+      const factor = tactical.speedFactor();
+      v.x *= factor;
+      v.z *= factor;
+    }
     const yaw = this.controller.yaw;
-    const v = moveVelocity(input, yaw, scratchVel);
     scratchVec.x = v.x * dt;
     scratchVec.y = 0;
     scratchVec.z = v.z * dt;
@@ -727,14 +903,22 @@ export class GameSession {
   interactHint(): InteractHint {
     const driven = this.drivenVehicle;
     if (driven) return driven.telemetry.groundSpeed <= EXIT_MAX_SPEED ? 'exit' : null;
-    // An escorted prisoner at a rear door comes first: the door is often within reach of the driver door.
-    if (this.cageCarIndex() >= 0) return 'cage';
-    const service = this.pumpService();
-    if (service) return service;
-    if (this.enterableVehicle()) return 'enter';
-    if (this.atStoppedDriver()) return 'driver';
+    // Indoors the level is a copy of the footprint below the street: nothing outdoors is within reach.
+    const indoors = this.interiors.officerBuilding >= 0;
+    if (!indoors) {
+      // An escorted prisoner at a rear door comes first: the door is often within reach of the driver door.
+      if (this.cageCarIndex() >= 0) return 'cage';
+      const service = this.pumpService();
+      if (service) return service;
+      if (this.enterableVehicle()) return 'enter';
+      if (this.atStoppedDriver()) return 'driver';
+    }
     if (this.talkTarget() !== null) return 'talk';
-    return this.trunkVehicle() ? 'trunk' : null;
+    if (this.collectTarget() !== null) return 'collect';
+    const target = this.interiorTarget();
+    const interior = target ? this.interiorHint(target) : null;
+    if (interior) return interior;
+    return !indoors && this.trunkVehicle() ? 'trunk' : null;
   }
 
   /**
@@ -745,32 +929,45 @@ export class GameSession {
   interact(): InteractResult {
     this.assertLive();
     if (this.driving) return this.exitVehicle();
-    const cage = this.cageCarIndex();
-    if (cage >= 0) {
-      this.contact.request({ kind: 'cage', vehicleIndex: cage });
-      return 'cage';
-    }
-    const service = this.pumpService();
-    const target = this.lastVehicle;
-    if (service && target) {
-      if (service === 'repair') target.repair();
-      target.refuel();
-      return service === 'repair' ? 'repaired' : 'refuelled';
-    }
-    const vehicle = this.enterableVehicle();
-    if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
-    const stop = this.cad.trafficStop;
-    if (stop && this.atStoppedDriver()) {
-      // The driver (seat 0) of the stopped car; the dialogue opens when the contact module's next step applies this.
-      this.contact.request({ kind: 'open', target: { kind: 'occupant', vehicleId: stop.vehicleId, seat: 0 } });
-      return 'contact';
+    const indoors = this.interiors.officerBuilding >= 0;
+    if (!indoors) {
+      const cage = this.cageCarIndex();
+      if (cage >= 0) {
+        this.contact.request({ kind: 'cage', vehicleIndex: cage });
+        return 'cage';
+      }
+      const service = this.pumpService();
+      const target = this.lastVehicle;
+      if (service && target) {
+        if (service === 'repair') target.repair();
+        target.refuel();
+        return service === 'repair' ? 'repaired' : 'refuelled';
+      }
+      const vehicle = this.enterableVehicle();
+      if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
+      const stop = this.cad.trafficStop;
+      if (stop && this.atStoppedDriver()) {
+        // The driver (seat 0) of the stopped car; the dialogue opens when the contact module's next step applies this.
+        this.contact.request({ kind: 'open', target: { kind: 'occupant', vehicleId: stop.vehicleId, seat: 0 } });
+        return 'contact';
+      }
     }
     const pick = this.talkTarget();
     if (pick) {
       this.contact.request({ kind: 'open', target: pickTarget(pick) });
       return 'talk';
     }
-    return this.trunkVehicle() ? 'trunk' : 'none';
+    const item = this.collectTarget();
+    if (item !== null) {
+      this.investigation.request({ kind: 'collect', itemId: item });
+      return 'collect';
+    }
+    const interior = this.interiorTarget();
+    if (interior) {
+      const result = this.interactInterior(interior);
+      if (result !== 'none') return result;
+    }
+    return !indoors && this.trunkVehicle() ? 'trunk' : 'none';
   }
 
   /** On foot: the person in front of the officer within `TALK_DISTANCE` (scratch, valid until the next call); null when none. */
@@ -867,6 +1064,8 @@ export class GameSession {
   mdtReachable(): boolean {
     const driven = this.drivenVehicle;
     if (driven) return this.equipmentOf(driven)?.spec.mdt === true;
+    if (this.nearStationPoint('reportDesk', DESK_REACH)) return true;
+    if (this.interiors.officerBuilding >= 0) return false;
     const at = this.playerPosition(scratchPoint);
     for (let i = 0; i < this.vehicleList.length; i++) {
       if (this.equipmentList[i]?.spec.mdt !== true) continue;
@@ -962,6 +1161,8 @@ export class GameSession {
     if (!this.vehicleList.includes(vehicle) || !this.modes.enter(vehicle.eid)) return false;
     this.removeOfficerBody();
     this.lastVehicleEid = vehicle.eid;
+    // Getting into a patrol car completes the garage step of the shift flow.
+    if (this.station.flow.step !== 'onPatrol' && vehicle.model.equipment !== null) this.station.request({ kind: 'complete', step: 'garage' });
     vehicle.engineOn = true;
     this.headlightOverride = null;
     this.clearDriverInput();
@@ -1023,6 +1224,12 @@ export class GameSession {
     const body = this.ctx.physics.getBody(eid);
     const heading = yaw ?? (vehicle ? this.yawOf(eid) : this.controller.yaw);
     if (!vehicle) this.controller.yaw = heading;
+    // A teleport puts the officer outdoors first (the console never leaves them on an interior level).
+    if (this.interiors.officerBuilding >= 0) {
+      this.interiors.leaveBuilding();
+      this.levelBefore = -1;
+      this.npc.transferFollowers(-1, x, z, heading);
+    }
     if (body) {
       const y = vehicle ? restHeight(vehicle.model) : PLAYER_SIZE.y / 2;
       body.setTranslation({ x, y, z }, true);
@@ -1114,6 +1321,10 @@ export class GameSession {
       npc: this.npc.serialize(),
       contacts: this.contact.serialize(),
       scenes: this.scene.serialize(),
+      interiors: this.interiors.serialize(),
+      tactical: this.tactical.serialize(),
+      investigation: this.investigation.serialize(),
+      station: this.station.serialize(),
     };
   }
 
@@ -1122,9 +1333,12 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.investigation.dispose();
+    this.tactical.dispose();
     this.contact.dispose();
     this.scene.dispose();
     this.npc.dispose();
+    this.interiors.dispose();
     this.radio.dispose();
     this.dispatcher.dispose();
     this.traffic.dispose();
@@ -1176,6 +1390,478 @@ export class GameSession {
     this.traffic.populate(this.focus, this.env.time);
   }
 
+  // --- Phase 4: interiors, tactical, investigation, station (design §20) -------------------
+
+  /** Building the officer is in, -1 outdoors. */
+  get officerBuilding(): number {
+    return this.interiors.officerBuilding;
+  }
+
+  /** @internal After the interiors restored: the officer's level bookkeeping follows the restored building. */
+  syncLevel(): void {
+    this.levelBefore = this.interiors.officerBuilding;
+  }
+
+  /** Room index of the officer in their building, -1 outdoors. */
+  officerRoom(): number {
+    const b = this.interiors.officerBuilding;
+    if (b < 0) return -1;
+    const layout = this.interiors.layout(b);
+    if (!layout) return -1;
+    const at = this.playerPosition(scratchPoint);
+    return roomAt(layout, at.x, at.z);
+  }
+
+  /** Fixed step -810. */
+  private stepInteriors(dt: number): void {
+    const at = this.playerPosition(scratchPoint);
+    const o = scratchOfficerAt;
+    o.x = at.x;
+    o.z = at.z;
+    o.yaw = this.controller.yaw;
+    o.building = this.interiors.officerBuilding;
+    o.onFoot = !this.driving;
+    this.interiors.step(dt, o);
+    if (this.canvassActors.length > 0) this.stepCanvassActors();
+  }
+
+  private fillInvestigationOfficer(out: InvestigationOfficer): InvestigationOfficer {
+    const b = this.interiors.officerBuilding;
+    const at = this.playerPosition(scratchPoint);
+    out.x = at.x;
+    out.y = levelY(b);
+    out.z = at.z;
+    out.yaw = this.controller.yaw;
+    out.pitch = this.controller.pitch;
+    out.building = b;
+    const layout = b >= 0 ? this.interiors.layout(b) : null;
+    out.room = layout ? roomAt(layout, at.x, at.z) : -1;
+    out.onFoot = !this.driving;
+    out.badge = this.officer.badge;
+    out.flashlight = this.tactical.flashlightOn;
+    return out;
+  }
+
+  private fillTacticalOfficer(out: OfficerPose): OfficerPose {
+    const at = this.playerPosition(scratchPoint);
+    out.x = at.x;
+    out.z = at.z;
+    out.yaw = this.controller.yaw;
+    out.pitch = this.controller.pitch;
+    out.building = this.interiors.officerBuilding;
+    const v = this.driving ? null : this.ctx.physics.getBody(this.playerEid)?.linvel(scratchVel);
+    out.speed = v ? Math.hypot(v.x, v.z) : 0;
+    out.onFoot = !this.driving;
+    return out;
+  }
+
+  /** `OccupantPort.spawn`: an ambient actor in the building; residents get the building's address. */
+  private spawnOccupant(spec: OccupantSpawn): number {
+    const id = this.npc.spawnActor({
+      personId: spec.personId,
+      x: spec.x,
+      z: spec.z,
+      yaw: spec.yaw,
+      profile: spec.profile,
+      role: spec.role,
+      callId: 0,
+      hidden: false,
+      body: 'human',
+      weapon: null,
+      vehicleId: -1,
+      pose: spec.pose,
+      building: spec.buildingId,
+    });
+    if (id > 0 && spec.role === 'resident') {
+      const address = this.buildings.building(spec.buildingId)?.address ?? '';
+      if (address !== '') this.records.setAddress(spec.personId, address);
+    }
+    return id;
+  }
+
+  /** In a contact, cuffed, escorted, on a call or a prisoner: never removed when the building unloads. */
+  private occupantBusy(actorId: number): boolean {
+    const a = this.npc.actor(actorId, scratchActor);
+    if (!a) return false;
+    return a.cuffed || a.following || a.callId > 0 || a.role === 'prisoner' || this.contact.contactOfPerson(a.personId) >= 0;
+  }
+
+  /** `ContactDeps.premises`: scene people first, else an ambient resident or staff member of the building the officer is in. */
+  private premisesOf(personId: number): { buildingId: number; authority: boolean; room: number } | null {
+    const fromScene = this.scene.premises(personId);
+    if (fromScene) return fromScene;
+    const b = this.interiors.officerBuilding;
+    if (b < 0) return null;
+    const id = this.npc.actorOfPerson(personId);
+    const a = id > 0 ? this.npc.actor(id, scratchActor) : null;
+    if (!a || a.building !== b) return null;
+    return { buildingId: b, authority: a.role === 'resident' || a.role === 'staff', room: this.officerRoom() };
+  }
+
+  /** Ports of the investigation system over the scene, CAD, npc, interiors, kit and station loadout. */
+  private investigationPorts(districtOf: (x: number, z: number) => string): InvestigationPorts {
+    const graph = this.city.graph;
+    const ids: number[] = [];
+    const doorOpen = (building: number) => (door: number): boolean => {
+      const st = this.interiors.doorState(building, door);
+      return st === 'open' || st === 'broken';
+    };
+    return {
+      callContext: (id) => (id <= 0 ? null : this.scene.callContext(id)),
+      currentCall: () => this.cad.unit(this.dispatcher.playerCallsign)?.callId ?? 0,
+      incidentOf: (id) => (id <= 0 ? '' : callNumber(id)),
+      spawnResident: (building, personId, callId, role) => this.spawnCanvassResident(building, personId, callId, role),
+      residentOf: (building, index) => residentPerson(this.seed, building, index),
+      hiddenActors: (building, out) => {
+        this.npc.actorsInBuilding(building, ids);
+        let n = 0;
+        for (const id of ids) {
+          if (n >= out.length) break;
+          const a = this.npc.actor(id, scratchActor);
+          if (!a?.hidden) continue;
+          const slot = out[n] as { actorId: number; x: number; z: number };
+          slot.actorId = a.id;
+          slot.x = a.x;
+          slot.z = a.z;
+          n++;
+        }
+        return n;
+      },
+      setNoGoZones: (zones: readonly NoGoZone[]) => this.npc.setNoGoZones(zones),
+      kit: () => ({
+        carried: (item) => this.kit.carried(item),
+        use: (item, n) => this.kit.consume(item, n),
+        give: (item, n) => this.kit.adjust(item, n),
+      }),
+      bodycamWorn: () => this.station.loadout.bodycamMount !== 'none',
+      nightFactor: () => this.env.lighting.nightFactor,
+      lineOfSight: (building, ax, ay, az, bx, by, bz, ignore) => {
+        if (building < 0) return true;
+        const layout = this.interiors.layout(building);
+        return layout === null || lineOfSight(layout, doorOpen(building), ax, ay, az, bx, by, bz, ignore);
+      },
+      roomLit: (building, room) => this.interiors.roomLit(building, room),
+      businessOpen: (building) => {
+        const layout = this.interiors.layout(building);
+        return layout !== null && !layout.residential && isOpenAt(layout.occupants.openHours, hourOf(this.env.time.totalSeconds));
+      },
+      layout: (building) => (building < 0 ? null : this.interiors.layout(building)),
+      addressOf: (building) => (building < 0 ? '' : (this.buildings.building(building)?.address ?? '')),
+      describeDirection: (fx, fz, tx, tz) => {
+        const dx = tx - fx;
+        const dz = tz - fz;
+        const dir = Math.abs(dz) >= Math.abs(dx) ? (dz < 0 ? 'north' : 'south') : dx > 0 ? 'east' : 'west';
+        const street = addressAt(graph, tx, tz, districtOf)?.street ?? '';
+        return street === '' ? dir : `${dir} on ${street}`;
+      },
+      describePerson: (personId) => {
+        const d = describePerson(this.people.identity(personId));
+        return `${d.sex === 'M' ? 'man' : 'woman'} ${d.ageBand}, ${d.top} top, ${d.bottom}, ${d.hair}, ${d.heightText}`;
+      },
+      doorBuilding: (x, z) => {
+        const b = this.buildings.nearestEntrance(x, z, 4);
+        const exit = b ? this.interiors.layout(b.id)?.doors.find((d) => d.main)?.exit : undefined;
+        return b && exit && Math.hypot(x - exit.x, z - exit.z) <= 1.8 ? b.id : -1;
+      },
+    };
+  }
+
+  /** Canvass: the resident comes to the door (a witness is registered with the scene for the call). */
+  private spawnCanvassResident(building: number, personId: number, callId: number, role: 'witness' | 'resident'): number {
+    const exit = this.interiors.layout(building)?.doors.find((d) => d.main)?.exit;
+    if (!exit || personId < 0) return 0;
+    const id = this.npc.spawnActor({
+      personId,
+      x: exit.x,
+      z: exit.z,
+      yaw: exit.yaw,
+      profile: 'bystander',
+      role,
+      callId: 0,
+      hidden: false,
+      body: 'human',
+      weapon: null,
+      vehicleId: -1,
+      building: -1,
+    });
+    if (id <= 0) return 0;
+    if (role === 'witness') this.scene.addWitness(callId, personId);
+    const address = this.buildings.building(building)?.address ?? '';
+    if (address !== '') this.records.setAddress(personId, address);
+    this.canvassActors.push({ id, until: this.clock.simTime + CANVASS_STAY_S });
+    return id;
+  }
+
+  /** Canvass residents leave their door after `CANVASS_STAY_S` unless the officer is talking to them. */
+  private stepCanvassActors(): void {
+    const list = this.canvassActors;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i] as { id: number; until: number };
+      if (this.clock.simTime < c.until) continue;
+      const a = this.npc.actor(c.id, scratchActor);
+      if (a && this.contact.contactOfPerson(a.personId) >= 0) continue;
+      if (a) this.npc.forceState(c.id, 'leave');
+      list.splice(i, 1);
+    }
+  }
+
+  /** The station block's interior point of `kind` (first one), null without a station layout. */
+  stationPoint(kind: string, nth = 0): { x: number; z: number; yaw: number } | null {
+    const st = this.buildings.station();
+    const layout = st ? this.interiors.layout(st.id) : null;
+    if (!layout) return null;
+    let n = 0;
+    for (const p of layout.points) {
+      if (p.kind !== kind) continue;
+      if (n++ === nth) return p;
+    }
+    return null;
+  }
+
+  /** The officer is inside the station within `reach` of a point of `kind`. */
+  private nearStationPoint(kind: string, reach: number): boolean {
+    const st = this.buildings.station();
+    if (!st || this.interiors.officerBuilding !== st.id) return false;
+    const p = this.stationPoint(kind);
+    if (!p) return false;
+    const at = this.playerPosition(scratchPoint);
+    return Math.hypot(at.x - p.x, at.z - p.z) <= reach;
+  }
+
+  /** The nearest found item within reach of the officer: its id (scratch-free), null when none. */
+  collectTarget(): string | null {
+    if (this.driving || this.playerEid === 0) return null;
+    const at = this.playerPosition(scratchPoint);
+    const it = this.investigation.nearestItem(at.x, at.z, this.interiors.officerBuilding, COLLECT_REACH);
+    return it !== null && it.state === 'found' ? it.id : null;
+  }
+
+  /** Nearest interior interactable at the officer (scratch object, valid until the next call). */
+  private interiorTarget(): InteriorInteractable | null {
+    if (this.driving || this.playerEid === 0) return null;
+    const at = this.playerPosition(scratchPoint);
+    return this.interiors.nearestInteractable(at.x, at.z, this.controller.yaw, this.interiors.officerBuilding);
+  }
+
+  private interiorHint(t: InteriorInteractable): InteractHint {
+    switch (t.kind) {
+      case 'entrance':
+        return this.interiors.doorState(t.buildingId, t.door) === 'locked' ? 'locked' : 'enterBuilding';
+      case 'exit':
+        return 'exitBuilding';
+      case 'door':
+        return t.state === 'locked' ? 'locked' : 'door';
+      case 'switch':
+        return 'switch';
+      case 'point':
+        switch (t.pointKind) {
+          case 'locker':
+            return 'locker';
+          case 'briefing':
+            return 'briefing';
+          case 'armory':
+            return 'armory';
+          case 'evidence':
+            return 'evidence';
+          case 'reportDesk':
+          case 'booking':
+            return 'reportDesk';
+          case 'interview':
+            return 'interview';
+          case 'cell':
+            return 'cell';
+          default:
+            return null;
+        }
+    }
+  }
+
+  /** The door the officer is at, for the door panel (an exterior door from outdoors, or any door indoors). */
+  doorTarget(): DoorTarget | null {
+    const t = this.interiorTarget();
+    if (!t) return null;
+    if (t.kind === 'entrance') return { buildingId: t.buildingId, door: t.door, outdoors: true, locked: this.interiors.doorState(t.buildingId, t.door) === 'locked' };
+    if (t.kind === 'door') return { buildingId: t.buildingId, door: t.door, outdoors: false, locked: t.state === 'locked' };
+    if (t.kind === 'exit') return { buildingId: t.buildingId, door: t.door, outdoors: false, locked: this.interiors.doorState(t.buildingId, t.door) === 'locked' };
+    return null;
+  }
+
+  private interactInterior(t: InteriorInteractable): InteractResult {
+    switch (t.kind) {
+      case 'entrance':
+        this.interiors.request({ kind: 'enter', buildingId: t.buildingId, door: t.door });
+        return 'interior';
+      case 'exit':
+        this.interiors.request({ kind: 'exit', door: t.door });
+        return 'interior';
+      case 'door':
+        if (t.state === 'locked') return 'doorPanel';
+        this.interiors.request({ kind: 'door', buildingId: t.buildingId, door: t.door, action: 'toggle' });
+        return 'interior';
+      case 'switch':
+        this.interiors.request({ kind: 'switch', buildingId: t.buildingId, room: t.room });
+        return 'interior';
+      case 'point':
+        switch (t.pointKind) {
+          case 'locker':
+            return 'locker';
+          case 'briefing':
+            return 'briefing';
+          case 'armory':
+            return 'armory';
+          case 'evidence':
+            this.investigation.request({ kind: 'deposit' });
+            return 'evidence';
+          case 'reportDesk':
+          case 'booking':
+            return 'reportDesk';
+          case 'interview':
+            return 'interview';
+          case 'cell': {
+            const id = this.contact.escorting();
+            const a = id > 0 ? this.npc.actor(id, scratchActor) : null;
+            if (a) this.station.request({ kind: 'hold', personId: a.personId });
+            return 'cell';
+          }
+          default:
+            return 'none';
+        }
+    }
+  }
+
+  /** A new shift: the officer in the station's locker room, flow `locker`, the unit out of service until the garage step. */
+  beginShiftInStation(): boolean {
+    const st = this.buildings.station();
+    const locker = this.stationPoint('locker');
+    if (!st || !locker) return false;
+    this.interiors.placeOfficerInside(st.id, locker);
+    if (this.interiors.officerBuilding !== st.id) return false;
+    this.station.restore(newShiftStationSave());
+    // The field kit: markers, bags, camera, dust kit and tape; the ram stays in the trunk.
+    for (const [item, n] of FIELD_KIT) this.kit.adjust(item, n);
+    this.dispatcher.request(this.dispatcher.playerCallsign, { kind: 'status', status: 'outOfService' }, 'auto');
+    return true;
+  }
+
+  /** `interior:moveOfficer`: teleports the body to the level, keeps followers and the partner with the officer. */
+  private onMoveOfficer(e: InteriorMoveOfficerEvent): void {
+    const prev = this.levelBefore;
+    this.levelBefore = e.buildingId;
+    if (this.playerEid === 0 || this.driving) return;
+    const body = this.ctx.physics.getBody(this.playerEid);
+    if (body) {
+      const y = (e.buildingId >= 0 ? e.y : 0) + PLAYER_SIZE.y / 2;
+      body.setTranslation({ x: e.x, y, z: e.z }, true);
+      body.setRotation(yawQuaternion(e.yaw, scratchQuat), true);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      this.writeInitialTransform(this.playerEid);
+    }
+    this.controller.yaw = e.yaw;
+    this.npc.transferFollowers(e.buildingId, e.x, e.z, e.yaw);
+    this.tactical.teleportPartner(e.buildingId, e.x, e.z, e.yaw);
+    // Leaving the station through the garage door completes the garage step.
+    const st = this.buildings.station();
+    if (e.buildingId < 0 && st && prev === st.id && this.station.flow.step !== 'onPatrol') {
+      const wide = this.interiors.layout(st.id)?.doors.find((d) => d.kind === 'wide' && d.exit && Math.abs(d.exit.x - e.x) < 0.05 && Math.abs(d.exit.z - e.z) < 0.05);
+      if (wide) this.station.request({ kind: 'complete', step: 'garage' });
+    }
+  }
+
+  private onStationStep(step: ShiftStep): void {
+    if (step === 'onPatrol') this.dispatcher.request(this.dispatcher.playerCallsign, { kind: 'status', status: 'available' }, 'auto');
+  }
+
+  /** A prisoner placed in a cell (or released): the actor sits in the cell. */
+  private onHolding(e: { personId: number; cell: number; placed: boolean }): void {
+    const existing = this.npc.actorOfPerson(e.personId);
+    if (existing > 0) this.npc.removeActor(existing);
+    if (!e.placed) return;
+    const st = this.buildings.station();
+    const p = this.stationPoint('cell', e.cell) ?? this.stationPoint('cell');
+    if (!st || !p) return;
+    this.npc.spawnActor({
+      personId: e.personId, x: p.x, z: p.z, yaw: p.yaw, profile: 'suspectCalm', role: 'prisoner', callId: 0,
+      hidden: false, body: 'human', weapon: null, vehicleId: -1, pose: 'sit', building: st.id,
+    });
+  }
+
+  /** The interview room: the prisoner is brought to the table and the conversation opens; ended, they return to their cell. */
+  private onInterview(personId: number): void {
+    const st = this.buildings.station();
+    if (!st) return;
+    if (this.interviewActor > 0) {
+      const back = this.npc.actor(this.interviewActor, scratchActor);
+      const cell = back ? this.station.holding.cellOf(back.personId) : -1;
+      const p = cell >= 0 ? (this.stationPoint('cell', cell) ?? this.stationPoint('cell')) : null;
+      if (back && p) this.npc.setActorPosition(this.interviewActor, st.id, p.x, p.z, p.yaw);
+      this.interviewActor = 0;
+    }
+    if (personId < 0) return;
+    const id = this.npc.actorOfPerson(personId);
+    const spot = this.stationPoint('interview');
+    if (id <= 0 || !spot) return;
+    this.npc.setActorPosition(id, st.id, spot.x - Math.sin(spot.yaw) * INTERVIEW_DISTANCE, spot.z - Math.cos(spot.yaw) * INTERVIEW_DISTANCE, spot.yaw + Math.PI);
+    this.interviewActor = id;
+    this.contact.request({ kind: 'open', target: { kind: 'actor', actorId: id } });
+  }
+
+  /** The cross-system bridges of design §14 (synchronous, inside the emitting step); returns the unsubscribe. */
+  private wireBridges(): () => void {
+    const bus = this.bus;
+    const offs: (() => void)[] = [
+      bus.on('interior:moveOfficer', (e) => this.onMoveOfficer(e)),
+      bus.on('interior:door', (e) => {
+        const source = DOOR_SOUND[e.action];
+        if (source !== undefined) this.tactical.request({ kind: 'sound', source, x: e.x, z: e.z, building: e.buildingId });
+        this.scene.onDoorEvent(e);
+      }),
+      bus.on('contact:consent', (e) => {
+        const premises = e.kind === 'entry' || e.kind === 'searchPremises' || e.kind === 'searchRoom';
+        this.investigation.recordConsent({
+          callId: e.callId,
+          personId: e.personId,
+          kind: e.kind,
+          granted: e.granted,
+          valid: e.valid,
+          authority: premises ? (this.premisesOf(e.personId)?.authority ?? false) : true,
+          buildingId: e.buildingId,
+          room: e.room,
+          vehicleId: -1,
+          sim: e.sim,
+          revokedSim: -1,
+        });
+      }),
+      bus.on('contact:line', (e) => {
+        if (e.speaker === 'subject') this.lastLine.set(e.personId, e.text);
+      }),
+      bus.on('contact:event', (e) => {
+        if (e.flag === 'statement') {
+          this.investigation.recordStatement(e.callId, { personId: e.personId, role: e.role, text: this.lastLine.get(e.personId) ?? 'Gave a statement.', sim: this.clock.simTime });
+        } else if (e.flag === 'custody') {
+          this.investigation.recordArrest(e.callId, e.personId, this.interiors.officerBuilding, this.officerRoom(), this.clock.simTime);
+        }
+      }),
+      bus.on('scene:service', (e) => {
+        if (e.kind === 'k9' && e.phase === 'arrived') this.investigation.startK9(e.callId);
+      }),
+      bus.on('investigation:photo', (e) => this.scene.onInvestigation('investigation:photo', e)),
+      bus.on('investigation:collected', (e) => this.scene.onInvestigation('investigation:collected', e)),
+      bus.on('investigation:canvass', (e) => this.scene.onInvestigation('investigation:canvass', e)),
+      bus.on('investigation:tape', (e) => this.scene.onInvestigation('investigation:tape', e)),
+      bus.on('investigation:plainView', (e) => this.scene.onInvestigation('investigation:plainView', e)),
+      bus.on('investigation:custodyComplete', (e) => this.scene.onInvestigation('investigation:custodyComplete', e)),
+      bus.on('investigation:k9Alert', (e) => this.scene.onInvestigation('investigation:k9Alert', e)),
+      bus.on('investigation:radio', (e) => this.radio.say('dispatch', e.text, 'K-9')),
+      bus.on('npc:aware', (e) => this.scene.onNpcAware(e)),
+      bus.on('station:step', (e) => this.onStationStep(e.step)),
+      bus.on('station:holding', (e) => this.onHolding(e)),
+      bus.on('station:interview', (e) => this.onInterview(e.personId)),
+    ];
+    return () => {
+      for (const off of offs) off();
+    };
+  }
+
   // --- fixed-step systems -----------------------------------------------------------
 
   private updateColliders(): void {
@@ -1208,6 +1894,7 @@ export class GameSession {
     const at = this.playerPosition(scratchPoint);
     f.x = at.x;
     f.z = at.z;
+    f.building = this.interiors.officerBuilding;
     const driven = this.drivenVehicle;
     f.onFoot = driven === null;
     if (driven) {
@@ -1750,7 +2437,7 @@ function sessionBodies(session: GameSession): Array<readonly [EntityId, Serializ
  * cars at their beats, and traffic around the officer. The same seed always yields the same
  * city and the same run for the same inputs.
  */
-export function startNewGame(ctx: GameContext, seed: number | string): GameSession {
+export function startNewGame(ctx: GameContext, seed: number | string, options: NewGameOptions = {}): GameSession {
   const normalized = normalizeSeed(seed);
   const session = new GameSession(ctx, normalized);
   try {
@@ -1761,6 +2448,9 @@ export function startNewGame(ctx: GameContext, seed: number | string): GameSessi
     // Fleet cars take their lanes before ambient traffic fills the rest (design §21).
     session.startDispatch();
     session.populateTraffic();
+    // Phase 4 (design §20): the shift starts in the station's locker room (the station's interior is resident at once).
+    if (options.inStation !== false) session.beginShiftInStation();
+    else session.station.restore(migratedStationSave(session.officer.badge));
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {
     session.dispose();
@@ -1823,10 +2513,16 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     // pedestrians and actors (they read people and the traffic view), the scenes (and the calls of a
     // migrated save), then the open contacts.
     session.people.restore(data.people);
+    // Phase 4 (design §16): the interiors first (the officer's building resident), then the actors that stand in them.
+    session.interiors.restore(data.interiors);
+    session.syncLevel();
     if (data.npc) session.npc.restore(data.npc);
+    session.tactical.restore(data.tactical);
     session.scene.restore(data.scenes, session.now());
     session.scene.adoptOpenCalls(session.now());
     session.contact.restore(data.contacts);
+    session.investigation.restore(data.investigation);
+    session.station.restore(data.station);
     session.radio.restore(data.radio);
     // Every body was just created with its saved state, so reading them back gives exactly that state.
     primeContacts(ctx.physics, sessionBodies(session));

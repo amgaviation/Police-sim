@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "kind": "hospital",
+  "label": "Hospital",
+  "layout": "corridor",
+  "minWidth": 26,
+  "minDepth": 16,
+  "maxWidth": 40,
+  "maxDepth": 24,
+  "minRoomArea": 12,
+  "entry": "lobby",
+  "residential": false,
+  "exteriorLocked": false,
+  "exteriorStrength": 0.7,
+  "lockableRooms": ["pharmacy", "supply", "patientRoom", "exam"],
+  "lockedRooms": ["pharmacy"],
+  "corridor": { "kind": "corridor", "label": "Corridor", "width": 2.4, "frontShare": 0.45, "surface": "linoleum" },
+  "exteriorDoors": [],
+  "occupants": { "day": [2, 4], "night": [2, 4], "profile": "bystander", "role": "staff", "openHours": null },
+  "rooms": [
+    { "kind": "lobby", "label": "Lobby", "size": 3, "required": true, "surface": "tile", "band": "front", "public": true,
+      "furniture": [
+        { "id": "frontDesk", "place": "wall" },
+        { "id": "waitingBench", "place": "wall", "count": [1, 2] },
+        { "id": "plant", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "waiting", "label": "Waiting room", "size": 3, "required": true, "surface": "linoleum", "band": "front", "public": true,
+      "furniture": [
+        { "id": "waitingBench", "place": "wall", "count": [2, 3] },
+        { "id": "vendingMachine", "place": "corner", "chance": 0.6 },
+        { "id": "plant", "place": "corner", "chance": 0.5 }
+      ] },
+    { "kind": "nurseStation", "label": "Nurse station", "size": 2, "required": true, "surface": "linoleum", "band": "front",
+      "furniture": [
+        { "id": "desk", "place": "wall" },
+        { "id": "filingCabinet", "place": "wall", "chance": 0.7 },
+        { "id": "chair", "place": "center", "chance": 0.7 }
+      ] },
+    { "kind": "supply", "label": "Supply room", "size": 1.5, "required": false, "chance": 0.7, "surface": "concrete", "band": "front",
+      "furniture": [
+        { "id": "shelf", "place": "wall", "count": [1, 2] }
+      ] },
+    { "kind": "pharmacy", "label": "Pharmacy", "size": 1.5, "required": true, "surface": "linoleum", "band": "front",
+      "furniture": [
+        { "id": "counter", "place": "wall" },
+        { "id": "shelf", "place": "wall", "chance": 0.7 },
+        { "id": "safe", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "exam", "label": "Exam room", "size": 2, "required": true, "surface": "linoleum", "band": "back", "count": [2, 4],
+      "furniture": [
+        { "id": "examTable", "place": "wall" },
+        { "id": "desk", "place": "wall", "chance": 0.7 },
+        { "id": "chair", "place": "corner", "chance": 0.6 }
+      ] },
+    { "kind": "patientRoom", "label": "Patient room", "size": 2, "required": true, "surface": "linoleum", "band": "back", "count": [2, 6],
+      "furniture": [
+        { "id": "hospitalBed", "place": "wall" },
+        { "id": "nightstand", "place": "wall", "chance": 0.7 },
+        { "id": "chair", "place": "corner", "chance": 0.6 }
+      ] }
+  ]
+}

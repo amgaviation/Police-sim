@@ -4,7 +4,7 @@
  */
 
 /** Body poses (`HumanoidSource.pose`). */
-export const POSE = { stand: 0, walk: 1, run: 2, handsUp: 3, kneel: 4, prone: 5, cuffed: 6, seated: 7, aim: 8, fight: 9, lying: 10, sit: 11 } as const;
+export const POSE = { stand: 0, walk: 1, run: 2, handsUp: 3, kneel: 4, prone: 5, cuffed: 6, seated: 7, aim: 8, fight: 9, lying: 10, sit: 11, crouch: 12 } as const;
 /** Held items (`HumanoidSource.held`), drawn at the right hand. */
 export const HELD = { none: 0, knife: 1, handgun: 2, bottle: 3, phone: 4, taser: 5, sidearm: 6 } as const;
 /** Figure bodies (`HumanoidSource.body`). */
@@ -135,7 +135,8 @@ const input = new Float64Array(2);
  * handsUp: arms straight up, rolled slightly out; kneel: knees on the ground (thighs vertical, shins back);
  * prone / lying: body flat (face down / up) with the hips 0.12 m up; cuffed: arms back and inward (legs walk
  * when moving); seated / sit: thighs forward, knees bent; aim: right arm raised forward (the renderer raises
- * the left one too for two-handed weapons); fight: arms 0.9 forward, alternating. Walk and run with a speed
+ * the left one too for two-handed weapons); fight: arms 0.9 forward, alternating; crouch: hips dropped 0.35 m,
+ * thighs 0.6 forward, knees 1.2, torso leaning 0.25 (legs swing +-0.3 around that when moving). Walk and run with a speed
  * of ~0 stand still. Allocation-free; returns `out`.
  */
 export function limbPose(pose: number, gait: number, speed: number, out: LimbPose): LimbPose {
@@ -222,6 +223,18 @@ function solve(pose: number, out: LimbPose): LimbPose {
       out.rightLeg = -HALF_PI;
       out.leftKnee = HALF_PI;
       out.rightKnee = HALF_PI;
+      break;
+    case POSE.crouch:
+      out.drop = 0.35;
+      out.leftKnee = 1.2;
+      out.rightKnee = 1.2;
+      out.leftLeg = -0.6;
+      out.rightLeg = -0.6;
+      out.torsoPitch = 0.25;
+      if (moving) {
+        out.leftLeg += 0.3 * phase;
+        out.rightLeg -= 0.3 * phase;
+      }
       break;
     case POSE.aim:
       out.rightArm = HALF_PI;
