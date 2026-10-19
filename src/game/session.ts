@@ -289,8 +289,14 @@ const DOOR_SOUND: Readonly<Partial<Record<InteriorDoorEvent['action'], SoundKind
 const CANVASS_STAY_S = 90;
 /** Default reach for the report-desk MDT (m). */
 const DESK_REACH = 2.5;
+/** Reach for depositing evidence at the evidence room's point (m). */
+const EVIDENCE_REACH = 3;
 /** Reach for collecting a found item (m). */
 const COLLECT_REACH = 1.5;
+/** The door panel stays open while the door is within this distance (m). */
+const DOOR_PANEL_REACH = 3;
+/** A canvass needs the player's call anchor within this distance (m). */
+const CANVASS_CALL_REACH = 150;
 /** The prisoner stands this far beyond the interview point (m). */
 const INTERVIEW_DISTANCE = 1.2;
 /** What a new shift's officer carries at the start (item, count). */
@@ -1159,6 +1165,11 @@ export class GameSession {
   /** Seats the officer in `vehicle` (no distance check: scripts, loads); false unless on foot. */
   enterVehicle(vehicle: DrivableVehicle): boolean {
     if (!this.vehicleList.includes(vehicle) || !this.modes.enter(vehicle.eid)) return false;
+    // A script or the console seats the officer from anywhere: the officer is outdoors again.
+    if (this.interiors.officerBuilding >= 0) {
+      this.interiors.leaveBuilding();
+      this.levelBefore = -1;
+    }
     this.removeOfficerBody();
     this.lastVehicleEid = vehicle.eid;
     // Getting into a patrol car completes the garage step of the shift flow.
@@ -1628,6 +1639,11 @@ export class GameSession {
     return Math.hypot(at.x - p.x, at.z - p.z) <= reach;
   }
 
+  /** The officer is inside the station within reach of the evidence room's deposit point. */
+  nearEvidenceRoom(): boolean {
+    return this.nearStationPoint('evidence', EVIDENCE_REACH);
+  }
+
   /** The nearest found item within reach of the officer: its id (scratch-free), null when none. */
   collectTarget(): string | null {
     if (this.driving || this.playerEid === 0) return null;
@@ -1684,6 +1700,25 @@ export class GameSession {
     if (t.kind === 'door') return { buildingId: t.buildingId, door: t.door, outdoors: false, locked: t.state === 'locked' };
     if (t.kind === 'exit') return { buildingId: t.buildingId, door: t.door, outdoors: false, locked: this.interiors.doorState(t.buildingId, t.door) === 'locked' };
     return null;
+  }
+
+  /** The door panel's door is still within reach (3 m of its opening, or of its outside pose from outdoors). */
+  doorStillThere(t: DoorTarget): boolean {
+    if (this.driving || this.playerEid === 0) return false;
+    const d = this.interiors.layout(t.buildingId)?.doors[t.door];
+    if (!d) return false;
+    const at = this.playerPosition(scratchPoint);
+    if (t.outdoors) return this.interiors.officerBuilding < 0 && d.exit !== null && Math.hypot(at.x - d.exit.x, at.z - d.exit.z) <= DOOR_PANEL_REACH;
+    return this.interiors.officerBuilding === t.buildingId && Math.hypot(at.x - d.x, at.z - d.z) <= DOOR_PANEL_REACH;
+  }
+
+  /** A neighbour can be canvassed at `buildingId`: the player's call is bound elsewhere and within 150 m. */
+  canvassAllowed(buildingId: number): boolean {
+    const callId = this.cad.unit(this.dispatcher.playerCallsign)?.callId ?? 0;
+    const call = callId > 0 ? this.scene.callContext(callId) : null;
+    if (!call || call.buildingId === buildingId) return false;
+    const at = this.playerPosition(scratchPoint);
+    return Math.hypot(at.x - call.anchorX, at.z - call.anchorZ) <= CANVASS_CALL_REACH;
   }
 
   private interactInterior(t: InteriorInteractable): InteractResult {

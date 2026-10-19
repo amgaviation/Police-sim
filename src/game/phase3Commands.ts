@@ -35,7 +35,7 @@ export function createPhase3Commands(deps: { session(): GameSession | null }): C
     {
       name: 'call',
       description: 'Spawn a catalog call with its scene, list the open calls, search call types',
-      usage: 'spawn <typeId> [here] [variant...] | list | types [filter]',
+      usage: 'spawn <typeId> [here] [building <id>] [variant...] | list | types [filter]',
       run(args) {
         const verb = args[0] ?? 'list';
         if (verb === 'types') {
@@ -58,12 +58,21 @@ export function createPhase3Commands(deps: { session(): GameSession | null }): C
         if (verb !== 'spawn') return 'Usage: call spawn <typeId> [here] [variant...] | list | types [filter]';
         const typeId = args[1];
         if (typeId === undefined || !CALL_TYPES.some((c) => c.id === typeId)) return 'Unknown type; try: call types <filter>';
-        const rest = args.slice(2);
+        let rest = args.slice(2);
+        // Phase 4: `building <id>` binds the call to that building (tests, demos).
+        let building = -1;
+        const bi = rest.indexOf('building');
+        if (bi >= 0) {
+          building = Number(rest[bi + 1]);
+          if (!Number.isInteger(building) || session.buildings.building(building) === null) return 'Usage: call spawn <typeId> building <buildingId>';
+          rest = [...rest.slice(0, bi), ...rest.slice(bi + 2)];
+        }
         const here = rest.includes('here');
         const variants = rest.filter((a): a is VariantKind => (VARIANT_KINDS as readonly string[]).includes(a));
         const unknown = rest.filter((a) => a !== 'here' && !(VARIANT_KINDS as readonly string[]).includes(a));
         if (unknown.length > 0) return `Unknown variant ${unknown.join(', ')}; variants: ${VARIANT_KINDS.join(', ')}`;
-        const id = session.scene.spawnCall(typeId, session.now(), here ? session.playerPosition({ x: 0, z: 0 }) : undefined, variants);
+        const door = building >= 0 ? session.buildings.building(building)?.door : undefined;
+        const id = session.scene.spawnCall(typeId, session.now(), door ?? (here ? session.playerPosition({ x: 0, z: 0 }) : undefined), variants, building);
         if (id === 0) return `No location found for ${typeId}`;
         const call = session.cad.call(id);
         const rt = session.scene.runtime(id);

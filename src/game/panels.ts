@@ -2,16 +2,19 @@ import type { StopAction, TrafficStopInfo } from '../cad/types';
 import { RACK_ITEMS, type PatrolEquipment } from '../police/equipment';
 import { TRUNK_ITEMS, type OfficerKit } from '../police/inventory';
 import type { ActionPanel, ActionPanelModel, PanelOption } from '../ui/panels/actionPanel';
+import type { ToolAction } from '../investigation';
+import { ARMORY_ITEMS } from '../station';
 import type { DrivableVehicle } from '../vehicles/drivableVehicle';
 import { personName } from './policeFeed';
-import { ARREST_CAR_DISTANCE, type GameSession } from './session';
+import { doorPanelModel, doorPanelRequest, partnerPanelModel, PARTNER_COMMANDS } from './stationPanels';
+import { ARREST_CAR_DISTANCE, type DoorTarget, type GameSession } from './session';
 import { describeTarget } from './target';
 
 /** The open panel is rebuilt at most this often (ms). */
 export const PANEL_REFRESH_MS = 100;
 
 /** Which interaction panel is open (design §13.4). */
-export type PatrolPanelKind = 'trunk' | 'equipment' | 'contact' | 'scene';
+export type PatrolPanelKind = 'trunk' | 'equipment' | 'contact' | 'scene' | 'door' | 'locker' | 'armory' | 'interview' | 'partner' | 'tools';
 
 /** Trunk panel, level 1 (`item` null: every item with its counts) or level 2 (take / stow one of `item`). */
 export function trunkPanelModel(eq: PatrolEquipment, kit: OfficerKit, item: string | null): ActionPanelModel {
@@ -100,6 +103,9 @@ export interface PatrolPanelHost {
   flash(text: string): void;
   /** Opens the MDT (the call's disposition is chosen there). */
   openMdt?(): void;
+  /** Phase 4: the tools panel opens the evidence camera / the case file. */
+  openCamera?(): void;
+  openCaseFile?(): void;
 }
 
 /**
@@ -115,6 +121,7 @@ export class PatrolPanels {
   private trunkCar: DrivableVehicle | null = null;
   private trunkItem: string | null = null;
   private sceneCall = -1;
+  private doorTarget: DoorTarget | null = null;
   /** Change key of the shown model; the panel DOM is refreshed only when it changes. */
   private shownKey = '';
   private nextRefreshMs = 0;
@@ -165,6 +172,39 @@ export class PatrolPanels {
     return true;
   }
 
+  /** The door panel (hold E at a door, or E at a locked one): knock, announce, open, kick, ram, lock, canvass. */
+  openDoor(target: DoorTarget): void {
+    const session = this.host.session();
+    if (!session) return;
+    this.doorTarget = target;
+    this.show('door', doorPanelModel(session, target));
+  }
+
+  openLocker(): void {
+    const session = this.host.session();
+    if (session) this.show('locker', session.station.lockerModel());
+  }
+
+  openArmory(): void {
+    const session = this.host.session();
+    if (session) this.show('armory', session.station.armoryModel());
+  }
+
+  openInterview(): void {
+    const session = this.host.session();
+    if (session) this.show('interview', session.station.interviewModel((id) => personName(session.seed, id)));
+  }
+
+  openPartner(): void {
+    const session = this.host.session();
+    if (session) this.show('partner', partnerPanelModel(session));
+  }
+
+  openTools(): void {
+    const session = this.host.session();
+    if (session) this.show('tools', session.investigation.toolsModel());
+  }
+
   close(): void {
     this.panel.close();
   }
@@ -211,6 +251,18 @@ export class PatrolPanels {
         return this.contactModel();
       case 'scene':
         return session.scene.panelModel(this.sceneCall);
+      case 'door':
+        return this.doorTarget && session.doorStillThere(this.doorTarget) ? doorPanelModel(session, this.doorTarget) : null;
+      case 'locker':
+        return session.officerBuilding >= 0 ? session.station.lockerModel() : null;
+      case 'armory':
+        return session.officerBuilding >= 0 ? session.station.armoryModel() : null;
+      case 'interview':
+        return session.officerBuilding >= 0 ? session.station.interviewModel((id) => personName(session.seed, id)) : null;
+      case 'partner':
+        return partnerPanelModel(session);
+      case 'tools':
+        return session.investigation.toolsModel();
       default:
         return null;
     }
@@ -240,8 +292,74 @@ export class PatrolPanels {
     if (kind === 'trunk') this.selectTrunk(session, index);
     else if (kind === 'equipment') this.selectEquipment(session, index);
     else if (kind === 'scene') this.selectScene(session, index);
-    else this.selectContact(session, index);
+    else if (kind === 'contact') this.selectContact(session, index);
+    else this.selectPhase4(session, kind, index);
     this.update();
+  }
+
+  private selectPhase4(session: GameSession, kind: PatrolPanelKind, index: number): void {
+    const station = session.station;
+    switch (kind) {
+      case 'door': {
+        const req = this.doorTarget ? doorPanelRequest(session, this.doorTarget, index) : null;
+        if (req) this.host.flash(req);
+        return;
+      }
+      case 'locker':
+        station.lockerSelect(index);
+        if (index === 5) this.panel.close();
+        return;
+      case 'armory':
+        station.armorySelect(index);
+        if (index === ARMORY_ITEMS.length && station.armory.has('sidearm')) this.panel.close();
+        return;
+      case 'interview': {
+        const rows = station.holding.occupants().length;
+        station.interviewSelect(index);
+        // Bringing somebody in closes the panel (the dialogue opens); ending the interview closes it too.
+        if (index <= rows) this.panel.close();
+        return;
+      }
+      case 'partner': {
+        const command = PARTNER_COMMANDS[index];
+        if (command === undefined) return;
+        const away = session.tactical.partner.mode === 'away';
+        session.tactical.request({ kind: 'partner', command: command === 'dismiss' && away ? 'summon' : command });
+        return;
+      }
+      case 'tools': {
+        const action: ToolAction = session.investigation.toolsSelect(index);
+        this.runTool(session, action);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  private runTool(session: GameSession, action: ToolAction): void {
+    switch (action.kind) {
+      case 'request':
+        session.investigation.request(action.request);
+        if (action.request.kind === 'dustStart') this.panel.close();
+        return;
+      case 'camera':
+        this.panel.close();
+        this.host.openCamera?.();
+        return;
+      case 'caseFile':
+        this.panel.close();
+        this.host.openCaseFile?.();
+        return;
+      case 'k9': {
+        const call = session.cad.unit(session.dispatcher.playerCallsign)?.callId ?? 0;
+        if (call > 0) session.scene.request({ kind: 'action', callId: call, actionId: 'requestK9' });
+        else this.host.flash('No active call for a K9 unit');
+        return;
+      }
+      default:
+        return;
+    }
   }
 
   private selectTrunk(session: GameSession, index: number): void {

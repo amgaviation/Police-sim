@@ -17,6 +17,11 @@ import { createWorldCommands, type WorldCommandDeps } from './debug/worldCommand
 import { createCallsCommands } from './calls/commands';
 import { createDispatchCommands } from './dispatch/commands';
 import { Transform } from './ecs/components';
+import './indoors/events';
+import './investigation/events';
+import './station/events';
+import './tactical/events';
+import './npc/events';
 import { SystemRegistry, copyPrevTransform, integrateVelocity, type System } from './ecs/systems';
 import { clearWorld, createGameWorld, entityCount, type GameWorld } from './ecs/world';
 import { EnvironmentRenderer } from './environment/render/environmentRenderer';
@@ -30,6 +35,8 @@ import { PatrolPanels } from './game/panels';
 import { createPatrolCommands } from './game/patrolCommands';
 import { PauseMenu } from './game/pauseMenu';
 import { createPhase3Commands } from './game/phase3Commands';
+import { createPhase4Commands } from './game/phase4Commands';
+import { Phase4Presenter } from './game/phase4Presenter';
 import { PeoplePresenter } from './game/peoplePresenter';
 import type { MoveInput } from './game/playerController';
 import { MARKER_CAPACITY, PoliceFeed } from './game/policeFeed';
@@ -105,6 +112,8 @@ const FLASH_MS = 2500;
 /** Index of the mouse button for `officer.fire` is handled by the input layer; this is the horizontal aim length floor. */
 const MIN_AIM = 1e-6;
 const FIXED_DT = 1 / SIM_HZ;
+/** Holding the interact key this long (ms) at a door opens the door panel instead of toggling it. */
+const DOOR_HOLD_MS = 400;
 const QUICKSAVE_SLOT = 'quicksave';
 const DETERMINISM_SEED = 12345;
 const DETERMINISM_SAMPLES = 8;
@@ -182,6 +191,8 @@ export class App {
   readonly mdtScreen: MdtScreen;
   /** Patrol-car interior in cockpit view (null without a renderer). */
   readonly cockpit: CockpitRenderer | null;
+  /** Phase 4 presentation: interiors, flashlight, fade, briefing, viewfinder, case file, dusting, labels, thumbnails. */
+  readonly phase4: Phase4Presenter;
 
   private sessionValue: GameSession | null = null;
   /** Per-session Phase 2 presentation: MDT overlay, radio log, radio controller, HUD feed, target lock. */
@@ -194,6 +205,8 @@ export class App {
   /** People layer presentation: figures, props, dialogue and SFST panels, subtitles. */
   readonly presenter: PeoplePresenter;
   private readonly policeInput = createPoliceInput();
+  /** Interact key held at a door since this time (ms), -1 when not pending: a tap toggles, a hold opens the door panel. */
+  private doorHoldMs = -1;
   private readonly markers = createMinimapMarkers(MARKER_CAPACITY);
   /** Siren emitters rebuilt every frame (reused objects; grows only when more police cars exist). */
   private readonly emitters: SirenEmitter[] = [];
@@ -320,6 +333,19 @@ export class App {
       },
       flash: (text) => this.flash(text),
       openMdt: () => this.mdtValue?.open(),
+      openCamera: () => {
+        const session = this.sessionValue;
+        if (session) this.phase4.openCamera(session);
+      },
+      openCaseFile: () => {
+        const session = this.sessionValue;
+        if (session) this.phase4.openCaseFile(session);
+      },
+    });
+    this.phase4 = new Phase4Presenter(this.renderer ? this.scene : null, this.renderer, this.envRenderer, this.ui, this.ui.hud, {
+      session: () => this.sessionValue,
+      flash: (text) => this.flash(text),
+      baseFov: () => settings.get('graphics.fov'),
     });
     this.presenter = new PeoplePresenter(
       this.renderer ? this.scene : null,
@@ -561,6 +587,7 @@ export class App {
     this.speechOut.dispose();
     this.audio.dispose();
     this.presenter.dispose();
+    this.phase4.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -605,6 +632,8 @@ export class App {
     const debugCam = this.renderer?.debugCameraEnabled ?? false;
     const police = readPoliceInput(this.input, this.policeInput);
     if (controlsActive) this.handleActions(session);
+    this.phase4.updateInput(session, this.input, controlsActive, () => this.panels.openTools(), () => this.panels.openPartner());
+    if (this.phase4.camera.isOpen && this.input.wasPressed('officer.fire')) this.phase4.shutter();
     this.readControls(session, dt, controlsActive && !debugCam);
     this.updateRadio(session, dt, controlsActive);
     // Holding the spotlight-aim button steers the spotlight with the mouse instead of the camera.
@@ -614,6 +643,7 @@ export class App {
     this.updateTarget(session, now);
     this.mdtValue?.update(now);
     this.panels.update(now);
+    this.phase4.updatePanels(session, now);
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
@@ -625,6 +655,8 @@ export class App {
   private render(alpha: number): void {
     this.meshes.syncFromEcs(alpha);
     this.renderer?.render();
+    // The drawing buffer is not preserved: a pending photo thumbnail is read in the same task as the render.
+    this.phase4.afterRender(this.sessionValue, this.renderer?.canvas ?? null);
     const s = this.perfSample;
     const stats = this.loop.stats;
     s.fps = stats.fps;
@@ -666,7 +698,7 @@ export class App {
    */
   private handleActions(session: GameSession): void {
     const input = this.input;
-    if (input.wasPressed('interact')) this.interact(session);
+    this.handleInteractKey(session);
     if (input.wasPressed('map.toggle')) this.view?.minimap.toggleZoom();
     if (input.wasPressed('mdt.toggle')) {
       if (session.mdtReachable()) this.mdtValue?.open();
@@ -675,6 +707,7 @@ export class App {
     if (input.wasPressed('target.runPlate')) this.runTargetPlate(session);
     if (input.wasPressed('scene.menu')) this.panels.openScene();
     if (!session.driving) {
+      if (input.wasPressed('camera.toggle')) this.phase4.toggleView();
       this.handleOfficerActions(session);
       return;
     }
@@ -754,6 +787,34 @@ export class App {
     if (!opened) this.flash('Finish the open document first');
   }
 
+  /**
+   * The interact key: a tap acts at once, except at a plain door where a tap toggles it on release and holding the key
+   * for `DOOR_HOLD_MS` opens the door panel (design §13).
+   */
+  private handleInteractKey(session: GameSession): void {
+    const input = this.input;
+    const now = performance.now();
+    if (input.wasPressed('interact')) {
+      const hint = session.interactHint();
+      if (hint === 'door' || hint === 'enterBuilding') this.doorHoldMs = now;
+      else this.interact(session);
+    }
+    if (this.doorHoldMs < 0) return;
+    if (!input.isDown('interact')) {
+      this.doorHoldMs = -1;
+      this.interact(session);
+    } else if (now - this.doorHoldMs >= DOOR_HOLD_MS) {
+      this.doorHoldMs = -1;
+      this.openDoorPanel(session);
+    }
+  }
+
+  private openDoorPanel(session: GameSession): void {
+    const target = session.doorTarget();
+    if (target) this.panels.openDoor(target);
+    else this.flash('No door within reach');
+  }
+
   private interact(session: GameSession): void {
     const result = session.interact();
     if (result === 'entered') this.rig.setVehicle(session.drivenVehicle?.model.body ?? null);
@@ -762,6 +823,13 @@ export class App {
       const car = session.trunkVehicle();
       if (car) this.panels.openTrunk(car);
     } else if (result === 'cage') this.flash('Placing the prisoner in the patrol car');
+    else if (result === 'doorPanel') this.openDoorPanel(session);
+    else if (result === 'locker') this.panels.openLocker();
+    else if (result === 'armory') this.panels.openArmory();
+    else if (result === 'interview') this.panels.openInterview();
+    else if (result === 'briefing') this.phase4.openBriefing(session);
+    else if (result === 'reportDesk') this.mdtValue?.open();
+    else if (result === 'cell') this.flash(session.contact.escorting() > 0 ? 'Placing the prisoner in a cell' : 'Holding cell');
     const flash = INTERACT_FLASH[result];
     if (flash !== undefined) this.flash(flash);
   }
@@ -824,9 +892,14 @@ export class App {
     if (!vehicle) {
       if (session.player === 0) return;
       interpolateTransform(session.player, alpha, scratchPos, scratchQuat);
-      this.rig.updateOnFoot(scratchPos, session.controller.yaw, session.controller.pitch, camera);
+      // Indoors (or with V on foot) the camera is at the officer's eyes with the tactical lean and stance.
+      const first = this.phase4.firstPerson(session);
+      this.presenter.setFirstPerson(first);
+      if (first) this.phase4.updateFirstPerson(session, scratchPos, this.rig, camera);
+      else this.rig.updateOnFoot(scratchPos, session.controller.yaw, session.controller.pitch, camera);
       return;
     }
+    this.presenter.setFirstPerson(false);
     interpolateTransform(vehicle.eid, alpha, scratchPos, scratchQuat);
     const target = this.follow;
     target.x = scratchPos.x;
@@ -859,7 +932,10 @@ export class App {
       const camera = renderer.activeCamera;
       interpolateTransform(session.player, alpha, scratchPos, scratchQuat);
       this.envRenderer.update(session.env, camera, scratchPos, dt);
+      this.view?.setIndoor(session.officerBuilding >= 0);
       this.view?.update(camera.position.x, camera.position.z, this.envRenderer.viewDistance, session.clock.simTime, lighting);
+      this.phase4.updateWorld(session, dt, camera);
+      this.phase4.updateLabels(session, camera, renderer.canvas, performance.now());
       // Once the first ring of chunks is in (session start), so a later heat spell does not stall mid-drive.
       const chunks = this.view?.streamer?.stats;
       if (!this.hazeWarm && chunks && chunks.loaded > 0 && chunks.inFlight === 0) {
@@ -907,6 +983,12 @@ export class App {
   private updateTarget(session: GameSession, now: number): void {
     const targets = this.targets;
     if (!targets || now < this.nextTargetMs) return;
+    // Indoors no vehicle is in sight.
+    if (session.officerBuilding >= 0) {
+      this.nextTargetMs = now + TARGET_INTERVAL_MS;
+      targets.clear();
+      return;
+    }
     this.nextTargetMs = now + TARGET_INTERVAL_MS;
     const camera = this.renderer?.activeCamera;
     let ox: number, oz: number, dx: number, dz: number;
@@ -1015,10 +1097,14 @@ export class App {
     const feed = this.policeFeedValue;
     feed?.fillHud(snapshot, this.targets?.target ?? null, this.radioMenuKey, now);
     this.presenter.fillHud(snapshot, session);
+    this.phase4.fillHud(snapshot, session);
     this.hud.update(snapshot, now);
     const view = this.view;
     if (!view) return;
     const at = session.playerPosition(scratchPoint);
+    // Indoors the minimap draws the building's floor plan.
+    const building = session.officerBuilding;
+    view.minimap.setFloorPlan(building >= 0 ? session.interiors.floorPlan(building) : null, at.x, at.z);
     const vehicle = session.drivenVehicle;
     const eid = vehicle?.eid ?? 0;
     const yaw = vehicle
@@ -1089,6 +1175,14 @@ export class App {
       'people',
       session ? `${String(session.people.touchedCount)} touched, ${String(pp.figures)} drawn, ${String(pp.props)} props, ${String(pp.drawCalls)} draw calls` : undefined,
     );
+    const interiors = session?.interiors.stats;
+    this.perf.setExtra('interiors', interiors ? `${String(interiors.resident)} resident, ${String(interiors.colliders)} colliders, ${String(interiors.occupants)} occupants, ${interiors.stepMs.toFixed(3)} ms` : undefined);
+    const inv = session?.investigation;
+    this.perf.setExtra('investigation', inv && session ? `${String(inv.store.files().length)} files, ${String(session.investigation.ledger.entries().length)} custody entries, rev ${String(inv.revision)}` : undefined);
+    const tac = session?.tactical;
+    this.perf.setExtra('tactical', tac ? `noise ${tac.noise.toFixed(2)}, vis ${tac.visibility.toFixed(2)}${tac.stance.crouched ? ', crouched' : ''}${tac.flashlightOn ? ', light' : ''}` : undefined);
+    const idraw = this.phase4.interiorRenderer?.drawCalls ?? 0;
+    this.perf.setExtra('interior draw', idraw > 0 ? `${String(idraw)} draw calls` : undefined);
     const cockpit = this.cockpit?.stats.drawCalls ?? 0;
     this.perf.setExtra('cockpit', cockpit > 0 ? `${String(cockpit)} draw calls` : undefined);
   }
@@ -1205,6 +1299,8 @@ export class App {
       speechIn: this.speechIn.available ? this.speechIn : null,
     });
     this.presenter.begin(session);
+    this.phase4.begin();
+    this.doorHoldMs = -1;
     this.lastRadioHint = 0;
     this.autoRoute = null;
     this.autoRouteX = NaN;
@@ -1216,6 +1312,7 @@ export class App {
   private endPatrol(): void {
     this.panels.close();
     this.presenter.end();
+    this.phase4.end();
     this.mdtValue?.dispose();
     this.mdtValue = null;
     this.radioCtl?.dispose();
@@ -1259,6 +1356,7 @@ export class App {
       ...createSceneCommands({ scene: () => session()?.scene ?? null, now: () => session()?.now() ?? null, playerPosition: position }),
       ...createCallsCommands(),
       ...createPhase3Commands({ session }),
+      ...createPhase4Commands({ session, flash: (text) => this.flash(text) }),
     ];
   }
 
@@ -1389,6 +1487,9 @@ export class App {
       this.bus.on('radio:blocked', (e) => {
         for (const id of e.ids) this.radioPanelValue?.markBlocked(id);
       }),
+      // Phase 4 one-off lines: door and interior messages, investigation messages.
+      this.bus.on('interior:flash', (e) => this.flash(e.text)),
+      this.bus.on('investigation:flash', (e) => this.flash(e.text)),
       // MDT requests are answered silently (design §8, §9.3): the dispatcher's answer, a refusal above all, shows on the MDT.
       this.bus.on('dispatch:ack', (e) => {
         const session = this.sessionValue;

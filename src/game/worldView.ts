@@ -57,6 +57,11 @@ export class WorldView {
     this.streetlights = new StreetlightPool(this.scene, this.city, count);
   }
 
+  /** Indoors the city chunks are not drawn (the interior is a closed box below the street). */
+  setIndoor(on: boolean): void {
+    if (this.streamer) this.streamer.root.visible = !on;
+  }
+
   /** Per frame, after the camera and the environment renderer: streaming, signal lamps, streetlights. */
   update(cameraX: number, cameraZ: number, viewDistance: number, simTime: number, lighting: Readonly<LightingState>): void {
     if (this.disposed) return;

@@ -42,6 +42,32 @@ export function interactPrompt(hint: InteractHint, key: string): string | null {
       return `${key}  Talk`;
     case 'cage':
       return `${key}  Place in rear seat`;
+    case 'enterBuilding':
+      return `${key}  Enter building  ·  hold ${key}: door options`;
+    case 'exitBuilding':
+      return `${key}  Exit building`;
+    case 'door':
+      return `${key}  Open / close door  ·  hold ${key}: options`;
+    case 'locked':
+      return `${key}  Locked door: options`;
+    case 'switch':
+      return `${key}  Lights on / off`;
+    case 'locker':
+      return `${key}  Locker`;
+    case 'briefing':
+      return `${key}  Briefing`;
+    case 'armory':
+      return `${key}  Armory`;
+    case 'evidence':
+      return `${key}  Deposit evidence`;
+    case 'reportDesk':
+      return `${key}  Report desk (MDT)`;
+    case 'interview':
+      return `${key}  Interview room`;
+    case 'cell':
+      return `${key}  Holding cell`;
+    case 'collect':
+      return `${key}  Collect evidence`;
     default:
       return null;
   }

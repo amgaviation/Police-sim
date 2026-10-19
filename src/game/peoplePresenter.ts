@@ -11,8 +11,10 @@ import {
   PeopleRenderer,
   PropRenderer,
   createHumanoidSource,
+  createPropSource,
   type HumanoidSource,
 } from '../render/people';
+import { stationStaff, uniformColors } from '../station';
 import type { SpeechOut } from '../speech/synthesis';
 import { voiceProfileFor } from '../speech/profile';
 import { DialoguePanel, SfstPanel, SubtitleBar, type DialogueView, type SfstView } from '../ui/dialogue';
@@ -37,6 +39,8 @@ const WALK_SPEED = 0.3;
 const RUN_SPEED = 4.2;
 /** Stride length (m per gait cycle) of the officer figure. */
 const STRIDE_M = 1.45;
+/** Scene props + investigation props drawn together (markers, evidence, tape). */
+const MERGED_PROP_CAPACITY = 1024;
 /** Contact chip: nearest person within this distance (m). */
 const CHIP_RANGE_M = 8;
 /** Roles drawn as suspects (red) on the minimap. */
@@ -44,8 +48,6 @@ const SUSPECT_ROLES = new Set(['suspect', 'assailant', 'agitator', 'ambusher', '
 
 const OFFICER_SKIN = 0xd9a77c;
 const OFFICER_HAIR = 0x2e2118;
-const OFFICER_TOP = 0x1f3b6f;
-const OFFICER_BOTTOM = 0x17233f;
 
 /** What the presenter needs from the app. */
 export interface PresenterHost {
@@ -79,7 +81,11 @@ export class PeoplePresenter {
   private readonly host: PresenterHost;
   private readonly speech: SpeechOut;
   private readonly officerFigure = createHumanoidSource(1);
-  private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure];
+  private readonly staff = createHumanoidSource(8);
+  private readonly mergedProps = createPropSource(MERGED_PROP_CAPACITY);
+  private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure, createHumanoidSource(0), createHumanoidSource(0), this.staff];
+  /** The camera is at the officer's eyes: the officer's own figure is hidden. */
+  private firstPerson = false;
   private readonly offs: (() => void)[] = [];
   private session: GameSession | null = null;
   private lastRevision = -1;
@@ -125,6 +131,8 @@ export class PeoplePresenter {
     this.lastRevision = -1;
     this.dismissedContact = -1;
     this.dismissedSfst = false;
+    this.staff.count = 0;
+    for (const id of session.interiors.resident) this.onResident(session, id, true);
     const bus = session.bus;
     this.offs.push(
       bus.on('contact:line', (e) => {
@@ -140,6 +148,8 @@ export class PeoplePresenter {
         this.say(speaker, e.text, e.personId >= 0 && e.language === 'en' ? e.personId : -1);
       }),
       bus.on('scene:flash', (e) => this.host.flash(e.text)),
+      bus.on('interior:resident', (e) => this.onResident(session, e.buildingId, e.loaded)),
+      bus.on('tactical:partner', (e) => this.say('Partner', e.text, -1)),
       bus.on('contact:openForm', (e) => this.host.openForm(e.kind, e.personId, e.vehicleId, e.callId)),
       bus.on('scene:openForm', (e) => this.host.openForm(e.kind, e.personId, e.vehicleId, e.callId)),
     );
@@ -179,8 +189,43 @@ export class PeoplePresenter {
     const r = this.renderer;
     this.fillOfficer(session, dt);
     this.sources[0] = session.npc.view;
+    this.sources[2] = session.tactical.partner.view;
+    this.sources[3] = session.investigation.dog;
     r?.update(alpha, this.sources, camX, camZ, PEOPLE_DRAW_DISTANCE);
-    this.props?.update(session.scene.props, nightFactor);
+    this.props?.update(this.mergeProps(session), nightFactor);
+  }
+
+  /** First-person camera: the officer's own figure is not drawn. */
+  setFirstPerson(on: boolean): void {
+    this.firstPerson = on;
+  }
+
+  /** Scene props followed by the investigation props (markers, evidence, tape) in one source. */
+  private mergeProps(session: GameSession): typeof this.mergedProps {
+    const m = this.mergedProps;
+    let n = 0;
+    for (const src of [session.scene.props, session.investigation.props]) {
+      const count = Math.min(src.count, m.x.length - n);
+      for (let i = 0; i < count; i++, n++) {
+        m.x[n] = src.x[i] ?? 0;
+        m.y[n] = src.y[i] ?? 0;
+        m.z[n] = src.z[i] ?? 0;
+        m.yaw[n] = src.yaw[i] ?? 0;
+        m.kind[n] = src.kind[i] ?? 0;
+      }
+    }
+    m.count = n;
+    return m;
+  }
+
+  /** The station's interior became resident (or left): its staff figures stand at their desks. */
+  private onResident(session: GameSession, buildingId: number, loaded: boolean): void {
+    const st = session.buildings.station();
+    if (!st || st.id !== buildingId) return;
+    this.staff.count = 0;
+    if (!loaded) return;
+    const layout = session.interiors.layout(buildingId);
+    if (layout) stationStaff(layout.points, layout.floorY, this.staff);
   }
 
   /** Draw calls of the people and prop meshes, and the figures drawn (perf overlay). */
@@ -381,14 +426,15 @@ export class PeoplePresenter {
     f.gait[0] = this.gait;
     const weapon = session.scene.officerWeapon;
     f.held[0] = weapon === 'sidearm' ? HELD.sidearm : weapon === 'taser' ? HELD.taser : HELD.none;
-    f.pose[0] = weapon !== 'none' ? POSE.aim : speed > RUN_SPEED ? POSE.run : speed > WALK_SPEED ? POSE.walk : POSE.stand;
+    f.pose[0] = weapon !== 'none' ? POSE.aim : session.tactical.stance.crouched ? POSE.crouch : speed > RUN_SPEED ? POSE.run : speed > WALK_SPEED ? POSE.walk : POSE.stand;
     f.height[0] = 1.78;
     f.build[0] = 1;
     f.skin[0] = OFFICER_SKIN;
     f.hair[0] = OFFICER_HAIR;
-    f.top[0] = OFFICER_TOP;
-    f.bottom[0] = OFFICER_BOTTOM;
+    const colors = uniformColors(session.station.loadout);
+    f.top[0] = colors.top;
+    f.bottom[0] = colors.bottom;
     f.body[0] = 0;
-    f.flags[0] = 0;
+    f.flags[0] = this.firstPerson ? FIGURE_FLAG.hidden : 0;
   }
 }
