@@ -262,6 +262,12 @@ export class ContactManager {
     return this.find(contactId)?.personId ?? -1;
   }
 
+  /** Incident string of the active contact ('' for a contact without one), null when no contact is active. */
+  activeIncident(): string | null {
+    const c = this.activeId >= 0 ? this.find(this.activeId) : null;
+    return c ? c.incident : null;
+  }
+
   /** The actor id being escorted (cuffed and following the officer), 0 when none. */
   escorting(): number {
     for (const c of this.contacts) {

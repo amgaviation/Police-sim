@@ -115,7 +115,7 @@ describe('GameSession (city)', () => {
     expect(h.physics.raw.colliders.len()).toBeGreaterThan(50);
   });
 
-  it('registers its systems in the design order (Phase 1 §13, Phase 2 §15, Phase 3 §14, Phase 4 §15)', () => {
+  it('registers its systems in the design order (Phase 1 §13, Phase 2 §15, Phase 3 §14, Phase 4 §15, Phase 5 §15)', () => {
     const h = fresh();
     h.start(SEED);
     expect(h.registry.systems.map((s) => s.name)).toEqual([
@@ -125,9 +125,13 @@ describe('GameSession (city)', () => {
       'colliders',
       'dispatch',
       'scene',
+      'force',
       'contact',
       'investigation',
       'station',
+      'incidents',
+      'conduct',
+      'court',
       'radio',
       'tactical',
       'integrateVelocity',

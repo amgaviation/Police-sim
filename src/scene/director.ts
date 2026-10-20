@@ -1401,6 +1401,12 @@ export class SceneDirector implements IncidentResolver {
     return false;
   }
 
+  /** The open call bound to `buildingId`, 0 for none (Phase 5 incident recorder). */
+  callOfBuilding(buildingId: number): number {
+    for (const rt of this.open) if (rt.buildingId === buildingId) return rt.scenario.callId;
+    return 0;
+  }
+
   /** The building a call is bound to, -1 for none (or an unknown call). */
   buildingOf(callId: number): number {
     return this.byCall.get(callId)?.buildingId ?? -1;

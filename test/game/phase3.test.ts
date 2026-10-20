@@ -16,6 +16,7 @@ import { VEHICLE_MODELS } from '../../src/vehicles/model';
 import type { City } from '../../src/world/city';
 import { generateCity } from '../../src/world/generate';
 import { laneRef } from '../../src/world/roadGraph';
+import { DISTRICT_NAMES } from '../../src/world/ids';
 import { Harness, roundTrip } from './harness';
 
 const SEED = 42;
@@ -224,7 +225,9 @@ function phase3Script(h: Harness, session: GameSession): { callId: number; victi
   // Clear the domestic with the suggested disposition (the officer is free for the next job).
   session.scene.request({ kind: 'clear', callId, disposition: null });
   h.step(session, 60);
-  // The DUI stop.
+  // The DUI stop. Closing the domestic moved community trust (Phase 5); the script wants a cooperative driver, so trust is restored.
+  for (const district of DISTRICT_NAMES) session.conduct.request({ kind: 'trust', district, delta: 0.5, reason: 'test' });
+  h.step(session, 2);
   // The driver is made drunk once the car has stopped (the ambient flee roll happens at the pull-over).
   const vehicleId = stopCarAhead(session, h, 0);
   const driver = session.npc.occupantsOf(vehicleId)[0] ?? -1;

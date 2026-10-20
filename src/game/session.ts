@@ -10,8 +10,13 @@ import type { EventMap } from '../core/event-map';
 import { EventBus } from '../core/events';
 import { createRng, normalizeSeed, rngFromState, type Rng } from '../core/rng';
 import { GameClock } from '../core/time';
-import { trustOf } from '../dialogue';
 import { Dispatcher, type PlayerUnitState } from '../dispatch/dispatcher';
+import type { ConductState } from '../conduct';
+import type { CourtState } from '../court';
+import type { ForceOfficer, ForceSystem } from '../force';
+import type { IncidentSystem, DashProbe, OfficerProbe, PursuitProbe } from '../incidents';
+import { RECORDING } from '../recording';
+import { Phase5 } from './phase5';
 import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
 import type { System, SystemRegistry } from '../ecs/systems';
 import { advanceTime, despawn, spawn, type GameWorld } from '../ecs/world';
@@ -71,6 +76,7 @@ import { MPH, WORLD_HALF_SIZE, WORLD_WALL } from '../world/constants';
 import { LANDMARKS } from '../world/data';
 import { generateCity } from '../world/generate';
 import { BuildingIndex } from '../world/buildings';
+import type { RoadHit } from '../world/roadGraph';
 import { DISTRICT_NAMES } from '../world/ids';
 import { stationLayout } from '../world/stationLayout';
 import { PlayerController, moveVelocity, yawFromQuaternion, yawQuaternion, type MoveInput } from './playerController';
@@ -168,6 +174,8 @@ export interface DoorTarget {
 export interface NewGameOptions {
   /** The shift starts in the station's locker room (default); false starts outdoors at the station door (Phase 1-3 tests). */
   inStation?: boolean;
+  /** Ruleset id of the legal engine (main menu / console), `generic` by default (Phase 5). */
+  jurisdiction?: string;
 }
 
 /** One ambient traffic car for the `traffic list` command. */
@@ -309,6 +317,14 @@ const CANVASS_CALL_REACH = 150;
 const INTERVIEW_BEYOND = 0.5;
 /** What a new shift's officer carries at the start (item, count). */
 const FIELD_KIT: readonly (readonly [string, number])[] = [['evidenceMarkers', 8], ['evidenceBags', 8], ['camera', 1], ['fingerprintKit', 1], ['sceneTape', 1]];
+/** The officer counts as moving for the force hit model above this speed (m/s). */
+const FORCE_MOVING_SPEED = 0.5;
+/** Pursuit policy: the road under the car is the nearest centreline within this distance (m). */
+const PURSUIT_ROAD_RADIUS = 40;
+/** Wetness above which the road counts as wet, night factor above which it is night (pursuit policy). */
+const WET_ROAD = 0.3;
+const NIGHT_FACTOR = 0.5;
+const NO_VIOLATIONS: Readonly<Partial<Record<string, number>>> = {};
 const scratchStop: StopState = { vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 };
 
 /** Heading (yaw about +Y, 0 = facing -Z) of a rotation's forward axis, ignoring pitch and roll. */
@@ -379,6 +395,8 @@ export class GameSession {
   readonly investigation: InvestigationSystem;
   /** Shift flow, armory log, loadout, holding cells; fixed step -670. */
   readonly station: StationState;
+  /** Phase 5 (law, procedure, consequences): force, incident recorder, conduct, court and their bridges. */
+  readonly phase5: Phase5;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -413,6 +431,7 @@ export class GameSession {
   /** The station's block, grown by `STATION_MARGIN` (booking); null without a station. */
   private readonly stationRect: readonly [number, number, number, number] | null;
   private lastVehicleEid: EntityId = 0;
+  private readonly roadHit: RoadHit = { edge: 0, s: 0, t: 0, x: 0, z: 0, distance: 0, side: 1 };
   /** H toggle; null follows the automatic headlights until they switch. */
   private headlightOverride: boolean | null = null;
   private autoHeadlights: boolean;
@@ -566,7 +585,7 @@ export class GameSession {
         out.building = this.interiors.officerBuilding;
       },
       premises: (personId) => this.premisesOf(personId),
-      trustAt: (x, z) => trustOf(districtOf(x, z)),
+      trustAt: (x, z) => this.phase5.conduct.trust(districtOf(x, z)),
       districtOf,
       stopVehicleId: () => this.traffic.stopVehicleId,
       interpreterAvailable: (callId) => this.scene.interpreterAvailable(callId),
@@ -612,8 +631,14 @@ export class GameSession {
       patrolCars: () => this.patrolCars(),
       ...(ctx.indoorScenes === false ? {} : { interiors: this.interiors, buildings: this.buildings, evidence: this.investigation }),
       weaponsAvailable: () => this.station.weaponsAvailable(),
+      trustAt: (x, z) => this.phase5.conduct.effects(districtOf(x, z)).cooperation,
+      errorScaleAt: (x, z) => this.phase5.conduct.effects(districtOf(x, z)).errorScale,
+      hostilityAt: (x, z) => this.phase5.conduct.effects(districtOf(x, z)).hostility,
     });
     this.contact.setResolver(this.scene);
+    // Phase 5: force, incidents, conduct and court over the objects above (design 20).
+    this.phase5 = new Phase5(this.phase5Host());
+    this.dispatcher.setCrimeFactor((d) => this.phase5.conduct.effects(d).crimeFactor);
     this.stationRect = stationRectOf(city);
     this.vehicleEnv = { surfaceAt: (x, z) => city.surfaceAt(x, z), wetness: 0, snowCover: 0, ambientC: 20 };
     const pumps = fuelPumps(city);
@@ -658,9 +683,13 @@ export class GameSession {
       { order: -800, system: { name: 'colliders', run: () => this.updateColliders() } },
       { order: -700, system: { name: 'dispatch', run: (_world, dt) => this.stepDispatch(dt) } },
       { order: -690, system: { name: 'scene', run: (_world, dt) => this.stepScene(dt) } },
+      { order: -685, system: { name: 'force', run: (_world, dt) => this.phase5.stepForce(dt, this.syncCadTime()) } },
       { order: -680, system: { name: 'contact', run: (_world, dt) => this.contact.step(dt, this.syncCadTime()) } },
       { order: -675, system: { name: 'investigation', run: (_world, dt) => this.investigation.step(dt, this.syncCadTime()) } },
       { order: -670, system: { name: 'station', run: (_world, dt) => this.station.step(dt, this.syncCadTime()) } },
+      { order: -660, system: { name: 'incidents', run: (_world, dt) => this.phase5.stepIncidents(dt, this.syncCadTime()) } },
+      { order: -658, system: { name: 'conduct', run: (_world, dt) => this.phase5.stepConduct(dt, this.syncCadTime()) } },
+      { order: -656, system: { name: 'court', run: (_world, dt) => this.phase5.stepCourt(dt, this.syncCadTime()) } },
       { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
       // Phase 1-3 compatibility mode (`indoorScenes: false`, older tests) leaves the tactical awareness off: it draws on the npc streams.
       { order: -640, system: { name: 'tactical', run: (_world, dt) => { if (ctx.indoorScenes !== false) this.tactical.step(dt, this.syncCadTime()); } } },
@@ -673,6 +702,26 @@ export class GameSession {
 
   get player(): EntityId {
     return this.playerEid;
+  }
+
+  /** Use of force: tools, TASER, fellow-officer episodes (fixed step -685). */
+  get force(): ForceSystem {
+    return this.phase5.force;
+  }
+
+  /** Incident recorder and legal assessments (fixed step -660). */
+  get incidents(): IncidentSystem {
+    return this.phase5.incidents;
+  }
+
+  /** Report grades, IA, discipline, commendations and community trust (fixed step -658). */
+  get conduct(): ConductState {
+    return this.phase5.conduct;
+  }
+
+  /** Cases, subpoenas and hearings (fixed step -656). */
+  get court(): CourtState {
+    return this.phase5.court;
   }
 
   /** Box entity ids in spawn order (the order they are serialized in). */
@@ -1344,6 +1393,7 @@ export class GameSession {
       tactical: this.tactical.serialize(),
       investigation: this.investigation.serialize(),
       station: this.station.serialize(),
+      ...this.phase5.serialize(),
     };
   }
 
@@ -1352,6 +1402,7 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.phase5.dispose();
     this.investigation.dispose();
     this.tactical.dispose();
     this.contact.dispose();
@@ -1407,6 +1458,86 @@ export class GameSession {
   populateTraffic(): void {
     this.updateFocus();
     this.traffic.populate(this.focus, this.env.time);
+  }
+
+  // --- Phase 5: law, procedure, consequences (design 20) -----------------------------------
+
+  /** The reads the Phase 5 systems make of this session. */
+  private phase5Host(): import('./phase5').Phase5Host {
+    return {
+      seed: this.seed,
+      rng: this.rng,
+      bus: this.bus,
+      cad: this.cad,
+      dispatcher: this.dispatcher,
+      scene: this.scene,
+      npc: this.npc,
+      people: this.people,
+      records: this.records,
+      investigation: this.investigation,
+      station: this.station,
+      interiors: this.interiors,
+      tactical: this.tactical,
+      contact: this.contact,
+      env: this.env,
+      radio: this.radio,
+      simNow: () => this.clock.simTime,
+      observedViolations: (vehicleId) => this.violationLog.get(vehicleId) ?? NO_VIOLATIONS,
+      forceOfficer: (out) => this.fillForceOfficer(out),
+      officerProbe: (out) => this.fillOfficerProbe(out),
+      dashProbe: (out) => this.fillDashProbe(out),
+      pursuitProbe: (out) => this.fillPursuitProbe(out),
+    };
+  }
+
+  private fillForceOfficer(out: ForceOfficer): ForceOfficer {
+    const f = this.syncFocus();
+    out.x = f.x;
+    out.z = f.z;
+    out.yaw = f.yaw;
+    out.building = f.building ?? -1;
+    out.onFoot = f.onFoot;
+    out.moving = f.speed > FORCE_MOVING_SPEED;
+    out.crouched = this.tactical.stance.crouched;
+    out.callId = this.cad.unit(this.dispatcher.playerCallsign)?.callId ?? 0;
+    return out;
+  }
+
+  private fillOfficerProbe(out: OfficerProbe): void {
+    const at = this.playerPosition(scratchPoint);
+    out.x = at.x;
+    out.z = at.z;
+    out.building = this.interiors.officerBuilding;
+    out.inVehicle = this.driving;
+    out.weapon = this.scene.officerWeapon;
+  }
+
+  private fillDashProbe(out: DashProbe): void {
+    const v = this.lastVehicle;
+    out.lights = v !== null && v.lightbar;
+    if (!v) {
+      out.nearCar = false;
+      return;
+    }
+    const at = this.playerPosition(scratchPoint);
+    out.nearCar = this.driving || Math.hypot(at.x - (Transform.x[v.eid] ?? 0), at.z - (Transform.z[v.eid] ?? 0)) <= RECORDING.dashRangeM;
+  }
+
+  /** The driven patrol car's speed, the posted limit under it, conditions and lights (pursuit policy). */
+  private fillPursuitProbe(out: PursuitProbe): boolean {
+    const v = this.drivenVehicle;
+    if (!v || !this.inPatrolCar) return false;
+    const at = this.playerPosition(scratchPoint);
+    out.speedMph = v.telemetry.groundSpeed / MPH;
+    const graph = this.city.graph;
+    const hit = graph.nearestEdge(at.x, at.z, PURSUIT_ROAD_RADIUS, this.roadHit);
+    out.limitMph = hit ? graph.effectiveSpeedLimitMph(hit.edge, this.env.time) : 0;
+    out.district = DISTRICT_NAMES[this.city.districtAt(at.x, at.z)] ?? '';
+    out.wet = this.env.weather.wetness > WET_ROAD;
+    out.night = this.env.lighting.nightFactor > NIGHT_FACTOR;
+    out.lights = v.lightbar;
+    out.siren = this.equipmentOf(v)?.sirenOn ?? false;
+    return true;
   }
 
   // --- Phase 4: interiors, tactical, investigation, station (design §20) -------------------
@@ -2552,6 +2683,7 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
     // Phase 4 (design §20): the shift starts in the station's locker room (the station's interior is resident at once).
     if (options.inStation !== false) session.beginShiftInStation();
     else session.station.restore(migratedStationSave(session.officer.badge));
+    if (options.jurisdiction !== undefined) session.phase5.setJurisdiction(options.jurisdiction);
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {
     session.dispose();
@@ -2624,6 +2756,8 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     session.contact.restore(data.contacts);
     session.investigation.restore(data.investigation);
     session.station.restore(data.station);
+    // Phase 5 (design 16): force, incidents, conduct, court.
+    session.phase5.restore(data);
     session.restoreTransients();
     session.radio.restore(data.radio);
     // Every body was just created with its saved state, so reading them back gives exactly that state.

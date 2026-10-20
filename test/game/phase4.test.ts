@@ -8,7 +8,7 @@ import { initRapier } from '../../src/physics/physics';
 import type { BuildingInfo } from '../../src/world/buildings';
 import { verifyLedger } from '../../src/evidence';
 import { migrateEnvelope } from '../../src/save/migrations';
-import { isSaveGame, type SaveGame } from '../../src/save/schema';
+import { CURRENT_SAVE_VERSION, isSaveGame, type SaveGame } from '../../src/save/schema';
 import { Harness, roundTrip } from './harness';
 
 const SEED = 4242;
@@ -258,9 +258,9 @@ describe('Phase 4 determinism and saves', () => {
     h.step(session, 120);
     const v6 = roundTrip(serializeGame(session));
     h.reset(session);
-    const { interiors: _i, tactical: _t, investigation: _v, station: _s, ...v5 } = v6;
+    const { interiors: _i, tactical: _t, investigation: _v, station: _s, force: _f, incidents: _n, conduct: _c, court: _o, ...v5 } = v6;
     const migrated = migrateEnvelope({ version: 5, createdAt: 1, updatedAt: 1, slot: 't', data: v5 });
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(CURRENT_SAVE_VERSION);
     const loaded = h.load(migrated.data);
     h.step(loaded, 120);
     expect(loaded.officerBuilding).toBe(-1);
