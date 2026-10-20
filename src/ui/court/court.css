@@ -1,0 +1,70 @@
+/* Courtroom (src/ui/court): the hearing panel. Prefix crt-; palette from src/ui/styles.css. Sizes in em so --text-scale
+   scales them. Nothing flashes or animates. */
+
+.crt-panel {
+  --crt-dim: var(--fg-dim, #8fa3b5);
+  --crt-line: var(--panel-border, #2a3a4a);
+  --crt-accent: var(--accent, #3b9eff);
+  --crt-good: #5fd35f;
+  --crt-bad: #ff5a5a;
+  background: var(--panel, #121a23);
+  border: 1px solid var(--crt-line);
+  border-radius: var(--radius, 4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  padding: 1em 1.2em;
+  width: min(94vw, 38em);
+  max-height: 94vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7em;
+  pointer-events: auto;
+}
+.crt-panel [hidden] { display: none !important; }
+
+.crt-head { border-bottom: 2px solid var(--crt-accent); padding-bottom: 0.5em; }
+.crt-bench { font-size: 1.2em; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.crt-case { color: var(--crt-dim); font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.9em; }
+
+.crt-body { display: flex; flex-direction: column; gap: 0.6em; min-height: 12em; }
+.crt-heading { font-weight: 700; color: var(--crt-dim); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.85em; }
+.crt-empty { color: var(--crt-dim); font-style: italic; }
+
+.crt-motions, .crt-review { display: flex; flex-direction: column; gap: 0.35em; }
+.crt-motion { display: flex; gap: 0.8em; align-items: baseline; padding: 0.3em 0.6em; border-left: 4px solid var(--crt-line); background: rgba(255, 255, 255, 0.04); }
+.crt-granted { border-left-color: var(--crt-bad); }
+.crt-denied { border-left-color: var(--crt-good); }
+.crt-badge { min-width: 5.5em; font-weight: 700; font-size: 0.8em; letter-spacing: 0.08em; }
+.crt-granted .crt-badge { color: var(--crt-bad); }
+.crt-denied .crt-badge { color: var(--crt-good); }
+.crt-motion-text { flex: 1; }
+
+.crt-qcount { font-family: var(--font-mono, ui-monospace, monospace); color: var(--crt-accent); font-weight: 700; }
+.crt-question { font-size: 1.15em; line-height: 1.4; padding: 0.7em 0.9em; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--crt-line); border-radius: var(--radius, 4px); }
+
+.crt-actions { display: flex; flex-wrap: wrap; gap: 0.5em; }
+.crt-btn {
+  font: inherit;
+  color: var(--fg, #dfe7ee);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--crt-line);
+  border-radius: var(--radius, 4px);
+  padding: 0.4em 0.9em;
+  cursor: pointer;
+}
+.crt-btn:hover, .crt-btn:focus-visible { background: rgba(59, 158, 255, 0.22); border-color: var(--crt-accent); }
+.crt-primary { border-color: var(--crt-accent); }
+.crt-answers .crt-btn { min-width: 8em; text-align: left; }
+
+.crt-review-row { display: flex; gap: 1em; justify-content: space-between; padding: 0.2em 0.5em; border-bottom: 1px solid var(--crt-line); }
+.crt-review-q { flex: 1; }
+.crt-review-a { font-weight: 700; min-width: 7em; text-align: right; }
+.crt-unanswered { color: var(--crt-bad); }
+
+.crt-progress { display: flex; gap: 3px; }
+.crt-progress:empty { display: none; }
+.crt-step { flex: 1; height: 0.4em; background: #1c242d; border: 1px solid var(--crt-line); }
+.crt-step-done { background: var(--crt-accent); }
+.crt-step-current { background: #fff; }
+
+.crt-hint { color: var(--crt-dim); font-size: 0.8em; border-top: 1px solid var(--crt-line); padding-top: 0.4em; }

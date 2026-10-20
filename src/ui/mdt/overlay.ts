@@ -1,6 +1,6 @@
 /**
- * The MDT / CAD terminal (design §13.2): a full-screen, keyboard-first, non-pausing `Menu` with nine
- * tabs. CAD changes go through `deps.request` (applied by the dispatcher in its next fixed step);
+ * The MDT / CAD terminal (design §13.2): a full-screen, keyboard-first, non-pausing `Menu` with eleven
+ * tabs (Phase 5 appends Career and Community). CAD changes go through `deps.request` (applied by the dispatcher in its next fixed step);
  * records queries call `deps.records` directly; documents are written to `deps.cad.docs`.
  *
  * Cost: nothing while closed. While open, `update` refreshes the visible tab at most 4 Hz and only
@@ -35,6 +35,8 @@ import { clearChildren, el, type Menu, type UIRoot } from '../ui';
 import { ListView, button, renderSections, selectField, setText, textField, type Field } from './dom';
 import { buildDocForm, showErrors, type DocFormView, type FormOptions } from './forms';
 import { MAP_ZOOM_STEP, MdtMap, type MapDrawState } from './map';
+import { careerModel, communityModel, renderCareer, renderCommunity, type CareerModel, type CommunityRow } from './career';
+import { gradeSections, normalizeAssertions, type ChoiceInfo } from './statements';
 import {
   type CallDetailLine,
   callDetailLines,
@@ -53,7 +55,7 @@ import {
   type QueueRow,
   type UnitRow,
 } from './model';
-import { MDT_TABS, MDT_TAB_LABELS, type MdtDeps, type MdtTab } from './types';
+import { MDT_TABS, MDT_TAB_LABELS, tabKeyLabel, type MdtDeps, type MdtTab } from './types';
 
 /** Minimum time between refreshes of the visible tab (4 Hz). */
 export const MDT_REFRESH_MS = 250;
@@ -114,6 +116,8 @@ interface FormState {
   readonly init: DraftFields<DocKind>;
   readonly opts: FormOptions;
   view: DocFormView | null;
+  /** Report form: the statements ticked without a DOM (`setAssertions`) or restored from a saved draft. */
+  assertions: string[];
 }
 
 interface FormDom {
@@ -161,6 +165,9 @@ interface Dom {
   readonly newDoc: HTMLButtonElement;
   readonly docs: ListView<DocRow>;
   readonly docPane: HTMLElement;
+  // career / community
+  readonly careerBody: HTMLElement;
+  readonly communityBody: HTMLElement;
   // stop
   readonly stopBody: HTMLElement;
   readonly stopButtons: { readonly run: HTMLButtonElement; readonly wants: HTMLButtonElement; readonly cite: HTMLButtonElement; readonly release: HTMLButtonElement };
@@ -242,6 +249,10 @@ export class MdtOverlay implements Menu {
   private lastExtKey = -1;
   private messageError = false;
   private refreshCount = 0;
+  /** Statements ticked in a report draft, by document id (session-only convenience; the document has no field for them). */
+  private readonly draftAssertions = new Map<string, string[]>();
+  private careerShown: CareerModel | null = null;
+  private communityShown: CommunityRow[] = [];
 
   constructor(ui: UIRoot | null, deps: MdtDeps) {
     this.ui = ui;
@@ -348,7 +359,7 @@ export class MdtOverlay implements Menu {
     const avlTab = this.current === 'units' || this.current === 'map';
     const log = records.queryLog;
     const logKey = this.current === 'bolo' ? `${log.length}:${log[log.length - 1]?.gameSeconds ?? -1}:${records.today()}` : this.lastLogKey;
-    const extTab = this.current === 'vehicle' || this.current === 'reports' || this.current === 'stop';
+    const extTab = this.current === 'vehicle' || this.current === 'reports' || this.current === 'stop' || this.current === 'career' || this.current === 'community';
     const extKey = extTab ? this.externalKey() : this.lastExtKey;
     const changed =
       this.dirty ||
@@ -375,11 +386,24 @@ export class MdtOverlay implements Menu {
     if (this.current === 'map') this.drawMap(nowMs);
   }
 
-  /** Packs the non-CAD inputs of the Vehicle / Reports / Stop button states into one number (no allocation). */
+  /**
+   * Packs the non-CAD inputs of the Vehicle / Reports / Stop button states (and the Career / Community revisions) into
+   * one number (no allocation).
+   */
   private externalKey(): number {
     const d = this.deps;
+    if (this.current === 'career') return d.career ? d.career.revision() * 100000 + (Math.floor(d.career.now().game / 60) % 100000) : 0;
+    if (this.current === 'community') return d.community ? d.community.revision() : 0;
     const bits = (d.target() !== null ? 1 : 0) | (d.atStation() ? 2 : 0) | (this.activeStop() !== null ? 4 : 0);
-    return (d.prisoner() + 1) * 8 + bits;
+    const key = (d.prisoner() + 1) * 8 + bits;
+    // A report's grade arrives from the conduct system a step after the report is filed.
+    return this.current === 'reports' ? key * 128 + this.viewedGradeScore() + 1 : key;
+  }
+
+  /** Score of the viewed report's grade, -1 when ungraded or no report is shown. */
+  private viewedGradeScore(): number {
+    const grade = this.viewDocId !== null ? this.deps.reportGrade?.(this.viewDocId) : null;
+    return grade ? Math.min(100, Math.max(0, Math.round(grade.score))) : -1;
   }
 
   private drawMap(nowMs: number): void {
@@ -702,7 +726,7 @@ export class MdtOverlay implements Menu {
    */
   openForm(kind: DocKind, init?: DraftFields<DocKind>, opts: FormOptions = {}, docId: string | null = null): boolean {
     if (!this.stashForm()) return false;
-    this.form = { kind, docId, init: init ?? this.prefill(kind), opts, view: null };
+    this.form = { kind, docId, init: init ?? this.prefill(kind), opts, view: null, assertions: [...(docId !== null ? (this.draftAssertions.get(docId) ?? []) : [])] };
     this.docKind = kind;
     this.syncKindButtons();
     this.setTab('reports');
@@ -735,7 +759,10 @@ export class MdtOverlay implements Menu {
     if ((form.view?.validate?.() ?? []).length > 0) return false;
     const fields = form.view ? form.view.read() : form.init;
     const r = this.saveDocument(form.kind, fields, false, form.docId);
-    if (r.doc) form.docId = r.doc.id;
+    if (r.doc) {
+      form.docId = r.doc.id;
+      if (r.errors.length === 0) this.afterReportSave(r.doc, this.formAssertions());
+    }
     return r.errors.length === 0;
   }
 
@@ -769,6 +796,7 @@ export class MdtOverlay implements Menu {
     }
     const doc = result.doc;
     if (doc) {
+      this.afterReportSave(doc, this.formAssertions());
       const verb = doc.status === 'final' ? (doc.kind === 'citation' ? 'issued' : doc.kind === 'booking' ? 'completed' : 'finalized') : 'saved as draft';
       this.setMessage(`${doc.id} ${verb}`);
       if (doc.status === 'final' || !this.dom) {
@@ -995,7 +1023,111 @@ export class MdtOverlay implements Menu {
       case 'stop':
         this.renderStop();
         break;
+      case 'career':
+        this.renderCareerTab();
+        break;
+      case 'community':
+        this.renderCommunityTab();
+        break;
     }
+  }
+
+  // --- Career and Community (design phase 5 §12.1) -------------------------------------------------
+
+  /** The Career tab's sections as last built (null before the tab was shown or without `deps.career`). */
+  get careerSections(): CareerModel | null {
+    return this.careerShown;
+  }
+
+  /** The Community tab's rows as last built. */
+  get communityRows(): readonly CommunityRow[] {
+    return this.communityShown;
+  }
+
+  /** ATTEND on a scheduled hearing: asks the court system when `career.canAttend` allows it. */
+  attendCase(caseId: string): boolean {
+    const career = this.deps.career;
+    if (!career) return false;
+    if (!career.canAttend(caseId)) {
+      this.setMessage(`${caseId}: the hearing is not open yet`, true);
+      return false;
+    }
+    career.attend(caseId);
+    this.setMessage(`Attending ${caseId}`);
+    return true;
+  }
+
+  /** REVIEW on an open internal affairs case: the app opens the bodycam review. */
+  reviewIa(caseId: string): boolean {
+    const career = this.deps.career;
+    if (!career?.view().ia.some((c) => c.id === caseId && c.status === 'open')) return false;
+    career.openIa(caseId);
+    return true;
+  }
+
+  private renderCareerTab(): void {
+    const career = this.deps.career;
+    const dom = this.dom;
+    if (!career) {
+      this.careerShown = null;
+      if (dom) {
+        clearChildren(dom.careerBody);
+        dom.careerBody.appendChild(el('p', { class: 'mdt-hint' }, 'No career data in this session.'));
+      }
+      return;
+    }
+    const model = careerModel(career.view(), career.cases(), career.now(), {
+      canAttend: (id) => career.canAttend(id),
+      jurisdiction: career.jurisdiction(),
+    });
+    this.careerShown = model;
+    if (dom) renderCareer(dom.careerBody, model, { attend: (id) => this.attendCase(id), review: (id) => this.reviewIa(id) });
+  }
+
+  private renderCommunityTab(): void {
+    const community = this.deps.community;
+    const dom = this.dom;
+    this.communityShown = community ? communityModel(community.rows()) : [];
+    if (!dom) return;
+    if (!community) {
+      clearChildren(dom.communityBody);
+      dom.communityBody.appendChild(el('p', { class: 'mdt-hint' }, 'No community data in this session.'));
+      return;
+    }
+    renderCommunity(dom.communityBody, this.communityShown);
+  }
+
+  // --- Statements of fact ------------------------------------------------------------------------
+
+  /** The statements the officer may assert for `callId` (hidden fields already stripped by the feed); [] when none. */
+  statementChoices(callId: number | null): readonly ChoiceInfo[] {
+    return callId === null ? [] : (this.deps.reportChoices?.(callId) ?? []);
+  }
+
+  /** Ticks statements on the open report form when there is no DOM to tick (the headless / model path). */
+  setAssertions(ids: readonly string[]): void {
+    if (this.form) this.form.assertions = [...ids];
+  }
+
+  /** The statements ticked on the open report form (the DOM checklist, else the ids set with `setAssertions`). */
+  formAssertions(): string[] {
+    const form = this.form;
+    if (!form) return [];
+    return form.view?.assertions ? form.view.assertions() : [...form.assertions];
+  }
+
+  /** Remembers a draft's ticks, or hands a final report's ticks to `deps.submitReport`. */
+  private afterReportSave(doc: CadDocument, ticked: readonly string[]): void {
+    if (doc.kind !== 'report') return;
+    if (doc.status !== 'final') {
+      this.draftAssertions.set(doc.id, [...ticked]);
+      return;
+    }
+    this.draftAssertions.delete(doc.id);
+    if (doc.callId === null || !this.deps.submitReport) return;
+    const choices = this.statementChoices(doc.callId);
+    if (choices.length === 0) return;
+    this.deps.submitReport(doc.id, doc.callId, normalizeAssertions(choices, ticked));
   }
 
   private refreshQueueActions(): void {
@@ -1136,7 +1268,12 @@ export class MdtOverlay implements Menu {
     const form = this.form;
     if (!dom || !form) return;
     clearChildren(dom.docPane);
-    const view = buildDocForm(form.kind, form.init, { cad: this.deps.cad, seed: this.deps.records.seed }, form.opts.idUnverified ? form.opts : this.formOptionsFor(form.kind));
+    const base = form.opts.idUnverified ? form.opts : this.formOptionsFor(form.kind);
+    const opts: FormOptions =
+      form.kind === 'report' && this.deps.reportChoices
+        ? { ...base, choices: (callId) => this.statementChoices(callId), assertions: form.assertions }
+        : base;
+    const view = buildDocForm(form.kind, form.init, { cad: this.deps.cad, seed: this.deps.records.seed }, opts);
     form.view = view;
     const errors = el('ul', { class: 'mdt-errors', role: 'alert', hidden: true });
     const actions = el('div', { class: 'mdt-actions' });
@@ -1174,7 +1311,8 @@ export class MdtOverlay implements Menu {
     if (!doc) return `none:${this.docKind}`;
     const canComplete = doc.kind === 'booking' && canCompleteBooking(doc, this.deps.prisoner(), this.deps.atStation());
     const custody = doc.kind === 'evidence' ? doc.custody.length : 0;
-    return `${doc.id}:${doc.status}:${doc.updated.sim}:${custody}:${canComplete ? 1 : 0}`;
+    const grade = doc.kind === 'report' ? this.viewedGradeScore() : -1;
+    return `${doc.id}:${doc.status}:${doc.updated.sim}:${custody}:${canComplete ? 1 : 0}:${grade}`;
   }
 
   private renderDocPane(): void {
@@ -1198,7 +1336,8 @@ export class MdtOverlay implements Menu {
       return;
     }
     const body = el('div', { class: 'mdt-viewer', 'aria-label': `${doc.id} (read-only)` });
-    renderSections(body, docSections(doc), this.links());
+    const grade = doc.kind === 'report' && doc.status === 'final' ? (this.deps.reportGrade?.(doc.id) ?? null) : null;
+    renderSections(body, [...docSections(doc), ...gradeSections(grade)], this.links());
     const actions = el('div', { class: 'mdt-actions' });
     if (doc.status === 'draft') {
       actions.appendChild(button('Edit', () => this.openForm(doc.kind, draftFieldsOf(doc), {}, doc.id)));
@@ -1233,6 +1372,11 @@ export class MdtOverlay implements Menu {
   private finalizeViewed(id: string): void {
     const doc = this.deps.cad.docs.get(id);
     if (!doc) return;
+    // A report with statements of fact is finalized from its form, where the statements are ticked.
+    if (doc.kind === 'report' && this.statementChoices(doc.callId).length > 0) {
+      if (this.openForm('report', draftFieldsOf(doc), {}, doc.id)) this.setMessage('Tick your statements of fact, then Finalize');
+      return;
+    }
     const r = this.saveDocument(doc.kind, {}, true, id);
     if (r.errors.length > 0) {
       this.setMessage(r.errors.join('; '));
@@ -1280,12 +1424,12 @@ export class MdtOverlay implements Menu {
     const tabs = {} as Record<MdtTab, HTMLButtonElement>;
     const panels = {} as Record<MdtTab, HTMLElement>;
     const tablist = el('div', { class: 'mdt-tabs', role: 'tablist', 'aria-label': 'MDT sections' });
-    MDT_TABS.forEach((t, i) => {
+    MDT_TABS.forEach((t) => {
       const on = t === this.current;
       const tabEl = el('button', {
         type: 'button', role: 'tab', id: `mdt-tab-${t}`, class: 'mdt-tab', 'aria-controls': `mdt-panel-${t}`,
         'aria-selected': on ? 'true' : 'false', tabindex: on ? 0 : -1, onclick: () => this.setTab(t, true),
-      }, el('span', { class: 'mdt-key', 'aria-hidden': 'true' }, String(i + 1)), MDT_TAB_LABELS[t]);
+      }, el('span', { class: 'mdt-key', 'aria-hidden': 'true' }, tabKeyLabel(t)), MDT_TAB_LABELS[t]);
       tabs[t] = tabEl;
       tablist.appendChild(tabEl);
       panels[t] = el('section', { class: `mdt-panel mdt-panel-${t}`, id: `mdt-panel-${t}`, role: 'tabpanel', 'aria-labelledby': `mdt-tab-${t}`, hidden: !on });
@@ -1522,6 +1666,15 @@ export class MdtOverlay implements Menu {
     const stopBody = el('div', { class: 'mdt-scroll mdt-record' });
     panels.stop.append(el('div', { class: 'mdt-actions' }, stopButtons.run, stopButtons.wants, stopButtons.cite, stopButtons.release), stopBody);
 
+    // Career and Community (design phase 5 §12.1)
+    const careerBody = el('div', { class: 'mdt-scroll mdt-record mdt-career' });
+    panels.career.appendChild(careerBody);
+    const communityBody = el('div', { class: 'mdt-scroll mdt-community' });
+    panels.community.append(
+      el('p', { class: 'mdt-hint' }, 'Community trust by district. The tick marks the district baseline; the arrow is the change since midnight.'),
+      communityBody,
+    );
+
     const unitInfo = el('span', { class: 'mdt-unit' });
     const clock = el('span', { class: 'mdt-clock' });
     const message = el('div', { class: 'mdt-message', role: 'status', 'aria-live': 'polite' });
@@ -1531,7 +1684,7 @@ export class MdtOverlay implements Menu {
       tablist,
       el('div', { class: 'mdt-body' }, ...MDT_TABS.map((t) => panels[t])),
       el('footer', { class: 'mdt-footer' }, message,
-        el('span', { class: 'mdt-keys' }, '1-9 tabs  ←/→ tabs  ↑/↓ lists  Enter open  Esc cancel/close')),
+        el('span', { class: 'mdt-keys' }, '1-9 0 tabs  ←/→ tabs  ↑/↓ lists  Enter open  Esc cancel/close')),
     );
     return {
       root, unitInfo, clock, message, tabs, panels,
@@ -1544,6 +1697,7 @@ export class MdtOverlay implements Menu {
       vehicleQuery: vq.control, vehicleResult, runTarget, runStop,
       bolos, history,
       kindButtons, newDoc, docs, docPane,
+      careerBody, communityBody,
       stopBody, stopButtons,
     };
   }

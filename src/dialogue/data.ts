@@ -1,3 +1,4 @@
+import mirandaJson from '../data/dialogue/miranda.json';
 import responsesJson from '../data/dialogue/responses.json';
 import rulesJson from '../data/dialogue/rules.json';
 import toolsJson from '../data/dialogue/tools.json';
@@ -66,6 +67,10 @@ export const LINE_KEYS: readonly string[] = [
   'consent.needGuardian',
   'reassure.ok',
   'miranda.ack',
+  'miranda.waive',
+  'miranda.invoke',
+  'miranda.confused',
+  'miranda.silent',
   'release.ok',
   'warn.ok',
   'thank.ok',
@@ -228,6 +233,31 @@ export function parseTrust(json: unknown, file = TRUST_FILE): ReadonlyMap<string
   for (const k of Object.keys(d)) out.set(readOneOf(k, DISTRICTS, file, `districts.${k}`), readNumber(d[k], file, `districts.${k}`, 0, 1));
   for (const k of DISTRICTS) if (!out.has(k)) fail(file, `districts.${k}`, 'is missing');
   return out;
+}
+
+// --- miranda.json ------------------------------------------------------------------
+
+/** Waiver model of a Miranda recital (design Phase 5 §7.2): see `waiveChance`. */
+export interface MirandaData {
+  readonly waiveBase: number;
+  readonly priorPenalty: number;
+  readonly intoxBonus: number;
+  readonly stressPenalty: number;
+  readonly hostilePenalty: number;
+}
+
+const MIRANDA_FILE = 'miranda.json';
+
+export function parseMiranda(json: unknown, file = MIRANDA_FILE): MirandaData {
+  const r = readObject(json, file, '');
+  readVersion(r, file);
+  return {
+    waiveBase: readNumber(r.waiveBase, file, 'waiveBase', 0, 1),
+    priorPenalty: readNumber(r.priorPenalty, file, 'priorPenalty', 0, 1),
+    intoxBonus: readNumber(r.intoxBonus, file, 'intoxBonus', 0, 1),
+    stressPenalty: readNumber(r.stressPenalty, file, 'stressPenalty', 0, 1),
+    hostilePenalty: readNumber(r.hostilePenalty, file, 'hostilePenalty', 0, 1),
+  };
 }
 
 // --- rules.json --------------------------------------------------------------------
@@ -428,5 +458,6 @@ export function parseTools(json: unknown, file = TOOLS_FILE): ToolsData {
 export const UTTERANCE_DATA: UtteranceData = parseUtterances(utterancesJson);
 export const RESPONSES: ResponsesData = parseResponses(responsesJson);
 export const TRUST: ReadonlyMap<string, number> = parseTrust(trustJson);
+export const MIRANDA: MirandaData = parseMiranda(mirandaJson);
 export const RULES: readonly InconsistencyRule[] = parseRules(rulesJson);
 export const TOOLS: ToolsData = parseTools(toolsJson);

@@ -3,7 +3,7 @@ import { NAMES } from '../records/data';
 import { formatDate } from '../records/calendar';
 import { itemDef } from '../people/items';
 import type { CarriedItem } from '../people';
-import { GREET_DEMEANORS, LINE_KEYS, RESPONSES, TRUST, UTTERANCE_DATA } from './data';
+import { GREET_DEMEANORS, LINE_KEYS, MIRANDA, RESPONSES, TRUST, UTTERANCE_DATA } from './data';
 import type {
   CommMode,
   ConsentKind,
@@ -13,12 +13,14 @@ import type {
   FactTopic,
   IdentityClaim,
   Intent,
+  MirandaResult,
   Requirement,
   SubjectMemory,
   SubjectProfile,
   Tone,
   Utterance,
 } from './types';
+import { INCRIMINATING_FACTS } from './types';
 
 /**
  * Utterance/response engine (design §9.2-§9.3). Pure: every random draw comes from the `Rng` argument,
@@ -26,6 +28,7 @@ import type {
  */
 
 export { LINE_KEYS };
+export { INCRIMINATING_FACTS, MIRANDA_RESULTS } from './types';
 
 export const UTTERANCES: readonly Utterance[] = UTTERANCE_DATA.utterances;
 export const TOPICS: readonly { id: string; label: string }[] = UTTERANCE_DATA.topics;
@@ -67,7 +70,7 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 function cloneMemory(m: SubjectMemory): SubjectMemory {
-  return {
+  const copy: SubjectMemory = {
     rapport: m.rapport,
     stress: m.stress,
     greeted: m.greeted,
@@ -80,6 +83,8 @@ function cloneMemory(m: SubjectMemory): SubjectMemory {
     consent: { ...m.consent },
     consentAskedAt: { ...m.consentAskedAt },
   };
+  if (m.miranda !== undefined) copy.miranda = m.miranda;
+  return copy;
 }
 
 // --- Memory ------------------------------------------------------------------------
@@ -517,6 +522,7 @@ function identityStatement(fact: FactTopic, claim: IdentityClaim, subject: Subje
 interface Outcome {
   key: string;
   vars: Record<string, string>;
+  miranda?: MirandaResult;
   statement: DialogueStatement | null;
   identity: IdentityClaim | null;
   consent: DialogueResult['consent'];
@@ -737,6 +743,31 @@ function askOutcome(fact: FactTopic, subject: SubjectProfile, ctx: DialogueConte
   return state(value, false);
 }
 
+// --- Miranda -----------------------------------------------------------------------
+
+/**
+ * Chance a subject who understood the recital waives their rights (and talks): `waiveBase` minus a penalty per prior
+ * contact on record and for stress, plus a bonus for intoxication, minus a penalty when hostile; clamped to 0.05..0.95.
+ */
+export function waiveChance(subject: SubjectProfile, mem: SubjectMemory): number {
+  const m = MIRANDA;
+  const p =
+    m.waiveBase -
+    m.priorPenalty * subject.identity.record.priors.length -
+    m.stressPenalty * mem.stress +
+    m.intoxBonus * subject.intoxication.level -
+    (subject.demeanor === 'hostile' ? m.hostilePenalty : 0);
+  return clamp(p, 0.05, 0.95);
+}
+
+/** A recital the subject took in: one draw against `waiveChance`. */
+function mirandaOutcome(subject: SubjectProfile, mem: SubjectMemory, rng: Rng): Outcome {
+  const result: MirandaResult = rng.next() < waiveChance(subject, mem) ? 'waived' : 'invoked';
+  mem.mirandized = true;
+  mem.miranda = result;
+  return { ...plain(result === 'waived' ? 'miranda.waive' : 'miranda.invoke'), miranda: result };
+}
+
 // --- Consent -----------------------------------------------------------------------
 
 function consentOutcome(kind: ConsentKind, subject: SubjectProfile, ctx: DialogueContext, mem: SubjectMemory, rng: Rng): Outcome {
@@ -761,9 +792,9 @@ function finish(
   delayS: number,
   understood: boolean,
   mem: SubjectMemory,
-  extra: Partial<Pick<DialogueResult, 'statement' | 'identity' | 'consent' | 'escalate' | 'calmed'>> = {},
+  extra: Partial<Pick<DialogueResult, 'statement' | 'identity' | 'consent' | 'escalate' | 'calmed' | 'miranda'>> = {},
 ): DialogueResult {
-  return {
+  const result: DialogueResult = {
     lineKey: key,
     text,
     delayS,
@@ -775,6 +806,14 @@ function finish(
     calmed: extra.calmed ?? false,
     memory: mem,
   };
+  return extra.miranda === undefined ? result : { ...result, miranda: extra.miranda };
+}
+
+/** A recital the subject could not follow (language, hearing, a garbled app translation): misunderstood. */
+function mirandaUnheard(mem: SubjectMemory, vars: Readonly<Record<string, string>>, delayS: number, level: number, rng: Rng): DialogueResult {
+  mem.mirandized = true;
+  mem.miranda = 'misunderstood';
+  return finish('miranda.confused', render('miranda.confused', vars, level, rng), delayS, false, mem, { miranda: 'misunderstood' });
 }
 
 /**
@@ -800,13 +839,20 @@ export function respond(u: Utterance, subject: SubjectProfile, ctx: DialogueCont
   // 1. Tone.
   toneEffect(mem, ctx.tone, demeanor, ctx.hour, u.intent);
 
+  // After invoking their rights the subject answers no incriminating question (no gate, no lie, no draw but the wording).
+  if (mem.miranda === 'invoked' && u.intent === 'ask' && u.fact !== null && (INCRIMINATING_FACTS as readonly string[]).includes(u.fact)) {
+    return finish('miranda.silent', render('miranda.silent', baseVars, level, rng), delayS, true, mem);
+  }
+
   // 2. Understanding gate and delay.
   const g = understanding(subject, ctx.commMode, u.intent);
   if (g.p < 1 && !rng.chance(g.p)) {
+    if (u.intent === 'miranda') return mirandaUnheard(mem, baseVars, delayS, level, rng);
     const key = unheardKey(g.cause);
     return finish(key, render(key, baseVars, level, rng), delayS, false, mem);
   }
   if (ctx.commMode === 'translationApp' && rng.chance(APP_MISUNDERSTAND)) {
+    if (u.intent === 'miranda') return mirandaUnheard(mem, baseVars, delayS, level, rng);
     return finish('foreign.misunderstood', render('foreign.misunderstood', baseVars, level, rng), delayS, false, mem);
   }
 
@@ -856,8 +902,7 @@ export function respond(u: Utterance, subject: SubjectProfile, ctx: DialogueCont
       out = plain('reassure.ok');
       break;
     case 'miranda':
-      mem.mirandized = true;
-      out = plain('miranda.ack');
+      out = mirandaOutcome(subject, mem, rng);
       break;
     case 'release':
       out = plain('release.ok');
@@ -872,7 +917,7 @@ export function respond(u: Utterance, subject: SubjectProfile, ctx: DialogueCont
 
   // 5. Text.
   const text = render(out.key, { ...baseVars, ...out.vars }, level, rng);
-  return finish(out.key, text, delayS, true, mem, { statement: out.statement, identity: out.identity, consent: out.consent, calmed });
+  return finish(out.key, text, delayS, true, mem, { statement: out.statement, identity: out.identity, consent: out.consent, calmed, miranda: out.miranda });
 }
 
 /** Neighbourhood trust (0..1) of a district; 0.5 for an unknown one. */

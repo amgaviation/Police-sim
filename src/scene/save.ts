@@ -52,6 +52,10 @@ export interface ScenePursuitSave {
   actorId: number;
   startedSim: number;
   announced: boolean;
+  /** Phase 5, optional when reading: the call the pursuit came from (absent = 0). */
+  ownerCallId?: number;
+  /** Phase 5, optional when reading: the pursued driver or runner (absent = -1). */
+  personId?: number;
 }
 
 export interface SceneSave {
@@ -197,7 +201,8 @@ function isProp(x: unknown): x is ScenePropSave {
 
 function isPursuit(x: unknown): x is ScenePursuitSave {
   return isObj(x) && (x.kind === 'vehicle' || x.kind === 'foot') && isInt(x.callId, 0) && isInt(x.vehicleId, -1) && isInt(x.actorId, 0) &&
-    isNum(x.startedSim) && isBool(x.announced);
+    isNum(x.startedSim) && isBool(x.announced) && (x.ownerCallId === undefined || isInt(x.ownerCallId, 0)) &&
+    (x.personId === undefined || isInt(x.personId, -1));
 }
 
 /** Structural check of a scene request. */
@@ -207,6 +212,7 @@ export function isSceneRequest(x: unknown): x is SceneRequest {
     case 'weapon':
     case 'tackle':
     case 'shout':
+    case 'terminatePursuit':
       return true;
     case 'fire':
       return isNum(x.dirX) && isNum(x.dirZ);

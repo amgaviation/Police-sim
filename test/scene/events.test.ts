@@ -113,7 +113,7 @@ describe('npc events', () => {
     run(r, 0.1);
     expect(rt.flags.has('fled:suspect')).toBe(true);
     expect(rt.flags.has('pursuit')).toBe(true);
-    expect(eventsOf<{ kind: string; active: boolean }>(r, 'scene:pursuit')).toContainEqual({ kind: 'foot', active: true, callId: id });
+    expect(eventsOf<{ kind: string; active: boolean }>(r, 'scene:pursuit')).toContainEqual(expect.objectContaining({ kind: 'foot', active: true, callId: id }));
     expect(eventsOf<{ text: string }>(r, 'scene:radio').some((e) => e.text.includes('foot pursuit'))).toBe(true);
     expect(r.scene.hud().pursuit).toMatch(/^FOOT PURSUIT · \d+ m$/);
     bus.emit('npc:fled', { actorId, personId: sus.personId, callId: id });
@@ -122,7 +122,7 @@ describe('npc events', () => {
     bus.emit('npc:caught', { actorId, personId: sus.personId, callId: id, by: 'tackle' });
     run(r, 0.5);
     expect(rt.flags.has('caught:suspect')).toBe(true);
-    expect(eventsOf<{ kind: string; active: boolean }>(r, 'scene:pursuit')).toContainEqual({ kind: 'foot', active: false, callId: id });
+    expect(eventsOf<{ kind: string; active: boolean }>(r, 'scene:pursuit')).toContainEqual(expect.objectContaining({ kind: 'foot', active: false, callId: id, endReason: 'caught' }));
     expect(r.scene.hud().pursuit).toBeNull();
     bus.emit('npc:escaped', { actorId, personId: sus.personId, callId: id });
     bus.emit('npc:left', { actorId, personId: sus.personId, callId: id });

@@ -1,0 +1,12 @@
+{ "version": 1, "complaint": { "base": 0.03, "perAggressiveLine": 0.05, "lowTrust": 0.2, "max": 0.6 }, "autoResolveH": 12,
+  "rules": [
+    { "id": "excessiveForce", "when": "forceVerdict", "verdict": "excessive", "severity": "major" },
+    { "id": "lethalForce", "when": "forceTool", "level": "firearm", "severity": "critical" },
+    { "id": "questionableForce", "when": "forceVerdict", "verdict": "questionable", "minCount": 2, "severity": "minor" },
+    { "id": "failureToIntervene", "when": "doctrine", "doctrine": "intervene", "outcome": "unlawful", "severity": "major" },
+    { "id": "recordingViolation", "when": "doctrine", "doctrine": "recording", "outcome": "unlawful", "severity": "minor" },
+    { "id": "pursuitViolation", "when": "doctrine", "doctrine": "pursuit", "outcome": "unlawful", "severity": "minor" },
+    { "id": "unlawfulSearch", "when": "doctrine", "doctrine": "search", "outcome": "unlawful", "minCount": 1, "severity": "minor" },
+    { "id": "injuryInCustody", "when": "injury", "minInjury": 0.3, "severity": "major" },
+    { "id": "complaint", "when": "complaint", "severity": "minor" }
+  ] }

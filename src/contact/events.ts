@@ -61,6 +61,83 @@ export interface ContactConsentEvent {
   sim: number;
 }
 
+/** A new fact about a person was stored (after storing; duplicates of the latest fact are not stored and not reported). */
+export interface ContactFactEvent {
+  incident: string;
+  callId: number;
+  personId: number;
+  /** '' when the fact belongs to no open contact (a booking after the conversation ended). */
+  role: string;
+  topic: string;
+  value: string;
+  source: string;
+  display: string;
+  detail: string;
+  sim: number;
+}
+
+/** Every officer utterance applied, before the answer is scheduled (so before the answer's `contact:fact`). */
+export interface ContactSaidEvent {
+  incident: string;
+  callId: number;
+  personId: number;
+  role: string;
+  utteranceId: string;
+  intent: string;
+  topic: string;
+  fact: string | null;
+  consent: string | null;
+  command: string | null;
+  tone: string;
+  /** Commands: `comply refuse flee fight confused` (the evaluated outcome); else null. */
+  outcome: string | null;
+  /** The subject's actor is cuffed, or the person is caged / arrested. */
+  custody: boolean;
+  /** The officer's sidearm is drawn (`presence().weapon === 'sidearm'`). */
+  gunpoint: boolean;
+  sim: number;
+}
+
+/** An item seen, found or seized by a field action. */
+export interface ContactActionItem {
+  /** The item instance id. */
+  ref: string;
+  item: string;
+  label: string;
+  category: string;
+  weapon: boolean;
+  /** Category `drugs paraphernalia weapon evidence` (the items data has no stolen flag). */
+  incriminating: boolean;
+}
+
+/** A field action resolved (after it ran). `sfstResult` is emitted when the SFST finishes. */
+export interface ContactActionEvent {
+  incident: string;
+  callId: number;
+  personId: number;
+  role: string;
+  /** A `CONTACT_ACTIONS` id, or `'sfstResult'`. */
+  action: string;
+  ok: boolean;
+  /** frisk / searches: the items found; visualCheck: the items seen; seize: the items seized; else empty. */
+  items: ContactActionItem[];
+  vehicleId: number;
+  /** pbt `over` (at or above the limit) / `under`; sfstResult `fail` / `pass`; cuff `ok` / `resist` / `notReady`; else null. */
+  result: string | null;
+  custody: boolean;
+  sim: number;
+}
+
+/** A Miranda recital was answered (`waived`, `invoked`, `misunderstood`). */
+export interface ContactMirandaEvent {
+  incident: string;
+  callId: number;
+  personId: number;
+  result: 'waived' | 'invoked' | 'misunderstood';
+  custody: boolean;
+  sim: number;
+}
+
 declare module '../core/event-map' {
   interface EventMap {
     'contact:event': ContactEventEvent;
@@ -69,5 +146,9 @@ declare module '../core/event-map' {
     'contact:openForm': ContactOpenFormEvent;
     'contact:needsCall': ContactNeedsCallEvent;
     'contact:consent': ContactConsentEvent;
+    'contact:fact': ContactFactEvent;
+    'contact:said': ContactSaidEvent;
+    'contact:action': ContactActionEvent;
+    'contact:miranda': ContactMirandaEvent;
   }
 }

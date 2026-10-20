@@ -42,6 +42,23 @@ export interface ScenePursuitEvent {
   kind: 'vehicle' | 'foot';
   active: boolean;
   callId: number;
+  /** Phase 5: the call whose stop or scene the pursuit came from (0 none). Set on start and end. */
+  ownerCallId?: number;
+  /** Phase 5: the pursued driver or runner (-1 unknown). Set on start and end. */
+  personId?: number;
+  /** Phase 5, `active: false` only: `escaped crashed stopped gaveUp caught terminated` (the traffic flee reasons; `caught` for a runner brought down). */
+  endReason?: string;
+}
+
+/** An officer command shouted at a person (`SceneDirector.shout`), after the actor's reaction was applied. */
+export interface SceneCommandEvent {
+  callId: number;
+  personId: number;
+  actorId: number;
+  command: string;
+  /** `comply refuse flee fight confused`. */
+  outcome: string;
+  sim: number;
 }
 
 export interface SceneOutcomeEvent {
@@ -103,6 +120,7 @@ declare module '../core/event-map' {
     'scene:line': SceneLineEvent;
     'scene:flash': SceneFlashEvent;
     'scene:pursuit': ScenePursuitEvent;
+    'scene:command': SceneCommandEvent;
     'scene:outcome': SceneOutcomeEvent;
     'scene:openForm': SceneOpenFormEvent;
     'force:used': ForceUsedEvent;

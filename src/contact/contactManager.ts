@@ -68,6 +68,7 @@ import {
   subtitleOf,
   titleOf,
 } from './presenter';
+import type { ContactActionItem } from './events';
 import { isContactSave } from './save';
 import {
   CONTACT_ACTIONS,
@@ -106,6 +107,8 @@ const SFST_LINGER_S = 8;
 const BAC_YES = 0.02;
 const BAC_OVER = 0.08;
 const IDENTITY_TOPICS: readonly string[] = ['name', 'dob', 'identity', 'idCard'];
+/** Item categories that count as incriminating in `contact:action` items. */
+const INCRIMINATING_CATEGORIES: readonly string[] = ['drugs', 'paraphernalia', 'weapon', 'evidence'];
 /** States in which a person can be frisked, searched or cuffed (not moving away, fighting or hidden). */
 const TOUCHABLE: ReadonlySet<number> = new Set([
   ACTOR_STATE.idle,
@@ -206,6 +209,10 @@ export class ContactManager {
   private rev = 0;
   private stepCount = 0;
   private t: CadTime = { sim: 0, game: 0 };
+  /** Result of the field action being applied (read by `doAction` for `contact:action`). */
+  private actOk = true;
+  private actItems: ContactActionItem[] = [];
+  private actResult: string | null = null;
   private readonly opos = { x: 0, z: 0, yaw: 0, building: UNKNOWN_LEVEL };
   private readonly vpos = { x: 0, z: 0 };
   private readonly ainfo: ActorInfo = {
@@ -851,11 +858,11 @@ export class ContactManager {
 
   /** Stores a discovered fact unless the latest fact of the same topic and source says exactly the same. */
   private addFact(c: Contact, topic: string, value: string, source: 'claim' | 'document' | 'record' | 'evidence' | 'observation' | 'booking', display: string, detail = ''): void {
-    this.storeFact(c.personId, c.incident, topic, value, source, display, detail);
+    this.storeFact(c.personId, c.incident, topic, value, source, display, detail, c);
     this.checkInconsistencies(c);
   }
 
-  private storeFact(personId: number, incident: string, topic: string, value: string, source: 'claim' | 'document' | 'record' | 'evidence' | 'observation' | 'booking', display: string, detail: string): void {
+  private storeFact(personId: number, incident: string, topic: string, value: string, source: 'claim' | 'document' | 'record' | 'evidence' | 'observation' | 'booking', display: string, detail: string, c: Contact | null = null): void {
     const list = this.deps.people.facts(personId, incident);
     for (let i = list.length - 1; i >= 0; i--) {
       const f = list[i];
@@ -866,6 +873,57 @@ export class ContactManager {
     }
     this.deps.people.addFact(personId, { incident, topic, value, source, display, detail, game: this.t.game });
     this.rev++;
+    this.deps.bus.emit('contact:fact', {
+      incident, callId: c ? c.callId : 0, personId, role: c ? c.role : '', topic, value, source, display, detail, sim: this.t.sim,
+    });
+  }
+
+  /** The subject's actor is cuffed or the person is caged / arrested. */
+  private inCustody(c: Contact): boolean {
+    if (this.actorOf(c)?.cuffed === true) return true;
+    const custody = this.deps.people.state(c.personId).custody;
+    return custody === 'arrested' || custody === 'jailed';
+  }
+
+  private itemView(it: CarriedItem): ContactActionItem {
+    const def = itemDef(it.item);
+    return { ref: it.instance, item: it.item, label: def.label, category: def.category, weapon: def.weapon, incriminating: INCRIMINATING_CATEGORIES.includes(def.category) };
+  }
+
+  private emitSaid(c: Contact, u: Utterance, tone: Tone, outcome: CommandOutcome | null, gunpoint: boolean): void {
+    this.deps.bus.emit('contact:said', {
+      incident: c.incident,
+      callId: c.callId,
+      personId: c.personId,
+      role: c.role,
+      utteranceId: u.id,
+      intent: u.intent,
+      topic: u.topic,
+      fact: u.fact,
+      consent: u.consent,
+      command: u.command,
+      tone,
+      outcome,
+      custody: this.inCustody(c),
+      gunpoint,
+      sim: this.t.sim,
+    });
+  }
+
+  private emitAction(c: Contact, action: string): void {
+    this.deps.bus.emit('contact:action', {
+      incident: c.incident,
+      callId: c.callId,
+      personId: c.personId,
+      role: c.role,
+      action,
+      ok: this.actOk,
+      items: this.actItems,
+      vehicleId: c.vehicleId,
+      result: this.actResult,
+      custody: this.inCustody(c),
+      sim: this.t.sim,
+    });
   }
 
   private refreshSeen(c: Contact): void {
@@ -930,6 +988,7 @@ export class ContactManager {
       this.doCommand(c, u, subject, ctx);
       return;
     }
+    this.emitSaid(c, u, tone, null, ctx.presence.weapon === 'sidearm');
     const res = respond(u, subject, ctx, c.memory, this.rng);
     c.pending.push({ dueSim: this.t.sim + res.delayS, result: res });
     this.rev++;
@@ -1015,6 +1074,11 @@ export class ContactManager {
       if (this.activeId === c.id) this.activeId = -1;
     }
     if (res.consent) this.emitConsent(c, res.consent);
+    if (res.miranda) {
+      this.deps.bus.emit('contact:miranda', {
+        incident: c.incident, callId: c.callId, personId: c.personId, result: res.miranda, custody: this.inCustody(c), sim: this.t.sim,
+      });
+    }
     if (res.calmed) this.flagOnce(c, 'calmed');
     if (c.actorId > 0) this.deps.npc.setStress(c.actorId, c.memory.stress);
     this.rev++;
@@ -1129,6 +1193,7 @@ export class ContactManager {
     } else {
       outcome = this.seatedRoll(c, subject, cmd, cc);
     }
+    this.emitSaid(c, u, ctx.tone, outcome, ctx.presence.weapon === 'sidearm');
     const spoken = commandLine(outcome, subject, ctx, this.rng);
     if (outcome === 'comply' && c.actorId === 0 && cmd === 'stepOut') this.stepOutActor(c);
     if (c.actorId > 0) {
@@ -1278,6 +1343,9 @@ export class ContactManager {
       this.line(c, 'system', why);
       return;
     }
+    this.actOk = true;
+    this.actItems = [];
+    this.actResult = null;
     switch (action) {
       case 'frisk':
         this.doFrisk(c, subject);
@@ -1356,6 +1424,7 @@ export class ContactManager {
         this.doSeize(c);
         break;
     }
+    if (action !== 'stopEscort' && action !== 'useTranslationApp' && action !== 'requestInterpreter') this.emitAction(c, action);
     this.rev++;
   }
 
@@ -1389,6 +1458,7 @@ export class ContactManager {
     }
     this.rememberFound(c, other);
     if (weapons.length > 0) this.collect(c, weapons);
+    this.actItems = found.map((it) => this.itemView(it));
     this.emitFlag(c, 'frisked');
   }
 
@@ -1398,6 +1468,7 @@ export class ContactManager {
     this.line(c, 'system', found.length === 0 ? 'Search: nothing found.' : `Search: ${found.length} item${found.length === 1 ? '' : 's'} found.`);
     for (const it of found) this.noteFinding(c, it, 'a search', false);
     this.rememberFound(c, found);
+    this.actItems = found.map((it) => this.itemView(it));
     this.emitFlag(c, 'searched');
   }
 
@@ -1407,6 +1478,7 @@ export class ContactManager {
     this.line(c, 'system', found.length === 0 ? 'Vehicle search: nothing found.' : `Vehicle search: ${found.length} item${found.length === 1 ? '' : 's'} found.`);
     for (const it of found) this.noteFinding(c, it, 'a vehicle search', true);
     this.rememberFound(c, found);
+    this.actItems = found.map((it) => this.itemView(it));
     this.emitFlag(c, 'searched');
   }
 
@@ -1416,6 +1488,7 @@ export class ContactManager {
     this.line(c, 'system', seen.length === 0 ? 'Nothing unusual in plain view.' : 'Something is in plain view.');
     for (const it of seen) this.noteFinding(c, it, 'a look into the vehicle', true);
     this.rememberFound(c, seen);
+    this.actItems = seen.map((it) => this.itemView(it));
   }
 
   private doPbt(c: Contact, subject: SubjectProfile): void {
@@ -1426,6 +1499,7 @@ export class ContactManager {
     if (reading >= BAC_YES) {
       this.addFact(c, 'drinking', reading >= BAC_OVER ? 'heavy' : 'yes', 'evidence', `Breath test ${text}`, `PBT ${text}`);
     }
+    this.actResult = reading >= BAC_OVER ? 'over' : 'under';
     this.emitFlag(c, 'pbt');
     if (reading >= BAC_OVER) this.emitFlag(c, 'bacOver');
   }
@@ -1474,11 +1548,18 @@ export class ContactManager {
     } else {
       this.emitFlag(c, 'sfst');
     }
+    this.actOk = true;
+    this.actItems = [];
+    this.actResult = result.indicates ? 'fail' : 'pass';
+    this.emitAction(c, 'sfstResult');
   }
 
   private doCheckId(c: Contact): void {
     const claim = c.memory.identity;
-    if (!claim) return;
+    if (!claim) {
+      this.actOk = false;
+      return;
+    }
     this.line(c, 'system', `ID card: ${claimName(claim).toUpperCase()}, DOB ${formatDate(claim.dob)}, number ${claim.dlNumber}.`);
     this.documentFacts(c, claim);
     this.flagOnce(c, 'identified');
@@ -1486,7 +1567,10 @@ export class ContactManager {
 
   private doRunName(c: Contact): void {
     const claim = c.memory.identity;
-    if (!claim) return;
+    if (!claim) {
+      this.actOk = false;
+      return;
+    }
     const records = this.deps.records;
     const found = records.findPersons({ last: claim.last, first: claim.first }, 50, this.t.game);
     const asked = formatDate(claim.dob);
@@ -1506,7 +1590,10 @@ export class ContactManager {
 
   private doRunId(c: Contact): void {
     const claim = c.memory.identity;
-    if (!claim || claim.dlNumber === '') return;
+    if (!claim || claim.dlNumber === '') {
+      this.actOk = false;
+      return;
+    }
     const id = personIdFromDl(this.deps.seed, claim.dlNumber);
     if (id === null) {
       this.addFact(c, 'idCard', 'notOnFile', 'record', `DL ${claim.dlNumber}: not on file`, `number ${claim.dlNumber} is not on file`);
@@ -1562,6 +1649,8 @@ export class ContactManager {
   private doCuff(c: Contact): void {
     const npc = this.deps.npc;
     const result = npc.cuff(c.actorId);
+    this.actOk = result === 'ok';
+    this.actResult = result;
     if (result === 'ok') {
       this.deps.people.setCustody(c.personId, 'arrested');
       this.line(c, 'system', 'Subject handcuffed.');
@@ -1587,7 +1676,9 @@ export class ContactManager {
   }
 
   private doUncuff(c: Contact): void {
-    if (this.deps.npc.uncuff(c.actorId)) {
+    const ok = this.deps.npc.uncuff(c.actorId);
+    this.actOk = ok;
+    if (ok) {
       this.deps.people.setCustody(c.personId, 'none');
       this.line(c, 'system', 'Handcuffs removed.');
       this.emitFlag(c, 'uncuffed');
@@ -1595,7 +1686,9 @@ export class ContactManager {
   }
 
   private doEscort(c: Contact, on: boolean): void {
-    if (this.deps.npc.follow(c.actorId, on)) {
+    const ok = this.deps.npc.follow(c.actorId, on);
+    this.actOk = ok;
+    if (ok) {
       this.line(c, 'system', on ? 'Escorting the subject.' : 'No longer escorting.');
     } else {
       this.line(c, 'system', 'The subject will not follow.');
@@ -1700,14 +1793,14 @@ export class ContactManager {
   // --- Evidence --------------------------------------------------------------------------------
 
   /** Seizes `items` now: removed from their owner and recorded as finalized evidence documents. */
-  private collect(c: Contact, items: readonly CarriedItem[]): void {
+  private collect(c: Contact, items: readonly CarriedItem[]): CarriedItem[] {
     const { cad, people } = this.deps;
     const officer = this.deps.officer();
     this.officerAt();
     const call = c.callId > 0 ? cad.call(c.callId) : null;
     const foundAt = call ? call.location.text : this.deps.districtOf(this.opos.x, this.opos.z);
     const claim = c.memory.identity;
-    let seized = 0;
+    const seized: CarriedItem[] = [];
     for (const it of items) {
       const vehicle = it.instance.startsWith('v');
       const ownerId = Number(it.instance.slice(1, it.instance.indexOf(':')));
@@ -1717,7 +1810,7 @@ export class ContactManager {
         this.line(c, 'system', `The ${itemDef(it.item).label.toLowerCase()} could not be collected.`);
         continue;
       }
-      seized++;
+      seized.push(it);
       const def = itemDef(it.item);
       const who = vehicle ? 'the vehicle' : claim ? claimName(claim) : 'an unidentified subject';
       const doc = cad.docs.create(
@@ -1738,7 +1831,8 @@ export class ContactManager {
         /* stays a draft the officer can complete in the MDT */
       }
     }
-    if (seized > 0) this.line(c, 'system', `${seized} item${seized === 1 ? '' : 's'} seized as evidence.`);
+    if (seized.length > 0) this.line(c, 'system', `${seized.length} item${seized.length === 1 ? '' : 's'} seized as evidence.`);
+    return seized;
   }
 
   private doSeize(c: Contact): void {
@@ -1753,10 +1847,13 @@ export class ContactManager {
     }
     c.found = [];
     if (items.length === 0) {
+      this.actOk = false;
       this.line(c, 'system', 'Nothing left to seize.');
       return;
     }
-    this.collect(c, items);
+    const seized = this.collect(c, items);
+    this.actOk = seized.length > 0;
+    this.actItems = seized.map((it) => this.itemView(it));
   }
 
   /** A final booking: the true identity is recorded against the person's incident (identityVsBooking). */
@@ -1772,7 +1869,7 @@ export class ContactManager {
     }
     if (incident === '') return;
     const rec = this.deps.records.peekPerson(pid);
-    this.storeFact(pid, incident, 'identity', String(pid), 'booking', `${displayName(rec)}, ${formatDate(rec.dob)}`, '');
+    this.storeFact(pid, incident, 'identity', String(pid), 'booking', `${displayName(rec)}, ${formatDate(rec.dob)}`, '', open ?? null);
     if (open) this.checkInconsistencies(open);
     this.rev++;
   }

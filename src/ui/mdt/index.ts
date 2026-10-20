@@ -1,6 +1,8 @@
 /** MDT / CAD terminal (design §13.2). */
 export * from './types';
 export * from './model';
+export * from './career';
+export * from './statements';
 export { MdtOverlay, MDT_REFRESH_MS, isTextField, type SaveResult } from './overlay';
 export {
   worldToMap,

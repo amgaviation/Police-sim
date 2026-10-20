@@ -1,4 +1,8 @@
 import { CadState } from '../../src/cad/cadState';
+import { newConductSave } from '../../src/conduct/save';
+import { emptyCourtSave } from '../../src/court/save';
+import { defaultForceSave } from '../../src/force/save';
+import { emptyIncidentsSave } from '../../src/incidents/save';
 import { createRng } from '../../src/core/rng';
 import type { DispatchSave } from '../../src/dispatch/save';
 import { CAMERA_MODE } from '../../src/player/cameraRig';
@@ -14,7 +18,7 @@ import { migratedStationSave, newShiftStationSave } from '../../src/station/stat
 import { defaultTacticalSave } from '../../src/tactical/save';
 import { Population } from '../../src/people/population';
 import { emptySceneSave } from '../../src/scene/save';
-import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SavedVehicle } from '../../src/save/schema';
+import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SavedVehicle } from '../../src/save/schema';
 import type { TrafficSnapshot } from '../../src/traffic/trafficSystem';
 import { vehicleModel } from '../../src/vehicles/model';
 
@@ -243,8 +247,8 @@ export function makeSaveGameV5(overrides: Partial<SaveGameV5> = {}): SaveGameV5 
   };
 }
 
-/** A complete current-version (v6) payload: the v5 fixture plus the interior, tactical, investigation and station blocks. */
-export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+/** A complete v6 (Phase 4) payload: the v5 fixture plus the interior, tactical, investigation and station blocks. */
+export function makeSaveGameV6(overrides: Partial<SaveGameV6> = {}): SaveGameV6 {
   return {
     ...makeSaveGameV5(),
     equipment: [makeEquipmentSave(), null],
@@ -252,6 +256,18 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
     tactical: defaultTacticalSave(createRng(42).stream('tactical').state()),
     investigation: emptyInvestigationSave(createRng(42).stream('investigation').state()),
     station: newShiftStationSave(),
+    ...overrides,
+  };
+}
+
+/** A complete current-version (v7) payload: the v6 fixture plus the force, incidents, conduct and court blocks. */
+export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  return {
+    ...makeSaveGameV6(),
+    force: defaultForceSave(createRng(42).stream('force').state()),
+    incidents: emptyIncidentsSave('generic'),
+    conduct: newConductSave(createRng(42).stream('conduct').state()),
+    court: emptyCourtSave(createRng(42).stream('court').state()),
     ...overrides,
   };
 }

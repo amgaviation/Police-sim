@@ -1,0 +1,1 @@
+{ "version": 1, "waiveBase": 0.6, "priorPenalty": 0.08, "intoxBonus": 0.15, "stressPenalty": 0.2, "hostilePenalty": 0.25 }

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "templates": {
+    "resistanceAt": "Isn't it true that my client was {level} when you used the {tool}?",
+    "consentGiven": "Did my client consent to the {search}?",
+    "mirandaBefore": "Did you advise my client of their rights before asking about {fact}?",
+    "camDuring": "Was your body camera recording when you {action}?",
+    "reportAssertion": "Your report states: \"{text}\" Is that accurate?",
+    "omission": "Your report does not mention this: \"{text}\" Did that happen?",
+    "repeat": "So your testimony is that it is NOT true that {restated}?"
+  },
+  "restatements": {
+    "resistanceAt": "my client was {level} when you used the {tool}",
+    "consentGiven": "my client consented to the {search}",
+    "mirandaBefore": "you advised my client of their rights before asking about {fact}",
+    "camDuring": "your body camera was recording when you {action}",
+    "reportAssertion": "\"{text}\"",
+    "omission": "\"{text}\""
+  },
+  "labels": {
+    "resistance": {
+      "compliant": "compliant",
+      "passive": "passively resisting",
+      "active": "actively resisting",
+      "assaultive": "assaultive",
+      "lethal": "threatening lethal force"
+    },
+    "tool": {
+      "none": "officer presence",
+      "hands": "hands-on control",
+      "ocSpray": "OC spray",
+      "baton": "baton",
+      "taser": "TASER",
+      "lessLethal": "less-lethal launcher",
+      "firearm": "firearm",
+      "firearmDisplay": "drawn firearm",
+      "k9": "K9 unit"
+    },
+    "search": {
+      "frisk": "pat-down",
+      "person": "search of my client",
+      "vehicle": "search of the vehicle",
+      "premises": "search of the premises",
+      "room": "search of the room",
+      "container": "search of the container"
+    },
+    "fact": {
+      "account": "what happened",
+      "drinking": "drinking",
+      "drugs": "drug use or possession",
+      "weapons": "weapons",
+      "vehicleContents": "the contents of the vehicle",
+      "suspectWhereabouts": "their whereabouts",
+      "origin": "where they came from",
+      "destination": "where they were going",
+      "vehicleOwner": "who owns the vehicle"
+    },
+    "action": {
+      "frisk": "frisked my client",
+      "search": "conducted the {search}",
+      "force": "used force on my client",
+      "arrest": "arrested my client"
+    }
+  }
+}

@@ -213,6 +213,12 @@ export interface SceneDeps {
   weaponsAvailable?(): { sidearm: boolean; taser: boolean };
   /** Indoor rules override (tests); default `src/data/scene/indoor.json`. */
   readonly indoorConfig?: IndoorConfig;
+  /** Phase 5: neighbourhood trust 0..1 at a point; replaces `trustOf(district)` in the context of a shouted command. */
+  trustAt?(x: number, z: number): number;
+  /** Phase 5: multiplies the dispatch-error rates of a new scenario (`ScenarioInput.errorScale`; tips quality) at the call location. */
+  errorScaleAt?(x: number, z: number): number;
+  /** Phase 5: chance 0..1 of hostile onlookers when an outdoor call sees an arrest or force; the roll only happens when given. */
+  hostilityAt?(x: number, z: number): number;
 }
 
 /** The officer as the scene sees them each step. */
@@ -231,6 +237,8 @@ export type SceneRequest =
   | { readonly kind: 'fire'; readonly dirX: number; readonly dirZ: number }
   | { readonly kind: 'tackle' }
   | { readonly kind: 'shout' }
+  /** Phase 5: the officer calls off the active vehicle pursuit (the car keeps running; it counts as escaped). */
+  | { readonly kind: 'terminatePursuit' }
   | { readonly kind: 'action'; readonly callId: number; readonly actionId: string }
   | { readonly kind: 'clear'; readonly callId: number; readonly disposition: string | null };
 

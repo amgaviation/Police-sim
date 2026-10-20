@@ -324,6 +324,14 @@ export class Dispatcher {
     this.driverResolver = fn;
   }
 
+  /**
+   * Phase 5: community trust feeds the crime rate. `fn(district)` multiplies the call generator's rate multiplier
+   * (see `CallGenerator.setCrimeFactor`); `null` removes it. It takes effect at the next multiplier refresh.
+   */
+  setCrimeFactor(fn: ((district: string) => number) | null): void {
+    this.generator.setCrimeFactor(fn);
+  }
+
   /** CAD location of the point (x, z). */
   locate(x: number, z: number): CadLocation {
     return this.generator.locate(x, z);

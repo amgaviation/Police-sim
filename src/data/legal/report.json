@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "templates": {
+    "indicator": "I noted the following about {person}: {indicator}.",
+    "action.frisk": "I conducted a pat-down search of {person}.",
+    "action.search": "I searched {target} while dealing with {person}.",
+    "consent": "{person} gave consent to {consent}.",
+    "miranda": "I advised {person} of their rights before questioning.",
+    "resistance": "{person} was {level} when I used {tool}.",
+    "arrest": "I arrested {person}.",
+    "pc": "I had probable cause to arrest {person} for {offense}.",
+    "seize": "I seized {item} from {person}.",
+    "intervene": "I intervened when {officer} used force on {person}.",
+    "cam": "My body camera recorded the entire contact."
+  },
+  "words": {
+    "resistance": {
+      "compliant": "compliant",
+      "passive": "passively resisting",
+      "active": "actively resisting",
+      "assaultive": "assaultive",
+      "lethal": "threatening lethal force"
+    },
+    "tool": {
+      "none": "no tool",
+      "hands": "hard hands",
+      "ocSpray": "OC spray",
+      "baton": "my baton",
+      "taser": "my TASER",
+      "lessLethal": "the less-lethal launcher",
+      "firearm": "my firearm",
+      "firearmDisplay": "my firearm drawn",
+      "k9": "the K9 unit"
+    },
+    "target": {
+      "person": "the person",
+      "vehicle": "the vehicle",
+      "premises": "the premises",
+      "room": "a room",
+      "container": "a container"
+    },
+    "consent": {
+      "entry": "enter the premises",
+      "searchPremises": "search the premises",
+      "searchRoom": "search the room",
+      "searchPerson": "be searched",
+      "searchVehicle": "a search of the vehicle",
+      "pbt": "a preliminary breath test",
+      "sfst": "field sobriety tests"
+    }
+  }
+}

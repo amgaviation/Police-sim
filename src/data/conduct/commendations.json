@@ -1,0 +1,7 @@
+{ "version": 1, "rules": [
+  { "id": "deEscalation", "label": "De-escalation", "points": 20 },
+  { "id": "lifesaving", "label": "Lifesaving", "points": 25, "withinS": 120 },
+  { "id": "dutyToIntervene", "label": "Duty to intervene", "points": 30 },
+  { "id": "excellentReport", "label": "Excellent report", "points": 10, "minScore": 95 },
+  { "id": "cleanCase", "label": "Clean case", "points": 15, "minReport": 80 },
+  { "id": "credibleTestimony", "label": "Credible testimony", "points": 10 } ] }

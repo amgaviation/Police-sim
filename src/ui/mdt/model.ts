@@ -53,10 +53,11 @@ export function formatAge(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-/** "1".."9" (also "Digit1", "Numpad1") -> the tab in tab-bar order; null for anything else. */
+/** "1".."9" (also "Digit1", "Numpad1") -> the tab in tab-bar order, "0" -> Career; null for anything else. */
 export function tabFromKey(key: string): MdtTab | null {
-  const m = /^(?:Digit|Numpad)?([1-9])$/.exec(key);
+  const m = /^(?:Digit|Numpad)?([0-9])$/.exec(key);
   if (!m) return null;
+  if (m[1] === '0') return 'career';
   return MDT_TABS[Number(m[1]) - 1] ?? null;
 }
 

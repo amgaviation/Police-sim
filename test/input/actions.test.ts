@@ -56,7 +56,7 @@ describe('actions', () => {
 
   it('adds the Phase 3 officer actions and the scene menu as buttons with labels', () => {
     const expected: Record<string, string> = {
-      'officer.weapon': 'Cycle weapon',
+      'officer.weapon': 'Cycle force tool',
       'officer.fire': 'Fire / deploy weapon',
       'officer.tackle': 'Tackle',
       'officer.shout': 'Shout command',
@@ -89,9 +89,20 @@ describe('actions', () => {
       expect(ACTIONS[id]).toEqual({ kind: 'button', label });
       expect(actionKind(id)).toBe('button');
     }
-    // Appended after the Phase 3 actions, in the design's order.
-    const tail = ACTION_IDS.slice(-9);
+    // Appended after the Phase 3 actions, in the design's order (the Phase 5 actions follow them).
+    const tail = ACTION_IDS.slice(-11, -2);
     expect(tail).toEqual(Object.keys(expected));
+  });
+
+  it('adds the two Phase 5 button actions after the Phase 4 ones, and relabels the weapon cycle', () => {
+    expect(ACTIONS['officer.intervene']).toEqual({ kind: 'button', label: 'Intervene' });
+    expect(ACTIONS['officer.bodycamMute']).toEqual({ kind: 'button', label: 'Bodycam mute' });
+    expect(actionKind('officer.intervene')).toBe('button');
+    expect(actionKind('officer.bodycamMute')).toBe('button');
+    expect(ACTION_IDS.slice(-2)).toEqual(['officer.intervene', 'officer.bodycamMute']);
+    // Same id and binding as before; only the label changes.
+    expect(ACTIONS['officer.weapon'].label).toBe('Cycle force tool');
+    expect(isActionId('officer.weapon')).toBe(true);
   });
 
   it('has a distinct non-empty label for every action', () => {

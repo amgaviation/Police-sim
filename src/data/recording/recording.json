@@ -1,0 +1,2 @@
+{ "version": 1, "width": 160, "height": 90, "quality": 0.5, "intervalS": 3, "perIncidentMax": 200, "maxCount": 3000,
+  "maxBytes": 16777216, "dashRangeM": 30 }

@@ -82,6 +82,8 @@ describe('Phase 2 default bindings', () => {
     const shared = new Set([
       'KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyG', 'GamepadButton1', 'GamepadButton7',
       'KeyX', 'KeyQ', 'KeyR', 'KeyF', 'MouseButton2', 'GamepadButton6', 'GamepadButton11', 'GamepadButton12',
+      // Phase 5: H (headlights / intervene) and J (spotlight / bodycam mute).
+      'KeyH', 'KeyJ',
     ]);
     const owners = new Map<string, string[]>();
     for (const id of ACTION_IDS) {
@@ -227,6 +229,64 @@ describe('Phase 4 default bindings', () => {
     const a = resolveActions(DEFAULT_BINDINGS, raw(['KeyQ']));
     // Q is the siren in a car and the left lean on foot; the game picks by context.
     expect([a['vehicle.siren'], a['officer.leanLeft'], a['officer.leanRight']]).toEqual([1, 1, 0]);
+  });
+});
+
+describe('Phase 5 default bindings', () => {
+  const phase5 = ['officer.intervene', 'officer.bodycamMute'] as const;
+
+  it('bind H to intervene and J to the bodycam mute, and keep C for the force tool cycle', () => {
+    expect(DEFAULT_BINDINGS['officer.intervene']).toEqual([{ device: 'keyboard', code: 'KeyH' }]);
+    expect(DEFAULT_BINDINGS['officer.bodycamMute']).toEqual([{ device: 'keyboard', code: 'KeyJ' }]);
+    expect(DEFAULT_BINDINGS['officer.weapon']).toEqual([
+      { device: 'keyboard', code: 'KeyC' },
+      { device: 'gamepad', code: 'GamepadButton9' },
+    ]);
+    for (const id of phase5) for (const b of DEFAULT_BINDINGS[id]) expect(isBinding(b), `${id}: ${b.code}`).toBe(true);
+  });
+
+  it('only share their keys with driving actions, never with another on-foot action', () => {
+    const onFoot = new Map<string, string[]>();
+    const driving = new Map<string, string[]>();
+    for (const id of ACTION_IDS) {
+      for (const b of DEFAULT_BINDINGS[id]) {
+        if (b.device === 'gamepad' && b.code.startsWith('GamepadAxis')) continue;
+        const target = id.startsWith('vehicle.') ? driving : id.startsWith('radio.') || id === 'mdt.toggle' ? null : onFoot;
+        if (!target) continue;
+        const k = `${b.device}:${b.code}`;
+        target.set(k, [...(target.get(k) ?? []), id]);
+      }
+    }
+    for (const id of phase5) {
+      for (const b of DEFAULT_BINDINGS[id]) {
+        const k = `${b.device}:${b.code}`;
+        expect(onFoot.get(k), `${id} ${b.code}`).toEqual([id]);
+        expect(driving.get(k)?.length ?? 0, `${id} ${b.code} driving`).toBeLessThanOrEqual(1);
+      }
+    }
+    expect(driving.get('keyboard:KeyH')).toEqual(['vehicle.headlights']);
+    expect(driving.get('keyboard:KeyJ')).toEqual(['vehicle.spotlight']);
+  });
+
+  it('survive a round trip and an old save without them gets the defaults', () => {
+    expect(parseBindings(JSON.parse(JSON.stringify(serializeBindings(DEFAULT_BINDINGS))))).toEqual(DEFAULT_BINDINGS);
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([id]) => !phase5.some((p) => p === id)));
+    expect(parseBindings({ version: BINDINGS_SCHEMA_VERSION, bindings: old })).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('resolves from H and J', () => {
+    const raw = (keys: string[]): RawInputState => ({
+      keys: new Set(keys),
+      mouseButtons: new Set<number>(),
+      mouse: { x: 0, y: 0, wheel: 0 },
+      gamepadButtons: [],
+      gamepadAxes: [],
+    });
+    const h = resolveActions(DEFAULT_BINDINGS, raw(['KeyH']));
+    // H is the headlights in a car and the intervene key on foot; the game picks by context.
+    expect([h['vehicle.headlights'], h['officer.intervene'], h['officer.bodycamMute']]).toEqual([1, 1, 0]);
+    const j = resolveActions(DEFAULT_BINDINGS, raw(['KeyJ']));
+    expect([j['vehicle.spotlight'], j['officer.bodycamMute'], j['officer.intervene']]).toEqual([1, 1, 0]);
   });
 });
 

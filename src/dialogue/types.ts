@@ -189,6 +189,23 @@ export interface DialogueContext {
   readonly premises?: { readonly buildingId: number; readonly authority: boolean; readonly room: number };
 }
 
+/** How a subject answered a Miranda recital (Phase 5): agreed to talk, asked for a lawyer, or did not understand it. */
+export const MIRANDA_RESULTS = ['waived', 'invoked', 'misunderstood'] as const;
+export type MirandaResult = (typeof MIRANDA_RESULTS)[number];
+
+/** Fact topics a subject who invoked their rights refuses to answer (`ask` utterances; name and date of birth stay answerable). */
+export const INCRIMINATING_FACTS = [
+  'account',
+  'drinking',
+  'drugs',
+  'weapons',
+  'vehicleContents',
+  'suspectWhereabouts',
+  'origin',
+  'destination',
+  'vehicleOwner',
+] as const;
+
 /** Plain JSON (saved with the contact). */
 export interface SubjectMemory {
   rapport: number;
@@ -196,6 +213,8 @@ export interface SubjectMemory {
   greeted: boolean;
   reasonGiven: boolean;
   mirandized: boolean;
+  /** The answer to the last Miranda recital (absent before one, and in older saves). */
+  miranda?: MirandaResult;
   identity: IdentityClaim | null;
   identityRefusals: number;
   /** The lie told per fact topic (first lie stored; replaced when the story changes). */
@@ -226,5 +245,7 @@ export interface DialogueResult {
   readonly consent: { readonly kind: ConsentKind; readonly granted: boolean; readonly valid: boolean } | null;
   readonly escalate: 'flee' | 'fight' | null;
   readonly calmed: boolean;
+  /** Set only by a `miranda` utterance the subject took in (the answer to the recital). */
+  readonly miranda?: MirandaResult;
   readonly memory: SubjectMemory;
 }

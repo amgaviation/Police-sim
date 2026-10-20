@@ -5,9 +5,9 @@ export interface NpcActorEvent {
   callId: number;
 }
 
-/** A runner was brought down. */
+/** A runner was brought down (`force`: incapacitated or wounded by an officer's use of force, Phase 5). */
 export interface NpcCaughtEvent extends NpcActorEvent {
-  by: 'tackle' | 'taser' | 'fight';
+  by: 'tackle' | 'taser' | 'fight' | 'force';
 }
 
 /** An actor attacked or threatened: a struggle began, a shot is due (Phase 5), or a weapon was shown. */

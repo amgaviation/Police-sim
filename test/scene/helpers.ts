@@ -24,7 +24,7 @@ export class StubContact implements ContactPort {
   }
 }
 
-export const CAPTURED = ['scene:materialized', 'scene:service', 'scene:radio', 'scene:line', 'scene:flash', 'scene:pursuit', 'scene:outcome', 'scene:openForm', 'force:used'] as const;
+export const CAPTURED = ['scene:materialized', 'scene:service', 'scene:radio', 'scene:line', 'scene:flash', 'scene:pursuit', 'scene:command', 'scene:outcome', 'scene:openForm', 'force:used'] as const;
 
 export interface SceneRig extends Harness {
   readonly people: Population;

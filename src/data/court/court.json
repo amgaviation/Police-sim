@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "plea": { "base": 0.3, "strongBonus": 0.3 },
+  "citationContest": 0.25,
+  "delayH": [2, 6],
+  "hours": [9, 17],
+  "windowBeforeMin": 30,
+  "windowAfterMin": 120,
+  "reminderMin": 60,
+  "maxQuestions": 6,
+  "credibility": {
+    "consistent": 0.01,
+    "evasive": -0.01,
+    "reportMismatch": -0.02,
+    "contradictOffCam": -0.05,
+    "impeachOnCam": -0.15,
+    "selfInconsistent": -0.08
+  },
+  "testimony": {
+    "base": 0.5,
+    "consistent": 0.1,
+    "impeached": -0.3,
+    "contradiction": -0.1,
+    "evasive": -0.05,
+    "selfInconsistent": -0.2
+  },
+  "conviction": {
+    "base": 0.15,
+    "strength": 0.45,
+    "testimony": 0.25,
+    "report": 0.15,
+    "missedFactor": 0.4,
+    "noReportGrade": 50
+  }
+}

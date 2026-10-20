@@ -1,4 +1,8 @@
 import { isCadSave, type CadSave } from '../cad/cadState';
+import { isConductSave, type ConductSave } from '../conduct/save';
+import { isCourtSave, type CourtSave } from '../court/save';
+import { isForceSave, type ForceSave } from '../force/save';
+import { isIncidentsSave, type IncidentsSave } from '../incidents/save';
 import type { RngState } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { isDispatchSave, type DispatchSave } from '../dispatch/save';
@@ -25,7 +29,7 @@ import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 6;
+export const CURRENT_SAVE_VERSION = 7;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -163,8 +167,22 @@ export interface SaveGameV6 extends SaveGameV5 {
   station: StationSave;
 }
 
+/**
+ * v7 (Phase 5): law, procedure and consequences. `force` holds the selected tool, ammo, TASER attachment and cycles and
+ * the fellow-officer episode, `incidents` the jurisdiction, the open and retained closed incident logs (capped), the
+ * camera state and the pursuit sampler, `conduct` the community trust per district and the career (duty status, points,
+ * credibility, commendations, discipline, IA cases, report grades) and `court` the cases (capped) and the calendar. Each
+ * block carries its own RNG stream state. Frozen after Phase 5.
+ */
+export interface SaveGameV7 extends SaveGameV6 {
+  force: ForceSave;
+  incidents: IncidentsSave;
+  conduct: ConductSave;
+  court: CourtSave;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV6;
+export type SaveGame = SaveGameV7;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -367,8 +385,20 @@ export function isSaveGameV6(x: unknown): x is SaveGameV6 {
   );
 }
 
+/** Structural check for the v7 payload: v6 plus the Phase 5 blocks (each module's own validator). */
+export function isSaveGameV7(x: unknown): x is SaveGameV7 {
+  if (!isSaveGameV6(x)) return false;
+  const v7 = x as unknown as Record<string, unknown>;
+  return (
+    isForceSave(v7['force']) &&
+    isIncidentsSave(v7['incidents']) &&
+    isConductSave(v7['conduct']) &&
+    isCourtSave(v7['court'])
+  );
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV6;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV7;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

@@ -73,6 +73,12 @@ export interface ScenarioInput {
   addressAt(edge: number, s: number): string;
   /** Optional: age in years, used for `juvenile:<role>` flags (else inferred from `describe().ageBand`). */
   ageOf?(personId: number): number;
+  /**
+   * Optional (default 1): multiplies the three `dispatchErrors` rates (`wrongAddress`, `wrongDescription`,
+   * `missingWeapon`) before they are compared with their draws (community trust: poor trust means worse tips). The draws
+   * are the same with any scale, only the comparisons move. 0 gives no dispatch errors at all.
+   */
+  readonly errorScale?: number;
 }
 
 export interface Participant {
@@ -333,7 +339,8 @@ export function buildScenario(input: ScenarioInput, rng: Rng): Scenario {
   const side: 1 | -1 = rng.next() < 0.5 ? 1 : -1;
   const shiftM = between(rng, cfg.dispatchErrors.addressShiftM);
   const shiftSign = rng.next() < 0.5 ? 1 : -1;
-  const wrongAddress = uAddress < cfg.dispatchErrors.wrongAddress && !family.derived && edge !== undefined && edge.length >= 10;
+  const errorScale = input.errorScale ?? 1;
+  const wrongAddress = uAddress < cfg.dispatchErrors.wrongAddress * errorScale && !family.derived && edge !== undefined && edge.length >= 10;
   let reported: Anchor;
   let anchor: Anchor;
   if (edge) {
@@ -353,8 +360,8 @@ export function buildScenario(input: ScenarioInput, rng: Rng): Scenario {
   }
   const errors = {
     wrongAddress,
-    wrongDescription: uDescription < cfg.dispatchErrors.wrongDescription,
-    missingWeapon: uWeapon < cfg.dispatchErrors.missingWeapon,
+    wrongDescription: uDescription < cfg.dispatchErrors.wrongDescription * errorScale,
+    missingWeapon: uWeapon < cfg.dispatchErrors.missingWeapon * errorScale,
   };
 
   // 4. Effective roles and vehicles.

@@ -232,3 +232,34 @@ html[data-reduced-flash="true"] .mdt-emergency td { animation: none; }
 .mdt-diamond.mdt-p2 { background: #ff9500; }
 .mdt-diamond.mdt-p3 { background: #ffd60a; }
 .mdt-diamond.mdt-p4 { background: #64d2ff; }
+
+/* Phase 5: Career and Community tabs, statements of fact (prefix mdt-, palette from the MDT root). */
+.mdt-career .mdt-section { margin-bottom: 0.6em; }
+.mdt-career dd { display: flex; flex-wrap: wrap; gap: 0.5em; align-items: baseline; }
+.mdt-career dd button.small { padding: 0.05em 0.6em; font-size: 0.85em; }
+
+.mdt-community { display: flex; flex-direction: column; gap: 0.35em; }
+.mdt-trust-row { display: grid; grid-template-columns: 12em 1fr 4.5em 2em; gap: 0.6em; align-items: center; }
+.mdt-trust-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mdt-bar { position: relative; height: 0.9em; background: #131c26; border: 1px solid var(--panel-border); }
+.mdt-bar-fill { height: 100%; background: #5fd35f; }
+.mdt-bar-fill.mdt-band-low { background: var(--mdt-alert); }
+.mdt-bar-fill.mdt-band-mid { background: var(--mdt-caution); }
+.mdt-bar-fill.mdt-band-high { background: #5fd35f; }
+.mdt-bar-base { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--fg); opacity: 0.85; transform: translateX(-1px); }
+.mdt-trust-pct { text-align: right; font-weight: 700; }
+.mdt-trust-pct.mdt-band-low { color: var(--mdt-alert); }
+.mdt-trust-pct.mdt-band-mid { color: var(--mdt-caution); }
+.mdt-trust-pct.mdt-band-high { color: #5fd35f; }
+.mdt-trust-trend { text-align: center; color: var(--fg-dim); }
+.mdt-trust-trend.mdt-up { color: #5fd35f; }
+.mdt-trust-trend.mdt-down { color: var(--mdt-alert); }
+
+.mdt-statements { margin-top: 0.4em; }
+.mdt-statements .mdt-radioset { margin: 0.3em 0 0.3em 0.6em; padding: 0.2em 0.6em; border: 1px dashed var(--panel-border); }
+.mdt-statements .mdt-radioset legend { color: var(--fg-dim); font-size: 0.85em; }
+@media (max-width: 40em) {
+  .mdt-trust-row { grid-template-columns: 8em 1fr 4em 1.5em; }
+}
+.mdt-checklist.mdt-statements { display: block; }
+.mdt-statements-body { display: flex; flex-direction: column; gap: 0.2em; }

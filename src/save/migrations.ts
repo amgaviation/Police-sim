@@ -1,5 +1,9 @@
 import { emptyCadSave } from '../cad/cadState';
+import { newConductSave } from '../conduct/save';
 import { emptyContactSave } from '../contact/save';
+import { emptyCourtSave } from '../court/save';
+import { defaultForceSave } from '../force/save';
+import { emptyIncidentsSave } from '../incidents/save';
 import { createRng } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { CAMERA_MODE } from '../player/cameraRig';
@@ -21,6 +25,7 @@ import {
   isSaveGameV3,
   isSaveGameV4,
   isSaveGameV5,
+  isSaveGameV6,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
@@ -28,6 +33,7 @@ import {
   type SaveGameV4,
   type SaveGameV5,
   type SaveGameV6,
+  type SaveGameV7,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -147,6 +153,24 @@ export function migrateV5ToV6(data: unknown): unknown {
 /** Trunk items Phase 4 added (a v5 trunk lacks them). */
 const PHASE4_TRUNK_ITEMS = ['ram', 'sceneTape', 'evidenceMarkers', 'evidenceBags', 'fingerprintKit', 'camera'] as const;
 
+/**
+ * v6 -> v7: a Phase 4 shift gets law, procedure and consequences. Everything is kept; the new blocks start at their
+ * defaults on the seed's own 'force', 'conduct' and 'court' streams: the default tool and full ammo, no incident logs
+ * under the generic jurisdiction, community trust at its baselines with a clean active career, and an empty court calendar.
+ */
+export function migrateV6ToV7(data: unknown): unknown {
+  if (!isSaveGameV6(data)) return data;
+  const stream = (name: string) => createRng(data.seed).stream(name);
+  const v7: SaveGameV7 = {
+    ...data,
+    force: defaultForceSave(stream('force').state()),
+    incidents: emptyIncidentsSave('generic'),
+    conduct: newConductSave(stream('conduct').state()),
+    court: emptyCourtSave(stream('court').state()),
+  };
+  return v7;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
 export const migrations: MigrationTable = {
   1: migrateV1ToV2,
@@ -154,6 +178,7 @@ export const migrations: MigrationTable = {
   3: migrateV3ToV4,
   4: migrateV4ToV5,
   5: migrateV5ToV6,
+  6: migrateV6ToV7,
 };
 
 export const MIGRATION_FAILURES = {

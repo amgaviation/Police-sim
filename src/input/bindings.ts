@@ -100,6 +100,9 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'investigate.menu': [key('KeyI')],
   'camera.photo': [key('KeyO')],
   'partner.menu': [key('KeyN')],
+  // Phase 5 (design §12.5): H and J are also the headlights and the spotlight in a car (on foot vs in a car).
+  'officer.intervene': [key('KeyH')],
+  'officer.bodycamMute': [key('KeyJ')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

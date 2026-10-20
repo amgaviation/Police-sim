@@ -15,7 +15,7 @@ import { ambientProfile } from './ambient';
 import { complianceChance, understands } from './compliance';
 import { NPC_CONFIG, NPC_DENSITY, behavior, findBehavior, type BehaviorProfile, type NpcConfig } from './data';
 import { TWO_PI, sampleEdge, yawOf, type EdgeSample } from './geometry';
-import { ActorRec, FLAG, PedRec } from './pool';
+import { ActorRec, FLAG, NEVER, PedRec } from './pool';
 import { isNpcSave } from './save';
 import {
   ACTOR_STATE,
@@ -27,6 +27,7 @@ import {
   type CommandContext,
   type AwareReaction,
   type CommandOutcome,
+  type IncapacitateBy,
   type IndoorNavPort,
   type Listener,
   type NoGoZone,
@@ -37,6 +38,8 @@ import {
   type NpcView,
   type PedSave,
   type PersonPick,
+  type ResistanceLevel,
+  LETHAL_WEAPONS,
 } from './types';
 
 /**
@@ -145,6 +148,25 @@ const TURNABLE = new Set<number>([
 const UNTACKLEABLE = new Set<number>([
   ACTOR_STATE.cuffed, ACTOR_STATE.down, ACTOR_STATE.prone, ACTOR_STATE.lying, ACTOR_STATE.hide, ACTOR_STATE.seated,
 ]);
+
+/** Seconds a refused / confused command keeps an actor `passive`. */
+const PASSIVE_S = 15;
+/** Seconds a cuffing struggle keeps an actor `active`. */
+const ACTIVE_S = 10;
+/** Seconds an attack keeps an actor `assaultive` (fight) or `lethal` (fire). */
+const ATTACK_S = 5;
+/** Seconds a seriously wounded actor stays down before kneeling. */
+const WOUND_DOWN_S = 60;
+/** Wound severity at which an actor goes down instead of staggering. */
+const WOUND_DOWN_AT = 0.5;
+/** Seconds a minor wound incapacitates. */
+const WOUND_STAGGER_S = 3;
+/** Persisted resistance ages are dropped beyond this (s): the longest window is 15 s. */
+const RESISTANCE_KEEP_S = 30;
+/** `ActorRec.attackKind` codes. */
+const ATTACK_FIGHT = 0;
+const ATTACK_FIRE = 1;
+const ATTACK_BRANDISH = 2;
 
 /** Cached render data of the occupants of one vehicle. */
 interface OccEntry {
@@ -338,6 +360,9 @@ export class NpcSystem {
       a.prevX = a.x;
       a.prevZ = a.z;
       a.prevYaw = a.yaw;
+      a.refusedAge += dt;
+      a.resistedAge += dt;
+      a.attackedAge += dt;
     }
 
     this.retargetIn -= dt;
@@ -372,6 +397,8 @@ export class NpcSystem {
   }
 
   private noteAttack(a: ActorRec, kind: 'fight' | 'fire' | 'brandish'): void {
+    a.attackedAge = 0;
+    a.attackKind = kind === 'fight' ? ATTACK_FIGHT : kind === 'fire' ? ATTACK_FIRE : ATTACK_BRANDISH;
     const ev = { actorId: a.id, personId: a.person, callId: a.callId, kind };
     this.fire(() => this.bus.emit('npc:attack', ev));
   }
@@ -804,6 +831,10 @@ export class NpcSystem {
     a.aware = 0;
     a.awareLevel = 0;
     a.hideSpot = -1;
+    a.refusedAge = NEVER;
+    a.resistedAge = NEVER;
+    a.attackedAge = NEVER;
+    a.attackKind = ATTACK_FIGHT;
     a.srcX = 0;
     a.srcZ = 0;
   }
@@ -975,7 +1006,30 @@ export class NpcSystem {
     out.body = a.body;
     out.building = a.building;
     out.aware = a.aware;
+    out.resistance = this.resistanceOf(a);
     return out;
+  }
+
+  /**
+   * How hard actor `id` resists now (design §4.2, first match wins): `lethal` drawn lethal weapon or a shot in the
+   * last 5 s, `assaultive` fighting / other weapon drawn / a struggle in the last 5 s, `active` fleeing or a cuffing
+   * struggle in the last 10 s, `passive` a refused or confused command in the last 15 s, else `compliant` (also a body
+   * and unknown ids).
+   */
+  resistance(id: number): ResistanceLevel {
+    const a = this.byId.get(id);
+    return a ? this.resistanceOf(a) : 'compliant';
+  }
+
+  private resistanceOf(a: ActorRec): ResistanceLevel {
+    if ((a.flags & FLAG.dead) !== 0) return 'compliant';
+    const attacked = a.attackedAge <= ATTACK_S;
+    if (a.state === ACTOR_STATE.armed && (a.flags & FLAG.weaponDrawn) !== 0 && (LETHAL_WEAPONS as readonly string[]).includes(a.weapon)) return 'lethal';
+    if (attacked && a.attackKind === ATTACK_FIRE) return 'lethal';
+    if (a.state === ACTOR_STATE.fight || a.state === ACTOR_STATE.armed || (attacked && a.attackKind === ATTACK_FIGHT)) return 'assaultive';
+    if (a.state === ACTOR_STATE.flee || a.resistedAge <= ACTIVE_S) return 'active';
+    if (a.refusedAge <= PASSIVE_S) return 'passive';
+    return 'compliant';
   }
 
   /** Clears `out` and fills it with the ids of all actors (pool order). */
@@ -1111,7 +1165,8 @@ export class NpcSystem {
   /** Carries out the result of `evaluateCommand`. */
   applyCommand(id: number, cmd: NpcCommand, outcome: CommandOutcome): void {
     const a = this.byId.get(id);
-    if (!a) return;
+    if (!a || (a.flags & FLAG.dead) !== 0) return;
+    if ((outcome === 'refuse' || outcome === 'confused') && a.state !== ACTOR_STATE.lying) a.refusedAge = 0;
     if (outcome === 'confused') return;
     if (outcome === 'refuse') {
       if (a.state !== ACTOR_STATE.lying) a.stress = Math.min(1, a.stress + 0.1);
@@ -1218,7 +1273,7 @@ export class NpcSystem {
   /** Forces an actor into `state`; flee, fight and armed raise their events like a natural transition. */
   forceState(id: number, state: 'flee' | 'fight' | 'armed' | 'handsUp' | 'kneel' | 'prone' | 'leave' | 'lying' | 'crowd' | 'hold' | 'idle'): void {
     const a = this.byId.get(id);
-    if (!a) return;
+    if (!a || (a.flags & FLAG.dead) !== 0) return;
     // Restrained and helpless people cannot bolt or fight (cuffs only come off through `uncuff`).
     if ((state === 'flee' || state === 'fight') && ((a.flags & FLAG.cuffed) !== 0 || RESTRAINED.has(a.state))) return;
     switch (state) {
@@ -1275,7 +1330,7 @@ export class NpcSystem {
     if (CUFFABLE.has(a.state)) {
       if ((a.flags & FLAG.weaponDrawn) !== 0) this.dropWeaponRec(a);
       a.state = ACTOR_STATE.cuffed;
-      a.flags = (a.flags & ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.returning)) | FLAG.cuffed;
+      a.flags = (a.flags & ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.returning | FLAG.wounded)) | FLAG.cuffed;
       a.speed = 0;
       return 'ok';
     }
@@ -1288,6 +1343,7 @@ export class NpcSystem {
       case ACTOR_STATE.follow:
       case ACTOR_STATE.leave:
         if (a.profile.fightChance > 0 && this.actorsRng.next() < a.profile.fightChance) {
+          a.resistedAge = 0;
           this.startFight(a);
           return 'resist';
         }
@@ -1368,12 +1424,57 @@ export class NpcSystem {
     return true;
   }
 
-  private takeDown(a: ActorRec, seconds: number, by: 'tackle' | 'taser' | 'fight'): void {
+  /**
+   * Puts actor `id` down for `seconds` after an officer's use of force (like a tackle: a drawn weapon is dropped, state
+   * `down`, `npc:caught` with `by: 'force'`). False for unknown, hidden, dog and already restrained / helpless actors
+   * (cuffed, down, prone, lying, hiding, seated); armed actors can be put down by any tool.
+   */
+  incapacitate(id: number, seconds: number, _by: IncapacitateBy): boolean {
+    const a = this.byId.get(id);
+    if (!a || a.body === BODY.dog || (a.flags & FLAG.hidden) !== 0 || UNTACKLEABLE.has(a.state)) return false;
+    this.takeDown(a, Math.max(0, seconds), 'force');
+    return true;
+  }
+
+  /**
+   * Applies a gunshot or similar wound. `fatal`: a body (state `lying` for good, flag `dead`, weapon dropped,
+   * `resistance` compliant). `severity >= 0.5`: down for 60 s, then kneeling. Otherwise a 3 s `shot` incapacitation.
+   */
+  wound(id: number, severity: number, fatal: boolean): void {
+    const a = this.byId.get(id);
+    if (!a || (a.flags & FLAG.dead) !== 0) return;
+    if (fatal) {
+      if ((a.flags & FLAG.hidden) !== 0) {
+        a.flags &= ~FLAG.hidden;
+        this.releaseSpot(a);
+      }
+      this.dropWeaponRec(a);
+      this.setPose(a, ACTOR_STATE.lying);
+      a.flags = (a.flags & ~(FLAG.cuffed | FLAG.wounded)) | FLAG.dead;
+      return;
+    }
+    if (severity >= WOUND_DOWN_AT) {
+      this.takeDown(a, WOUND_DOWN_S, 'force');
+      a.flags |= FLAG.wounded;
+      return;
+    }
+    this.incapacitate(id, WOUND_STAGGER_S, 'shot');
+  }
+
+  /** One TASER cycle on actor `id`: a downed actor stays down at least `seconds`, any other is put down for `seconds`. */
+  taserCycle(id: number, seconds: number): void {
+    const a = this.byId.get(id);
+    if (!a) return;
+    if (a.state === ACTOR_STATE.down) a.timer = Math.max(a.timer, seconds);
+    else this.incapacitate(id, seconds, 'taser');
+  }
+
+  private takeDown(a: ActorRec, seconds: number, by: 'tackle' | 'taser' | 'fight' | 'force'): void {
     if ((a.flags & FLAG.weaponDrawn) !== 0) this.dropWeaponRec(a);
     a.state = ACTOR_STATE.down;
     a.timer = seconds;
     a.speed = 0;
-    a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.returning);
+    a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.returning | FLAG.wounded);
     const ev = { actorId: a.id, personId: a.person, callId: a.callId, by };
     this.fire(() => this.bus.emit('npc:caught', ev));
   }
@@ -1507,6 +1608,7 @@ export class NpcSystem {
     // A weapon is lowered (still carried) when the actor stops being armed.
     a.flags &= ~(FLAG.following | FLAG.advance | FLAG.backward | FLAG.faceAway | FLAG.returning | FLAG.weaponDrawn);
     if (state !== ACTOR_STATE.cuffed) a.flags &= ~FLAG.cuffed;
+    if (state !== ACTOR_STATE.down) a.flags &= ~FLAG.wounded;
   }
 
   private startFlee(a: ActorRec): void {
@@ -1955,7 +2057,10 @@ export class NpcSystem {
         return false;
       case ACTOR_STATE.down:
         a.timer -= ddt;
-        if (a.timer <= 0) this.setPose(a, ACTOR_STATE.prone);
+        if (a.timer <= 0) {
+          const kneel = (a.flags & FLAG.wounded) !== 0;
+          this.setPose(a, kneel ? ACTOR_STATE.kneel : ACTOR_STATE.prone);
+        }
         return false;
       case ACTOR_STATE.wander:
       case ACTOR_STATE.crowd: {
@@ -2610,6 +2715,12 @@ export class NpcSystem {
       if (a.building !== -1) saved.building = a.building;
       if (a.aware > 0) saved.aware = a.aware;
       if (a.hideSpot >= 0) saved.hideSpot = a.hideSpot;
+      if (a.refusedAge <= RESISTANCE_KEEP_S) saved.ra = a.refusedAge;
+      if (a.resistedAge <= RESISTANCE_KEEP_S) saved.rs = a.resistedAge;
+      if (a.attackedAge <= RESISTANCE_KEEP_S) {
+        saved.at = a.attackedAge;
+        saved.ak = a.attackKind;
+      }
     }
     const pairs = (m: Map<number, number[]>): [number, number[]][] =>
       [...m.entries()].filter(([, v]) => v.length > 0).sort((x, y) => x[0] - y[0]).map(([k, v]) => [k, v.slice()]);
@@ -2706,6 +2817,12 @@ export class NpcSystem {
       a.aware = clamp(s.aware ?? 0, 0, 1);
       a.awareLevel = this.levelOfAware(a.aware);
       a.hideSpot = s.hideSpot !== undefined && s.hideSpot >= 0 ? s.hideSpot : -1;
+      if (s.ra !== undefined) a.refusedAge = Math.max(0, s.ra);
+      if (s.rs !== undefined) a.resistedAge = Math.max(0, s.rs);
+      if (s.at !== undefined) {
+        a.attackedAge = Math.max(0, s.at);
+        a.attackKind = s.ak === ATTACK_FIRE || s.ak === ATTACK_BRANDISH ? s.ak : ATTACK_FIGHT;
+      }
       this.derive(a);
       this.byId.set(a.id, a);
       if (a.person >= 0) this.active.add(a.person);

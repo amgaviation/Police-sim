@@ -91,7 +91,15 @@ describe('MdtOverlay (headless)', () => {
     expect(mdt.onKeyDown(key('3', textarea))).toBe(false);
     expect(mdt.tab).toBe('stop');
     expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
+    expect(mdt.tab).toBe('career'); // Phase 5 tabs follow Stop
+    expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
+    expect(mdt.tab).toBe('community');
+    expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
     expect(mdt.tab).toBe('queue');
+    expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);
+    expect(mdt.tab).toBe('community');
+    expect(mdt.onKeyDown(key('0'))).toBe(true);
+    expect(mdt.tab).toBe('career');
     expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);
     expect(mdt.tab).toBe('stop');
     expect(mdt.onKeyDown(key('ArrowLeft', input))).toBe(false);

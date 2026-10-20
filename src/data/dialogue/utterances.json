@@ -7,7 +7,7 @@
     {"id":"consent","label":"Consent"},
     {"id":"commands","label":"Commands"},
     {"id":"support","label":"Calm / support"},
-    {"id":"miranda","label":"Rights (Phase 5)"},
+    {"id":"miranda","label":"Rights"},
     {"id":"closing","label":"Closing"}
   ],
   "utterances": [

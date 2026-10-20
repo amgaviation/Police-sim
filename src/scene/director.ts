@@ -135,7 +135,7 @@ const CONTACT_PERSON_FLAGS: ReadonlySet<string> = new Set([
 const CONTACT_GLOBAL_FLAGS: ReadonlySet<string> = new Set(['bacOver', 'sfstFail', 'weaponFound', 'contrabandFound', 'guardianNotified', 'forceUsed']);
 /** Global flags a scenario passes on to the scenarios it mirrors. */
 const MIRROR_GLOBAL: ReadonlySet<string> = new Set([
-  'pursuit', 'pursuitLost', 'pursuitEnded', 'vehicleStopped', 'forceUsed', 'shotsFired', 'attacked', 'bacOver', 'sfstFail',
+  'pursuit', 'pursuitLost', 'pursuitEnded', 'pursuitTerminated', 'vehicleStopped', 'forceUsed', 'shotsFired', 'attacked', 'bacOver', 'sfstFail',
   'weaponFound', 'contrabandFound',
 ]);
 /** Profiles of participants EMS transports. */
@@ -418,6 +418,8 @@ export class SceneDirector implements IncidentResolver {
       loose.on('contact:event', (e: ContactEventPayload) =>
         push({ t: 'contact', callId: e.callId, incident: e.incident, personId: e.personId, role: e.role, flag: e.flag }),
       ),
+      // Phase 5 (force module): a force application counts as force used against the person (hostile onlookers, flags).
+      loose.on('force:applied', (e: { personId: number; callId: number }) => push({ t: 'force', kind: 'applied', personId: e.personId, callId: e.callId })),
       loose.on('contact:needsCall', (e: ContactNeedsCallPayload) => push({ t: 'needsCall', personId: e.personId, x: e.x, z: e.z, incident: e.incident })),
       loose.on('contact:consent', (e: ContactConsentPayload) =>
         push({ t: 'consent', callId: e.callId, personId: e.personId, kind: e.kind, granted: e.granted, valid: e.valid, buildingId: e.buildingId, room: e.room }),
@@ -595,7 +597,69 @@ export class SceneDirector implements IncidentResolver {
     if (!rt) return;
     if (FORCE_KINDS.has(kind) && !rt.forceUsed.includes(kind)) rt.forceUsed.push(kind);
     // Drawing a weapon is not a use of force yet; everything else is.
-    if (kind !== 'sidearmDrawn' && kind !== 'taserDrawn') this.setFlag(rt, 'forceUsed');
+    if (kind === 'sidearmDrawn' || kind === 'taserDrawn') return;
+    this.setFlag(rt, 'forceUsed');
+    this.maybeOnlookers(rt);
+  }
+
+  /**
+   * Hostile onlookers (Phase 5): the first arrest or use of force on an outdoor, materialized call rolls once (one
+   * draw of the scene stream, only when `hostilityAt` is given) for a small crowd that watches and films. 2-4
+   * `protester` actors with the role `onlooker` stand 8-14 m from the officer on the sidewalk side; two of them shout.
+   */
+  private maybeOnlookers(rt: ScenarioRuntime): void {
+    const deps = this.deps;
+    if (!deps.hostilityAt || !rt.materialized || rt.buildingId >= 0 || rt.flags.has('onlookersRolled')) return;
+    rt.flags.add('onlookersRolled');
+    const a = rt.scenario.anchor;
+    const p = Math.min(1, deps.hostilityAt(a.x, a.z));
+    const u = this.rng.next();
+    if (!(u < p)) return;
+    // One draw decides both: given u < p, u / p is uniform again.
+    const n = 2 + Math.min(2, Math.floor((u / p) * 3));
+    const { npc, city } = this.deps;
+    const busy = this.busyPersons();
+    const hit = city.graph.nearestEdge(this.officer.x, this.officer.z, 60, this.hitScratch);
+    const edge = hit ? city.graph.edges[hit.edge] : undefined;
+    const names: { personId: number; name: string }[] = [];
+    for (let i = 0; i < n; i++) {
+      let personId = -1;
+      for (let k = 0; k < 8 && personId < 0; k++) {
+        const c = this.pickPersonFor({ minAge: 18 }, this.rng, busy);
+        busy.add(c);
+        if (!npc.isActivePerson(c)) personId = c;
+      }
+      if (personId < 0) continue;
+      const d = 8 + (6 * i) / Math.max(1, n - 1);
+      let x: number;
+      let z: number;
+      let yaw: number;
+      if (hit && edge) {
+        // Along the sidewalk of the officer's side, far enough along the street to be `d` metres away.
+        const lat = edgeLaterals(edge).L;
+        const across = Math.abs(lat - hit.distance);
+        const along = Math.sqrt(Math.max(0, d * d - across * across)) * (i % 2 === 0 ? 1 : -1);
+        edgePoint(edge, hit.s + along, lat, hit.side, this.edgePt);
+        x = this.edgePt.x;
+        z = this.edgePt.z;
+        yaw = yawOf(this.officer.x - x, this.officer.z - z);
+      } else {
+        const ang = (i / n) * Math.PI * 2;
+        x = this.officer.x + Math.cos(ang) * d;
+        z = this.officer.z + Math.sin(ang) * d;
+        yaw = yawOf(this.officer.x - x, this.officer.z - z);
+      }
+      const id = npc.spawnActor({
+        personId, x, z, yaw, profile: 'protester', role: 'onlooker', callId: rt.scenario.callId, hidden: false, body: 'human', weapon: null, vehicleId: -1,
+      });
+      if (id > 0) names.push({ personId, name: this.nameOf(personId) });
+    }
+    const shout = ['Leave him alone!', "I'm filming this!"];
+    for (let i = 0; i < shout.length; i++) {
+      const who = names[i % Math.max(1, names.length)];
+      this.deps.bus.emit('scene:line', { personId: who ? who.personId : -1, speaker: who ? who.name : 'Onlooker', text: shout[i] ?? '', language: 'en' });
+    }
+    this.rev++;
   }
 
   private onDocument(id: string): void {
@@ -647,15 +711,15 @@ export class SceneDirector implements IncidentResolver {
         return;
       case 'caught':
         if (rt && role !== '') this.setFlag(rt, `caught:${role}`);
-        this.endFootPursuit(e.actorId, t);
+        this.endFootPursuit(e.actorId, t, 'caught');
         return;
       case 'escaped':
         if (rt && role !== '') this.setFlag(rt, `escaped:${role}`);
-        this.endFootPursuit(e.actorId, t);
+        this.endFootPursuit(e.actorId, t, 'escaped');
         return;
       case 'surrendered':
         if (rt && role !== '') this.setFlag(rt, `detained:${role}`);
-        this.endFootPursuit(e.actorId, t);
+        this.endFootPursuit(e.actorId, t, 'stopped');
         return;
       case 'attack':
         if (rt) {
@@ -675,7 +739,7 @@ export class SceneDirector implements IncidentResolver {
       }
       case 'left':
         if (rt && role !== '') this.setFlag(rt, `left:${role}`);
-        this.endFootPursuit(e.actorId, t);
+        this.endFootPursuit(e.actorId, t, 'escaped');
         return;
       case 'revealed':
         if (rt && role !== '') this.setFlag(rt, `revealed:${role}`);
@@ -714,7 +778,10 @@ export class SceneDirector implements IncidentResolver {
     if (!rt.flags.has(flag)) {
       rt.flags.add(flag);
       if (!flag.startsWith('near:') && !flag.startsWith('found:')) this.activity.set(rt.scenario.callId, this.time.sim);
-      if (flag.startsWith('custody:')) this.noteArrest(rt, flag.slice(8));
+      if (flag.startsWith('custody:')) {
+        this.noteArrest(rt, flag.slice(8));
+        this.maybeOnlookers(rt);
+      }
       this.rev++;
     }
     if (rt.mirror.length === 0) return;
@@ -800,6 +867,7 @@ export class SceneDirector implements IncidentResolver {
       describe: (id) => describePerson(people.identity(id)),
       addressAt: (edge, s) => addressOnEdge(city.graph, edge, s, districtOf).text,
       ageOf: (id) => people.identity(id).age,
+      ...(this.deps.errorScaleAt ? { errorScale: this.deps.errorScaleAt(call.location.x, call.location.z) } : {}),
     };
     void traffic;
     let scenario = buildScenario(input, rng);
@@ -2144,6 +2212,9 @@ export class SceneDirector implements IncidentResolver {
         case 'shout':
           this.shout();
           break;
+        case 'terminatePursuit':
+          this.terminatePursuit(t);
+          break;
         case 'action': {
           const rt = this.byCall.get(r.callId);
           if (rt) this.doAction(rt, r.actionId, t);
@@ -2200,6 +2271,21 @@ export class SceneDirector implements IncidentResolver {
       next = next === 'none' ? 'sidearm' : next === 'sidearm' ? 'taser' : 'none';
       if (next === 'none' || avail[next]) break;
     }
+    this.applyWeapon(next);
+  }
+
+  /**
+   * Draws `w` (or holsters with `'none'`) for the force module: the same tail as the weapon key. Sets the weapon and
+   * the presence, and a drawn weapon raises `force:used` `sidearmDrawn` / `taserDrawn` for the nearest actor within
+   * `forceNearM`. Nothing happens when `w` is already drawn. The weapon is not checked against the armory or the
+   * vehicle (the caller does; getting into a car holsters it at the next step).
+   */
+  setWeapon(w: OfficerWeapon): void {
+    if (w === this.weapon) return;
+    this.applyWeapon(w);
+  }
+
+  private applyWeapon(next: OfficerWeapon): void {
     this.weapon = next;
     this.pres.weapon = this.weapon;
     this.rev++;
@@ -2209,6 +2295,14 @@ export class SceneDirector implements IncidentResolver {
     const info = this.deps.npc.actor(id, this.info2);
     if (!info) return;
     this.deps.bus.emit('force:used', { kind: this.weapon === 'sidearm' ? 'sidearmDrawn' : 'taserDrawn', personId: info.personId, callId: info.callId });
+  }
+
+  /** True when service `kind` (`ems`, `k9`, ...) has arrived on call `callId`. */
+  serviceArrived(callId: number, kind: string): boolean {
+    const rt = this.byCall.get(callId);
+    if (!rt) return false;
+    for (const s of rt.services) if (s.kind === kind && s.arrived) return true;
+    return false;
   }
 
   private fire(dirX: number, dirZ: number): void {
@@ -2287,6 +2381,7 @@ export class SceneDirector implements IncidentResolver {
     const ctx: CommandContext = { tone: 'shout', rapport: 0, commMode: 'verbal', weapon: this.weapon, backup: this.pres.backup, lights: this.pres.lights };
     const outcome = npc.evaluateCommand(id, cmd, ctx);
     npc.applyCommand(id, cmd, outcome);
+    bus.emit('scene:command', { callId: info.callId, personId: info.personId, actorId: id, command: cmd, outcome, sim: this.time.sim });
     bus.emit('scene:line', { personId: -1, speaker: 'Officer', text: officerText, language: 'en' });
     if (info.personId >= 0 && info.body === 0) {
       const identity = people.identity(info.personId);
@@ -2322,7 +2417,7 @@ export class SceneDirector implements IncidentResolver {
       officerName: 'Officer',
       presence: { lights: this.pres.lights, backup: this.pres.backup, weapon: this.weapon, uniform: true },
       history: people.officerHistory(personId),
-      trust: trustOf(district),
+      trust: this.deps.trustAt ? this.deps.trustAt(this.officer.x, this.officer.z) : trustOf(district),
       truth: { destination: '', origin: '', account: '', suspectWhereabouts: '', reason: '' },
       guardianPresent: false,
       interpreterAvailable: false,
@@ -2494,8 +2589,11 @@ export class SceneDirector implements IncidentResolver {
     this.setFlag(rt, 'fled:driver');
     this.radio(`${this.pc}, in pursuit of ${desc}, plate ${plate}, ${dir} on ${street}`, this.pc, true);
     dispatcher.request(this.pc, { kind: 'backup', code: 3 }, 'auto');
-    this.pursuits.push({ kind: 'vehicle', callId: call.id, vehicleId, actorId: 0, startedSim: t.sim, announced: true });
-    this.deps.bus.emit('scene:pursuit', { kind: 'vehicle', active: true, callId: call.id });
+    // The call the pursuit came from: the car's own scenario, else the stop the player is working.
+    const pu = cad.unit(this.pc);
+    const ownerCallId = owner ? owner.scenario.callId : (pu?.callId ?? 0);
+    this.pursuits.push({ kind: 'vehicle', callId: call.id, vehicleId, actorId: 0, startedSim: t.sim, announced: true, ownerCallId, personId: driver });
+    this.deps.bus.emit('scene:pursuit', { kind: 'vehicle', active: true, callId: call.id, ownerCallId, personId: driver });
     this.rev++;
   }
 
@@ -2506,7 +2604,7 @@ export class SceneDirector implements IncidentResolver {
     const pur = this.pursuits[pi];
     this.pursuits.splice(pi, 1);
     if (!pur) return;
-    this.deps.bus.emit('scene:pursuit', { kind: 'vehicle', active: false, callId: pur.callId });
+    this.emitPursuitEnd(pur, reason);
     const rt = this.byCall.get(pur.callId);
     this.rev++;
     if (!rt) return;
@@ -2564,17 +2662,18 @@ export class SceneDirector implements IncidentResolver {
     this.radio(`${this.pc}, foot pursuit, ${who}, ${compass(yaw)} on ${street}`, this.pc, true);
     this.setFlag(rt, 'pursuit');
     void role0;
-    this.pursuits.push({ kind: 'foot', callId: rt.scenario.callId, vehicleId: -1, actorId, startedSim: t.sim, announced: true });
-    this.deps.bus.emit('scene:pursuit', { kind: 'foot', active: true, callId: rt.scenario.callId });
+    const ownerCallId = rt0 ? rt0.scenario.callId : 0;
+    this.pursuits.push({ kind: 'foot', callId: rt.scenario.callId, vehicleId: -1, actorId, startedSim: t.sim, announced: true, ownerCallId, personId });
+    this.deps.bus.emit('scene:pursuit', { kind: 'foot', active: true, callId: rt.scenario.callId, ownerCallId, personId });
     this.rev++;
   }
 
-  private endFootPursuit(actorId: number, _t: CadTime): void {
+  private endFootPursuit(actorId: number, _t: CadTime, reason = 'stopped'): void {
     for (let i = this.pursuits.length - 1; i >= 0; i--) {
       const p = this.pursuits[i];
       if (p && p.kind === 'foot' && p.actorId === actorId) {
         this.pursuits.splice(i, 1);
-        this.deps.bus.emit('scene:pursuit', { kind: 'foot', active: false, callId: p.callId });
+        this.emitPursuitEnd(p, reason);
         const rt = this.byCall.get(p.callId);
         if (rt) this.setFlag(rt, 'pursuitEnded');
         this.rev++;
@@ -2582,12 +2681,44 @@ export class SceneDirector implements IncidentResolver {
     }
   }
 
+  /** `scene:pursuit` inactive with the owner call, the pursued person and why it ended. */
+  private emitPursuitEnd(p: ScenePursuitSave, endReason: string): void {
+    this.deps.bus.emit('scene:pursuit', { kind: p.kind, active: false, callId: p.callId, ownerCallId: p.ownerCallId ?? 0, personId: p.personId ?? -1, endReason });
+  }
+
+  /**
+   * The officer calls off the active vehicle pursuit: it is removed, the call is flagged `pursuitEnded`,
+   * `pursuitTerminated` and `escaped:driver`, and `scene:pursuit` ends with `endReason: 'terminated'`. The fleeing car
+   * keeps running and despawns as escaped (`onFleeEnded` then finds no pursuit). Without a vehicle pursuit nothing happens.
+   */
+  private terminatePursuit(_t: CadTime): void {
+    let idx = -1;
+    for (let i = this.pursuits.length - 1; i >= 0; i--) {
+      if (this.pursuits[i]?.kind === 'vehicle') {
+        idx = i;
+        break;
+      }
+    }
+    const pur = this.pursuits[idx];
+    if (!pur) return;
+    this.pursuits.splice(idx, 1);
+    this.emitPursuitEnd(pur, 'terminated');
+    const rt = this.byCall.get(pur.callId);
+    if (rt) {
+      this.setFlag(rt, 'pursuitEnded');
+      this.setFlag(rt, 'pursuitTerminated');
+      this.setFlag(rt, 'escaped:driver');
+    }
+    this.radio(`${this.pc}, terminating the pursuit.`, this.pc);
+    this.rev++;
+  }
+
   private closePursuitsOf(callId: number, _t: CadTime): void {
     for (let i = this.pursuits.length - 1; i >= 0; i--) {
       const p = this.pursuits[i];
       if (p && p.callId === callId) {
         this.pursuits.splice(i, 1);
-        this.deps.bus.emit('scene:pursuit', { kind: p.kind, active: false, callId });
+        this.emitPursuitEnd(p, 'gaveUp');
       }
     }
   }
@@ -2633,7 +2764,11 @@ export class SceneDirector implements IncidentResolver {
       const p = this.pursuits[i];
       if (!p || p.kind !== 'foot') continue;
       const runner = this.deps.npc.actor(p.actorId, this.info);
-      if (!runner || runner.state !== ACTOR_STATE.flee) this.endFootPursuit(p.actorId, t);
+      if (!runner) this.endFootPursuit(p.actorId, t, 'escaped');
+      else if (runner.state !== ACTOR_STATE.flee) {
+        const down = runner.cuffed || runner.state === ACTOR_STATE.down || runner.state === ACTOR_STATE.prone || runner.state === ACTOR_STATE.lying;
+        this.endFootPursuit(p.actorId, t, down ? 'caught' : 'stopped');
+      }
     }
     // Pursuit HUD numbers.
     const last = this.pursuits[this.pursuits.length - 1];

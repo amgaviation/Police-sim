@@ -3,6 +3,25 @@ import type { WeatherState } from '../../environment/weather';
 import type { VehicleTelemetry } from '../../vehicles/drivableVehicle';
 import { formatFuel, formatGear, formatSpeedMph, limitSignText } from './format';
 import {
+  LEGAL_COLORS,
+  TRUST_COLORS,
+  camChipState,
+  camChipText,
+  dashChipText,
+  forceChipText,
+  forceEpisodeText,
+  legalLineText,
+  trustBand,
+  trustChipText,
+  type CamChipState,
+  type HudCam,
+  type HudForce,
+  type HudLegal,
+  type HudTrust,
+  type LegalSeverity,
+  type TrustBand,
+} from './law';
+import {
   SEVERITY_COLORS,
   callStripText,
   clampPriority,
@@ -88,6 +107,19 @@ export interface HudSnapshot {
   location?: Readonly<HudLocation> | null;
   /** Case line, e.g. 'Case C-00042 · 3 items · 1 photo'. */
   caseLine?: string | null;
+  // Phase 5 (design §12.4): optional as well; the integrator's feed fills them.
+  /** Force tool chip ('TASER 2/2'); replaces the Phase 3 weapon chip when present. */
+  force?: Readonly<HudForce> | null;
+  /** Camera chips REC / MUTED / DASH; replaces the Phase 4 bodycam chip when present. */
+  cam?: Readonly<HudCam> | null;
+  /** Last force verdict / advisory line. */
+  legal?: Readonly<HudLegal> | null;
+  /** Duty status line ('SUSPENDED until Tue 06:00'); null when on duty. */
+  duty?: string | null;
+  /** Next court hearing ('COURT 14:00 · CR-0003 · in 1 h 20 min'). */
+  court?: string | null;
+  /** Trust of the district the officer is in. */
+  trust?: Readonly<HudTrust> | null;
 }
 
 export interface HudOptions {
@@ -176,6 +208,24 @@ export interface HudText {
   location: string;
   /** Case line; '' hides it. */
   caseLine: string;
+  /** Bodycam chip is amber (muted). */
+  bodycamMuted: boolean;
+  /** 'DASH'; '' hides the chip. */
+  dash: string;
+  /** Force tool chip ('TASER 2/2 · PROBES'); '' hides it. */
+  force: string;
+  /** Fellow-officer misconduct episode chip; '' hides it. */
+  episode: string;
+  /** Legal line and its severity; '' hides the line. */
+  legal: string;
+  legalSeverity: LegalSeverity;
+  /** Duty status line; '' hides it. */
+  duty: string;
+  /** Court line; '' hides it. */
+  court: string;
+  /** Trust chip ('Trust · Suburbs 62 %'); '' hides it. */
+  trust: string;
+  trustBand: TrustBand;
 }
 
 export function createHudText(): HudText {
@@ -228,6 +278,16 @@ export function createHudText(): HudText {
     shift: '',
     location: '',
     caseLine: '',
+    bodycamMuted: false,
+    dash: '',
+    force: '',
+    episode: '',
+    legal: '',
+    legalSeverity: 'ok',
+    duty: '',
+    court: '',
+    trust: '',
+    trustBand: 'high',
   };
 }
 
@@ -282,7 +342,8 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
   out.targetResult = target.result;
   out.targetSeverity = target.severity;
   out.carried = s.carried ?? '';
-  out.weapon = weaponChipText(s.officer);
+  // The force tool chip replaces the Phase 3 weapon chip once the force feed exists.
+  out.weapon = s.force ? '' : weaponChipText(s.officer);
   out.contact = contactChipText(s.contact);
   const scene = sceneText(s.scene, SCENE_SCRATCH);
   out.sceneTitle = scene.title;
@@ -296,11 +357,24 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
   out.noise = tac ? noiseSteps(tac.noise) : 0;
   out.noiseMeter = tac ? noiseMeterText(tac.noise) : '';
   out.visibility = visibilityText(tac);
-  out.bodycam = bodycamChipText(s.bodycam);
-  out.bodycamRecording = s.bodycam ? s.bodycam.recording : false;
+  // The camera chips replace the Phase 4 bodycam chip once the camera feed exists.
+  const cam = s.cam ?? null;
+  const camState: CamChipState = camChipState(cam);
+  out.bodycam = cam ? camChipText(cam) : bodycamChipText(s.bodycam);
+  out.bodycamRecording = cam ? camState === 'rec' : s.bodycam ? s.bodycam.recording : false;
+  out.bodycamMuted = camState === 'muted';
+  out.dash = dashChipText(cam);
   out.shift = s.shift ?? '';
   out.location = locationChipText(s.location);
   out.caseLine = s.caseLine ?? '';
+  out.force = forceChipText(s.force);
+  out.episode = forceEpisodeText(s.force);
+  out.legal = legalLineText(s.legal);
+  out.legalSeverity = s.legal ? s.legal.severity : 'ok';
+  out.duty = s.duty ?? '';
+  out.court = s.court ?? '';
+  out.trust = trustChipText(s.trust);
+  out.trustBand = s.trust ? trustBand(s.trust.value) : 'high';
   return out;
 }
 
@@ -369,6 +443,10 @@ const STYLES = {
   shiftLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(13)};font-weight:600`,
   caseLine: `${PANEL};position:relative;border-left:4px solid #9fd0ff;font-size:${px(12)}`,
   location: `margin-top:4px;font-size:${px(12)};font-weight:700;opacity:0.9`,
+  legalLine: `${PANEL};left:50%;bottom:${px(122)};transform:translateX(-50%);border-left:4px solid #5fd35f;font-size:${px(14)};font-weight:700;white-space:nowrap`,
+  dutyLine: `${PANEL};position:relative;border-left:4px solid #ff5a5a;background:rgba(80,10,10,0.7);font-size:${px(13)};font-weight:700;letter-spacing:0.04em`,
+  courtLine: `${PANEL};position:relative;border-left:4px solid #6cc8ff;font-size:${px(13)};font-weight:600`,
+  trust: `margin-top:4px;font-size:${px(12)};font-weight:700`,
   pursuit: `${PANEL};left:50%;top:16px;transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(15)};letter-spacing:0.05em;white-space:nowrap`,
 } as const;
 
@@ -437,6 +515,13 @@ interface HudView {
   shift: HTMLDivElement;
   caseLine: HTMLDivElement;
   location: HTMLDivElement;
+  dash: HTMLSpanElement;
+  forceChip: HTMLSpanElement;
+  episode: HTMLSpanElement;
+  legal: HTMLDivElement;
+  duty: HTMLDivElement;
+  court: HTMLDivElement;
+  trust: HTMLDivElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -463,6 +548,9 @@ function buildView(parent: HTMLElement): HudView {
   contact.style.display = 'none';
   const weapon = chip('', '#ff9a3c', chipRow);
   const bodycam = chip('', '#9a9a9a', chipRow);
+  const dash = chip('', '#6cc8ff', chipRow);
+  const forceChip = chip('', '#ff9a3c', chipRow);
+  const episode = chip('', '#ff4d4d', chipRow);
   const tacticalRow = node('div', STYLES.tacticalRow, bottomRight);
   tacticalRow.style.display = 'none';
   const tactical = node('div', STYLES.tacticalChips, tacticalRow);
@@ -521,6 +609,10 @@ function buildView(parent: HTMLElement): HudView {
   }
   const caseLine = node('div', STYLES.caseLine, topLeft);
   caseLine.style.display = 'none';
+  const duty = node('div', STYLES.dutyLine, topLeft);
+  duty.style.display = 'none';
+  const court = node('div', STYLES.courtLine, topLeft);
+  court.style.display = 'none';
   const pursuit = node('div', STYLES.pursuit, root);
   pursuit.style.display = 'none';
 
@@ -538,6 +630,8 @@ function buildView(parent: HTMLElement): HudView {
   const weather = node('div', '', topRight);
   const location = node('div', STYLES.location, topRight);
   location.style.display = 'none';
+  const trust = node('div', STYLES.trust, topRight);
+  trust.style.display = 'none';
 
   const roadPanel = node('div', STYLES.bottomCentre, root);
   const road = node('span', STYLES.road, roadPanel);
@@ -549,6 +643,8 @@ function buildView(parent: HTMLElement): HudView {
 
   const prompt = node('div', STYLES.prompt, root);
   prompt.style.display = 'none';
+  const legal = node('div', STYLES.legalLine, root);
+  legal.style.display = 'none';
 
   parent.appendChild(root);
   return {
@@ -558,6 +654,7 @@ function buildView(parent: HTMLElement): HudView {
     offer, reticle, targetInfo, targetLabel, targetResult,
     weapon, contact, scenePanel, sceneTitle, sceneRows, sceneMarks, sceneTexts, pursuit,
     tacticalRow, tactical, noise, visibility, bodycam, shift, caseLine, location,
+    dash, forceChip, episode, legal, duty, court, trust,
   };
 }
 
@@ -723,6 +820,7 @@ export class Hud {
     this.applyPolice(all);
     this.applyScene(all);
     this.applyTactical(all);
+    this.applyLaw(all);
   }
 
   /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
@@ -890,12 +988,13 @@ export class Hud {
         show(v.tacticalRow, n.visibility !== '', 'flex');
       }
     }
-    if (all || n.bodycam !== o.bodycam || n.bodycamRecording !== o.bodycamRecording) {
+    if (all || n.bodycam !== o.bodycam || n.bodycamRecording !== o.bodycamRecording || n.bodycamMuted !== o.bodycamMuted) {
       o.bodycam = n.bodycam;
       o.bodycamRecording = n.bodycamRecording;
+      o.bodycamMuted = n.bodycamMuted;
       if (v) {
         v.bodycam.textContent = n.bodycam;
-        v.bodycam.style.background = n.bodycamRecording ? '#ff4d4d' : '#9a9a9a';
+        v.bodycam.style.background = n.bodycamRecording ? '#ff4d4d' : n.bodycamMuted ? '#f0a030' : '#9a9a9a';
         show(v.bodycam, n.bodycam !== '', 'inline');
       }
     }
@@ -918,6 +1017,66 @@ export class Hud {
       if (v) {
         v.caseLine.textContent = n.caseLine;
         show(v.caseLine, n.caseLine !== '');
+      }
+    }
+  }
+
+  /** Phase 5 fields (force tool, dash and episode chips, legal line, duty, court, trust). */
+  private applyLaw(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    if (all || n.dash !== o.dash) {
+      o.dash = n.dash;
+      if (v) {
+        v.dash.textContent = n.dash;
+        show(v.dash, n.dash !== '', 'inline');
+      }
+    }
+    if (all || n.force !== o.force) {
+      o.force = n.force;
+      if (v) {
+        v.forceChip.textContent = n.force;
+        show(v.forceChip, n.force !== '', 'inline');
+      }
+    }
+    if (all || n.episode !== o.episode) {
+      o.episode = n.episode;
+      if (v) {
+        v.episode.textContent = n.episode;
+        show(v.episode, n.episode !== '', 'inline');
+      }
+    }
+    if (all || n.legal !== o.legal || n.legalSeverity !== o.legalSeverity) {
+      o.legal = n.legal;
+      o.legalSeverity = n.legalSeverity;
+      if (v) {
+        v.legal.textContent = n.legal;
+        v.legal.style.borderLeftColor = LEGAL_COLORS[n.legalSeverity];
+        show(v.legal, n.legal !== '');
+      }
+    }
+    if (all || n.duty !== o.duty) {
+      o.duty = n.duty;
+      if (v) {
+        v.duty.textContent = n.duty;
+        show(v.duty, n.duty !== '');
+      }
+    }
+    if (all || n.court !== o.court) {
+      o.court = n.court;
+      if (v) {
+        v.court.textContent = n.court;
+        show(v.court, n.court !== '');
+      }
+    }
+    if (all || n.trust !== o.trust || n.trustBand !== o.trustBand) {
+      o.trust = n.trust;
+      o.trustBand = n.trustBand;
+      if (v) {
+        v.trust.textContent = n.trust;
+        v.trust.style.color = TRUST_COLORS[n.trustBand];
+        show(v.trust, n.trust !== '');
       }
     }
   }

@@ -55,6 +55,7 @@ export function isMemory(x: unknown): x is SubjectMemory {
     typeof x.greeted === 'boolean' &&
     typeof x.reasonGiven === 'boolean' &&
     typeof x.mirandized === 'boolean' &&
+    (x.miranda === undefined || x.miranda === 'waived' || x.miranda === 'invoked' || x.miranda === 'misunderstood') &&
     (x.identity === null || isClaim(x.identity)) &&
     int(x.identityRefusals) &&
     strMap(x.lies) &&
@@ -79,6 +80,7 @@ function isResult(x: unknown): x is DialogueResult {
     (co === null || (isObj(co) && str(co.kind) && typeof co.granted === 'boolean' && typeof co.valid === 'boolean')) &&
     (x.escalate === null || x.escalate === 'flee' || x.escalate === 'fight') &&
     typeof x.calmed === 'boolean' &&
+    (x.miranda === undefined || x.miranda === 'waived' || x.miranda === 'invoked' || x.miranda === 'misunderstood') &&
     isMemory(x.memory)
   );
 }

@@ -19,7 +19,14 @@ export const FLAG = {
   returning: 512,
   /** The `onAware` reaction was rolled (once per actor). */
   awareRolled: 1024,
+  /** A body (`NpcSystem.wound` fatal): lying for good, compliant, never wakes (persisted). */
+  dead: 2048,
+  /** Downed by a non-fatal wound: kneels, not prone, when the downed timer ends. */
+  wounded: 4096,
 } as const;
+
+/** Age of an event that never happened (s). */
+export const NEVER = 1e9;
 
 /** One ambient pedestrian; preallocated, dense in `NpcSystem.peds`. */
 export class PedRec {
@@ -101,6 +108,12 @@ export class ActorRec {
   awareLevel = 0;
   /** Hiding spot index claimed from the indoor nav port, -1 for none. */
   hideSpot = -1;
+  /** Seconds since the last refused / confused command, cuffing struggle and attack (`NEVER` = none; aged every step). */
+  refusedAge = NEVER;
+  resistedAge = NEVER;
+  attackedAge = NEVER;
+  /** Kind of the last attack: 0 fight, 1 fire, 2 brandish. */
+  attackKind = 0;
   /** Seconds until an indoor follower recomputes its path (not saved). */
   repath = 0;
   /** Source of the last stimulus. */

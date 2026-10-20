@@ -1,0 +1,6 @@
+{ "version": 1,
+  "ladder": { "minor": ["counseling", "writtenReprimand", "suspension:8"], "major": ["suspension:16", "suspension:40", "termination"], "critical": ["termination"] },
+  "civilSuit": { "minInjury": 0.3, "base": 25000, "perInjury": 400000 },
+  "criminal": { "fatal": true, "firearmMinInjury": 0.5 },
+  "credibility": { "untruthful": -0.2, "sustained": -0.05 },
+  "points": { "counseling": -5, "writtenReprimand": -10, "suspension": -25, "termination": -100 } }

@@ -1,0 +1,7 @@
+{ "version": 1, "min": 0.05, "max": 0.95, "spill": 0.25, "driftPerDay": 0.15,
+  "deltas": { "lawfulArrest": 0.004, "unlawfulDetention": -0.02, "unlawfulSearch": -0.025, "unlawfulArrest": -0.03,
+              "mirandaViolation": -0.005, "excessiveForce": -0.06, "questionableForce": -0.02, "justifiedForce": -0.004,
+              "injuryMultiplier": 1.5, "fatalMultiplier": 3, "deEscalation": 0.02, "courteousContact": 0.003,
+              "aggressiveLine": -0.002, "conviction": 0.004, "dismissedMisconduct": -0.01, "missedCourt": -0.004,
+              "commendation": 0.01, "sustainedIa": -0.02, "civilSuit": -0.03 },
+  "effects": { "errorScale": [1.6, 0.4], "crimeFactor": [1.3, 0.8], "hostilityThreshold": 0.6, "hostilityScale": 0.8 } }

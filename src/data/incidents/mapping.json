@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "plateHits": [
+    { "prefix": "STOLEN VEHICLE", "indicator": "stolenVehicle" },
+    { "prefix": "PLATES REPORTED STOLEN", "indicator": "stolenPlate" },
+    { "prefix": "DESCRIPTION MISMATCH", "indicator": "plateMismatch" },
+    { "prefix": "REGISTRATION EXPIRED", "indicator": "expiredRegistration" },
+    { "prefix": "BOLO", "indicator": "boloMatch" },
+    { "prefix": "RO WANTED", "indicator": "ownerWarrant" }
+  ],
+  "personHits": [
+    { "prefix": "WARRANT", "indicator": "warrantHit" },
+    { "prefix": "BOLO", "indicator": "boloMatch" },
+    { "prefix": "LICENSE", "indicator": "licenseInvalid" },
+    { "prefix": "NO LICENSE", "indicator": "licenseInvalid" }
+  ],
+  "violations": {
+    "speeding": "speeding",
+    "redLight": "trafficViolation",
+    "rollingStop": "trafficViolation",
+    "tailgating": "trafficViolation",
+    "weaving": "weaving"
+  },
+  "facts": [
+    { "topic": "drinking", "source": "evidence", "detail": "odor of alcohol", "indicator": "odorAlcohol" },
+    { "topic": "drugs", "source": "evidence", "detail": "odor of cannabis", "indicator": "odorCannabis" },
+    { "topic": "drinking", "source": "evidence", "displayPrefix": "Breath test", "valueIn": ["heavy"], "indicator": "bacOver", "test": "pbt" },
+    { "topic": "drinking", "source": "evidence", "displayPrefix": "Failed sobriety", "indicator": "sfstFail", "test": "sfst" },
+    { "topic": "weapons", "source": "evidence", "indicator": "weaponFound" },
+    { "topic": "drugs", "source": "evidence", "displayPrefix": "Found", "indicator": "contrabandFound" },
+    { "topic": "drinking", "source": "claim", "valueIn": ["yes", "heavy"], "indicator": "admissionDrinking" },
+    { "topic": "injured", "source": "claim", "valueIn": ["yes"], "roles": ["victim"], "indicator": "victimInjury" }
+  ],
+  "detainingCommands": ["stop", "handsUp", "getDown", "turnAround", "sitDown", "stepOut", "walkBackward", "showHands", "comeHere", "tossKeys", "turnOffEngine"],
+  "attack": { "fight": "assaultOnOfficer", "fire": "assaultOnOfficer", "brandish": "weaponSeen" },
+  "plainView": { "weapon": "weaponSeen", "default": "contrabandPlainView" },
+  "forceUsed": {
+    "tackle": ["hardHands", "tackle"],
+    "struggle": ["softHands", "struggle"],
+    "cuff": ["softHands", "cuffResisted"],
+    "sidearmDrawn": ["presence", "firearmDisplay"]
+  }
+}

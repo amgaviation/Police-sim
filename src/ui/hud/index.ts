@@ -79,3 +79,25 @@ export {
   visibilityText,
 } from './tactical';
 export type { FloorPlan, HudBodycam, HudLocation, HudTactical } from './types';
+export {
+  LEGAL_COLORS,
+  TRUST_COLORS,
+  TRUST_LOW,
+  TRUST_MID,
+  camChipState,
+  camChipText,
+  clampTrust,
+  dashChipText,
+  forceChipText,
+  forceEpisodeText,
+  legalLineText,
+  trustBand,
+  trustChipText,
+  type CamChipState,
+  type HudCam,
+  type HudForce,
+  type HudLegal,
+  type HudTrust,
+  type LegalSeverity,
+  type TrustBand,
+} from './law';

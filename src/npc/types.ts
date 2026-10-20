@@ -26,6 +26,15 @@ export type NpcCommand = (typeof NPC_COMMANDS)[number];
 
 export type CommandOutcome = 'comply' | 'refuse' | 'flee' | 'fight' | 'confused';
 
+/** Carried weapon item ids that make a drawn weapon lethal force (Phase 5, design §4.2). */
+export const LETHAL_WEAPONS = ['handgun', 'rifle', 'shotgun', 'knife'] as const;
+
+/** How hard an actor resists at an instant (`NpcSystem.resistance`, design §4.2). */
+export type ResistanceLevel = 'compliant' | 'passive' | 'active' | 'assaultive' | 'lethal';
+
+/** What put an actor down through `NpcSystem.incapacitate` (the `npc:caught` event reports `by: 'force'`). */
+export type IncapacitateBy = 'oc' | 'strike' | 'baton' | 'beanbag' | 'k9' | 'taser' | 'shot';
+
 /** What `NpcSystem.spawnActor` takes (design §8.3). */
 export interface ActorSpawn {
   /** Person id, -1 for an animal. */
@@ -73,6 +82,8 @@ export interface ActorInfo {
   building?: number;
   /** Awareness 0..1 (always written by `actor()`). */
   aware?: number;
+  /** Resistance level of the actor now, design §4.2 (always written by `actor()`). */
+  resistance?: ResistanceLevel;
 }
 
 /** The officer as seen by the NPC system, passed to every `step`. */
@@ -140,7 +151,10 @@ export interface PedSave {
   oz?: number;
 }
 
-/** One actor in a save. Bit 1 cuffed, 2 following, 4 hidden, 8 armed, 16 weaponDrawn, 32 approached, then internal bits. */
+/**
+ * One actor in a save. Bit 1 cuffed, 2 following, 4 hidden, 8 armed, 16 weaponDrawn, 32 approached, then internal bits
+ * (2048 dead: a body that never wakes; 4096 wounded: gets to its knees, not prone, when the downed timer ends).
+ */
 export interface ActorSave {
   id: number;
   personId: number;
@@ -173,6 +187,14 @@ export interface ActorSave {
   aware?: number;
   /** Absent = -1. */
   hideSpot?: number;
+  /** Seconds since the last refused / confused command (absent = never or long ago). */
+  ra?: number;
+  /** Seconds since a cuffing struggle (absent = never or long ago). */
+  rs?: number;
+  /** Seconds since the last attack (absent = never or long ago). */
+  at?: number;
+  /** Kind of that attack: 0 fight, 1 fire, 2 brandish. */
+  ak?: number;
 }
 
 export interface NpcSave {

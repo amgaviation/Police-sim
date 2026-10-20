@@ -22,7 +22,7 @@ describe('formatAge', () => {
 
 describe('tabFromKey', () => {
   it('maps 1-9 to the tabs in tab-bar order', () => {
-    expect(MDT_TABS).toEqual(['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop']);
+    expect(MDT_TABS).toEqual(['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community']);
     for (let i = 0; i < 9; i++) {
       expect(tabFromKey(String(i + 1))).toBe(MDT_TABS[i]);
       expect(tabFromKey(`Digit${i + 1}`)).toBe(MDT_TABS[i]);
@@ -30,8 +30,14 @@ describe('tabFromKey', () => {
     }
   });
 
+  it('jumps to Career with 0, and reaches Community only with the arrows', () => {
+    for (const k of ['0', 'Digit0', 'Numpad0']) expect(tabFromKey(k)).toBe('career');
+    expect(MDT_TABS.slice(0, 9).includes('career')).toBe(false);
+    for (let i = 1; i <= 9; i++) expect(tabFromKey(String(i))).not.toBe('community');
+  });
+
   it('ignores other keys', () => {
-    for (const k of ['0', '10', 'Digit0', 'a', 'Enter', 'F1', '', ' 1']) expect(tabFromKey(k)).toBeNull();
+    for (const k of ['10', 'a', 'Enter', 'F1', '', ' 1']) expect(tabFromKey(k)).toBeNull();
   });
 });
 

@@ -60,7 +60,7 @@ export const ACTIONS = {
   'radio.channelNext': { kind: 'button', label: 'Next channel' },
   'radio.scan': { kind: 'button', label: 'Radio scan' },
   // Phase 3: on-foot officer actions and the scene menu (design §12.5).
-  'officer.weapon': { kind: 'button', label: 'Cycle weapon' },
+  'officer.weapon': { kind: 'button', label: 'Cycle force tool' },
   'officer.fire': { kind: 'button', label: 'Fire / deploy weapon' },
   'officer.tackle': { kind: 'button', label: 'Tackle' },
   'officer.shout': { kind: 'button', label: 'Shout command' },
@@ -75,6 +75,9 @@ export const ACTIONS = {
   'investigate.menu': { kind: 'button', label: 'Investigation tools' },
   'camera.photo': { kind: 'button', label: 'Evidence camera' },
   'partner.menu': { kind: 'button', label: 'Partner commands' },
+  // Phase 5: duty to intervene and the bodycam mute (design §12.5). `officer.weapon` is now the force tool cycle.
+  'officer.intervene': { kind: 'button', label: 'Intervene' },
+  'officer.bodycamMute': { kind: 'button', label: 'Bodycam mute' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

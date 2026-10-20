@@ -20,6 +20,7 @@ import { PERSON_POPULATION } from '../../records/ids';
 import { displayName, personIdentity } from '../../records/person';
 import { clearChildren, el } from '../ui';
 import { areaField, button, checkList, numberField, selectField, setText, textField, type Option } from './dom';
+import { statementsField, type ChoiceInfo } from './statements';
 
 export interface FormEnv {
   readonly cad: CadState;
@@ -30,6 +31,10 @@ export interface FormEnv {
 export interface FormOptions {
   /** Citation prefilled with the registered owner because the driver was not identified. */
   readonly idUnverified?: boolean;
+  /** Report form: the statements of fact available for a call (hidden fields stripped); absent = no checklist. */
+  readonly choices?: (callId: number | null) => readonly ChoiceInfo[];
+  /** Report form: statement ids ticked when the form opens (a draft being edited). */
+  readonly assertions?: readonly string[];
 }
 
 export interface DocFormView {
@@ -38,6 +43,8 @@ export interface DocFormView {
   read(): DraftFields<DocKind>;
   /** Input the form cannot read (malformed time...): messages; saving is refused while any. */
   validate?(): string[];
+  /** Report form with a checklist: the checked statement ids; absent on every other form. */
+  assertions?(): string[];
   focus(): void;
 }
 
@@ -87,11 +94,16 @@ export function callOptions(cad: CadState): Option[] {
   return out;
 }
 
-function callSelect(cad: CadState, callId: number | null | undefined): { element: HTMLElement; read(): number | null } {
+function callSelect(
+  cad: CadState,
+  callId: number | null | undefined,
+  onChange: () => void = () => undefined,
+): { element: HTMLElement; read(): number | null } {
   const options = callOptions(cad);
   const value = callId !== null && callId !== undefined ? String(callId) : '';
   if (value !== '' && !options.some((o) => o.value === value)) options.push({ value, label: `C-${value.padStart(5, '0')}` });
   const f = selectField('Call', options, value);
+  f.control.addEventListener('change', onChange);
   return { element: f.element, read: () => (f.control.value === '' ? null : Number(f.control.value)) };
 }
 
@@ -153,8 +165,12 @@ function personInput(seed: number, label: string, id: number): { element: HTMLEl
 
 // --- Kinds --------------------------------------------------------------------------------------
 
-function reportForm(init: DraftFields<'report'>, env: FormEnv, docs: { id: string; label: string }[]): DocFormView {
-  const call = callSelect(env.cad, init.callId);
+function reportForm(init: DraftFields<'report'>, env: FormEnv, docs: { id: string; label: string }[], opts: FormOptions): DocFormView {
+  // Assigned right below; the change listener only runs after that.
+  let statements: ReturnType<typeof statementsField> | null = null;
+  const call = callSelect(env.cad, init.callId, () => statements?.setCall(call.read()));
+  const choices = opts.choices;
+  if (choices) statements = statementsField(choices, init.callId ?? null, opts.assertions ?? []);
   const title = textField('Title', init.title ?? '', { maxlength: 120 });
   const location = textField('Location', init.location ?? '');
   const baseGame = init.occurredGame ?? 0;
@@ -200,10 +216,11 @@ function reportForm(init: DraftFields<'report'>, env: FormEnv, docs: { id: strin
   const evidence = checkList('Evidence', docs.map((d) => ({ value: d.id, label: d.label })), init.evidenceIds ?? []);
   const element = el('div', { class: 'mdt-form-fields' },
     call.element, title.element, location.element, occurred.element, offenses.element, persons.element, vehicles.element,
-    narrative.element, evidence.element);
+    narrative.element, evidence.element, statements?.element ?? null);
   return {
     kind: 'report',
     element,
+    ...(statements ? { assertions: () => statements?.assertions() ?? [] } : {}),
     read: () => ({
       callId: call.read(),
       title: title.control.value.trim(),
@@ -350,7 +367,7 @@ export function buildDocForm(kind: DocKind, init: DraftFields<DocKind>, env: For
   switch (kind) {
     case 'report':
       return reportForm(init, env,
-        docs.list('evidence').map((d) => ({ id: d.id, label: `${d.id} ${d.kind === 'evidence' ? d.description : ''}` })));
+        docs.list('evidence').map((d) => ({ id: d.id, label: `${d.id} ${d.kind === 'evidence' ? d.description : ''}` })), opts);
     case 'citation':
       return citationForm(init, env, opts);
     case 'booking':

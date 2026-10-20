@@ -37,7 +37,8 @@ function isActor(v: unknown): boolean {
     num(v.targetX) && num(v.targetZ) && Array.isArray(v.route) && v.route.length <= 64 && v.route.every(num) &&
     int(v.routePos) && num(v.lostTimer) && (v.acc === undefined || num(v.acc)) &&
     (v.building === undefined || (int(v.building) && v.building >= -1)) && (v.aware === undefined || num(v.aware)) &&
-    (v.hideSpot === undefined || int(v.hideSpot))
+    (v.hideSpot === undefined || int(v.hideSpot)) && (v.ra === undefined || num(v.ra)) && (v.rs === undefined || num(v.rs)) &&
+    (v.at === undefined || num(v.at)) && (v.ak === undefined || int(v.ak))
   );
 }
 

@@ -105,6 +105,7 @@ export class CallGenerator {
   private readonly scratchW: number[] = [];
   private readonly hit: RoadHit = { edge: -1, s: 0, t: 0, x: 0, z: 0, distance: 0, side: 1 };
   private readonly pt = { x: 0, z: 0 };
+  private crimeFactor: ((district: string) => number) | null = null;
 
   constructor(city: City, records: RecordsDb, seed: number, config: DispatchConfig['generator']) {
     this.city = city;
@@ -125,8 +126,17 @@ export class CallGenerator {
   }
 
   /**
+   * Phase 5: a per-district factor (community trust: poor trust means more crime) multiplied into `multiplier()`
+   * before its clamp; `null` removes it. A factor that is not a finite number counts as 1.
+   */
+  setCrimeFactor(fn: ((district: string) => number) | null): void {
+    this.crimeFactor = fn;
+  }
+
+  /**
    * Generator rate multiplier: weighted mean (type weights) of the crime weight of every generated
-   * type's category at this hour, weekday and district, over `crimeReferenceRate`, clamped to [0.25, 3].
+   * type's category at this hour, weekday and district, over `crimeReferenceRate`, times the crime factor
+   * (`setCrimeFactor`), clamped to [0.25, 3].
    */
   multiplier(gameSeconds: number, district: string): number {
     const { hour, weekday } = clockParts(gameSeconds);
@@ -136,7 +146,11 @@ export class CallGenerator {
       sum += t.weight * crimeWeight(t.category, hour, weekday, district);
       weights += t.weight;
     }
-    const m = weights > 0 ? sum / weights / this.config.crimeReferenceRate : 1;
+    let m = weights > 0 ? sum / weights / this.config.crimeReferenceRate : 1;
+    if (this.crimeFactor) {
+      const f = this.crimeFactor(district);
+      if (Number.isFinite(f)) m *= f;
+    }
     return Math.min(3, Math.max(0.25, m));
   }
 
