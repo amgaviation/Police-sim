@@ -952,6 +952,8 @@ export class ResourceSystem implements ResourcePort {
     if (cu && (cu.callId !== null || cu.status !== 'available')) {
       cad.unassign(u.callsign, t);
       if (cad.unit(u.callsign)?.status !== 'available') cad.setUnitStatus(u.callsign, 'available', t, 'auto');
+      // Integration fix: the last unit leaving a call someone worked closes it (a pending call would be offered again).
+      if (call && call.status === 'pending' && call.firstOnScene !== null) cad.closeCall(call.id, 'handled', t);
     }
     u.callId = 0;
     u.etaS = -1;

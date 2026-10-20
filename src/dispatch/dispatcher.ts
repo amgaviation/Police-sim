@@ -1021,8 +1021,9 @@ export class Dispatcher {
         this.toPatrol(u, t);
       }
     }
+    // Phase 6: resource units (supervisors, EMS, K9, ...) do not hold the call open: the scene is over when the player clears.
     let others = 0;
-    for (const cs of call.units) if (cs !== pc) others++;
+    for (const cs of call.units) if (cs !== pc && cad.unit(cs)?.kind !== 'resource') others++;
     if (others === 0) cad.closeCall(callId, disposition, t);
     else if (cad.unit(pc)?.callId === callId) cad.unassign(pc, t);
     this.assignDirty = true;

@@ -17,6 +17,7 @@ import type { ForceOfficer, ForceSystem } from '../force';
 import type { IncidentSystem, DashProbe, OfficerProbe, PursuitProbe } from '../incidents';
 import { RECORDING } from '../recording';
 import { Phase5 } from './phase5';
+import { Phase6, type Phase6Host, type Phase6Player } from './phase6';
 import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
 import type { System, SystemRegistry } from '../ecs/systems';
 import { advanceTime, despawn, spawn, type GameWorld } from '../ecs/world';
@@ -37,6 +38,7 @@ import { lineOfSight } from '../interior/los';
 import { roomAt } from '../interior/nav';
 import { StationState, beyondFurniture, migratedStationSave, newShiftStationSave, type ShiftStep } from '../station';
 import { TacticalSystem, type OfficerPose, type SoundKind } from '../tactical';
+import { RosterState } from '../units';
 import { ACTOR_STATE, NpcSystem, type ActorInfo, type NpcFocus, type PersonPick } from '../npc';
 import { Population, describePerson } from '../people';
 import { PhysicsWorld, type Vec3 } from '../physics/physics';
@@ -397,6 +399,10 @@ export class GameSession {
   readonly station: StationState;
   /** Phase 5 (law, procedure, consequences): force, incident recorder, conduct, court and their bridges. */
   readonly phase5: Phase5;
+  /** Phase 6: the officer roster (stress, fatigue, loyalty) behind every AI officer's name and mistakes. */
+  readonly roster: RosterState;
+  /** Phase 6 (backup, tactical, multi-agency): resources, pursuit, backup, command and their bridges. */
+  readonly phase6: Phase6;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -514,6 +520,7 @@ export class GameSession {
       formatAddress: (edge, t) => addressOnEdge(graph, edge, t * (graph.edges[edge]?.length ?? 0), districtOf).text,
       today: () => epochDayOfGameSeconds(this.env.time.totalSeconds),
     });
+    this.roster = new RosterState(seed);
     this.dispatcher = new Dispatcher({
       seed,
       city,
@@ -523,6 +530,7 @@ export class GameSession {
       world: ctx.world,
       bus: this.bus,
       rng: rng.stream('dispatch'),
+      officerName: (callsign) => this.roster.ensure(callsign, 'officer').name,
     });
     const radioMode = ctx.radioMode ?? ((): RadioMode => 'tenCode');
     this.radio = new RadioSystem({
@@ -639,6 +647,8 @@ export class GameSession {
     // Phase 5: force, incidents, conduct and court over the objects above (design 20).
     this.phase5 = new Phase5(this.phase5Host());
     this.dispatcher.setCrimeFactor((d) => this.phase5.conduct.effects(d).crimeFactor);
+    // Phase 6: resources, pursuit, backup and command over the same objects (design 20).
+    this.phase6 = new Phase6(this.phase6Host());
     this.stationRect = stationRectOf(city);
     this.vehicleEnv = { surfaceAt: (x, z) => city.surfaceAt(x, z), wetness: 0, snowCover: 0, ambientC: 20 };
     const pumps = fuelPumps(city);
@@ -682,11 +692,15 @@ export class GameSession {
       { order: -810, system: { name: 'interiors', run: (_world, dt) => this.stepInteriors(dt) } },
       { order: -800, system: { name: 'colliders', run: () => this.updateColliders() } },
       { order: -700, system: { name: 'dispatch', run: (_world, dt) => this.stepDispatch(dt) } },
+      { order: -698, system: { name: 'resources', run: (_world, dt) => this.phase6.stepResources(dt, this.syncCadTime()) } },
       { order: -690, system: { name: 'scene', run: (_world, dt) => this.stepScene(dt) } },
       { order: -685, system: { name: 'force', run: (_world, dt) => this.phase5.stepForce(dt, this.syncCadTime()) } },
       { order: -680, system: { name: 'contact', run: (_world, dt) => this.contact.step(dt, this.syncCadTime()) } },
+      { order: -678, system: { name: 'pursuit', run: (_world, dt) => this.phase6.stepPursuit(dt, this.syncCadTime()) } },
       { order: -675, system: { name: 'investigation', run: (_world, dt) => this.investigation.step(dt, this.syncCadTime()) } },
       { order: -670, system: { name: 'station', run: (_world, dt) => this.station.step(dt, this.syncCadTime()) } },
+      { order: -665, system: { name: 'backup', run: (_world, dt) => this.phase6.stepBackup(dt, this.syncCadTime()) } },
+      { order: -662, system: { name: 'command', run: (_world, dt) => this.phase6.stepCommand(dt, this.syncCadTime()) } },
       { order: -660, system: { name: 'incidents', run: (_world, dt) => this.phase5.stepIncidents(dt, this.syncCadTime()) } },
       { order: -658, system: { name: 'conduct', run: (_world, dt) => this.phase5.stepConduct(dt, this.syncCadTime()) } },
       { order: -656, system: { name: 'court', run: (_world, dt) => this.phase5.stepCourt(dt, this.syncCadTime()) } },
@@ -1208,6 +1222,11 @@ export class GameSession {
     this.dispatcher.start(this.syncCadTime(), this.playerUnit);
   }
 
+  /** @internal New game: the resource units into CAD (after `startDispatch`). */
+  startPhase6(): void {
+    this.phase6.start(this.syncCadTime());
+  }
+
   /** @internal After a load: the officer's kit. */
   restoreOfficerKit(save: OfficerKitSave): void {
     this.kit = OfficerKit.restore(save);
@@ -1394,6 +1413,7 @@ export class GameSession {
       investigation: this.investigation.serialize(),
       station: this.station.serialize(),
       ...this.phase5.serialize(),
+      ...this.phase6.serialize(),
     };
   }
 
@@ -1402,6 +1422,7 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.phase6.dispose();
     this.phase5.dispose();
     this.investigation.dispose();
     this.tactical.dispose();
@@ -1484,11 +1505,71 @@ export class GameSession {
       simNow: () => this.clock.simTime,
       observedViolations: (vehicleId) => this.violationLog.get(vehicleId) ?? NO_VIOLATIONS,
       forceOfficer: (out) => this.fillForceOfficer(out),
+      mergeFellows: (partner) => this.phase6.mergeFellows(partner),
       officerProbe: (out) => this.fillOfficerProbe(out),
       districtAt: (x, z) => DISTRICT_NAMES[this.city.districtAt(x, z)] ?? '',
       dashProbe: (out) => this.fillDashProbe(out),
       pursuitProbe: (out) => this.fillPursuitProbe(out),
     };
+  }
+
+  /** The reads the Phase 6 systems make of this session. */
+  private phase6Host(): Phase6Host {
+    return {
+      seed: this.seed,
+      rng: this.rng,
+      bus: this.bus,
+      cad: this.cad,
+      city: this.city,
+      world: this.ctx.world,
+      traffic: this.traffic,
+      scene: this.scene,
+      dispatcher: this.dispatcher,
+      npc: this.npc,
+      people: this.people,
+      interiors: this.interiors,
+      buildings: this.buildings,
+      contact: this.contact,
+      radio: this.radio,
+      env: this.env,
+      incidents: this.phase5.incidents,
+      roster: this.roster,
+      fillPlayer: (out) => this.fillPhase6Player(out),
+      burstPlayerTires: () => {
+        const v = this.drivenVehicle;
+        v?.burstTire(0, this.bus);
+        v?.burstTire(1, this.bus);
+      },
+      takeStrip: () => this.kit.consume('spikeStrip', 1),
+      flash: (text, severity) => this.phase5.flash(text, severity),
+    };
+  }
+
+  private fillPhase6Player(out: Phase6Player): Phase6Player {
+    const f = this.syncFocus();
+    out.x = f.x;
+    out.z = f.z;
+    out.yaw = f.yaw;
+    out.onFoot = f.onFoot;
+    out.building = f.building ?? -1;
+    out.callId = this.cad.unit(this.dispatcher.playerCallsign)?.callId ?? 0;
+    out.contactPersonId = this.contact.active >= 0 ? this.contact.personOf(this.contact.active) : -1;
+    const v = this.drivenVehicle;
+    out.inCar = v !== null && this.inPatrolCar;
+    out.carId = v ? v.eid : 0;
+    if (v) {
+      const c = out.car;
+      c.x = Transform.x[v.eid] ?? 0;
+      c.z = Transform.z[v.eid] ?? 0;
+      c.yaw = f.yaw;
+      c.speed = v.telemetry.groundSpeed;
+      c.halfLength = v.model.body.length / 2;
+      c.halfWidth = v.model.body.width / 2;
+    }
+    out.lights = v !== null && v.lightbar;
+    out.siren = this.equipmentOf(v)?.sirenOn ?? false;
+    out.carryingStrip = this.kit.carried('spikeStrip') > 0;
+    return out;
   }
 
   private fillForceOfficer(out: ForceOfficer): ForceOfficer {
@@ -1681,7 +1762,7 @@ export class GameSession {
         }
         return n;
       },
-      setNoGoZones: (zones: readonly NoGoZone[]) => this.npc.setNoGoZones(zones),
+      setNoGoZones: (zones: readonly NoGoZone[]) => this.phase6.setInvestigationZones(zones),
       kit: () => ({
         carried: (item) => this.kit.carried(item),
         use: (item, n) => this.kit.consume(item, n),
@@ -1967,6 +2048,7 @@ export class GameSession {
     this.interiors.placeOfficerInside(st.id, locker);
     if (this.interiors.officerBuilding !== st.id) return false;
     this.station.restore(newShiftStationSave());
+    this.phase6.startShift();
     // The field kit: markers, bags, camera, dust kit and tape; the ram stays in the trunk.
     for (const [item, n] of FIELD_KIT) this.kit.adjust(item, n);
     this.dispatcher.request(this.dispatcher.playerCallsign, { kind: 'status', status: 'outOfService' }, 'auto');
@@ -2680,6 +2762,7 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
     session.primeColliders();
     // Fleet cars take their lanes before ambient traffic fills the rest (design §21).
     session.startDispatch();
+    session.startPhase6();
     session.populateTraffic();
     // Phase 4 (design §20): the shift starts in the station's locker room (the station's interior is resident at once).
     if (options.inStation !== false) session.beginShiftInStation();
@@ -2759,6 +2842,8 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     session.station.restore(data.station);
     // Phase 5 (design 16): force, incidents, conduct, court.
     session.phase5.restore(data);
+    // Phase 6 (design 16): roster, resources, backup, pursuit, command.
+    session.phase6.restore(data, session.now());
     session.restoreTransients();
     session.radio.restore(data.radio);
     // Every body was just created with its saved state, so reading them back gives exactly that state.

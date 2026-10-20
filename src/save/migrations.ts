@@ -1,9 +1,14 @@
+import { emptyBackupSave } from '../backup/save';
 import { emptyCadSave } from '../cad/cadState';
+import { emptyCommandSave } from '../command/save';
 import { newConductSave } from '../conduct/save';
 import { emptyContactSave } from '../contact/save';
 import { emptyCourtSave } from '../court/save';
 import { defaultForceSave } from '../force/save';
 import { emptyIncidentsSave } from '../incidents/save';
+import { emptyPursuitSave } from '../pursuit/save';
+import { emptyResourceSave } from '../resources/save';
+import { emptyRosterSave } from '../units/roster';
 import { createRng } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { CAMERA_MODE } from '../player/cameraRig';
@@ -26,6 +31,7 @@ import {
   isSaveGameV4,
   isSaveGameV5,
   isSaveGameV6,
+  isSaveGameV7,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
@@ -34,6 +40,7 @@ import {
   type SaveGameV5,
   type SaveGameV6,
   type SaveGameV7,
+  type SaveGameV8,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -171,6 +178,25 @@ export function migrateV6ToV7(data: unknown): unknown {
   return v7;
 }
 
+/**
+ * v7 -> v8: a Phase 5 shift gets backup, tactical and multi-agency work. Everything is kept; the new blocks start empty
+ * on the seed's own 'resources', 'backup', 'pursuit' and 'command' streams. Loading then adds the resource units to the CAD
+ * at their bases and the roster creates the officers' profiles from the seed.
+ */
+export function migrateV7ToV8(data: unknown): unknown {
+  if (!isSaveGameV7(data)) return data;
+  const stream = (name: string) => createRng(data.seed).stream(name).state();
+  const v8: SaveGameV8 = {
+    ...data,
+    roster: emptyRosterSave(),
+    resources: emptyResourceSave(stream('resources')),
+    backup: emptyBackupSave(stream('backup')),
+    pursuit: emptyPursuitSave(stream('pursuit')),
+    command: emptyCommandSave(stream('command')),
+  };
+  return v8;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
 export const migrations: MigrationTable = {
   1: migrateV1ToV2,
@@ -179,6 +205,7 @@ export const migrations: MigrationTable = {
   4: migrateV4ToV5,
   5: migrateV5ToV6,
   6: migrateV6ToV7,
+  7: migrateV7ToV8,
 };
 
 export const MIGRATION_FAILURES = {

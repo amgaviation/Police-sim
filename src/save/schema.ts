@@ -1,8 +1,14 @@
+import { isBackupSave, type BackupSave } from '../backup/save';
 import { isCadSave, type CadSave } from '../cad/cadState';
+import { isCommandSave, type CommandSave } from '../command/save';
 import { isConductSave, type ConductSave } from '../conduct/save';
 import { isCourtSave, type CourtSave } from '../court/save';
 import { isForceSave, type ForceSave } from '../force/save';
 import { isIncidentsSave, type IncidentsSave } from '../incidents/save';
+import { isPursuitSave, type PursuitSave } from '../pursuit/save';
+import { isResourceSave, type ResourceSave } from '../resources/save';
+import { isRosterSave } from '../units/roster';
+import type { RosterSave } from '../units/types';
 import type { RngState } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
 import { isDispatchSave, type DispatchSave } from '../dispatch/save';
@@ -29,7 +35,7 @@ import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 7;
+export const CURRENT_SAVE_VERSION = 8;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -181,8 +187,24 @@ export interface SaveGameV7 extends SaveGameV6 {
   court: CourtSave;
 }
 
+/**
+ * v8 (Phase 6): backup, tactical and multi-agency. `roster` holds the stress, fatigue, loyalty and counters per officer
+ * (profiles are pure functions of the seed and the callsign), `resources` the unit slots, the air unit, remembered
+ * posts and queued requests, `backup` the on-foot officers, pending callouts and the SWAT team, `pursuit` the tracked
+ * pursuit (authorization, tactic, handoff), the foot-bail perimeter and the strips, and `command` the post, victims and
+ * tags, TCPs, evacuation, containment and negotiation. Each block carries its own RNG stream state (roster has none).
+ * The traffic snapshot gains optional deflation / spin / cap / blockade fields without a version change.
+ */
+export interface SaveGameV8 extends SaveGameV7 {
+  roster: RosterSave;
+  resources: ResourceSave;
+  backup: BackupSave;
+  pursuit: PursuitSave;
+  command: CommandSave;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV7;
+export type SaveGame = SaveGameV8;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -397,8 +419,21 @@ export function isSaveGameV7(x: unknown): x is SaveGameV7 {
   );
 }
 
+/** Structural check for the v8 payload: v7 plus the Phase 6 blocks (each module's own validator). */
+export function isSaveGameV8(x: unknown): x is SaveGameV8 {
+  if (!isSaveGameV7(x)) return false;
+  const v8 = x as unknown as Record<string, unknown>;
+  return (
+    isRosterSave(v8['roster']) &&
+    isResourceSave(v8['resources']) &&
+    isBackupSave(v8['backup']) &&
+    isPursuitSave(v8['pursuit']) &&
+    isCommandSave(v8['command'])
+  );
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV7;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV8;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

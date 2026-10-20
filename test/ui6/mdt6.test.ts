@@ -180,6 +180,14 @@ describe('EtaBoardState', () => {
     expect(s.rows[0]?.callsign).toBe('MEDIC-1');
   });
 
+  it('does not bump its revision when an idle board is told the selection', () => {
+    const s = new EtaBoardState();
+    const rev = s.revision;
+    s.select(4);
+    s.select(5);
+    expect(s.revision).toBe(rev);
+  });
+
   it('keeps the board when the same call is selected again, and handles an empty or failed worker', async () => {
     const s = new EtaBoardState();
     s.request(5, () => Promise.resolve(rows));
@@ -255,6 +263,19 @@ describe('Resources tab (headless overlay)', () => {
     mdt.update(4000);
     expect(mdt.etaBoard.status).toBe('ready');
     expect(mdt.etaBoard.callId).toBe(b.id);
+  });
+
+  it('settles: repeated updates with nothing changed do not refresh again', () => {
+    const { f, mdt } = setup();
+    const call = addCall(f.cad, 0, 3);
+    mdt.open('resources');
+    mdt.selectCall(call.id);
+    mdt.update(1000);
+    mdt.update(2000);
+    const n = mdt.refreshes;
+    mdt.update(3000);
+    mdt.update(4000);
+    expect(mdt.refreshes).toBe(n);
   });
 
   it('has no ETA board without the worker feed or a call', () => {

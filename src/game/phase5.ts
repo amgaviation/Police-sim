@@ -50,6 +50,8 @@ export interface Phase5Host {
   forceOfficer(out: ForceOfficer): ForceOfficer;
   /** Fills the officer for the incident recorder. */
   officerProbe(out: OfficerProbe): void;
+  /** Phase 6: adds the backup officers on foot to the partner as the force system's fellow officers. */
+  mergeFellows(partner: readonly FellowOfficer[]): readonly FellowOfficer[];
   /** Lowercase district id at a world position ('' outside the city). */
   districtAt(x: number, z: number): string;
   dashProbe(out: DashProbe): void;
@@ -268,12 +270,12 @@ export class Phase5 {
 
   private fellows(): readonly FellowOfficer[] {
     const p = this.host.tactical.partner;
-    if (p.mode === 'away') return NO_FELLOWS;
+    if (p.mode === 'away') return this.host.mergeFellows(NO_FELLOWS);
     const f = scratchPartner[0] as FellowOfficer;
     f.x = p.x;
     f.z = p.z;
     f.building = p.building;
-    return scratchPartner;
+    return this.host.mergeFellows(scratchPartner);
   }
 
   private incidentPorts(): IncidentPorts {

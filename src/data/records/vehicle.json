@@ -10,6 +10,7 @@
     { "name": "black", "hex": "#14161a" },
     { "name": "black", "hex": "#16181d" },
     { "name": "black", "hex": "#1b1d21" },
+    { "name": "black", "hex": "#1c1f24" },
     { "name": "black", "hex": "#1e2024" },
     { "name": "dark gray", "hex": "#24272c" },
     { "name": "dark gray", "hex": "#3a3d42" },
@@ -23,6 +24,7 @@
     { "name": "white", "hex": "#e9e6dc" },
     { "name": "white", "hex": "#f0f0ec" },
     { "name": "white", "hex": "#f2f2f0" },
+    { "name": "white", "hex": "#f2f2ee" },
     { "name": "white", "hex": "#f2f2f2" },
     { "name": "white", "hex": "#f4f4f0" },
     { "name": "white", "hex": "#f5f5f2" },
@@ -39,9 +41,11 @@
     { "name": "maroon", "hex": "#6b1a1d" },
     { "name": "maroon", "hex": "#7d2a22" },
     { "name": "red", "hex": "#9c1f24" },
+    { "name": "red", "hex": "#a3261e" },
     { "name": "orange", "hex": "#b54a1f" },
     { "name": "orange", "hex": "#c4482c" },
     { "name": "yellow", "hex": "#e0a21b" },
+    { "name": "yellow", "hex": "#d8a21a" },
     { "name": "yellow", "hex": "#e8d27a" }
   ],
   "vinPrefix": "PT"

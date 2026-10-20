@@ -122,7 +122,8 @@ export class EtaBoardState {
 
   /** The selected call changed: forget a board or a pending request made for another call. */
   select(callId: number): void {
-    if (this.callValue === callId) return;
+    // An idle board has nothing to forget (and must not bump the revision: the overlay calls this on every refresh).
+    if (this.callValue === callId || this.statusValue === 'idle') return;
     this.reset();
   }
 
