@@ -351,6 +351,14 @@ export class IncidentSystem implements IncidentSource {
     }
   }
 
+  /**
+   * After a load: the call the player's unit is on (CAD knows it; the assignment events are not replayed), so `current`
+   * and the force / camera events that carry no incident string keep landing in the right log.
+   */
+  followCall(callId: number): void {
+    this.playerCall = callId;
+  }
+
   serialize(): IncidentsSave {
     const logs: IncidentLog[] = [];
     for (const rt of this.logs.values()) logs.push(structuredClone(rt.log));
@@ -415,14 +423,15 @@ export class IncidentSystem implements IncidentSource {
     this.nextIdleCheck = 0;
     this.lastKey = '';
     this.lastKeySim = -1e9;
-    // The dash bit is not saved: the latest camera event of any log says what it was (the next step re-reads the real probe).
-    let lastCam = -1;
+    this.playerCall = 0;
+    // The dash bit is not saved: the camera bits of the latest event of any log say what it was (the next step re-reads the real probe).
+    let lastEvent = -1;
     let dash = false;
     for (const rt of this.logs.values()) {
       for (const e of rt.log.events) {
-        if (e.kind !== 'cam' || e.id <= lastCam) continue;
-        lastCam = e.id;
-        dash = e.dash;
+        if (e.id <= lastEvent) continue;
+        lastEvent = e.id;
+        dash = (e.cam & CAM.dash) !== 0;
       }
     }
     this.dashLights = dash;

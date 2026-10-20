@@ -61,6 +61,8 @@ export interface LegalLine {
   untilSim: number;
 }
 
+/** A force flash does not replace a verdict line younger than this (sim s). */
+const VERDICT_HOLD_S = 2;
 /** Seconds a legal line stays on the HUD. */
 export const LEGAL_LINE_S = 6;
 
@@ -87,6 +89,8 @@ export class Phase5 {
   readonly legal: LegalLine = { text: '', severity: 'ok', untilSim: 0 };
   /** Bumps when the legal line changes. */
   legalRevision = 0;
+  /** Sim second of the last force verdict on the legal line (a TASER flash does not replace it at once). */
+  private verdictSim = -Infinity;
   private readonly host: Phase5Host;
   private readonly offs: (() => void)[] = [];
   private lastRetainMinute = -1;
@@ -195,6 +199,7 @@ export class Phase5 {
   restore(save: { force: ForceSave; incidents: IncidentsSave; conduct: ConductSave; court: CourtSave }): void {
     this.force.restore(save.force);
     this.incidents.restore(save.incidents);
+    this.incidents.followCall(this.host.cad.unit(this.host.dispatcher.playerCallsign)?.callId ?? 0);
     this.conduct.restore(save.conduct);
     this.court.restore(save.court);
     this.lastRetainMinute = -1;
@@ -390,9 +395,14 @@ export class Phase5 {
         radio(e.text, 'Supervisor');
         this.flash(e.text, 'warn');
       }),
-      bus.on('incident:forceVerdict', (e) => this.flash(e.text, e.verdict === 'justified' ? 'ok' : e.verdict === 'questionable' ? 'warn' : 'bad')),
+      bus.on('incident:forceVerdict', (e) => {
+        this.flash(e.text, e.verdict === 'justified' ? 'ok' : e.verdict === 'questionable' ? 'warn' : 'bad');
+        this.verdictSim = h.simNow();
+      }),
       bus.on('incident:flash', (e) => this.flash(e.text)),
-      bus.on('force:flash', (e) => this.flash(e.text, 'warn')),
+      bus.on('force:flash', (e) => {
+        if (h.simNow() - this.verdictSim > VERDICT_HOLD_S) this.flash(e.text, 'warn');
+      }),
       bus.on('court:flash', (e) => this.flash(e.text, 'warn')),
       bus.on('court:subpoena', (e) => radio(`Subpoena received: ${e.label}. Check the Career tab for the date.`)),
       bus.on('court:reminder', () => radio('Court reminder: you are due to testify today.')),
