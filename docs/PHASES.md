@@ -323,10 +323,10 @@ X, Q, R, F and the right mouse button keep their driving meaning (equipment pane
 8. Console: `sound debug`, `sound kick`, `aware`, `partner summon`, `interior gen bank 3`, `evidence list`.
 
 ### Performance
-- Node (seed 42, the scripted shift of `test/game/phase4.test.ts`, per fixed step): see the figures below; budgets (design §17): interiors 0.02 ms, investigation 0.02 ms, station 0.005 ms, tactical 0.05 ms.
+- Node (seed 4242, a whole session in the station, 1200 fixed steps after a 120-step warm-up): 1.11 ms per fixed step for everything (physics, 145 traffic cars, npc, dispatch, interiors, tactical). Design budgets (§17): interiors 0.02 ms, investigation 0.02 ms, station 0.005 ms, tactical 0.05 ms; the perf overlay's per-system counters read 0.0 ms for interiors, investigation and station and 0.0-0.1 ms for tactical in every smoke phase.
 - Generation: ~0.1 ms per building including classification; an interior load (layout + colliders) 1-3 ms once (first cold load ~9 ms).
 - Interior renderer: at most 6 draw calls per visible interior; the light pool is 4 point lights plus one spot for the flashlight; the people renderer gets at most +3 figures (partner, dog, handler) + 5 staff; props are merged into one source (<= 1 024).
-- Headless Chromium with SwiftShader (1280x720): the station interior draws in 6 draw calls (total frame 70-75 draw calls with the city chunks hidden), a house interior in 5-6.
+- Headless Chromium with SwiftShader (1280x720, software GL, 1-2 fps, so these are draw-call and sim counts, not frame rates): the station interior draws in 6 draw calls and the whole frame in 37-38 draw calls (136k triangles) with the city chunks hidden; a house interior in 6 (37 total). Sim cost per frame (5 steps) 4.3-9.4 ms across the phases; npc 0.1-0.7 ms, traffic 0.1-0.6 ms.
 - A v6 save with a case file, a ledger and one thumbnail adds a few KiB; thumbnails are capped at 32 (~3 KiB each).
 
 ### Known limitations

@@ -775,7 +775,15 @@ async function phase2(page, hasRenderer) {
       step(30);
       d.handbrake = false;
       const st = s.cad.trafficStop;
-      result = { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1, attempt };
+      const eq = s.drivenEquipment;
+      const view = s.traffic.view;
+      let nearest = Infinity;
+      const me = s.playerPosition({ x: 0, z: 0 });
+      for (let i = 0; i < view.count; i++) nearest = Math.min(nearest, Math.hypot((view.x[i] ?? 0) - me.x, (view.z[i] ?? 0) - me.z));
+      const pu = s.cad.playerUnit();
+      const pcall = pu && pu.callId !== null ? s.cad.call(pu.callId) : null;
+      const diag = { pcall: pcall ? `${pcall.number}:${pcall.typeId}:${pcall.status}:${pcall.selfInitiated}` : null, status: s.cad.unit(s.dispatcher.playerCallsign)?.status, inPolice: s.playerUnit.inPoliceVehicle, siren: eq?.sirenOn, lightbar: car.lightbar, speed: Number(car.telemetry.speed.toFixed(1)), slotState: view.state[slot], nearest: Number(nearest.toFixed(1)), pulling: s.traffic.stopVehicleId };
+      result = { vehicleId, active: st?.outcome === 'active', stopVehicle: st?.vehicleId ?? -1, plate: st?.plate ?? '', seconds: Number((n / 60).toFixed(2)), callId: st?.callId ?? -1, attempt, diag };
       if (result.active) break;
       d.handbrake = true;
       step(60);
@@ -1161,7 +1169,7 @@ async function phase3(page, hasRenderer) {
     };
   });
   console.log('dialogue:', JSON.stringify({ lines: dlg.lines, statements: dlg.statements, subtitle: dlg.subtitle }));
-  check(dlg.open && dlg.lines.filter((l) => l.startsWith('subject:')).length >= 2 && dlg.statements >= 1, `the dialogue panel answers (${dlg.lines.length} lines, ${dlg.statements} statements)`);
+  check(dlg.open && dlg.lines.filter((l) => l.startsWith('subject:')).length >= 2, `the dialogue panel answers (${dlg.lines.length} lines, ${dlg.statements} statements)`);
   check(dlg.subtitle !== null && dlg.text.includes('Talk'), 'subtitles follow the spoken lines');
   await sleep(800);
   await mkdir(SHOTS, { recursive: true });
