@@ -434,14 +434,14 @@ Status: ✅ complete. Screenshots (taken by the smoke test): `docs/screenshots/p
 - ✅ **Console**: `units [roster|<type>]`, `request <type>`, `eta <callsign>`, `roster [callsign]`, `stress <callsign> <v>`, `backup list|<type>|<callsign> <command>`, `pursuit spawn|pit|spikes|strip|box|roadblock|air|perimeter|status`, `swat test|stage|stack|breach|clear|hold|withdraw`, `negotiate open|close|<option> [tone]`, `mci start <type>`, `triage list|assess|tag`, `ics post|tcp|evac|contain|needs|down|status`, `flir`.
 - ✅ **Determinism**: a stop with backup (an AI officer covers and calls it out) and a K9 driving from the station, a pursuit with a PIT contact, spikes, the air unit, the supervisor's order, the bail-out and the perimeter, and a multi-vehicle crash with the command post, the player's triage tags and EMS triage each replay to bit-identical v8 saves; a save made mid-pursuit continues exactly; a v7 save loads, a pursuit starts on it and a K9 drives to the call (`test/game/phase6.test.ts`). The mandatory unit tests: response-time estimation (`test/units/eta.test.ts`), the backup state machine and the deterministic mistakes (`test/backup`, `test/units/roster.test.ts`), pursuit policy and termination (`test/pursuit`), incident command and triage (`test/command`).
 - ✅ **End-to-end flows verified in the real game** (`npm run smoke`, real keys where they exist): **T 4 2** sends priority backup and **T 4 5** a K9 (paged `Request 1/3` menu), the HUD shows the K9's ETA, an AI officer gets out and calls it out (HUD line), **,** opens the Backup panel; `pursuit spawn`, **;** opens the tactics panel and **6** requests the air unit, the sergeant orders the pursuit terminated, AIR-1 arrives and **/** puts the camera on it; a multi-vehicle crash with the command post, **.** (command panel), an assessment and a tag, the MDT Command tab, EMS triaging; a barricade with the negotiator and SWAT on scene, the negotiation dialogue and the SWAT commands; a v8 save / load; the Phase 6 console commands. Zero console errors and zero app warnings.
-- ✅ 4 698 unit and integration tests (395 files) pass under `npm run check`.
+- ✅ 4 739 unit and integration tests (402 files) pass under `npm run check`.
 - ✅ No third-party assets, no new dependencies; `docs/ASSETS.md` stays empty.
 
 ### How to run
 ```
 npm install
 npm run dev        # http://localhost:5173
-npm run check      # tsc + eslint + vitest (4 698 tests)
+npm run check      # tsc + eslint + vitest (4 739 tests)
 npm run build      # production bundle in dist/
 npm run smoke      # headless browser test (Phases 0-6) + docs/screenshots/phase1*.png ... phase6*.png
 ```
