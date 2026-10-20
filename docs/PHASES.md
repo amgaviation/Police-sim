@@ -362,14 +362,14 @@ Status: ✅ complete. Screenshots (taken by the smoke test): `docs/screenshots/p
 - ✅ **Console**: `law ruleset [id]`, `law explain [incident]`, `law list`, `jurisdiction`, `legal`, `incident list|show|close`, `force test|tool|stats`, `court next|list|advance|attend`, `ia list|show|review|statement`, `trust [district [delta]]`, `career`, `cam mute|dash|status`, `media stats|clear|prune`.
 - ✅ **Determinism**: a scripted stop (a speeding car seen before the lights, bodycam on, odor, consent PBT, the driver fights, a TASER application, cuffs, rights, a question in custody, a booking that opens a court case, the call cleared) replays to bit-identical v7 saves; a v7 save made mid-incident continues exactly (force, incidents, conduct, court, CAD, people); a v6 save loads (incidents empty, trust at its baselines) and a stop played on it closes an incident (`test/game/phase5.test.ts`). The legal engine has 235 unit tests driven by the JSON rulesets (suspicion, Terry stop and frisk scope, searches, consent, exigency, Miranda, force and the duty to intervene, pursuit policy, recording, evidence and taint, report grading, a 0.4 ms / 600-event performance test), conduct 100+ (trust math, IA triggers, discipline ladder, commendations), the court 155 (cross-examination generation, testimony scoring, motion rulings, verdicts).
 - ✅ **End-to-end flows verified in the real game** (`npm run smoke`, real keys and mouse where they exist): **C** cycles to the TASER (HUD chip `TASER 2/2`), a speeding car pulled over with the bodycam on, ID, odor and a consent PBT, the driver steps out and fights, **left mouse** fires the TASER and the HUD shows the verdict, arrest and booking (two cases: a plea and a scheduled hearing), `law explain` with citations, the MDT report form with the statements checklist graded, the Career and Community tabs, **the courtroom answered with Enter / 1** to a verdict, an unlawful frisk and an excessive TASER on a bystander that open an IA case, bodycam snapshots taken from the live canvas, the evidence review with the statement footer, a v7 save and load, the console commands.
-- ✅ NUMBER_OF_TESTS unit and integration tests (NUMBER_OF_FILES files) pass under `npm run check`.
+- ✅ 3 906 unit and integration tests (341 files) pass under `npm run check`.
 - ✅ No third-party assets, no new dependencies; `docs/ASSETS.md` stays empty.
 
 ### How to run
 ```
 npm install
 npm run dev        # http://localhost:5173
-npm run check      # tsc + eslint + vitest (NUMBER_OF_TESTS tests)
+npm run check      # tsc + eslint + vitest (3 906 tests)
 npm run build      # production bundle in dist/
 npm run smoke      # headless browser test (Phases 0-5) + docs/screenshots/phase1*.png ... phase5*.png
 ```
@@ -397,10 +397,10 @@ The main menu has a **Jurisdiction** select (generic or strict state law); `law 
 7. Console: `jurisdiction`, `incident list`, `force stats`, `cam mute on`, `media stats`.
 
 ### Performance
-- Node (seed 4242, a whole session, 1200 fixed steps after a 120-step warm-up): PERF_NODE.
+- Node (seed 4242, a whole session, 1200 fixed steps after a 120-step warm-up): 1.07 ms per fixed step for everything (physics, ~130 traffic cars, npc, dispatch, interiors, tactical, the Phase 5 systems). Design budgets (§17): force 0.01 ms (measured 0.0065 ms per step with the registry's own timing overhead), incidents 0.01 ms (0.0032), conduct 0.005 ms (0.0021), court 0.005 ms (0.0020).
 - Legal assessment: ~0.4 ms for a 600-event log (CI asserts < 2 ms); the recorder, conduct and court steps read 0.0 ms in the smoke perf overlay (event-driven; per-game-minute work only); the force step is idle-free of allocations.
 - Snapshots: one 160x90 `drawImage` + async `toBlob` per 3 sim seconds of recording (~2-4 KiB each), IndexedDB writes off the frame; the HUD additions are DOM writes on change at the 10 Hz HUD rate.
-- Headless Chromium with SwiftShader (1280x720, software GL, ~2 fps, so these are draw-call and sim counts, not frame rates): PERF_BROWSER.
+- Headless Chromium with SwiftShader (1280x720, software GL, ~2 fps, so these are draw-call and sim counts, not frame rates): the Phase 5 patrol scene draws in 73 draw calls (140k triangles, the cap is 300); sim cost per frame (5 steps) 3.1 ms across the smoke phases (npc 0.1 ms, scene 0.0 ms); the perf overlay shows `force`, `incidents` and `media` extras next to the Phase 1-4 ones; one bodycam snapshot is ~2 KiB.
 - Save size: a v7 save with two logs (22 and 5 events), two cases and one IA case adds a few KiB; the worst case (24 closed logs x 600 events) stays below 1.5 MiB.
 
 ### Known limitations

@@ -2280,6 +2280,9 @@ async function phase5(page, hasRenderer) {
     }, ia.id);
     console.log('phase 5 review:', JSON.stringify(review));
     check(review.open, 'the evidence review opens for the IA case');
+    // End of the footage: the nearest snapshot shows where the first frame has none yet.
+    await press(page, 'End');
+    await sleep(500);
     await page.screenshot({ path: path.join(SHOTS, 'phase5-review.png') });
     console.log(`screenshot: ${path.join(SHOTS, 'phase5-review.png')}`);
     // The review pauses the game: the statement is a queued request that conduct applies once the world runs again.
