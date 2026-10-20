@@ -290,13 +290,14 @@ Status: ✅ complete. Screenshots: `docs/screenshots/phase4.png` (inside a house
 - ✅ **Console**: `building`, `interior info|enter|exit|gen <kind> <seed>|doors|unlock|lights`, `shift`, `armory`, `loadout`, `case`, `evidence list`, `custody <id>`, `ledger verify`, `k9`, `tape clear`, `aware`, `sound <kind>|debug`, `partner`, `call spawn <type> building <id>`.
 - ✅ **Determinism**: a scripted shift (loadout, roll call, armory, the garage door; a domestic call bound to the nearest house: knock, marker, photo, collect / bag / tag, entry, crouch, flashlight, lean, a kicked door) replays to bit-identical v6 saves, and a v6 save made mid-scene continues exactly (interiors, tactical, investigation, station, scenes, npc, contacts, CAD, people, records); a v5 save loads outdoors with the station on patrol (`test/game/phase4.test.ts`). Unit tests cover the interior generator (determinism per building id and seed, every room reachable, doors and locks consistent), the sound propagation model, the chain-of-custody ledger (no gaps, tamper detection) and the plain-view / consent search rules.
 - ✅ **End-to-end flows verified in the real game** (`npm run smoke`, real keys where the keys exist): the new shift through locker, roll call, armory and the garage door; a house entered with E (hold E for the door panel), the interior drawn in at most 6 draw calls, flashlight / crouch / lean, a door kick, a domestic call bound to the house with the suspect inside, a marker, the camera with its thumbnail, the case file, the deposit that completes the custody chain at the station, a prisoner in a cell and the interview, a v6 save and load, the console commands.
+- ✅ 2 905 unit and integration tests (287 files) pass under `npm run check`.
 - ✅ No third-party assets, no new dependencies; `docs/ASSETS.md` stays empty.
 
 ### How to run
 ```
 npm install
 npm run dev        # http://localhost:5173
-npm run check      # tsc + eslint + vitest
+npm run check      # tsc + eslint + vitest (2 905 tests)
 npm run build      # production bundle in dist/
 npm run smoke      # headless browser test (Phases 0-4) + docs/screenshots/phase1*.png ... phase4*.png
 ```
