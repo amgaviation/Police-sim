@@ -963,7 +963,7 @@ async function phase2(page, hasRenderer) {
   });
   const same = (k) => saveLoad.before[k] === saveLoad.after[k];
   console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
-  check(saveLoad.slot === 6, `saved as v6 (${saveLoad.slot})`);
+  check(saveLoad.slot === 7, `saved as v7 (${saveLoad.slot})`);
   check(same('calls') && same('docs') && same('units'), 'save/load v6 keeps the CAD (calls, units, documents)');
   check(same('records'), 'save/load v6 keeps the records (touched persons and vehicles, contacts, query log)');
   check(same('radio'), `save/load v6 keeps the radio (${saveLoad.after.radio})`);
@@ -1129,16 +1129,19 @@ async function phase3(page, hasRenderer) {
   const knocked = await page.evaluate((id) => ({ flags: [...window.patrol.session.scene.runtime(id).flags] }), setup.id);
   check(knocked.flags.includes('knocked'), `the scene panel's first action knocked (${knocked.flags.filter((f) => /knocked|revealed/.test(f)).join(', ')})`);
 
-  // --- Weapon keys -------------------------------------------------------------------------------
+  // --- Force tool keys (Phase 5: C cycles the force tools; the migrated shift has the pistol and the TASER signed out) --------------
+  const tool = () => page.evaluate(() => window.patrol.session.force.tool);
   await press(page, 'KeyC');
-  const w1 = await page.evaluate(() => window.patrol.session.scene.officerWeapon);
+  const w1 = await tool();
   await press(page, 'KeyC');
-  const w2 = await page.evaluate(() => window.patrol.session.scene.officerWeapon);
-  await waitFor(page, () => /TASER|SIDEARM/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
-  const chip = await page.evaluate(() => /TASER|SIDEARM/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
+  const w2 = await tool();
+  await waitFor(page, () => /TASER/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
+  const chip = await page.evaluate(() => /TASER \d+\/\d+/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
   await press(page, 'KeyC');
-  const w3 = await page.evaluate(() => window.patrol.session.scene.officerWeapon);
-  check(w1 === 'sidearm' && w2 === 'taser' && w3 === 'none' && chip === 'TASER', `C cycles holstered -> sidearm -> TASER -> holstered (${w1}, ${w2}, ${w3}; chip ${chip})`);
+  const w3 = await tool();
+  await press(page, 'KeyC');
+  const w4 = await tool();
+  check(w1 === 'hands' && w2 === 'taser' && w3 === 'firearm' && w4 === 'none' && /^TASER \d+\/\d+$/.test(chip), `C cycles holstered -> hands -> TASER -> sidearm -> holstered (${w1}, ${w2}, ${w3}, ${w4}; chip ${chip})`);
 
   // --- Dialogue panel with the real keys -----------------------------------------------------------
   await page.evaluate(() => {
@@ -1903,13 +1906,12 @@ async function phase4(page, hasRenderer) {
  * consent PBT, the driver steps out and fights, the officer faces them from 3 m with the TASER selected. Stage 2:
  * kneel, cuff, rights, a question in custody, the booking(s) (court cases, one of them scheduled), the call cleared.
  * Stage 3: a bystander is frisked without suspicion and tased while compliant (an unlawful frisk, excessive force:
- * an IA case) while the real loop records a few snapshots; the field contact is closed.
+ * an IA case) while the real loop records a few snapshots (the incident is closed from the console afterwards).
  */
 function phase5Flow([stepSrc, stage, ids]) {
   const step = new Function(`return ${stepSrc}`)();
   const app = window.patrol;
   const s = app.session;
-  const out = { ok: true, detail: '' };
   const scratch = { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 };
   const actor = (id) => ({ ...s.npc.actor(id, scratch) });
   const pos = () => s.playerPosition({ x: 0, z: 0 });

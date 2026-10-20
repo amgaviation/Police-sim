@@ -343,3 +343,75 @@ X, Q, R, F and the right mouse button keep their driving meaning (equipment pane
 - A new shift carries a field kit (8 markers, 8 bags, the camera, the dust kit, a tape roll); the ram stays in the trunk (the trunk panel moves items).
 - Under software GL (SwiftShader) the game runs at about 1-5 fps; on a real GPU it runs at the display rate.
 - Integration fixes outside the integrator's own files: `InteriorSystem.leaveBuilding`, `residentPerson` (indoors), `SceneDirector.ownsBuilding` / `addWitness` / a forced building for `spawnCall` (scene), `test/input/input.test.ts` (the example unbound key `KeyU` is the bodycam now; `F5`), `test/save/*` and `test/game/*` adapted to v6 (the Phase 1-3 game tests run with `indoorScenes: false` and start outdoors, `Harness.start(seed, inStation)`).
+
+## Phase 5 — Law, Procedure, Consequences
+
+Status: ✅ complete. Screenshots (taken by the smoke test): `docs/screenshots/phase5-mdt.png` (the MDT Career tab), `docs/screenshots/phase5-court.png` (the courtroom) and `docs/screenshots/phase5-review.png` (the evidence review of an internal-affairs case). Design and module contracts: `docs/phase5-design.md`.
+
+### Completed
+- ✅ **Jurisdiction-aware legal engine** (`legal/`, `data/legal/rulesets/*.json`, pure, no other module): `evaluateIncident(log, ruleset)` judges an incident's structured event log against a JSON ruleset (`generic` generic state law, `strict` proves the swap; 34 rules, 26 indicators, 9 offenses each; a new `<id>.json` in the folder is picked up automatically). Reasonable suspicion and probable cause from weighted indicators, Terry stops and frisks (scope, plain feel), search incident to arrest (time window, vehicle rule), the automobile exception, consent (validity, scope, coercion), exigency and premises entry, Miranda / custodial interrogation (warning, waiver, invocation), breath and sobriety tests, the use-of-force continuum and justification, the duty to intervene, pursuit policy, recording policy (bodycam activation and muting) and **evidence admissibility with the fruit-of-the-poisonous-tree chain** (attenuation, independent source, inevitable discovery). Every determination cites ruleset rule ids that `citation()` renders as generic citations ("GS-4.1 Gen. Crim. Proc. § 4.1 — Search incident to arrest").
+- ✅ **Structured event log built from the Phase 2-4 events** (`incidents/`, `data/incidents/mapping.json`): observations, lookups, statements, questions, consents, frisks, searches, seizures, tests, arrests, force, pursuits (1 Hz samples), entries and camera state, every event with body / muted / dash camera bits; field contacts get their own logs and merge into the call's log; capped at 600 events per log, 24 closed logs kept.
+- ✅ **Use of force** (`force/`, `data/force/force.json`): hands, OC spray, baton, TASER (2 cartridges, probe spread and hit model, clothing and cold, 5 s cycles, cycle limit, risk factors: elderly, pregnant, elevated position, running, restrained, juvenile), K9 apprehension, less-lethal launcher, firearm (aim along the camera, hit zones, NPC injury and death); tools need their armory item signed out and ammo (refilled on sign-out). Every application records the subject's resistance level (compliant ... lethal, from the NPC's behaviour) and is scored at once (HUD line "TASER on assaultive resistance: within policy (GS-8.1)") and again in the assessment. The partner placeholder can strike a restrained subject; **H** intervenes.
+- ✅ **Reports graded** (`conduct/report.ts`, MDT statements checklist): the report form lists true facts, plausible false facts and conclusions (the truth is never sent to the UI); the grade counts completeness, contradictions (heavier when the bodycam recorded the truth) and unsupported claims.
+- ✅ **Bad stops and searches have consequences**: suppressed evidence weakens the case, an unlawful-arrest motion dismisses it (court), and a dismissal for misconduct costs trust and credibility.
+- ✅ **Internal affairs, discipline, commendations** (`conduct/`, `ui/ia`, `ui/review`): data-rule triggers (excessive force, doctrine violations, injury after arrest, complaints), a case with the **evidence review** (bodycam timeline: scrubber, REC / MUTED / DASH strip, events, snapshots), the officer's statement from the review footer (an untruthful account of on-camera force is sustained), findings and discipline (counselling, reprimand, suspension that puts the unit out of service, termination, civil suit, criminal charges); commendations for good policing.
+- ✅ **Community trust per district** (11 districts, persisted, MDT *Community* tab, HUD chip): deltas from lawful and unlawful conduct, a spill to the other districts and drift back to the baselines; it feeds NPC cooperation (dialogue), tip quality (dispatch-error scale), hostile onlookers at arrests and force, and the call generator's crime factor.
+- ✅ **Court** (`court/`, `ui/court`): every final booking or citation opens a case (pleas rolled), a hearing is scheduled on the game clock with a subpoena (radio, HUD line, MDT *Career* calendar), the officer attends in a window around it; the courtroom shows the judge's rulings on the motions, then a cross-examination built from the report choices and the event log (yes / no / don't recall), scores contradictions (with the log, the report, themselves, the camera), decides the verdict and moves credibility, trust and discipline.
+- ✅ **Bodycam and dashcam recording** (`recording/`): the camera bits ride on the event stream; the bodycam (U) and a mute key (J) are judged by the ruleset's recording policy; 160x90 JPEG snapshots of the live canvas every 3 sim seconds while recording (and at once after force or a booking) go to IndexedDB `patrol-media` with caps (3 000 snapshots, 16 MiB, 200 per incident) and retention (pruned against the incidents still referenced); playback in the evidence review.
+- ✅ **Save schema v7** (`save/`): `force`, `incidents` (jurisdiction, open + closed logs, camera state, pursuit sampler), `conduct` (trust, duty, credibility, commendations, discipline, IA cases, report grades, stats) and `court` (cases, calendar) with a tested v6 → v7 migration (default blocks on the seed's own streams); every older version still migrates; each malformed block is rejected. Snapshot blobs live in IndexedDB under migration-safe keys (`tag:incident:sim:source`), the tag is remembered per save slot. **The schema is frozen after this phase.**
+- ✅ **Console**: `law ruleset [id]`, `law explain [incident]`, `law list`, `jurisdiction`, `legal`, `incident list|show|close`, `force test|tool|stats`, `court next|list|advance|attend`, `ia list|show|review|statement`, `trust [district [delta]]`, `career`, `cam mute|dash|status`, `media stats|clear|prune`.
+- ✅ **Determinism**: a scripted stop (a speeding car seen before the lights, bodycam on, odor, consent PBT, the driver fights, a TASER application, cuffs, rights, a question in custody, a booking that opens a court case, the call cleared) replays to bit-identical v7 saves; a v7 save made mid-incident continues exactly (force, incidents, conduct, court, CAD, people); a v6 save loads (incidents empty, trust at its baselines) and a stop played on it closes an incident (`test/game/phase5.test.ts`). The legal engine has 235 unit tests driven by the JSON rulesets (suspicion, Terry stop and frisk scope, searches, consent, exigency, Miranda, force and the duty to intervene, pursuit policy, recording, evidence and taint, report grading, a 0.4 ms / 600-event performance test), conduct 100+ (trust math, IA triggers, discipline ladder, commendations), the court 155 (cross-examination generation, testimony scoring, motion rulings, verdicts).
+- ✅ **End-to-end flows verified in the real game** (`npm run smoke`, real keys and mouse where they exist): **C** cycles to the TASER (HUD chip `TASER 2/2`), a speeding car pulled over with the bodycam on, ID, odor and a consent PBT, the driver steps out and fights, **left mouse** fires the TASER and the HUD shows the verdict, arrest and booking (two cases: a plea and a scheduled hearing), `law explain` with citations, the MDT report form with the statements checklist graded, the Career and Community tabs, **the courtroom answered with Enter / 1** to a verdict, an unlawful frisk and an excessive TASER on a bystander that open an IA case, bodycam snapshots taken from the live canvas, the evidence review with the statement footer, a v7 save and load, the console commands.
+- ✅ NUMBER_OF_TESTS unit and integration tests (NUMBER_OF_FILES files) pass under `npm run check`.
+- ✅ No third-party assets, no new dependencies; `docs/ASSETS.md` stays empty.
+
+### How to run
+```
+npm install
+npm run dev        # http://localhost:5173
+npm run check      # tsc + eslint + vitest (NUMBER_OF_TESTS tests)
+npm run build      # production bundle in dist/
+npm run smoke      # headless browser test (Phases 0-5) + docs/screenshots/phase1*.png ... phase5*.png
+```
+
+### Controls (Phase 5 additions)
+| | Keyboard / mouse | Gamepad |
+|---|---|---|
+| Cycle the force tool (hands, OC spray, baton, TASER, less-lethal launcher, sidearm, K9; only what the armory log, ammo and the scene allow) | C | Start |
+| Apply the selected tool along the camera aim | left mouse | RT |
+| Intervene when your partner abuses a restrained subject · mute / unmute the bodycam (on foot) | H · J | - |
+| Switch the light bar off during a vehicle pursuit: ends the pursuit (the supervisor advises it when it is unjustified) | L | X |
+| Career tab (calendar, cases, IA, discipline, reports) · Community tab | MDT, **0** · MDT, right arrow | |
+| Courtroom: begin · yes / no / don't recall · previous · submit | Enter · 1 / 2 / 3 · Backspace · Enter | |
+| Evidence review: play / pause · 1 s (Shift 10 s) · event · IA statement option | Space · ← → · ↑ ↓ · 1-9 | |
+
+The main menu has a **Jurisdiction** select (generic or strict state law); `law ruleset <id>` switches it in game. Every action can be rebound under *Settings > Controls*.
+
+### Manual test checklist
+1. New game, seed `42`. Sign out the pistol and TASER at the armory (or `shift garage`), leave in a patrol car. Press **U** (bodycam on). Light a car (**L**) until it pulls over, talk to the driver (**E**): ID, *Have you had anything to drink*, *consent to a breath test*, *Step out*.
+2. Press **C** until the HUD shows `TASER 2/2`, aim at the driver (use `npc spawn flee`/the scene `fight` state or `force tool taser` + an aggressive subject), left mouse: probes attach, the HUD line reads `TASER on assaultive resistance: within policy (GS-8.1)`. Try the same on a compliant bystander: `... excessive (GS-8.1)`.
+3. Cuff, read the rights (*Rights* topic), ask a question, book the person at the station (MDT, Reports): the MDT *Career* tab lists the case; `court next` shows the hearing, `court advance <id>` brings it to now, **ATTEND** in the Career tab (or `court attend <id>`) opens the courtroom: **Enter**, answer with **1 / 2 / 3**, **Enter**. The verdict, credibility and trust change (`career`, `trust`).
+4. `law explain` lists every determination with its citation; `law ruleset strict` re-judges the open incidents under the strict ruleset. Write the incident report in the MDT: tick the statements of fact (the unsupported ones are marked down) and finalize; the grade shows in the document.
+5. Force on someone compliant, or an unlawful frisk, then close the incident (clear the call, or `incident close <key>`): an IA case appears on the Career tab and on the radio; **REVIEW** opens the evidence review (snapshots need the bodycam on and a WebGL canvas), **1-9** give a statement, **Esc** closes it; `ia list`, `career`.
+6. **Esc** > *Quick save*, quit, load: incident logs, cases, IA cases, report grades, trust and the camera state are back; a v6 save loads with empty incidents and baseline trust.
+7. Console: `jurisdiction`, `incident list`, `force stats`, `cam mute on`, `media stats`.
+
+### Performance
+- Node (seed 4242, a whole session, 1200 fixed steps after a 120-step warm-up): PERF_NODE.
+- Legal assessment: ~0.4 ms for a 600-event log (CI asserts < 2 ms); the recorder, conduct and court steps read 0.0 ms in the smoke perf overlay (event-driven; per-game-minute work only); the force step is idle-free of allocations.
+- Snapshots: one 160x90 `drawImage` + async `toBlob` per 3 sim seconds of recording (~2-4 KiB each), IndexedDB writes off the frame; the HUD additions are DOM writes on change at the 10 Hz HUD rate.
+- Headless Chromium with SwiftShader (1280x720, software GL, ~2 fps, so these are draw-call and sim counts, not frame rates): PERF_BROWSER.
+- Save size: a v7 save with two logs (22 and 5 events), two cases and one IA case adds a few KiB; the worst case (24 closed logs x 600 events) stays below 1.5 MiB.
+
+### Known limitations
+- The legal model is a simplified, generic teaching model, not legal advice; rule citations are invented.
+- Report narratives are free text and not parsed; grading uses the statements checklist.
+- Snapshots come from the rendered game view (the dashcam is the same view while the officer is in the car); no video or audio is stored; media lives in the browser's IndexedDB and is not part of the save slot (clearing site data loses the footage but not the event log, and the review then says NO VIDEO).
+- The courtroom hearing takes place off-clock (no sim time passes) and there is no courthouse building.
+- The only fellow officer who can misbehave is the partner placeholder; AI units on scene do not use force.
+- Pregnancy and elevated position are derived risk factors (hash / room kind) and are not visible on the figure.
+- Pursuits are judged on the officer's own speed and equipment; bystander risk and the fleeing car's driving are not modelled.
+- A field contact's log closes when the contact ends: a force application right after closing the dialogue opens a separate ad hoc log (`FI-`), so keep the contact open (or work under a call) when the whole sequence should be one incident.
+- A booking made from the MDT away from the station needs the prisoner caged and the officer at the station (Phase 3 rule); the smoke test files its bookings through the CAD document store.
+- Under software GL (SwiftShader) the game runs at about 1-5 fps; on a real GPU it runs at the display rate. Headless Chromium never grants pointer lock, so the smoke test switches it off for its one real click.
+- Integration fixes outside the integrator's own files: `ContactManager.activeIncident`, `SceneDirector.callOfBuilding`, `IncidentSystem.followCall` (and the playerCall / dash bit re-derivation on restore), `src/incidents/index.ts`, `test/game/phase3.test.ts` (trust is restored before the DUI stop: closing the domestic now moves community trust), `test/game/phase4.test.ts` and `test/game/session.test.ts` (v7 blocks, the new systems).
