@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { COMMAND_CONFIG, NEGOTIATION_DATA } from '../../src/command/data';
-import { findOption, negotiationOptions, negotiationTurn, newNegotiation, stageOf } from '../../src/command/negotiation';
+import { BIAS_WEIGHT, findOption, negotiationOptions, negotiationTurn, newNegotiation, stageOf } from '../../src/command/negotiation';
 import type { NegState, NegSubject, NegTone } from '../../src/command/types';
 import { createRng, type Rng } from '../../src/core/rng';
 
@@ -80,7 +80,7 @@ describe('negotiationTurn', () => {
     const s = newNegotiation();
     turn(s, 'minimal');
     expect(s.trust).toBeCloseTo(0.15 + 0.04 - 0, 9);
-    expect(s.agitation).toBeCloseTo(0.55 - 0.03 - 0.05, 9); // calm bias -0.1 * 0.5
+    expect(s.agitation).toBeCloseTo(0.55 - 0.03 - 0.1 * BIAS_WEIGHT, 9); // calm bias -0.1
     expect(s.turns).toBe(1);
   });
 
@@ -88,7 +88,7 @@ describe('negotiationTurn', () => {
     const s = newNegotiation();
     turn(s, 'threat');
     expect(s.trust).toBeCloseTo(0.15 - 0.12, 9);
-    expect(s.agitation).toBeCloseTo(0.55 + 0.2 - 0.05, 9);
+    expect(s.agitation).toBeCloseTo(0.55 + 0.2 - 0.1 * BIAS_WEIGHT, 9);
   });
 
   it('applies the tone factor to trust only', () => {
@@ -113,17 +113,17 @@ describe('negotiationTurn', () => {
     const s = newNegotiation(); // contact: "plan" belongs to resolution and needs 0.6 trust
     turn(s, 'plan');
     expect(s.trust).toBeCloseTo(0.15 + 0.03, 9);
-    expect(s.agitation).toBeCloseTo(0.55 + -0.05 * 0.5 + 0.05 - 0.05, 9);
+    expect(s.agitation).toBeCloseTo(0.55 + -0.05 * 0.5 + 0.05 - 0.1 * BIAS_WEIGHT, 9);
   });
 
-  it('the subject bias adds temperament, hostage, intoxication and crisis terms at half weight', () => {
+  it('the subject bias adds temperament, hostage, intoxication and crisis terms at BIAS_WEIGHT', () => {
     const s = newNegotiation();
     turn(s, 'minimal', 'neutral', VOLATILE);
     const bias = 0.15 + 0.05 + 0.08;
-    expect(s.agitation).toBeCloseTo(0.55 - 0.03 + bias * 0.5, 9);
+    expect(s.agitation).toBeCloseTo(0.55 - 0.03 + bias * BIAS_WEIGHT, 9);
     const t = newNegotiation();
     turn(t, 'minimal', 'neutral', { temperament: 'calm', hostage: false, intoxicated: false, crisis: true });
-    expect(t.agitation).toBeCloseTo(0.55 - 0.03 + (-0.1 - 0.05) * 0.5, 9);
+    expect(t.agitation).toBeCloseTo(0.55 - 0.03 + (-0.1 - 0.05) * BIAS_WEIGHT, 9);
   });
 
   it('draws two noise values (trust then agitation) and one reply pick', () => {
@@ -134,7 +134,7 @@ describe('negotiationTurn', () => {
     negotiationTurn(s, 'minimal', 'neutral', CALM, false, rng);
     const sd = COMMAND_CONFIG.negotiation.noiseSd;
     expect(s.trust).toBeCloseTo(0.15 + 0.04 + (0.9 - 0.5) * 2 * sd, 9);
-    expect(s.agitation).toBeCloseTo(0.55 - 0.03 - 0.05 + (0.1 - 0.5) * 2 * sd, 9);
+    expect(s.agitation).toBeCloseTo(0.55 - 0.03 - 0.1 * BIAS_WEIGHT + (0.1 - 0.5) * 2 * sd, 9);
     // pick() uses next() once more
     expect(draws).toHaveLength(3);
   });
@@ -178,9 +178,9 @@ describe('negotiationTurn', () => {
 
   it('stalls at 25 turns', () => {
     const s = newNegotiation();
-    // Alternate a gentle option with a mild one so trust and agitation stay in the middle.
+    // Mix gentle options with a mild demand so trust and agitation stay in the middle.
     for (let i = 0; i < 24; i++) {
-      turn(s, i % 2 === 0 ? 'minimal' : 'demand', 'aggressive');
+      turn(s, i % 4 === 3 ? 'demand' : 'minimal', 'aggressive');
       expect(s.outcome).toBe('ongoing');
     }
     turn(s, 'minimal', 'aggressive');
@@ -235,5 +235,64 @@ describe('negotiationTurn', () => {
       turn(s, id, 'polite', CALM, true, rng);
     }
     expect(s.outcome).toBe('surrender');
+  });
+});
+
+/** The best enabled option of the state: most trust gained, then most agitation shed. */
+function bestOption(s: NegState): string {
+  let best = '';
+  let bestScore = -Infinity;
+  for (const c of negotiationOptions(s)) {
+    for (const o of c.options) {
+      if (!o.enabled) continue;
+      const data = findOption(o.id);
+      if (!data) continue;
+      const score = data.trust - data.agitation * 0.8;
+      if (score > bestScore) {
+        bestScore = score;
+        best = o.id;
+      }
+    }
+  }
+  return best;
+}
+
+describe('winnability', () => {
+  const TEMPERAMENTS = ['calm', 'timid', 'irritable', 'volatile'] as const;
+
+  it('best play talks down every subject (temperament x hostage x intoxicated x crisis) before the stall', () => {
+    for (const temperament of TEMPERAMENTS) {
+      for (const hostage of [false, true]) {
+        for (const intoxicated of [false, true]) {
+          for (const crisis of [false, true]) {
+            const subject: NegSubject = { temperament, hostage, intoxicated, crisis };
+            const s = newNegotiation();
+            while (s.outcome === 'ongoing') turn(s, bestOption(s), 'polite', subject, false);
+            const label = JSON.stringify(subject);
+            expect(s.outcome, label).toBe('surrender');
+            expect(s.turns, label).toBeLessThan(COMMAND_CONFIG.negotiation.stallTurns);
+          }
+        }
+      }
+    }
+  });
+
+  it('best play still wins against the hardest subject with noise (40 seeds)', () => {
+    const subject: NegSubject = { temperament: 'volatile', hostage: true, intoxicated: true, crisis: false };
+    let wins = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const rng = createRng(seed).stream('command');
+      const s = newNegotiation();
+      while (s.outcome === 'ongoing') turn(s, bestOption(s), 'polite', subject, false, rng);
+      if (s.outcome === 'surrender') wins++;
+    }
+    expect(wins).toBeGreaterThanOrEqual(36);
+  });
+
+  it('pressure still breaks a hard subject down: the choices matter', () => {
+    const subject: NegSubject = { temperament: 'volatile', hostage: true, intoxicated: false, crisis: false };
+    const s = newNegotiation();
+    for (let i = 0; i < 10 && s.outcome === 'ongoing'; i++) turn(s, 'threat', 'polite', subject, false);
+    expect(s.outcome).toBe('breakdown');
   });
 });

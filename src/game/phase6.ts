@@ -201,6 +201,7 @@ export class Phase6 {
       npc,
       people,
       roster: this.roster,
+      hold: (callsign) => this.backup.onFoot(callsign),
       env: () => {
         this.envOut.wetness = host.env.weather.wetness;
         this.envOut.night = host.env.lighting.nightFactor > NIGHT_FACTOR;
@@ -250,6 +251,7 @@ export class Phase6 {
       cad,
       npc,
       unitCar: (callsign, out) => this.unitCar(callsign, out),
+      releasing: (callsign) => dispatcher.releasePending(callsign) || this.resources.leaving(callsign),
       interiors,
       doorRequest: (buildingId, door, action) => {
         // The team is not the officer: it works the door itself (no reach check, no ram in the player's kit).

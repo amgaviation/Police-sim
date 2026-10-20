@@ -88,6 +88,8 @@ export interface DispatchBackupEvent {
   x: number;
   z: number;
   location: string;
+  /** Soonest estimated arrival (s) of the sent units, absent / negative when unknown. */
+  etaS?: number;
 }
 
 export interface DispatchEmergencyEvent {

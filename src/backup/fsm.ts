@@ -31,6 +31,8 @@ export interface FsmInputs {
   post: boolean;
   /** The detain target is cuffed. */
   detained: boolean;
+  /** The detain attempt ended without a cuffed subject (timeout, target gone): back to the role, no callout. */
+  gaveUp?: boolean;
   /** Back at the car (returning). */
   atCar: boolean;
 }
@@ -149,7 +151,7 @@ export function stepOfficerFsm(s: OfficerFsm, i: FsmInputs, cfg: BackupConfig, o
       if (i.detained) {
         out.callout = 'inCustody';
         enter(s, 'approach', out);
-      }
+      } else if (i.gaveUp === true) enter(s, 'approach', out);
       return out;
     default:
       break;

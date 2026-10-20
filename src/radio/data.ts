@@ -104,7 +104,7 @@ export type FragmentKey = (typeof FRAGMENT_KEYS)[number];
 /** Placeholders a phrase template may use (plus `{code:<tenCodes key>}`). */
 export const PHRASE_PLACEHOLDERS = [
   'unit', 'player', 'nature', 'address', 'cross', 'near', 'priority', 'plate', 'desc', 'owner', 'hits', 'units',
-  'time', 'status', 'call', 'name', 'dob', 'dl', 'dlStatus', 'backupCode', 'reason', 'channel',
+  'time', 'status', 'call', 'name', 'dob', 'dl', 'dlStatus', 'backupCode', 'reason', 'channel', 'eta',
 ] as const;
 
 /** Placeholders an ambient template may use (plus `{code:<key>}`). */

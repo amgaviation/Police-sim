@@ -196,7 +196,7 @@ export class PursuitSystem {
       deps.bus.on('scene:pursuit', (e) => {
         const personId = e.personId ?? -1;
         if (e.kind === 'vehicle') {
-          if (e.active) this.enqueue({ kind: 'vehicleStart', callId: e.callId, personId });
+          if (e.active) this.enqueue({ kind: 'vehicleStart', callId: e.callId, personId, ownerCallId: e.ownerCallId ?? 0 });
           else this.enqueue({ kind: 'vehicleEnd', callId: e.callId, personId, endReason: e.endReason ?? '' });
         } else {
           this.enqueue({ kind: e.active ? 'footStart' : 'footEnd', callId: e.callId, personId });
@@ -289,7 +289,7 @@ export class PursuitSystem {
     for (const e of batch) {
       switch (e.kind) {
         case 'vehicleStart':
-          this.startRun(t, e.callId, e.personId);
+          this.startRun(t, e.callId, e.personId, e.ownerCallId ?? 0);
           break;
         case 'vehicleEnd': {
           const run = this.run;
@@ -314,7 +314,12 @@ export class PursuitSystem {
     this.dirty = true;
   }
 
-  private startRun(t: CadTime, callId: number, personId: number): void {
+  /** The incident log files a pursuit under the scenario call it grew out of, else under its own call. */
+  private offenseOf(run: Run): string | null {
+    return this.deps.rules.offense(run.ownerCallId > 0 ? run.ownerCallId : run.callId);
+  }
+
+  private startRun(t: CadTime, callId: number, personId: number, ownerCallId: number): void {
     if (this.run !== null) return;
     const vehicleId = this.deps.cad.call(callId)?.vehicles[0];
     if (vehicleId === undefined) return;
@@ -324,7 +329,7 @@ export class PursuitSystem {
       pz = this.fi.z;
     }
     this.run = {
-      callId, vehicleId, personId, startSim: t.sim, pitAuthorized: false, monitorSince: -1, lastOrderSim: -1, ordered: false,
+      callId, ownerCallId, vehicleId, personId, startSim: t.sim, pitAuthorized: false, monitorSince: -1, lastOrderSim: -1, ordered: false,
       lostSince: -1, prevX: px, prevZ: pz, tactic: null, handoff: null, stateRequested: false, airRequested: false,
       ignoredFlashed: false, directed: [], stateUnit: '', goneSince: -1,
     };
@@ -443,7 +448,7 @@ export class PursuitSystem {
     const env = this.deps.env();
     const policy = pitPolicy(
       {
-        speedMph: this.fi.speed / MPH, offense: this.deps.rules.offense(run.callId), authorized: true,
+        speedMph: this.fi.speed / MPH, offense: this.offenseOf(run), authorized: true,
         modelId: this.deps.modelOf(run.vehicleId), district: road.district, wet: env.wet,
       },
       this.cfg,
@@ -593,7 +598,7 @@ export class PursuitSystem {
       const road = this.deps.roadAt(this.fi.x, this.fi.z);
       const policy = pitPolicy(
         {
-          speedMph: this.fi.speed / MPH, offense: this.deps.rules.offense(run.callId), authorized: run.pitAuthorized, modelId,
+          speedMph: this.fi.speed / MPH, offense: this.offenseOf(run), authorized: run.pitAuthorized, modelId,
           district: road.district, wet: this.deps.env().wet,
         },
         this.cfg,
@@ -799,7 +804,7 @@ export class PursuitSystem {
     d.night = env.night;
     d.trafficDensity = this.deps.trafficDensity(fi.x, fi.z);
     d.durationS = t.sim - run.startSim;
-    d.offense = rules.offense(run.callId);
+    d.offense = this.offenseOf(run);
     d.lostSightS = run.lostSince < 0 ? 0 : t.sim - run.lostSince;
     d.airOnTarget = this.airOnTarget;
     d.allowedOffenses = rules.allowedOffenses();
@@ -1152,7 +1157,7 @@ export class PursuitSystem {
       const risk = pursuitRisk(
         {
           speedMph: fi.speed / MPH, limitMph: road.limitMph, district: road.district, wet: this.deps.env().wet, night: this.deps.env().night,
-          trafficDensity: this.deps.trafficDensity(fi.x, fi.z), durationS: t.sim - run.startSim, offense: this.deps.rules.offense(run.callId),
+          trafficDensity: this.deps.trafficDensity(fi.x, fi.z), durationS: t.sim - run.startSim, offense: this.offenseOf(run),
           violentOffenses: VIOLENT_OFFENSES, lostSightS: run.lostSince < 0 ? 0 : t.sim - run.lostSince, airOnTarget: this.airOnTarget,
         },
         this.cfg,
@@ -1240,7 +1245,7 @@ export class PursuitSystem {
     const r = this.run;
     if (r !== null) {
       save.pursuit = {
-        callId: r.callId, vehicleId: r.vehicleId, personId: r.personId, startSim: r.startSim, pitAuthorized: r.pitAuthorized,
+        callId: r.callId, ownerCallId: r.ownerCallId, vehicleId: r.vehicleId, personId: r.personId, startSim: r.startSim, pitAuthorized: r.pitAuthorized,
         monitorSince: r.monitorSince, lastOrderSim: r.lastOrderSim, ordered: r.ordered, lostSince: r.lostSince, prevX: r.prevX,
         prevZ: r.prevZ, tactic: r.tactic ? { ...r.tactic } : null, handoff: r.handoff ? { ...r.handoff } : null,
         stateRequested: r.stateRequested, airRequested: r.airRequested, ignoredFlashed: r.ignoredFlashed, directed: [...r.directed],
@@ -1262,7 +1267,7 @@ export class PursuitSystem {
     const p = s.pursuit;
     this.run = p
       ? {
-          callId: p.callId, vehicleId: p.vehicleId, personId: p.personId, startSim: p.startSim, pitAuthorized: p.pitAuthorized,
+          callId: p.callId, ownerCallId: p.ownerCallId ?? 0, vehicleId: p.vehicleId, personId: p.personId, startSim: p.startSim, pitAuthorized: p.pitAuthorized,
           monitorSince: p.monitorSince, lastOrderSim: p.lastOrderSim, ordered: p.ordered, lostSince: p.lostSince, prevX: p.prevX,
           prevZ: p.prevZ, tactic: p.tactic ? { ...p.tactic } : null, handoff: p.handoff ? { ...p.handoff } : null,
           stateRequested: p.stateRequested ?? false, airRequested: p.airRequested ?? false, ignoredFlashed: p.ignoredFlashed ?? false,

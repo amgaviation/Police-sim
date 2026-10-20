@@ -38,6 +38,8 @@ import {
 
 /** Seconds of simulated time between two slow-work ticks. */
 const WORK_S = 0.25;
+/** Seconds between two automatic ambulance requests for patients left on scene. */
+const SHUTTLE_S = 20;
 /** Player distance to the incident that opens the post automatically. */
 const AUTO_RANGE_M = 80;
 /** Outer perimeter radius of a containment. */
@@ -157,6 +159,8 @@ export class CommandSystem {
   private emsTimers: number[] = [];
   private loads: Load[] = [];
   private fireTimer = 0;
+  /** Seconds until the next automatic ambulance request (patients wait, no ambulance is on scene or coming). */
+  private shuttleT = 0;
 
   private tcpOn = false;
   private tcpPts: { x: number; z: number; yaw: number }[] = [];
@@ -315,6 +319,7 @@ export class CommandSystem {
     if (this.assessing) s.assessing = { personId: this.assessing.personId, progress: this.assessing.progress };
     s.emsTimers = this.emsCallsigns.map((c, i) => [c, this.emsTimers[i] ?? 0]);
     s.fireTimer = this.fireTimer;
+    s.shuttleT = this.shuttleT;
     s.loads = this.loads.map((l) => ({ callsign: l.callsign, personIds: l.personIds.slice(), t: l.t }));
     s.tcp = { on: this.tcpOn, points: this.tcpPts.map((q): [number, number, number] => [q.x, q.z, q.yaw]) };
     if (this.evac) s.evac = { ...this.evac };
@@ -351,6 +356,7 @@ export class CommandSystem {
       this.emsTimers.push(tm);
     }
     this.fireTimer = s.fireTimer;
+    this.shuttleT = s.shuttleT ?? 0;
     this.loads = s.loads.map((l) => ({ callsign: l.callsign, personIds: l.personIds.slice(), t: l.t }));
     this.tcpOn = s.tcp.on;
     this.tcpPts = s.tcp.points.map(([x, z, yaw]) => ({ x, z, yaw }));
@@ -509,6 +515,7 @@ export class CommandSystem {
     this.emsTimers = [];
     this.loads = [];
     this.fireTimer = 0;
+    this.shuttleT = 0;
     this.tcpOn = false;
     this.tcpPts = [];
     this.blockadeList = [];
@@ -564,6 +571,7 @@ export class CommandSystem {
     this.buildVictims(p, dt);
     this.tickAssess(dt, ctx);
     this.tickCrews(p, dt);
+    this.tickShuttle(p, dt);
     this.tickFire(p, dt);
     this.tickPosts(dt, ctx);
     this.tickEvac(p, dt);
@@ -828,6 +836,18 @@ export class CommandSystem {
       if (idx >= 0) this.emsTimers[idx] = 0;
       if (this.anyTransportable()) this.startLoad(cs);
     }
+  }
+
+  /**
+   * An ambulance that transported a patient is gone for the round trip: while patients still wait and no ambulance is on
+   * scene or on its way (a request for an assigned type is a no-op), the next one is called without the player asking again.
+   */
+  private tickShuttle(p: PostState, dt: number): void {
+    this.shuttleT -= dt;
+    if (this.shuttleT > 0 || !this.victims.some((v) => v.transported) || !this.anyTransportable()) return;
+    if (this.deps.resources.onScene(p.callId, 'ems') > 0) return;
+    this.shuttleT = SHUTTLE_S;
+    this.deps.resources.requestType('ems', p.callId, 'auto');
   }
 
   private startLoad(callsign: string): void {

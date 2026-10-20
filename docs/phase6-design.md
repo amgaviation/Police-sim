@@ -1620,7 +1620,7 @@ export function negotiationOptions(s: NegState, data?: NegotiationData): { categ
 /**
  * One turn (mutates s): option deltas d_t, d_a (an option not allowed in the stage counts as half and adds +0.05 agitation);
  * trust += d_t * toneFactor[tone] * (negotiatorOnScene ? 1 + negotiatorBonus : 1) + noise; agitation += d_a + subject bias (temperament
- * + hostage + intoxicated + crisis terms) * 0.5 + noise; noise = (rng.next() - 0.5) * 2 * noiseSd (two draws: trust then agitation);
+ * + hostage + intoxicated + crisis terms) * BIAS_WEIGHT (0.1: best play wins against every subject) + noise; noise = (rng.next() - 0.5) * 2 * noiseSd (two draws: trust then agitation);
  * clamp 0..1; turns++; stage = highest stage with trust >= stageTrust; goodTurns = (trust >= surrenderTrust && agitation <= surrenderAgitation) ? goodTurns + 1 : 0;
  * outcome: goodTurns >= surrenderTurns → surrender; agitation >= breakdownAgitation → breakdown; turns >= stallTurns → stalled; reply text from
  * replies[outcome !== ongoing ? outcome : agitation > 0.7 ? 'agitated' : trust > 0.5 ? 'calm' : 'neutral'] picked with the same rng.

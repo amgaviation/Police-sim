@@ -204,8 +204,8 @@ export interface PursuitRulesPort {
   terminateGraceS(): number;
   /** Allowed mph over the limit in `district` (legal `allowedOverMph`). */
   allowedOverMph(district: string, wet: boolean, night: boolean): number;
-  /** The pursuit's offense from the incident assessment, null unknown. */
-  offense(pursuitCallId: number): string | null;
+  /** The pursuit's offense from the incident assessment, null unknown. `callId` is the call the incident log files the pursuit under (the owner scenario call, else the pursuit call). */
+  offense(callId: number): string | null;
 }
 
 /** The resources module (wave 2) as the pursuit needs it (§4.5). */

@@ -183,4 +183,9 @@ export interface ResourceDeps {
   trafficDensity(x: number, z: number): number;
   /** Test variants of the unit data (default `UNIT_TYPES`). */
   readonly types?: UnitTypesData;
+  /**
+   * Phase 6: true while an officer of the unit's crew is out of the car (BackupSystem.onFoot). The unit's car then
+   * waits (at most 30 s) before it leaves and its static crew figure is not drawn (the walking officer replaces it).
+   */
+  hold?: (callsign: string) => boolean;
 }

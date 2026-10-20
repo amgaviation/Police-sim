@@ -18,6 +18,13 @@ export type { NegState, NegStage, NegSubject } from './types';
 /** Longest transcript kept (lines, officer and subject alternating). */
 export const HISTORY_MAX = 60;
 
+/**
+ * Weight of the subject bias (temperament + hostage + intoxicated + crisis terms) in the per-turn agitation change. Small
+ * enough that the best in-stage option of every stage (plan: -0.05) outweighs the worst bias (volatile, hostage,
+ * intoxicated: 0.28), so a hard subject takes longer to talk down but can always be won.
+ */
+export const BIAS_WEIGHT = 0.1;
+
 function clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
@@ -72,7 +79,7 @@ export function findOption(optionId: string, data: NegotiationData = NEGOTIATION
  * One turn (mutates and returns `s`; an unknown option or a finished negotiation changes nothing and draws nothing).
  * An option that does not fit the stage (or trust) counts half and adds +0.05 agitation.
  * trust += d_t * toneFactor[tone] * (negotiatorOnScene ? 1 + negotiatorBonus : 1) + noise;
- * agitation += d_a + subject bias (temperament + hostage + intoxicated + crisis terms) * 0.5 + noise;
+ * agitation += d_a + subject bias (temperament + hostage + intoxicated + crisis terms) * BIAS_WEIGHT + noise;
  * noise = (rng.next() - 0.5) * 2 * noiseSd (two draws: trust then agitation); both clamp to 0..1; then turns++,
  * stage = highest stage reached, goodTurns counts consecutive turns at surrender trust and agitation; the outcome is
  * surrender (goodTurns >= surrenderTurns), breakdown (agitation >= breakdownAgitation) or stalled (turns >= stallTurns).
@@ -105,7 +112,7 @@ export function negotiationTurn(
   const noiseA = (rng.next() - 0.5) * 2 * n.noiseSd;
 
   s.trust = clamp01(s.trust + dt * data.toneFactor[tone] * (negotiatorOnScene ? 1 + n.negotiatorBonus : 1) + noiseT);
-  s.agitation = clamp01(s.agitation + da + bias * 0.5 + noiseA);
+  s.agitation = clamp01(s.agitation + da + bias * BIAS_WEIGHT + noiseA);
   s.turns += 1;
   s.stage = stageOf(s.trust, data);
   s.goodTurns = s.trust >= n.surrenderTrust && s.agitation <= n.surrenderAgitation ? s.goodTurns + 1 : 0;

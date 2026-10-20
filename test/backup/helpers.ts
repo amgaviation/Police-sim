@@ -198,6 +198,8 @@ export class Rig {
   readonly sys: BackupSystem;
   buildings = new Map<number, { minX: number; minZ: number; maxX: number; maxZ: number; door: { x: number; z: number; yaw: number } }>();
   callBuildingId = -1;
+  /** Callsigns the dispatcher / resources flagged as leaving (the `releasing` dep). */
+  readonly leaving = new Set<string>();
   swatCount = 0;
   trust = 0;
   sim = 0;
@@ -223,6 +225,7 @@ export class Rig {
         out.yaw = p.yaw;
         return true;
       },
+      releasing: (cs) => this.leaving.has(cs),
       interiors: this.interiors,
       doorRequest: (building, door, action) => {
         this.doorRequests.push({ building, door, action });

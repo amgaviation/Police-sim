@@ -167,6 +167,8 @@ export class Dispatcher {
   private readonly unitByIndex = new Map<number, AiUnit>();
   private readonly picked: Uint8Array;
   private readonly pickedOut: AiUnit[] = [];
+  /** ETA estimates (ranker values) of the units of the last `pickUnits`, in pick order (empty without a ranker). */
+  private readonly pickedEta: number[] = [];
   /** Nearest-K candidates of one pick (ETA ranker): unit indices and straight-line distances. */
   private readonly rankIdx = new Int32Array(ETA_RANK_K);
   private readonly rankDist = new Float64Array(ETA_RANK_K);
@@ -392,6 +394,17 @@ export class Dispatcher {
   undirectUnit(callsign: string): void {
     const u = this.units.find((v) => v.callsign === callsign);
     if (u) u.directed = false;
+  }
+
+  /**
+   * Phase 6: true once the unit has been told to leave its call (Code 4, call closed, on-scene time up) but is not gone yet,
+   * so an officer on foot starts walking back to the car at once.
+   */
+  releasePending(callsign: string): boolean {
+    for (const u of this.units) {
+      if (u.callsign === callsign) return u.releaseAt >= 0 && (u.mode === 'enRoute' || u.mode === 'onScene');
+    }
+    return false;
   }
 
   /** Phase 6: while `fn(callsign)` is true a release (Code 4 / `releaseAt`) is postponed, at most `HOLD_MAX_S` past `releaseAt`. */
@@ -1006,6 +1019,16 @@ export class Dispatcher {
   }
 
   /**
+   * Takes a backup / emergency / welfare unit off its call. A unit whose officer is on foot keeps its car parked
+   * (`stepUnits` holds it, at most `HOLD_MAX_S`) while the officer walks back to it; any other unit goes back on patrol.
+   */
+  private dropUnit(u: AiUnit, t: CadTime): void {
+    this.deps.cad.unassign(u.callsign, t);
+    if (u.mode === 'onScene' && this.holdFn !== null && this.holdFn(u.callsign)) return;
+    this.toPatrol(u, t);
+  }
+
+  /**
    * The player leaves call `callId`: units there only for the player (backup / emergency / welfare)
    * are released, then the call closes with `disposition` when the player was the last unit, else the
    * player is just unassigned.
@@ -1016,10 +1039,7 @@ export class Dispatcher {
     const call = cad.call(callId);
     if (!call || call.status === 'closed') return;
     for (const u of this.units) {
-      if (u.callId === callId && u.role !== 'call') {
-        cad.unassign(u.callsign, t);
-        this.toPatrol(u, t);
-      }
+      if (u.callId === callId && u.role !== 'call') this.dropUnit(u, t);
     }
     // Phase 6: resource units (supervisors, EMS, K9, ...) do not hold the call open: the scene is over when the player clears.
     let others = 0;
@@ -1050,10 +1070,7 @@ export class Dispatcher {
     const arrived = status === 'onScene' || status === 'busy' || status === 'transporting' || (call?.firstOnScene ?? null) !== null;
     if (call && !call.selfInitiated && !arrived) {
       for (const u of this.units) {
-        if (u.callId === callId && u.role !== 'call') {
-          cad.unassign(u.callsign, t);
-          this.toPatrol(u, t);
-        }
+        if (u.callId === callId && u.role !== 'call') this.dropUnit(u, t);
       }
       cad.unassign(this.playerCallsign, t);
       this.declined.add(callId);
@@ -1167,7 +1184,10 @@ export class Dispatcher {
     for (const u of units) this.dispatchUnit(u, call.id, p.x, p.z, code === 3 ? 'emergency' : 'respond', 'backup', 'backup', t);
     if (units.length > 0) this.setBackupTarget(t);
     const callsigns = units.map((u) => u.callsign);
-    bus.emit('dispatch:backup', { requester: pc, code, units: callsigns, x: p.x, z: p.z, location: call.location.near });
+    // The soonest ETA of the picks (only known with the Phase 6 ranker).
+    let etaS = -1;
+    for (const v of this.pickedEta) if (Number.isFinite(v) && (etaS < 0 || v < etaS)) etaS = v;
+    bus.emit('dispatch:backup', { requester: pc, code, units: callsigns, x: p.x, z: p.z, location: call.location.near, etaS });
     if (units.length === 0) this.ack(pc, 'backup', false, 'No units available');
   }
 
@@ -1454,6 +1474,7 @@ export class Dispatcher {
     const { cad } = this.deps;
     const out = this.pickedOut;
     out.length = 0;
+    this.pickedEta.length = 0;
     this.picked.fill(0);
     const maxD = this.cfg.assign.maxDistanceM;
     if (this.ranker) return this.pickRanked(n, x, z, callId, mode, urgency);
@@ -1528,6 +1549,7 @@ export class Dispatcher {
       if (!best) break;
       this.picked[best.fleetIndex] = 1;
       out.push(best);
+      this.pickedEta.push(bestV);
     }
     return out;
   }
@@ -1586,10 +1608,16 @@ export class Dispatcher {
       const cu = cad.unit(u.callsign);
       if (!cu) continue;
       if ((u.mode === 'enRoute' || u.mode === 'onScene') && cu.callId !== u.callId) {
-        // The call was closed or the unit taken off it elsewhere.
+        // The call was closed or the unit taken off it elsewhere. The car waits for an officer on foot.
+        if (u.mode === 'onScene' && this.holdFn !== null && this.holdFn(u.callsign)) {
+          if (u.releaseAt < 0) u.releaseAt = t.sim;
+          if (t.sim < u.releaseAt + HOLD_MAX_S) continue;
+        }
         this.toPatrol(u, t);
         continue;
       }
+      // The on-scene time of a call unit is up: it is released like any other (the car waits for an officer on foot).
+      if (u.mode === 'onScene' && u.role === 'call' && u.releaseAt < 0 && u.onSceneUntil >= 0 && t.sim >= u.onSceneUntil) u.releaseAt = t.sim;
       if (u.releaseAt >= 0 && t.sim >= u.releaseAt && (u.mode === 'enRoute' || u.mode === 'onScene')) {
         if (!this.holdFn || t.sim >= u.releaseAt + HOLD_MAX_S || !this.holdFn(u.callsign)) {
           this.release(u, t);
@@ -1601,7 +1629,6 @@ export class Dispatcher {
           this.stepEnRoute(u, fs, t);
           break;
         case 'onScene':
-          if (u.onSceneUntil >= 0 && t.sim >= u.onSceneUntil) this.finishCall(u, t);
           break;
         case 'patrol':
           if (t.sim >= u.nextBeatCheck) this.patrolCheck(u, fs, t);
@@ -1693,6 +1720,10 @@ export class Dispatcher {
 
   /** Releases a backup / emergency / welfare unit: emergency and welfare calls close, backup just leaves. */
   private release(u: AiUnit, t: CadTime): void {
+    if (u.role === 'call') {
+      this.finishCall(u, t);
+      return;
+    }
     const { cad } = this.deps;
     const call = u.callId !== null ? cad.call(u.callId) : null;
     if (call && call.status !== 'closed') {
@@ -1769,6 +1800,8 @@ export class Dispatcher {
     let moved = false;
     for (const u of this.units) {
       if ((u.role !== 'backup' && u.role !== 'emergency') || u.callId === null || u.releaseAt >= 0 || u.directed) continue;
+      // The officer follows the player on foot: the car stays where it is.
+      if (this.holdFn !== null && this.holdFn(u.callsign)) continue;
       const urgency: FleetUrgency = u.destEmergency ? 'emergency' : 'respond';
       if (u.mode === 'enRoute') {
         u.destX = p.x;

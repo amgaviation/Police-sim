@@ -170,6 +170,8 @@ interface World {
   npc: FakeNpc;
   sceneRequests: SceneRequest[];
   rules: { offense: string | null; allowed: string[]; maxDurationS: number; graceS: number };
+  /** The call ids the rules port was asked for the offense of. */
+  offenseKeys: Set<number>;
   callId: number;
   burst: { count: number };
   strips: { carried: number };
@@ -214,6 +216,7 @@ async function makeWorld(opts: Options = {}): Promise<World> {
   const npc = new FakeNpc();
   const sceneRequests: SceneRequest[] = [];
   const rules = { offense: 'violent' as string | null, allowed: ['violent', 'felonyVehicle', 'weapons', 'warrant'], maxDurationS: 600, graceS: 15 };
+  const offenseKeys = new Set<number>();
   const seed = opts.seed ?? 7;
   const pursuit = new PursuitSystem({
     seed: 42,
@@ -231,7 +234,10 @@ async function makeWorld(opts: Options = {}): Promise<World> {
       maxDurationS: () => rules.maxDurationS,
       terminateGraceS: () => rules.graceS,
       allowedOverMph: () => 15,
-      offense: () => rules.offense,
+      offense: (callId) => {
+        offenseKeys.add(callId);
+        return rules.offense;
+      },
     },
     modelOf: () => 'sedan',
     roadAt: () => ({ district: 'suburbs', limitMph: 35 }),
@@ -263,7 +269,7 @@ async function makeWorld(opts: Options = {}): Promise<World> {
   const ctx: PursuitContext = {
     car: null, carId: 0, lights: true, siren: true, onFoot: false, x: 0, z: 0, yaw: 0, carryingStrip: false, playerCallsign: '1-A-12',
   };
-  return { h, pursuit, cad, sim: 0, ctx, log, dispatcher, resources, npc, sceneRequests, rules, callId: call.id, burst, strips, rngSeed: seed, trackPlayer: true };
+  return { h, pursuit, cad, sim: 0, ctx, log, dispatcher, resources, npc, sceneRequests, rules, offenseKeys, callId: call.id, burst, strips, rngSeed: seed, trackPlayer: true };
 }
 
 /** The first edge at least `minLen` long with a forward lane. */
@@ -274,13 +280,13 @@ function longEdge(graph: RoadGraph, minLen = 300): number {
 }
 
 /** A fleeing car on `edge` at `s`, doing `speed`, capped at `cap` m/s; the scene announces the pursuit. */
-function startPursuit(w: World, edge: number, s: number, cap = 13): void {
+function startPursuit(w: World, edge: number, s: number, cap = 13, ownerCallId = 0): void {
   const slot = w.h.sys.spawnAt(laneRef(edge, 0, 0), s, { vehicleId: ID, speed: Math.min(12, cap), behavior: 0, desiredFactor: 1 });
   if (slot < 0) throw new Error('spawn failed');
   expect(w.h.sys.flee(ID)).toBe(true);
   if (Number.isFinite(cap)) w.h.sys.setFleeSpeedCap(ID, cap);
   follow(w);
-  w.h.bus.emit('scene:pursuit', { kind: 'vehicle', active: true, callId: w.callId, personId: PERSON, ownerCallId: 0 });
+  w.h.bus.emit('scene:pursuit', { kind: 'vehicle', active: true, callId: w.callId, personId: PERSON, ownerCallId });
 }
 
 function follow(w: World): void {
@@ -448,6 +454,31 @@ describe('contact: PIT, ram, bump', () => {
       expect(w.log.tactics[0]?.text).toMatch(/Ramming/);
       run(w, 2);
       expect(w.log.ended.map((e) => e.reason)).toEqual(['crashed']);
+    });
+  });
+});
+
+describe('offense of a scenario-owned pursuit', () => {
+  it('is looked up under the owner call (where the incident log files it), else under the pursuit call', async () => {
+    await noGiveUp(async () => {
+      const w = await makeWorld();
+      startPursuit(w, longEdge(CITY.graph), 40, 13, 77);
+      w.resources.sup = 'SGT-1';
+      run(w, sec(1));
+      w.pursuit.request({ kind: 'requestPit' });
+      run(w, 1);
+      expect(w.offenseKeys.has(77)).toBe(true);
+      expect(w.offenseKeys.has(w.callId)).toBe(false);
+      expect(w.log.orders[0]?.order).toBe('authorizePit');
+      // The owner call survives a save.
+      expect(w.pursuit.serialize().pursuit?.ownerCallId).toBe(77);
+    });
+    await noGiveUp(async () => {
+      const w = await makeWorld();
+      startPursuit(w, longEdge(CITY.graph), 40);
+      run(w, sec(1));
+      expect(w.offenseKeys.has(w.callId)).toBe(true);
+      expect(w.pursuit.serialize().pursuit?.ownerCallId).toBe(0);
     });
   });
 });

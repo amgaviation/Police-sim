@@ -97,6 +97,12 @@ const OWN_KEY_GAP_S = 0.3;
 /** Answers that richer events report; a dispatch:ack for these is not voiced again. */
 const ACK_COVERED: ReadonlySet<UnitRequest['kind']> = new Set(['runPlate', 'runPerson', 'backup', 'location', 'emergency', 'repeat', 'stopContact']);
 
+/** "ETA 3 minutes." from an estimated arrival in seconds. */
+function etaText(etaS: number): string {
+  const m = Math.max(1, Math.ceil(etaS / 60));
+  return `ETA ${m === 1 ? '1 minute' : `${String(m)} minutes`}.`;
+}
+
 function isRadioVia(via: RequestVia | undefined): boolean {
   return via === 'radio' || via === 'voice';
 }
@@ -478,6 +484,7 @@ export class Composer {
         player: e.requester,
         near: e.location,
         backupCode: this.fragment(e.code === 3 ? 'backupCode3' : 'backupCode2'),
+        eta: e.etaS !== undefined && e.etaS >= 0 ? etaText(e.etaS) : '',
       },
       { priority: e.code === 3 },
     );

@@ -34,6 +34,8 @@ export interface CommandSave {
   /** Callsign, seconds of triage work. */
   emsTimers: [string, number][];
   fireTimer: number;
+  /** Seconds until the next automatic ambulance request (absent in older saves: 0). */
+  shuttleT?: number;
   /** EMS units loading patients: the reserved person ids and seconds loaded. */
   loads: { callsign: string; personIds: number[]; t: number }[];
   /** Traffic control points as x, z, yaw. */
@@ -56,6 +58,7 @@ export function emptyCommandSave(rng: RngState): CommandSave {
     assessing: null,
     emsTimers: [],
     fireTimer: 0,
+    shuttleT: 0,
     loads: [],
     tcp: { on: false, points: [] },
     evac: null,
@@ -147,7 +150,7 @@ export function isCommandSave(x: unknown): x is CommandSave {
     Array.isArray(x.victims) && x.victims.every(isVictim) &&
     (a === null || (isRecord(a) && int(a.personId) && num(a.progress))) &&
     Array.isArray(x.emsTimers) && x.emsTimers.every((r) => Array.isArray(r) && r.length === 2 && str(r[0]) && num(r[1])) &&
-    num(x.fireTimer) &&
+    num(x.fireTimer) && (x.shuttleT === undefined || num(x.shuttleT)) &&
     Array.isArray(x.loads) && x.loads.every((l) => isRecord(l) && str(l.callsign) && Array.isArray(l.personIds) && l.personIds.every(int) && num(l.t)) &&
     isRecord(t) && typeof t.on === 'boolean' && Array.isArray(t.points) && t.points.every((q) => Array.isArray(q) && q.length === 3 && q.every(num)) &&
     (e === null || (isRecord(e) && num(e.radiusM) && num(e.clearedS) && int(e.buildings) && num(e.x) && num(e.z))) &&

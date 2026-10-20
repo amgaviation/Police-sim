@@ -73,6 +73,8 @@ const NO_PROGRESS_S = 150;
 const PROGRESS_M = 50;
 /** Fleet car spawn / destination retry interval (sim s). */
 const RETRY_S = 5;
+/** A unit with an officer on foot waits at most this long (sim s) before it leaves anyway. */
+const HOLD_S = 30;
 /** Siren on above this speed in emergency mode (m/s). */
 const SIREN_SPEED = 1;
 /** CAD position (AVL) interval (sim s). */
@@ -136,6 +138,8 @@ interface Unit {
   present: boolean;
   eid: number;
   nextTry: number;
+  /** Sim time the unit started waiting for its officer on foot, -1 none. */
+  holdSince: number;
   /** Last known position (the car, else the base). */
   px: number;
   pz: number;
@@ -205,6 +209,8 @@ export class ResourceSystem implements ResourcePort {
   private readonly revealed = new Set<number>();
   private readonly posts = new Map<number, Post>();
   private requests: ResourceRequest[] = [];
+  /** Scene service requests already sent in the current drain batch (`call:service`). */
+  private readonly routed = new Set<string>();
   private readonly unsubs: (() => void)[] = [];
 
   private playerX = 0;
@@ -271,6 +277,7 @@ export class ResourceSystem implements ResourcePort {
         present: false,
         eid: 0,
         nextTry: 0,
+        holdSince: -1,
         px: home.x,
         pz: home.z,
       };
@@ -507,6 +514,7 @@ export class ResourceSystem implements ResourcePort {
     if (u.status === 'onScene') {
       u.status = 'enRoute';
       u.leaveAt = -1;
+      u.holdSince = -1;
       this.deps.cad.setUnitStatus(u.callsign, 'enRoute', t, 'auto');
       this.revision++;
     }
@@ -582,6 +590,7 @@ export class ResourceSystem implements ResourcePort {
       if (r) this.handle(r, t);
     }
     this.requests.splice(0, n);
+    this.routed.clear();
   }
 
   private handle(r: ResourceRequest, t: CadTime): void {
@@ -628,8 +637,14 @@ export class ResourceSystem implements ResourcePort {
     // 3. Scene routing keeps the scene's flags and actions in sync; it calls `provide` back.
     const first = type.sceneServices[0];
     if (first !== undefined && via !== 'scene' && scene.hasScenario(call.id) && !scene.serviceRequested(call.id, first)) {
-      scene.request({ kind: 'serviceRequest', callId: call.id, service: first });
-      return;
+      // The scene answers later (and `serviceRequested` stays false until then): ask it once per batch. An explicit
+      // request for a multi-unit type ("EMS 3") also assigns its units itself, the scene's own answer is then a no-op.
+      const key = `${String(call.id)}:${first}`;
+      if (!this.routed.has(key)) {
+        this.routed.add(key);
+        scene.request({ kind: 'serviceRequest', callId: call.id, service: first });
+      }
+      if (via !== 'mdt' || type.count <= 1) return;
     }
 
     // 4. Dedupe: a unit of the type is already on the call. An explicit MDT request for a multi-unit type adds another.
@@ -777,7 +792,10 @@ export class ResourceSystem implements ResourcePort {
         else this.stepEnRoute(u, t);
         return;
       case 'onScene':
-        if (!this.callStillMine(u)) return this.leave(u, t);
+        if (!this.callStillMine(u)) {
+          if (!this.held(u, t)) this.leave(u, t);
+          return;
+        }
         if (u.air) this.stepAirFlight(u, dt, t);
         else this.stepOnScene(u, t);
         return;
@@ -939,12 +957,30 @@ export class ResourceSystem implements ResourcePort {
       this.syncLights(u, fs, false);
     }
     // A command post keeps everyone on the call; the command module releases units explicitly.
-    if (u.leaveAt >= 0 && t.sim >= u.leaveAt && !this.posts.has(u.callId)) this.leave(u, t);
+    if (u.leaveAt >= 0 && t.sim >= u.leaveAt && !this.posts.has(u.callId) && !this.held(u, t)) this.leave(u, t);
+  }
+
+  /**
+   * True while the unit waits for its officer on foot to get back into the car (at most `HOLD_S`): the officer walks
+   * back as soon as the wait starts (`leaving`), so the car never drives off with the officer running after it.
+   */
+  private held(u: Unit, t: CadTime): boolean {
+    const hold = this.deps.hold;
+    if (!hold || u.air || u.status !== 'onScene' || !hold(u.callsign)) return false;
+    if (u.holdSince < 0) u.holdSince = t.sim;
+    return t.sim < u.holdSince + HOLD_S;
+  }
+
+  /** True while the unit waits for its officer to come back to the car (BackupSystem sends the officer back at once). */
+  leaving(callsign: string): boolean {
+    const u = this.byCallsign.get(callsign);
+    return u !== undefined && u.holdSince >= 0;
   }
 
   /** The unit leaves its call: it is cleared in CAD and drives (flies) back to base. */
   private leave(u: Unit, t: CadTime): void {
     const { cad, roster } = this.deps;
+    u.holdSince = -1;
     const call = cad.call(u.callId);
     if (u.type.rank !== null && u.status === 'onScene' && (!call || call.status === 'closed')) roster.applyEvent(u.callsign, 'callHandled');
     if (u.callId > 0) this.emitCleared(u);
@@ -1150,8 +1186,21 @@ export class ResourceSystem implements ResourcePort {
         else if ((u.status === 'turnout' || u.status === 'enRoute') && u.etaS >= 0 && (best === null || u.etaS < best.etaS)) best = u;
       }
     }
+    let next = best ? `${best.callsign} ETA ${clock(best.etaS)}` : null;
+    if (pcall !== null) {
+      // The patrol units sent as backup count too: the soonest ETA of all wins.
+      let bestS = best ? best.etaS : Infinity;
+      for (const cu of cad.units()) {
+        if (cu.kind !== 'ai' || cu.callId !== pcall || cu.status !== 'enRoute') continue;
+        const s = this.eta(cu.callsign);
+        if (s >= 0 && s < bestS) {
+          bestS = s;
+          next = `${cu.callsign} ETA ${clock(s)}`;
+        }
+      }
+    }
     this.hudOut.onScene = onScene;
-    this.hudOut.next = best ? `${best.callsign} ETA ${clock(best.etaS)}` : null;
+    this.hudOut.next = next;
   }
 
   private updateAirView(t: CadTime): void {
@@ -1180,6 +1229,8 @@ export class ResourceSystem implements ResourcePort {
     let n = 0;
     for (const u of this.pool) {
       if (u.air || u.status !== 'onScene') continue;
+      // The walking backup officer replaces the static figure.
+      if (this.deps.hold?.(u.callsign)) continue;
       const crew = u.type.crew;
       const total = crew.count + (crew.dog ? 1 : 0);
       if (total === 0) continue;
@@ -1304,6 +1355,7 @@ export class ResourceSystem implements ResourcePort {
       u.present = false;
       u.eid = 0;
       u.nextTry = 0;
+      u.holdSince = -1;
       u.px = u.homeX;
       u.pz = u.homeZ;
       if (!e) {

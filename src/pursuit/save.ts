@@ -27,6 +27,11 @@ export interface PursuitRunSave {
   personId: number;
   startSim: number;
   pitAuthorized: boolean;
+  /**
+   * The scenario call the pursuit grew out of (0 none): the incident log files the pursuit under it, so the offense is
+   * looked up there. Optional: older saves have none.
+   */
+  ownerCallId?: number;
   /** Sim time the supervisor was first seen, -1 none. */
   monitorSince: number;
   /** Sim time of the last terminate order, -1 none. */
@@ -64,7 +69,7 @@ export interface PursuitBailSave {
 
 /** Bus events waiting for the next step. */
 export type PursuitIntakeSave =
-  | { kind: 'vehicleStart'; callId: number; personId: number }
+  | { kind: 'vehicleStart'; callId: number; personId: number; ownerCallId?: number }
   | { kind: 'vehicleEnd'; callId: number; personId: number; endReason: string }
   | { kind: 'footStart'; callId: number; personId: number }
   | { kind: 'footEnd'; callId: number; personId: number }
@@ -140,6 +145,7 @@ function isRun(v: unknown): boolean {
     (isRecord(v) && int(v.callId) && int(v.vehicleId) && int(v.personId) && num(v.startSim) && typeof v.pitAuthorized === 'boolean' &&
       num(v.monitorSince) && num(v.lastOrderSim) && typeof v.ordered === 'boolean' && num(v.lostSince) && num(v.prevX) && num(v.prevZ) &&
       isTactic(v.tactic) && isHandoff(v.handoff) && optBool(v.stateRequested) && optBool(v.airRequested) && optBool(v.ignoredFlashed) && (v.stateUnit === undefined || str(v.stateUnit)) &&
+      (v.ownerCallId === undefined || int(v.ownerCallId)) &&
       (v.directed === undefined || (Array.isArray(v.directed) && v.directed.every(str))))
   );
 }

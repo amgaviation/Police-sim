@@ -236,6 +236,8 @@ export interface Harness {
   readonly custody: [number, string][];
   readonly events: { topic: string; payload: unknown }[];
   readonly env: { wetness: number; night: boolean };
+  /** Callsigns with an officer out of the car (the `hold` dep). */
+  readonly onFoot: Set<string>;
   scenario: boolean;
   sim: number;
 }
@@ -264,7 +266,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
   const events: { topic: string; payload: unknown }[] = [];
   const env = { wetness: options.wetness ?? 0, night: options.night ?? false };
   const player = options.player ?? { x: city.spawn.x, z: city.spawn.z };
-  const h = { sim: 0, scenario: options.scenario ?? false } as Harness;
+  const h = { sim: 0, scenario: options.scenario ?? false, onFoot: new Set<string>() } as Harness;
   const deps: ResourceDeps = {
     seed: SEED,
     bus,
@@ -297,6 +299,7 @@ export function makeHarness(options: HarnessOptions = {}): Harness {
     npc,
     people: { setCustody: (id, c) => custody.push([id, c]) },
     roster,
+    hold: (callsign) => h.onFoot.has(callsign),
     env: () => env,
     trafficDensity: () => options.density ?? 1,
     types: options.types,

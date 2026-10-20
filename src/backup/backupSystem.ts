@@ -67,6 +67,11 @@ export interface BackupDeps {
   doorRequest(buildingId: number, door: number, action: 'open' | 'ram' | 'kick'): void;
   /** Building footprint and front door (BuildingIndex.building). */
   building(id: number): { minX: number; minZ: number; maxX: number; maxZ: number; door: { x: number; z: number; yaw: number } } | null;
+  /**
+   * True while the unit has been told to leave its call but is still on it (Code 4 timer, on-scene time up): its officers
+   * walk back to the car at once, so the car does not drive off with an officer running after it.
+   */
+  releasing?: (callsign: string) => boolean;
   /** The call's bound building, -1 none. */
   callBuilding(callId: number): number;
   /** SWAT units on scene of the call (resources.onScene(callId, 'swat')). */
@@ -115,6 +120,8 @@ const F_COVERED = 16;
 const F_ABANDONED = 32;
 const F_COVERING = 64;
 const F_PINNED = 128;
+/** The unit left the call (status or call changed) while the officer was out: a returned officer gets out again on re-arrival. */
+const F_LEFT = 256;
 
 const SCAN_S = 0.25;
 const COVER_TARGET_RANGE_M = 25;
@@ -129,6 +136,10 @@ const STRIDE = 1.4;
 const CUFF_RANGE_M = 1.2;
 const CUFF_RETRY_S = 1;
 const DETAIN_GIVE_UP_S = 20;
+/** After a failed detain the officer does not auto-detain the same kind of subject for this long. */
+const DETAIN_PAUSE_S = 30;
+/** A car moving faster than this (m/s) while its officer is still away leaves the officer behind. */
+const CAR_LEAVING_MPS = 2;
 const DOOR_OFFSET_M = 1.2;
 const STANDBY_BEHIND_M = 3;
 const CONTACT_SCAN_S = 0.25;
@@ -184,6 +195,9 @@ interface Officer {
   cvPx: number;
   cvPz: number;
   atCar: boolean;
+  /** The car's last seen position (returning), NaN none. */
+  carX: number;
+  carZ: number;
 }
 
 interface Pending {
@@ -402,6 +416,8 @@ export class BackupSystem implements BackupPort {
       const s = o.fsm.state;
       if (o.post !== null || s === 'gone' || s === 'returning' || s === 'exiting' || s === 'chase' || s === 'detain' || s === 'swat') continue;
       if (o.fsm.role !== 'standby' && o.fsm.role !== 'secondary') continue;
+      // Command staff (sergeants and up) stay at the command post: only patrol officers staff posts.
+      if (o.rank !== 'officer') continue;
       // Standby officers first, then secondary; nearest to the post within a class.
       const score = (o.fsm.role === 'standby' ? 0 : 1e9) + dist2(o.x, o.z, post.x, post.z);
       if (score < bestScore) {
@@ -653,7 +669,7 @@ export class BackupSystem implements BackupPort {
       speed: 0, gait: 0, prevX: x, prevZ: z, prevYaw: yaw,
       coverAngle: lerp(this.cfg.cover.angleDeg, hashFrac(callsign, ':angle')) * DEG,
       coverDist: lerp(this.cfg.cover.distanceM, hashFrac(callsign, ':dist')),
-      hasCover: false, cvSx: 0, cvSz: 0, cvPx: 0, cvPz: 0, atCar: false,
+      hasCover: false, cvSx: 0, cvSz: 0, cvPx: 0, cvPz: 0, atCar: false, carX: NaN, carZ: NaN,
     };
   }
 
@@ -673,7 +689,15 @@ export class BackupSystem implements BackupPort {
     o.prevZ = o.z;
     o.prevYaw = o.yaw;
     const u = cad.unit(o.callsign);
-    const onCall = ctx.callId === o.callId && u !== null && u.callId === o.callId && u.status === 'onScene';
+    const present = ctx.callId === o.callId && u !== null && u.callId === o.callId && u.status === 'onScene';
+    const onCall = present && !(this.deps.releasing?.(o.callsign) ?? false);
+    if (!present) o.flags |= F_LEFT;
+    else if (onCall && o.fsm.state === 'returning' && (o.flags & F_LEFT) !== 0) {
+      // The unit came back to the call: a fresh arrival, the officer goes back to its role.
+      o.flags &= ~F_LEFT;
+      o.fsm.state = 'approach';
+      this.onTransition(o, 'returning');
+    }
     const inp = this.fsmIn;
     inp.dt = dt;
     inp.onCall = onCall;
@@ -681,6 +705,7 @@ export class BackupSystem implements BackupPort {
     inp.caught = false;
     inp.lost = false;
     inp.detained = false;
+    inp.gaveUp = false;
     inp.atCar = false;
     inp.post = o.post !== null;
     inp.command = o.cmd;
@@ -695,7 +720,7 @@ export class BackupSystem implements BackupPort {
         o.goalZ = o.z;
         break;
       case 'returning':
-        this.goalCar(o);
+        this.goalCar(o, dt);
         inp.atCar = o.atCar;
         break;
       case 'chase':
@@ -756,9 +781,17 @@ export class BackupSystem implements BackupPort {
 
   // --- Goals -----------------------------------------------------------------------------------------------
 
-  private goalCar(o: Officer): void {
+  private goalCar(o: Officer, dt: number): void {
     const p = this.pose;
     if (!this.deps.unitCar(o.callsign, p)) {
+      o.atCar = true;
+      return;
+    }
+    // Safety net: a car that drives off leaves the officer behind rather than letting it run after the car.
+    const moved = Math.sqrt(dist2(p.x, p.z, o.carX, o.carZ));
+    o.carX = p.x;
+    o.carZ = p.z;
+    if (moved > CAR_LEAVING_MPS * dt && dist2(o.x, o.z, p.x, p.z) > 4 * 4) {
       o.atCar = true;
       return;
     }
@@ -872,7 +905,9 @@ export class BackupSystem implements BackupPort {
     const compliant = COMPLIANT.has(a.state);
     if (o.fsm.state === 'secondary') {
       if (compliant) {
-        if (inp.command === null) inp.command = 'detain';
+        // detainT counts the pause after a failed detain down outside the detain state.
+        if (o.detainT > 0) o.detainT -= dt;
+        else if (inp.command === null) inp.command = 'detain';
         return;
       }
       o.cmdT -= dt;
@@ -920,8 +955,14 @@ export class BackupSystem implements BackupPort {
     const { npc, bus } = this.deps;
     const a = o.targetActor !== 0 ? npc.actor(o.targetActor, this.info) : null;
     o.detainT += dt;
-    if (a === null || a.cuffed || o.detainT > DETAIN_GIVE_UP_S) {
+    if (a !== null && a.cuffed) {
       inp.detained = true;
+      return;
+    }
+    if (a === null || o.detainT > DETAIN_GIVE_UP_S) {
+      // Nothing was cuffed: back to the role without the custody callout, and no new attempt for a while.
+      inp.gaveUp = true;
+      o.detainT = DETAIN_PAUSE_S;
       return;
     }
     // Stop short of the subject.
@@ -1307,7 +1348,8 @@ export class BackupSystem implements BackupPort {
       const o = this.list[i] as Officer;
       if (o.fsm.state !== 'gone') continue;
       const u = this.deps.cad.unit(o.callsign);
-      if (ctx.callId === o.callId && u !== null && u.callId === o.callId && u.status === 'onScene') continue;
+      // A unit still on the call keeps its returned officer, unless the unit left and came back (it gets out again).
+      if (ctx.callId === o.callId && u !== null && u.callId === o.callId && u.status === 'onScene' && (o.flags & F_LEFT) === 0) continue;
       this.list.splice(i, 1);
       this.byCallsign.delete(o.callsign);
     }

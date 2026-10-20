@@ -292,6 +292,17 @@ describe('composer: always on the air', () => {
     ]);
   });
 
+  it('the backup broadcast names the soonest ETA in minutes when the dispatcher knows it', () => {
+    const rig = makeRig();
+    rig.bus.emit('dispatch:backup', { requester: PLAYER, code: 3, units: ['21', '23'], x: 0, z: 0, location: 'Oak Street at 5th Street', etaS: 130 });
+    settle(rig);
+    rig.bus.emit('dispatch:backup', { requester: PLAYER, code: 3, units: ['25'], x: 0, z: 0, location: 'Oak Street at 5th Street', etaS: 30 });
+    settle(rig);
+    const t = texts(rig).filter((x) => x.startsWith('Dispatch'));
+    expect(t[0]).toBe('Dispatch: 21 and 23, Code 3 to assist 12, Oak Street at 5th Street. ETA 3 minutes.');
+    expect(t[1]).toBe('Dispatch: 25, Code 3 to assist 12, Oak Street at 5th Street. ETA 1 minute.');
+  });
+
   it('traffic stop: player call-out then dispatcher ack', () => {
     const rig = makeRig();
     const call = rig.cad.createCall(

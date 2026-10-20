@@ -76,8 +76,8 @@
       "plain": ["{unit}, requesting backup, {backupCode}, at {near}."]
     },
     "backupDispatch": {
-      "tenCode": ["{units}, {backupCode} to assist {player}, {near}."],
-      "plain": ["{units}, respond {backupCode} to back up {player} at {near}."]
+      "tenCode": ["{units}, {backupCode} to assist {player}, {near}. {eta}"],
+      "plain": ["{units}, respond {backupCode} to back up {player} at {near}. {eta}"]
     },
     "noUnits": {
       "tenCode": ["{unit}, no units available at this time."],
