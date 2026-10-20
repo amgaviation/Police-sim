@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser smoke test (Phases 0-5).
+ * Browser smoke test (Phases 0-6).
  *
  * Starts the Vite dev server (unless SMOKE_URL points at a running one), drives
  * the game in headless Chromium with SwiftShader: a new shift in the city, chunk
@@ -24,12 +24,17 @@
  * its force verdict, arrest, rights, booking and the case in court, `law explain` with citations, the MDT report statements
  * checklist and grade, the Career and Community tabs, the courtroom answered with the real keys, an unlawful frisk and an
  * excessive TASER that open an IA case reviewed with bodycam snapshots from the live canvas, a v7 save/load and the Phase 5
+ * console commands. Phase 6: the radio menu's paged Request list (T, 4, 2 and 5), an AI backup officer getting out to cover
+ * (HUD line, radio callout, the Backup panel on `,`), a pursuit with the tactics panel (`;`), the supervisor's termination
+ * order, the air unit and its FLIR camera (`/`), a mass-casualty incident with the command post, triage, the command
+ * panel (`.`) and the MDT Command tab, a barricade with the negotiator and the SWAT team, a v8 save/load and the Phase 6
  * console commands.
  * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
  * in-car MDT), phase2-mdt.png (the MDT overlay), phase3.png (a call scene with people),
  * phase3-dialogue.png (the dialogue panel), phase4.png (an interior with the flashlight and markers),
  * phase4-station.png (the roll-call briefing), phase4-case.png (the case file), phase5-mdt.png (the Career tab),
- * phase5-court.png (the courtroom) and phase5-review.png (the evidence review).
+ * phase5-court.png (the courtroom), phase5-review.png (the evidence review), phase6-backup.png (the Backup panel with a
+ * backup officer), phase6-flir.png (the air unit camera) and phase6-command.png (the command panel at a mass-casualty scene).
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
@@ -1422,7 +1427,7 @@ async function phase3(page, hasRenderer) {
     return { before, after, version: list.find((x) => x.slot === 'smoke-phase3')?.version ?? -1 };
   });
   console.log('phase 3 save/load:', JSON.stringify({ version: v5.version, people: v5.after.people.length, scenarios: v5.after.scenarios, closed: v5.after.closed.length, contacts: v5.after.contacts, peds: v5.after.peds }));
-  check(v5.version === 7, `saved as v7 (${v5.version})`);
+  check(v5.version === 8, `saved as v8 (${v5.version})`);
   check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v6 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
   check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v6 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
   check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v6 keeps the open contacts and the pedestrians/actors');
@@ -1887,7 +1892,7 @@ async function phase4(page, hasRenderer) {
     };
   });
   console.log('phase 4 save/load:', JSON.stringify(save));
-  check(save.version === 7, `the save is written as version 7 (${save.version})`);
+  check(save.version === 8, `the save is written as version 8 (${save.version})`);
   check(save.after.building === save.before.building && save.after.building >= 0, 'the officer is back inside the station after the load');
   check(save.after.files === save.before.files && save.after.ledger === save.before.ledger, `case files and the custody ledger survive (${save.after.files} files, ${save.after.ledger} entries)`);
   check(save.after.holding === save.before.holding && save.after.flow === save.before.flow, 'holding cells and the shift flow survive');
@@ -2364,7 +2369,7 @@ async function phase5(page, hasRenderer) {
     };
   });
   console.log('phase 5 save/load:', JSON.stringify(save));
-  check(save.version === 7, `the save is written as version 7 (${save.version})`);
+  check(save.version === 8, `the save is written as version 8 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'incident logs, court cases, IA cases, report grades and trust survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------
@@ -2409,6 +2414,385 @@ async function phase5(page, hasRenderer) {
   return { perf, frame, extras };
 }
 
+
+/**
+ * Phase 6 checks on a fresh shift: backup requested with the radio menu (T, 4, 2) and a K9 (T, 4, 5) at a call, an AI
+ * officer getting out to cover with the HUD backup line and the Backup panel (`,`), a pursuit with the tactics panel (`;`)
+ * and the air unit's FLIR camera (`/`), a mass-casualty incident with the command post, triage and the command panel
+ * (`.`) and the MDT Command tab, a barricade with the negotiator and SWAT, a v8 save / load and the Phase 6 console
+ * commands. Sim time is fast-forwarded in the page where units have to drive for minutes.
+ */
+async function phase6(page, hasRenderer) {
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.indoorScenes = true;
+    app.ui.closeAll();
+    app.newGame(42, 'generic');
+    app.perf.setVisible(false);
+  });
+  await waitFor(page, () => window.patrol.session !== null && (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  await page.evaluate(async () => {
+    await window.patrol.console.execute('time 10:30');
+    await window.patrol.console.execute('weather clear');
+    const st = window.patrol.session.station;
+    st.request({ kind: 'armory', item: 'sidearm', action: 'out' });
+    st.request({ kind: 'complete', step: 'garage' });
+    // Phase 6 topics of interest are recorded for the checks.
+    const log = [];
+    window.__p6 = log;
+    for (const t of ['pursuit:order', 'pursuit:tactic', 'backup:callout', 'backup:swat', 'command:flash', 'resource:dispatched', 'resource:arrived', 'command:post', 'command:triage', 'command:negotiation', 'scene:pursuit']) {
+      window.patrol.bus.on(t, (e) => log.push({ t, sim: window.patrol.session.now().sim, e }));
+    }
+  });
+  await sleep(1500);
+
+  // --- Radio menu: T, 4 (Request), 2 (priority backup) and 5 (K9) --------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.enterVehicle(0);
+    const s = app.session;
+    const at = s.playerPosition({ x: 0, z: 0 });
+    // A suspicious-person call at the officer's position, assigned to the officer (the player's call).
+    const id = s.scene.spawnCall('suspiciousPerson', s.now(), at, [], -1);
+    s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'selfAssign', callId: id }, 'key');
+    window.__p6Call = id;
+  });
+  await sleep(500);
+  await press(page, 'KeyE'); // gets out of the (stationary) patrol car
+  await page.evaluate(() => { for (let i = 0; i < 240; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0); });
+  const menu0 = await page.evaluate(() => ({ driving: window.patrol.session.driving, call: window.patrol.session.cad.unit(window.patrol.session.dispatcher.playerCallsign)?.callId ?? 0, status: window.patrol.session.cad.unit(window.patrol.session.dispatcher.playerCallsign)?.status }));
+  console.log('phase 6 start:', JSON.stringify(menu0));
+  await press(page, 'KeyT');
+  await press(page, 'Digit4');
+  const menuTitle = await page.evaluate(() => window.patrol.radioMenuView.view?.title ?? '');
+  await press(page, 'Digit2');
+  // The request goes out when the officer's radio transmission ends: let the sim run for it.
+  await page.evaluate(() => { for (let i = 0; i < 60 * 12; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0); });
+  await waitFrames(page, 3);
+  const afterBackup = await page.evaluate(() => window.patrol.session.cad.units().filter((u) => u.kind === 'ai' && u.status === 'enRoute').map((u) => u.callsign));
+  console.log('phase 6 radio menu title:', menuTitle, '; units en route:', afterBackup.join(','));
+  check(/^Request \d\/\d/.test(menuTitle), `T then 4 opens the paged Request menu (${menuTitle})`);
+  check(afterBackup.length > 0, `Request > priority backup sends AI units (${afterBackup.join(', ')})`);
+  await press(page, 'KeyT');
+  await press(page, 'Digit4');
+  await press(page, 'Digit5');
+  await page.evaluate(() => { for (let i = 0; i < 60 * 12; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0); });
+  await waitFrames(page, 3);
+  const k9 = await waitFor(page, () => ['turnout', 'enRoute'].includes(window.patrol.session.cad.unit('K9-1')?.status ?? ''), null, 5000);
+  check(k9, 'Request > K9 sends K9-1 from the station');
+  // The HUD shows the soonest unit coming to the call.
+  await page.evaluate(() => { for (let i = 0; i < 120; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0); });
+  await waitFrames(page, 12);
+  const eta = await page.evaluate(() => ({ text: window.patrol.session.phase6.resources.hud().next, hud: /ETA \d/.test(document.querySelector('#hud')?.textContent ?? '') }));
+  console.log('phase 6 resource ETA:', JSON.stringify(eta));
+  check(eta.text !== null && eta.hud, `the HUD shows a unit's ETA (${eta.text ?? '-'})`);
+
+  // --- A backup officer gets out and covers (the dispatched units start close to the scene) ----------------------------------
+  await page.evaluate(() => {
+    const s = window.patrol.session;
+    const at = s.playerPosition({ x: 0, z: 0 });
+    for (const u of s.cad.units()) {
+      if (u.kind !== 'ai' || u.status !== 'enRoute') continue;
+      s.cad.setUnitPosition(u.callsign, at.x + 60, at.z);
+      s.traffic.removeFleetCar(u.fleetIndex);
+    }
+  });
+  const out = await page.evaluate(() => {
+    const s = window.patrol.session;
+    for (let i = 0; i < 60 * 150 && s.phase6.backup.officers().length === 0; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+    return s.phase6.backup.officers().map((o) => ({ cs: o.callsign, name: o.name, role: o.role, state: o.state }));
+  });
+  console.log('phase 6 backup officers:', JSON.stringify(out));
+  check(out.length > 0, `an AI backup officer gets out of the car (${out.map((o) => `${o.cs} ${o.role}`).join(', ')})`);
+  await page.evaluate(() => { for (let i = 0; i < 900; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0); });
+  await waitFrames(page, 14);
+  const hudLine = await page.evaluate(() => /COVER|SECONDARY/.test(document.querySelector('#hud')?.textContent ?? ''));
+  const callout = await page.evaluate(() => window.__p6.some((x) => x.t === 'backup:callout'));
+  check(hudLine, 'the HUD shows the backup officer line');
+  check(callout, 'the backup officer calls out over the radio');
+  await press(page, 'Comma');
+  const backupPanel = await page.evaluate(() => ({ open: window.patrol.phase6.panel.isOpen, title: window.patrol.phase6.panel.model?.title ?? '', rows: window.patrol.phase6.panel.model?.options.length ?? 0 }));
+  check(backupPanel.open && backupPanel.title === 'Backup', `, opens the Backup panel (${backupPanel.title}, ${backupPanel.rows} rows)`);
+  await press(page, 'Digit1'); // select the first officer
+  await press(page, 'Digit1');
+  await waitFrames(page, 4);
+  if (hasRenderer) {
+    await page.screenshot({ path: path.join(SHOTS, 'phase6-backup.png') });
+    console.log(`screenshot: ${path.join(SHOTS, 'phase6-backup.png')}`);
+  }
+  await press(page, 'Escape');
+  check(await page.evaluate(() => !window.patrol.phase6.panel.isOpen), 'Escape closes the Backup panel');
+
+  // --- A pursuit: tactics panel, supervisor order, air unit with FLIR ---------------------------------------------------------
+  await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    // Clear the call and get back in the car on the highway: a straight road for the chase.
+    const call = s.cad.unit(s.dispatcher.playerCallsign)?.callId;
+    if (call) s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId: call, disposition: 'handled' }, 'key');
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    app.enterVehicle(0);
+    const lane = 58 * 16;
+    const p = s.city.graph.lanePoint(lane, s.city.graph.laneStart(lane) + 40, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+    app.teleport(p.x, p.z, p.yaw);
+    for (let i = 0; i < 60; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    if (!s.drivenVehicle?.lightbar) s.toggleLightbar();
+    await app.console.execute('pursuit spawn');
+  });
+  await waitFrames(page, 6);
+  const started = await page.evaluate(() => ({ hud: window.patrol.session.phase6.pursuit.hud(), active: window.patrol.session.phase6.pursuit.active() }));
+  console.log('phase 6 pursuit:', JSON.stringify(started));
+  check(started.active && started.hud !== null, `pursuit spawn starts a pursuit with a HUD line (${started.hud?.line ?? '-'})`);
+  await press(page, 'Semicolon');
+  const pursuitPanel = await page.evaluate(() => ({ open: window.patrol.phase6.panel.isOpen, title: window.patrol.phase6.panel.model?.title ?? '', rows: window.patrol.phase6.panel.model?.options.length ?? 0 }));
+  check(pursuitPanel.open && pursuitPanel.rows === 7, `; opens the pursuit tactics panel (${pursuitPanel.title}, ${pursuitPanel.rows} rows)`);
+  await press(page, 'Digit6'); // request the air unit
+  await press(page, 'Escape');
+  await page.evaluate(async () => {
+    await window.patrol.console.execute('pursuit spikes');
+    for (let i = 0; i < 60 * 120 && !(window.__p6.some((x) => x.t === 'pursuit:order') && window.__p6.some((x) => x.t === 'pursuit:tactic')); i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  const sup = await page.evaluate(() => ({
+    order: window.__p6.some((x) => x.t === 'pursuit:order' && x.e.order === 'terminate'),
+    tactics: window.__p6.filter((x) => x.t === 'pursuit:tactic').map((x) => `${x.e.tactic}:${x.e.verdict}`),
+    sgt: window.__p6.some((x) => x.t === 'resource:dispatched' && x.e.typeId === 'supervisor'),
+    air: window.__p6.some((x) => x.t === 'resource:dispatched' && x.e.typeId === 'air'),
+    line: document.querySelector('#hud')?.textContent ?? '',
+  }));
+  console.log('phase 6 pursuit events:', JSON.stringify({ ...sup, line: undefined }));
+  check(sup.sgt, 'a sergeant is sent to the pursuit');
+  check(sup.order, 'the supervisor orders the pursuit terminated (risk outweighs the offense)');
+  check(sup.tactics.length > 0, `tactics are judged (${sup.tactics.join(', ')})`);
+  check(sup.air, 'the air unit was requested from the tactics panel (key 6)');
+  await page.evaluate(() => {
+    // Let the chase end and the bail-out perimeter go up.
+    for (let i = 0; i < 60 * 60; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+
+  // --- A mass-casualty incident: command post, triage, the command panel and the MDT Command tab ------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    for (const c of s.cad.openCalls()) {
+      if (s.cad.unit(s.dispatcher.playerCallsign)?.callId === c.id) s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId: c.id, disposition: 'handled' }, 'key');
+    }
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    // Back to the city centre (the units' bases are there): the chase ended on the far highway.
+    app.teleport(s.city.spawn.x + 40, s.city.spawn.z + 20, 0);
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  await press(page, 'KeyE'); // out of the patrol car: assessments are made on foot
+  const mci = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    await app.console.execute('mci start multiVehicleCrash');
+    for (let i = 0; i < 60 * 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const call = s.cad.unit(s.dispatcher.playerCallsign)?.callId ?? 0;
+    const loc = s.cad.call(call)?.location;
+    if (loc) app.teleport(loc.x, loc.z, 0);
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    await app.console.execute('ics post');
+    for (let i = 0; i < 60; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const v = s.phase6.command.board().victims[0];
+    const a = v ? s.npc.actor(v.actorId, { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 }) : null;
+    if (a) app.teleport(a.x + 1.2, a.z, 0);
+    for (let i = 0; i < 60; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    await app.console.execute('ics needs');
+    return { call, post: s.phase6.command.post(), victims: s.phase6.command.board().victims.length };
+  });
+  console.log('phase 6 mci:', JSON.stringify(mci));
+  check(mci.post !== null && mci.victims >= 5, `the command post is established with ${mci.victims} patients on the board`);
+  await press(page, 'Period');
+  const cmdPanel = await page.evaluate(() => ({ open: window.patrol.phase6.panel.isOpen, title: window.patrol.phase6.panel.model?.title ?? '', rows: window.patrol.phase6.panel.model?.options.length ?? 0 }));
+  check(cmdPanel.open && /command|ICS|Triage/i.test(cmdPanel.title), `. opens the command panel (${cmdPanel.title}, ${cmdPanel.rows} rows)`);
+  // Row 1 (establish) is disabled with the post open, so 2 is "Assess nearest victim".
+  await press(page, 'Digit2');
+  await page.evaluate(() => {
+    for (let i = 0; i < 60 * 8; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  await waitFrames(page, 14);
+  const triage = await page.evaluate(() => ({ prompt: window.patrol.session.phase6.command.triage(), title: window.patrol.phase6.panel.model?.title ?? '' }));
+  console.log('phase 6 triage:', JSON.stringify({ title: triage.title, label: triage.prompt?.label, progress: triage.prompt?.progress }), JSON.stringify(await page.evaluate(() => window.__p6.filter((x) => x.t === 'command:flash').slice(-3).map((x) => x.e.text))));
+  check(triage.prompt !== null, `the assessment opens a triage prompt (${triage.title})`);
+  if (hasRenderer) {
+    await page.screenshot({ path: path.join(SHOTS, 'phase6-command.png') });
+    console.log(`screenshot: ${path.join(SHOTS, 'phase6-command.png')}`);
+  }
+  const tagged = await page.evaluate(async () => {
+    const s = window.patrol.session;
+    const t = s.phase6.command.triage();
+    if (t) await window.patrol.console.execute(`triage tag ${String(t.personId)} red`);
+    for (let i = 0; i < 60; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+    return window.__p6.some((x) => x.t === 'command:triage' && x.e.by === 'player');
+  });
+  check(tagged, 'a patient is tagged with the triage command');
+  await press(page, 'Escape');
+  const mdt = await page.evaluate(() => {
+    const m = window.patrol.mdt;
+    m.open('command');
+    m.update(performance.now() + 5000);
+    return { tab: m.tab, model: m.commandModel !== null };
+  });
+  check(mdt.tab === 'command' && mdt.model, 'the MDT Command tab shows the ICS board');
+  await page.evaluate(() => window.patrol.mdt.close());
+  const ems = await page.evaluate(() => {
+    for (let i = 0; i < 60 * 240; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { dispatched: window.__p6.some((x) => x.t === 'resource:dispatched' && x.e.typeId === 'ems'), arrived: window.__p6.some((x) => x.t === 'resource:arrived' && x.e.typeId === 'ems'), emsTags: window.__p6.filter((x) => x.t === 'command:triage' && x.e.by === 'ems').length };
+  });
+  console.log('phase 6 EMS:', JSON.stringify(ems));
+  check(ems.dispatched && ems.arrived && ems.emsTags > 0, `EMS arrives and triages the other patients (${ems.emsTags} tags)`);
+
+  // The air unit is requested for the scene (about three minutes), then `/` puts the camera on it.
+  await page.evaluate(async () => {
+    await window.patrol.console.execute('request air');
+  });
+  const airUp = await page.evaluate(() => {
+    const s = window.patrol.session;
+    const air = () => s.phase6.resources.units().find((u) => u.callsign === 'AIR-1');
+    for (let i = 0; i < 60 * 400 && air()?.status !== 'onScene'; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { status: air()?.status ?? '-', view: s.phase6.resources.airView() !== null };
+  });
+  console.log('phase 6 air unit:', JSON.stringify(airUp));
+  check(airUp.status === 'onScene' && airUp.view, `AIR-1 is on station over the scene (${airUp.status})`);
+  await waitFrames(page, 4);
+  const preFlir = await page.evaluate(() => ({ air: window.patrol.session.phase6.resources.airView() !== null, menu: window.patrol.ui.isMenuOpen(), paused: window.patrol.loop.paused, top: window.patrol.ui.top?.id ?? null }));
+  console.log('phase 6 before FLIR:', JSON.stringify(preFlir));
+  await press(page, 'Slash');
+  await waitFrames(page, 6);
+  const flir = await page.evaluate(() => ({
+    on: window.patrol.phase6.flirOn,
+    cls: window.patrol.renderer?.canvas.classList.contains('flir-on') ?? false,
+    fov: window.patrol.renderer?.camera.fov ?? 0,
+    hud: /FLIR/.test(document.querySelector('#hud')?.textContent ?? ''),
+  }));
+  console.log('phase 6 FLIR:', JSON.stringify(flir));
+  check(flir.on && (!hasRenderer || flir.cls), `/ puts the camera on the air unit (FLIR on, canvas filter ${flir.cls}, fov ${flir.fov})`);
+  if (hasRenderer) {
+    await page.screenshot({ path: path.join(SHOTS, 'phase6-flir.png') });
+    console.log(`screenshot: ${path.join(SHOTS, 'phase6-flir.png')}`);
+  }
+  await press(page, 'Slash');
+  const flirOff = await page.evaluate(() => ({ on: window.patrol.phase6.flirOn, fov: window.patrol.renderer?.camera.fov ?? 0, base: window.patrol.settings.get('graphics.fov') }));
+  check(!flirOff.on && (!hasRenderer || Math.abs(flirOff.fov - flirOff.base) < 0.01), `/ again restores the normal camera (fov ${flirOff.fov})`);
+
+  // --- A barricade: containment, the negotiator and SWAT ---------------------------------------------------------------------
+  const bar = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const call = s.cad.unit(s.dispatcher.playerCallsign)?.callId;
+    if (call) s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId: call, disposition: 'handled' }, 'key');
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    app.teleport(s.city.spawn.x + 40, s.city.spawn.z + 20, 0);
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    await app.console.execute('swat test');
+    for (let i = 0; i < 60 * 20; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const id = s.cad.unit(s.dispatcher.playerCallsign)?.callId ?? 0;
+    const door = s.scene.buildingOfCall(id) >= 0 ? s.buildings.building(s.scene.buildingOfCall(id))?.door : null;
+    if (door) app.teleport(door.x, door.z + 8, 0);
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    await app.console.execute('ics post');
+    await app.console.execute('request negotiator');
+    for (let i = 0; i < 60 * 420; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { id, phase: s.phase6.backup.swatPhase(id), units: s.phase6.resources.units().filter((u) => u.status === 'onScene').map((u) => u.callsign) };
+  });
+  console.log('phase 6 barricade:', JSON.stringify(bar));
+  check(bar.phase !== null && bar.units.includes('TAC-1') && bar.units.includes('NEG-1'), `the negotiator and the SWAT team are on scene (${bar.units.join(', ')}; SWAT ${bar.phase})`);
+  const neg = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    await app.console.execute('negotiate open');
+    for (let i = 0; i < 60; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const view = s.phase6.command.negotiationView();
+    const open = app.phase6.negotiation.isOpen;
+    return { view: view !== null, topics: view?.topics.length ?? 0, open };
+  });
+  await waitFrames(page, 6);
+  const negOpen = await page.evaluate(() => window.patrol.phase6.negotiation.isOpen);
+  console.log('phase 6 negotiation:', JSON.stringify({ ...neg, negOpen }));
+  check(neg.view && neg.topics > 0, `negotiation opens with the subject's topics (${neg.topics})`);
+  check(negOpen, 'the negotiation dialogue panel is open');
+  await press(page, 'Escape');
+  const swat = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const phases = [];
+    for (const cmd of ['stack', 'breach', 'clear']) {
+      await app.console.execute(`swat ${cmd}`);
+      for (let i = 0; i < 60 * 25; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+      const id = s.cad.unit(s.dispatcher.playerCallsign)?.callId ?? 0;
+      phases.push(`${cmd}:${s.phase6.backup.swatPhase(id) ?? '-'}`);
+    }
+    return { phases, swatEvents: window.__p6.filter((x) => x.t === 'backup:swat').length };
+  });
+  console.log('phase 6 SWAT:', JSON.stringify(swat));
+  check(swat.swatEvents > 0, `the SWAT team answers the commands (${swat.phases.join(', ')}; ${swat.swatEvents} reports)`);
+
+  // --- A v8 save / load round trip ----------------------------------------------------------------------------------------------
+  const save = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const before = {
+      roster: s.roster.callsigns().length,
+      stress: s.roster.dynamic('21')?.stress.toFixed(5),
+      units: s.cad.units().filter((u) => u.kind === 'resource').length,
+      post: s.phase6.command.post()?.callId ?? 0,
+      victims: s.phase6.command.board().victims.length,
+    };
+    await app.saveGame('p6');
+    const list = await app.saves.list();
+    await app.loadGame('p6');
+    const l = app.session;
+    await new Promise((r) => setTimeout(r, 800));
+    return {
+      version: list.find((x) => x.slot === 'p6')?.version ?? 0,
+      before,
+      after: {
+        roster: l.roster.callsigns().length,
+        stress: l.roster.dynamic('21')?.stress.toFixed(5),
+        units: l.cad.units().filter((u) => u.kind === 'resource').length,
+        post: l.phase6.command.post()?.callId ?? 0,
+        victims: l.phase6.command.board().victims.length,
+      },
+    };
+  });
+  console.log('phase 6 save/load:', JSON.stringify(save));
+  check(save.version === 8, `the save is written as version 8 (${save.version})`);
+  check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the roster, resource units, command post and victims survive the load');
+
+  // --- Console commands -------------------------------------------------------------------------------------------------------------
+  const cmds = await page.evaluate(async () => {
+    const c = window.patrol.console;
+    const run = async (line) => {
+      const before = c.lines.length;
+      await c.execute(line);
+      return c.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    const out = [];
+    for (const line of ['units', 'units roster', 'units ems', 'roster', 'roster 21', 'stress 21 0.4', 'eta K9-1', 'backup list', 'pursuit status', 'ics status', 'triage list', 'flir']) {
+      out.push(`> ${line}`, ...(await run(line)));
+    }
+    return out;
+  });
+  console.log('phase 6 console commands:\n  ' + cmds.map((l) => l.slice(0, 160)).join('\n  '));
+  check(!cmds.some((l) => l.startsWith('error:')), 'Phase 6 console commands ran without errors');
+
+  // --- Perf ------------------------------------------------------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    for (let i = 0; i < 60 * 10; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  const perf = await page.evaluate(perfSnapshot);
+  const extras = await page.evaluate(() => {
+    const out = {};
+    for (const [name, ms] of window.patrol.systems.timings) if (['resources', 'pursuit', 'backup', 'command', 'dispatch', 'scene'].includes(name)) out[name] = Number(ms.toFixed(4));
+    return { systems: out };
+  });
+  const frame = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+  console.log('perf phase 6:', JSON.stringify(perf));
+  console.log('phase 6 sim costs:', JSON.stringify(extras));
+  return { perf, frame, extras };
+}
+
 async function run() {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({
@@ -2438,6 +2822,18 @@ async function run() {
 
     const hasRenderer = await page.evaluate(() => window.patrol.renderer !== null);
     console.log(`renderer: ${hasRenderer ? 'WebGL available' : 'UNAVAILABLE (headless simulation only)'}`);
+
+    // SMOKE_ONLY=6 runs just the Phase 6 checks.
+    if (process.env.SMOKE_ONLY === '6') {
+      const only = await phase6(page, hasRenderer);
+      console.log('phase 6 frame:', JSON.stringify(only.frame));
+      check(only.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 6 within the cap (${only.perf.drawCalls})`);
+      check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+      check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
+      console.log('--- browser console ---');
+      for (const line of consoleLines) console.log(line);
+      return;
+    }
 
     // SMOKE_ONLY=5 runs just the Phase 5 checks.
     if (process.env.SMOKE_ONLY === '5') {
@@ -2751,6 +3147,7 @@ async function run() {
     const phase3Perf = await guarded('phase 3', () => phase3(page, hasRenderer));
     const phase4Perf = await guarded('phase 4', () => phase4(page, hasRenderer));
     const phase5Perf = await guarded('phase 5', () => phase5(page, hasRenderer));
+    const phase6Perf = await guarded('phase 6', () => phase6(page, hasRenderer));
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -2784,6 +3181,12 @@ async function run() {
       console.log('perf phase 5:', JSON.stringify(phase5Perf.perf));
       console.log('phase 5 sim costs:', JSON.stringify(phase5Perf.extras));
       check(phase5Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 5 within the cap (${phase5Perf.perf.drawCalls})`);
+    }
+    if (phase6Perf) {
+      console.log(describe('Phase 6 patrol (HUD, air unit, command):', phase6Perf.frame));
+      console.log('perf phase 6:', JSON.stringify(phase6Perf.perf));
+      console.log('phase 6 sim costs:', JSON.stringify(phase6Perf.extras));
+      check(phase6Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 6 within the cap (${phase6Perf.perf.drawCalls})`);
     }
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);

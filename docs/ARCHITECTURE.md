@@ -132,7 +132,24 @@ src/
                           testimony scoring, motion rulings and verdicts
   recording/              MediaStore (IndexedDB `patrol-media`, memory twin), SnapshotScheduler / `captureSnapshot` (160x90 JPEG), review timeline
   ui/court, ui/ia, ui/review   CourtroomPanel, IA review source / footer, EvidenceReviewPanel (REC / MUTED / DASH strip, scrubber, events)
+  units/                  Phase 6: unit types (`unitTypes.json`, 20 types, 23 resource slots), pure response-time estimation (`estimateResponse`,
+                          `rankByEta`), officer personalities and mistakes (`officerProfile`, `mistakeChances`, `rollMistakes`), `RosterState`
+                          (stress, fatigue, loyalty, counters; profiles are pure functions of seed + callsign)
+  resources/              ResourceSystem: specialised unit pools (K9, EMS, fire, tow, SWAT, negotiator, air, coroner, detectives, CSU, animal
+                          control, bomb squad, state patrol, federal) and the chain of command (sergeant, lieutenant, chief) as fleet cars
+                          with turnout, live ETA, scene services, crews; the air unit's flight, orbit and FLIR reveal
+  backup/                 BackupSystem: AI patrol officers on foot (pure FSM: cover / secondary / post / standby, callouts, deterministic mistakes),
+                          posts, SWAT team (`SwatTeam`: stage, stack, breach, clear, plan)
+  pursuit/                PursuitSystem: contact classification (PIT / ram / bump), policy, risk and the supervisor's termination rules, spike
+                          strips, box-in, roadblock, air, foot-bail perimeter, jurisdiction handoff to the state patrol
+  command/                CommandSystem: command post, levels, START triage and vitals, EMS transport, traffic control points, evacuation,
+                          containment, negotiation minigame
+  ui/backup, ui/pursuit, ui/command   pure panel models over `ActionPanel` (backup, pursuit tactics, command / triage / SWAT)
+  ui/air, render/air, render/pursuit   FlirOverlay, `airCameraPose`, AirRenderer (helicopter + spotlight), SpikeRenderer
   game/
+    phase6.ts             Phase6: constructs resources, pursuit, backup and command over the session's objects (ports), wires the bridges
+    phase6Presenter.ts    Phase 6 presentation: backup / pursuit / command panels, negotiation dialogue, FLIR camera, helicopter and strips, HUD
+    phase6Commands.ts     units / request / eta / roster / stress / backup / pursuit / swat / negotiate / mci / triage / ics / flir
     phase5.ts             Phase5: constructs force, incidents, conduct and court over the session's objects (ports) and wires the bridges
     phase5Presenter.ts    Phase 5 presentation: snapshot capture and media store, courtroom and review panels, IA flow, HUD additions
     phase5Commands.ts     law / jurisdiction / legal / incident / force / trust / career / ia / court / cam / media
@@ -155,7 +172,8 @@ src/
     commands.ts           Phase 0 console commands; pauseMenu.ts, playerController.ts, sceneLayout.ts, route.ts
   data/                   JSON content: world/, environment/, crime/, vehicles/, physics/, traffic/, records/, cad/,
                           dispatch/, radio/, police/, audio/, people/, calls/, npc/, dialogue/, scene/, interior/, evidence/, tactics/, station/,
-                          legal/rulesets, force/, incidents/, conduct/, court/, recording/
+                          legal/rulesets, force/, incidents/, conduct/, court/, recording/,
+                          units/, backup/, pursuit/, command/
 test/                     vitest unit tests, one folder per src module (node environment, no DOM/WebGL)
 docs/
   ARCHITECTURE.md         this file
@@ -164,6 +182,7 @@ docs/
   phase3-design.md        Phase 3 design (people, calls, dialogue, scenes): data formats, module APIs, topics, save v5
   phase4-design.md        Phase 4 design (interiors, tactical movement, evidence and scene work, the station): data formats, module APIs, topics, save v6
   phase5-design.md        Phase 5 design (law, procedure, consequences): legal engine, force, recording, conduct, court, data formats, module APIs, topics, save v7
+  phase6-design.md        Phase 6 design (backup, tactical, multi-agency): units, resources, backup, pursuit, command, UI, data formats, module APIs, topics, save v8
   ASSETS.md               third-party asset license tracking
   PHASES.md               per-phase completion log: what was done, how to run, what to test
 ```
@@ -223,6 +242,16 @@ Phase 5 adds (design §15):
 | -660 | `incidents` | requests (mute, dash, report, jurisdiction, close), camera bits on every event, pursuit samples (1 Hz) and the supervisor advisory, field-contact closing, at most one assessment per step -> `incident:closed` |
 | -658 | `conduct` | queued requests (incident closed, report, IA statement, verdict, trust, reinstate); per game minute: trust drift, suspension end, IA auto-resolve |
 | -656 | `court` | queued requests (open, attend, testify, advance); per game minute: reminders and missed hearings; once per game minute `incidents.retain(keysInUse)` |
+
+Phase 6 adds (design §15):
+
+| Order | System | Work |
+|---|---|---|
+| -700 | `dispatch` | + the unit ranker (`resources.rankPatrol`: nearest 4 ranked by ETA), directed units (pursuit tactics), the on-foot hold (`backup.onFoot`) |
+| -698 | `resources` | requests (radio / MDT / scene provider / chain of command), unit FSMs (turnout, en route, on scene, returning, transporting), the air unit's flight, live ETAs (one unit per step), crews (10 Hz) |
+| -678 | `pursuit` | contacts (one step late), strips, tactics, follow, supervisor (1 Hz), handoff, foot-bail perimeter (4 Hz) |
+| -665 | `backup` | roster minute tick first, then the officers' FSM per step (observations 4 Hz) and the SWAT team |
+| -662 | `command` | post, triage, transport, TCPs, evacuation, containment, negotiation (work at 4 Hz); traffic blockades and no-go zones on change |
 
 `GameSession.fixedUpdate` multiplies the walking velocity by `tactical.speedFactor()` (no sprint while crouched) or moves the officer with `tactical.sliceMove` while slicing, and keeps the body's y at `levelY(building) + 0.9`.
 
@@ -316,3 +345,18 @@ Protocol: `{ id, type, payload }` request/response with transferables where poss
 **Consequences.** `ConductState` (-658) takes `incident:closed` with the assessment, grades reports (`gradeReport` against the log's true statements: completeness, contradictions heavier when the bodycam recorded the truth, unsupported claims), opens IA cases from data rules (`ia.json`: excessive force, unlawful doctrine violations, injury after arrest, complaints rolled from trust and aggressive dialogue lines), resolves them from the officer's statement (an untruthful account of on-camera force is sustained) into counselling, reprimand, suspension (the unit goes out of service until it ends), termination, civil suit or criminal charges, grants commendations, and moves community trust per district (`trust.json`: lawful arrests, unlawful stops / searches / force, injuries, convictions, dismissals for misconduct, missed court; a share spills to every district; drift back to the baselines by days). Trust feeds back through `effects(district)`: cooperation in the dialogue (`trustAt`), the scene's dispatch-error scale (tip quality), hostile onlookers at arrests and force, and the call generator's crime factor. `CourtState` (-656) opens a case for every final booking or citation (a plea or a paid citation settles it at once; otherwise a hearing is scheduled on the game clock and a subpoena goes to the radio and the Career tab), generates the cross-examination from the report choices and the log when the officer attends (`generateCrossExam`: yes / no / don't-recall questions whose truth, report line and camera flag are hidden), scores the answers (contradictions with the log, with the report, with themselves; impeachment by the recorded camera), rules on the suppression motions of the assessment and decides the verdict (`convictionChance` from evidence strength, testimony and report grade); credibility, trust and discipline follow through `court:verdict`.
 
 **Recording and review.** The camera bits come from `incidents.cam`; `Phase5Presenter.afterRender` takes a 160x90 JPEG of the live canvas every 3 sim seconds while a camera records and an incident is current (and at once after force or a booking), into `MediaStore` (IndexedDB `patrol-media`, caps 3 000 snapshots / 16 MiB / 200 per incident, pruned every 60 s against the incident keys still in use). `EvidenceReviewPanel` plays an incident back (nearest snapshot, REC / MUTED / DASH strip, event list); the IA flow adds the statement footer, the Career tab's REVIEW button opens it. Snapshots are presentation only: nothing in the simulation reads them.
+
+### Backup, tactical and multi-agency (Phase 6)
+**Units and response times.** `src/units` holds the data (`unitTypes.json`: patrol request types plus 17 requestable resource types and the sergeant, lieutenant and chief of the chain of command; `eta.json`, `roster.json`) and the pure logic. `estimateResponse(input)` turns a route length, the road speed, the call priority (turnout 30-120 s and a speed factor by urgency), traffic density and rain into seconds; `rankByEta` orders candidates. The unit selection routes at most four candidates per request with `graph.routeBetweenPoints` on the main thread (the sim must not wait on a worker); live ETAs reuse the traffic system's `routeLeftM`. The MDT's ETA board (every unit to the selected call) is presentation only and runs in the sim worker (`eta.matrix`). Officers have a seeded personality (`officerProfile(seed, callsign, rank)`: name, traits) and `RosterState` keeps stress, fatigue and loyalty (per game minute: stress decays with composure, fatigue grows; events from the other modules move them). `mistakeChances` + `rollMistakes(seed, callsign, arrival, chances)` give late callouts, poor positions and (rarely) excessive force, deterministically per seed and arrival.
+
+**Resources.** `ResourceSystem` (-698) owns 22 ground fleet cars (fleet indices 8..29, shared with the traffic system's fleet pool of 32) and the air unit (no car). A request (radio / voice / MDT / the scene's service provider / the chain of command) picks the first free unit of the type, waits its turnout, spawns the car at its base (station, fire house, hospital, county) and sends it with `setFleetDestination` (emergency lights and siren above a speed), then reports `resource:dispatched / arrived / cleared`; on arrival it tells the scene (`serviceArrived`) so K9, EMS, fire and the others do their scene work for real. Crews stand by their vehicles (`resources.crews`, 10 Hz). `chainResponse` sends a sergeant for use of force above a level, an excessive verdict and every pursuit, a lieutenant for a major incident and a chief for a disaster; the command post holds every unit of its call on scene. The air unit flies a straight line to the call, orbits, follows `setAirTarget`, reveals hidden outdoor actors near its target (FLIR) and goes home after 15 minutes.
+
+**Backup officers.** `BackupSystem` (-665) lets the AI patrol units (and supervisors) on scene of the player's call get out of their cars (`exiting`), walk to the cover position (`coverSpot`: 3-8 m off the contact's axis; a stressed officer may take a poor position), call out what they see (weapon, second subject, runner, hands clear), detain runners, cuff and hold posts for the command module. Their name comes from the roster, and the force system sees them as fellow officers with a per-officer misconduct chance (1 only for the officer who rolled excessive force on this arrival). The player commands them with the Backup panel (`,`).
+
+**Pursuit.** `PursuitSystem` (-678) listens to `scene:pursuit` and `traffic:collision` with `fleeing: true` (a fleeing car is no longer crashed by a contact: the pursuit decides). It classifies the contact with the suspect's pose (`classifyContact`: PIT, ram, bump), judges it against the PIT policy (speed, offense, authorization, vehicle, wet downtown) and applies `spinOut` / `crashCar`; spike strips (dropped ahead by an AI unit or by the player) deflate tyres (`traffic.deflate`, `burstTire` for the player's own car) and cap the speed until the car stops; box-in and the rolling roadblock cap the speed with `setFleeSpeedCap`; the air unit tracks the car (`tracked` flees never lose the player). The supervisor monitors from the moment a sergeant is assigned and orders termination from `pursuitDecision` (offense not allowed, time limit, lost visual, risk, a non-violent offense); `pursuit:order` is also recorded by the incident system. After a foot bail the perimeter (four posts, a K9 and the air unit) goes up; past the city limits the state patrol takes primary (`scene` ends the pursuit as a handoff).
+
+**Command.** `CommandSystem` (-662) opens the post at the scene (on arrival or on request), picks the level (`commandLevel`), runs START triage (`victimVitals` + `startTriage`: the player assesses a victim for a few seconds and tags; every tag is graded against the answer; EMS triages the rest and transports in `transportOrder`), traffic control points (`traffic.setBlockades`, staffed by backup officers), evacuation (a no-go zone merged with the investigation tape zones for `npc.setNoGoZones`), containment (inner posts) and the negotiation minigame (`negotiationTurn`: stages, trust, agitation; the DialoguePanel). Scene flags go through `scene.request({ kind: 'commandFlag' })`. The SWAT team (backup module) stages, stacks, breaches, clears and holds on the command panel's orders; the contact odds (`swatContactOdds`) use armed / hostage / negotiation trust and the plan.
+
+**Integration (`game/phase6.ts`).** Ports are structural: resources get the traffic system as `ResourceTrafficPort`, the scene director as a service provider (`scene.setServiceProvider`), the dispatcher's `openSelfInitiated` / `locate`; the dispatcher gets `setUnitRanker` and `setUnitHold`; the force system gets `mergeFellows`. Bridges: `*:radio` -> `RadioSystem.say` (`current` = the selected channel), `*:flash` and `pursuit:tactic` -> the HUD legal line, `backup:custody` -> `scene.request({ kind: 'custody' })`, `unit:request` of kind `resource` -> `resources.request`. Presentation (`phase6Presenter.ts`): the panels are non-pausing `ActionPanel`s over pure models (`ui/backup`, `ui/pursuit`, `ui/command`), the negotiation uses its own `DialoguePanel`, FLIR swaps the camera rig for `airCameraPose` (fov 25, CSS filter on the canvas, a target box projected with `Vector3.project`), `AirRenderer` (2 meshes + one always-present SpotLight) and `SpikeRenderer` (2 instanced meshes), the PeopleRenderer gains `backup.view` and `resources.crews`.
+
+**Save v8.** `roster`, `resources`, `backup`, `pursuit` and `command` blocks (each with its own RNG stream state, validated by its module); the traffic snapshot gains optional deflation / spin / cap / tracked / blockade fields (version unchanged), the dispatch `UnitFsmSave` an optional `directed`, the scene `ServiceState` an optional `external`. `migrateV7ToV8` writes empty blocks on the seed's own streams; loading adds the resource units to the CAD at their bases and `roster.ensure` rebuilds every profile from the seed. Load order: ... court -> roster -> resources -> backup -> pursuit -> command.

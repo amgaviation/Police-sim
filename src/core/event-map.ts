@@ -23,6 +23,11 @@
  * `contact:action` / `contact:miranda` in contact/events.ts, `scene:command` (and the optional `scene:pursuit` owner,
  * person and end reason) in scene/events.ts, `npc:caught.by` 'force' in npc/events.ts, `incident:*` in incidents/events.ts,
  * `conduct:*` in conduct/events.ts, `court:*` in court/events.ts.
+ * Phase 6: `resource:*` in resources/events.ts (dispatched, arrived, cleared, radio, flash), `backup:*` in backup/events.ts
+ * (callout, mistake, custody, swat, radio, flash), `pursuit:*` in pursuit/events.ts (tactic, handoff, radio, flash) and
+ * `pursuit:order` in incidents/events.ts, `command:*` in command/events.ts (post, triage, negotiation, radio, flash),
+ * `traffic:collision.fleeing` in traffic/events.ts, `unit:request` kind `resource` in cad/events.ts. The radio and flash
+ * payloads are shared (`RadioLinePayload`, `FlashPayload` in units/types.ts); the session bridges them to the radio and HUD.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;

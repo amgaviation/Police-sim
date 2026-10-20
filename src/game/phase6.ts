@@ -536,6 +536,12 @@ export class Phase6 {
       bus.on('command:flash', (e) => h.flash(e.text)),
       bus.on('pursuit:tactic', (e: { tactic: PursuitTactic; verdict: string; text: string }) => h.flash(e.text, tacticSeverity(e.verdict))),
       bus.on('backup:custody', (e) => h.scene.request({ kind: 'custody', callId: e.callId, personId: e.personId, by: e.by })),
+      // A call that is over counts as handled for the AI officers who worked it (stress relief, fatigue, the call count).
+      bus.on('cad:callClosed', (e) => {
+        const call = h.cad.call(e.callId);
+        if (!call) return;
+        for (const cs of call.units) if (h.cad.unit(cs)?.kind === 'ai') this.roster.applyEvent(cs, 'callHandled');
+      }),
       // Radio, voice and MDT requests for a resource unit type go to the resources module (callId 0 = the player's call).
       bus.on('unit:request', (e) => {
         if (e.request.kind !== 'resource') return;

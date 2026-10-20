@@ -54,8 +54,9 @@ export class Phase6Presenter {
   private readonly pose = createAirCameraPose();
   private readonly backupLines: string[] = [];
   private negotiationRev = -1;
+  private negotiationDismissed = false;
 
-  constructor(scene: THREE.Scene | null, renderer: Renderer | null, ui: UIRoot, hudParent: HTMLElement | null, host: Phase6Host) {
+  constructor(scene: THREE.Scene | null, renderer: Renderer | null, ui: UIRoot | null, hudParent: HTMLElement | null, host: Phase6Host) {
     this.host = host;
     this.renderer = renderer;
     this.panel = new ActionPanel(ui);
@@ -81,6 +82,7 @@ export class Phase6Presenter {
     if (this.panel.isOpen) this.panel.close();
     if (this.negotiation.isOpen) this.negotiation.close();
     this.kind = null;
+    this.negotiationDismissed = false;
     this.selected = 'all';
     this.commandState = DEFAULT_COMMAND_PANEL_STATE;
     this.setFlir(false);
@@ -176,7 +178,6 @@ export class Phase6Presenter {
         if (pick === null) break;
         if ('kind' in pick) {
           p6.command.request(pick);
-          if (pick.kind === 'negotiationOpen') this.openNegotiation(session);
         } else this.commandState = applyCommandPick(this.commandState, pick);
         break;
       }
@@ -185,16 +186,7 @@ export class Phase6Presenter {
     this.shownKey = '';
   }
 
-  private openNegotiation(session: GameSession): void {
-    const view = session.phase6.command.negotiationView();
-    if (!view) {
-      // The request is applied at the next step; the per-frame update opens the dialogue when its view exists.
-      this.negotiationRev = -2;
-      return;
-    }
-    this.openNegotiationView(session, view);
-  }
-
+  /** The negotiation dialogue follows the command module's view: it opens when a negotiation starts, until the player closes it. */
   private openNegotiationView(session: GameSession, view: NonNullable<ReturnType<GameSession['phase6']['command']['negotiationView']>>): void {
     const command = session.phase6.command;
     this.negotiationRev = command.revision;
@@ -202,24 +194,25 @@ export class Phase6Presenter {
       say: (optionId, tone) => command.request({ kind: 'negotiate', optionId, tone }),
       action: () => undefined,
       commMode: () => undefined,
-      close: () => command.request({ kind: 'negotiationClose' }),
+      close: () => {
+        this.negotiationDismissed = true;
+        command.request({ kind: 'negotiationClose' });
+      },
     });
   }
 
   /** Per frame: refreshes the open panel (throttled) and keeps the negotiation dialogue in step with the command module. */
   updatePanels(session: GameSession, nowMs: number): void {
     const command = session.phase6.command;
-    if (this.negotiationRev === -2 || this.negotiation.isOpen) {
-      const view = command.negotiationView();
-      if (this.negotiationRev === -2) {
-        if (view) this.openNegotiationView(session, view);
-      } else if (!view) {
-        this.negotiation.close();
-        this.negotiationRev = -1;
-      } else if (command.revision !== this.negotiationRev) {
-        this.negotiationRev = command.revision;
-        this.negotiation.update(view);
-      }
+    const view = command.negotiationView();
+    if (view === null) {
+      this.negotiationDismissed = false;
+      if (this.negotiation.isOpen) this.negotiation.close();
+    } else if (!this.negotiation.isOpen) {
+      if (!this.negotiationDismissed) this.openNegotiationView(session, view);
+    } else if (command.revision !== this.negotiationRev) {
+      this.negotiationRev = command.revision;
+      this.negotiation.update(view);
     }
     if (!this.panel.isOpen || this.kind === null || nowMs < this.nextPanelMs) return;
     this.nextPanelMs = nowMs + PANEL_INTERVAL_MS;

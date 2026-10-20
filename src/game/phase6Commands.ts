@@ -25,6 +25,8 @@ function need(session: GameSession | null): GameSession {
   return session;
 }
 
+/** Colour words of the tags (red = immediate ...). */
+const TAG_ALIASES: Readonly<Record<string, TriageTag>> = { red: 'immediate', yellow: 'delayed', green: 'minor', black: 'expectant' };
 const MCI_TYPES = ['multiVehicleCrash', 'buildingCollapse', 'hazmatRelease'] as const;
 const PURSUIT_STEPS = ['pit', 'spikes', 'strip', 'box', 'roadblock', 'air', 'perimeter'] as const;
 const PURSUIT_REQUEST = {
@@ -286,9 +288,10 @@ export function createPhase6Commands(deps: Phase6CommandDeps): Command[] {
         }
         if (a === 'tag') {
           const id = Number(args[1]);
-          const tag = args[2];
-          if (!Number.isInteger(id) || tag === undefined || !(TRIAGE_TAGS as readonly string[]).includes(tag)) return `Usage: triage tag <personId> <${TRIAGE_TAGS.join('|')}>`;
-          cmd.request({ kind: 'tag', personId: id, tag: tag as TriageTag });
+          const word = args[2] ?? '';
+          const tag = TAG_ALIASES[word] ?? ((TRIAGE_TAGS as readonly string[]).includes(word) ? (word as TriageTag) : undefined);
+          if (!Number.isInteger(id) || tag === undefined) return `Usage: triage tag <personId> <red|yellow|green|black | ${TRIAGE_TAGS.join('|')}>`;
+          cmd.request({ kind: 'tag', personId: id, tag });
           return `Tagged ${String(id)} ${tag}`;
         }
         const rows = cmd.board().victims;
