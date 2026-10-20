@@ -22,6 +22,10 @@ import './investigation/events';
 import './station/events';
 import './tactical/events';
 import './npc/events';
+import './force/events';
+import './incidents/events';
+import './conduct/events';
+import './court/events';
 import { SystemRegistry, copyPrevTransform, integrateVelocity, type System } from './ecs/systems';
 import { clearWorld, createGameWorld, entityCount, type GameWorld } from './ecs/world';
 import { EnvironmentRenderer } from './environment/render/environmentRenderer';
@@ -37,6 +41,8 @@ import { PauseMenu } from './game/pauseMenu';
 import { createPhase3Commands } from './game/phase3Commands';
 import { createPhase4Commands } from './game/phase4Commands';
 import { Phase4Presenter } from './game/phase4Presenter';
+import { Phase5Presenter, newMediaTag } from './game/phase5Presenter';
+import { createPhase5Commands } from './game/phase5Commands';
 import { PeoplePresenter } from './game/peoplePresenter';
 import type { MoveInput } from './game/playerController';
 import { MARKER_CAPACITY, PoliceFeed } from './game/policeFeed';
@@ -198,6 +204,10 @@ export class App {
   indoorScenes = true;
   /** Phase 4 presentation: interiors, flashlight, fade, briefing, viewfinder, case file, dusting, labels, thumbnails. */
   readonly phase4: Phase4Presenter;
+  /** Phase 5 presentation: snapshots and media store, courtroom, evidence review (IA), HUD additions. */
+  readonly phase5: Phase5Presenter;
+  /** Jurisdiction chosen on the title screen for the next new game. */
+  private jurisdiction = 'generic';
 
   private sessionValue: GameSession | null = null;
   /** Per-session Phase 2 presentation: MDT overlay, radio log, radio controller, HUD feed, target lock. */
@@ -352,6 +362,7 @@ export class App {
       flash: (text) => this.flash(text),
       baseFov: () => settings.get('graphics.fov'),
     });
+    this.phase5 = new Phase5Presenter(this.ui, { session: () => this.sessionValue, flash: (text) => this.flash(text) });
     this.presenter = new PeoplePresenter(
       this.renderer ? this.scene : null,
       this.ui,
@@ -370,17 +381,21 @@ export class App {
     this.saves = new SaveManager({ bus: this.bus });
     this.settingsMenu = new SettingsMenu(this.ui, settings, this.input);
     this.mainMenu = new MainMenu(this.ui, {
-      newGame: (seed) => {
+      newGame: (seed, jurisdiction) => {
         // Generating the city blocks the main thread for a moment: show why first.
         this.mainMenu.setStatus('Generating city...');
         afterPaint(() => {
           try {
-            this.newGame(seed);
+            this.newGame(seed, jurisdiction);
           } catch (error) {
             log.error('New game failed:', error);
             this.mainMenu.setStatus('Could not start a new shift; see console');
           }
         });
+      },
+      jurisdictionChanged: (id) => {
+        this.jurisdiction = id;
+        Phase5Presenter.storeJurisdiction(id);
       },
       continueGame: (slot) => {
         this.mainMenu.setStatus(`Loading '${slot}'...`);
@@ -397,6 +412,8 @@ export class App {
         });
       },
     });
+    this.mainMenu.jurisdiction = Phase5Presenter.storedJurisdiction();
+    this.jurisdiction = this.mainMenu.jurisdiction;
     this.pauseMenu = new PauseMenu(this.ui, {
       resume: () => this.pauseMenu.close(),
       quickSave: () => void this.quickSave(),
@@ -499,11 +516,12 @@ export class App {
   }
 
   /** Replaces the running session with a fresh shift in the city of `seed`. */
-  newGame(seed: number | string): GameSession {
+  newGame(seed: number | string, jurisdiction?: string): GameSession {
     this.endSession();
     this.resetSimulation();
-    const session = startNewGame(this.context(normalizeSeed(seed)), seed);
-    this.beginSession(session);
+    if (jurisdiction !== undefined) this.jurisdiction = jurisdiction;
+    const session = startNewGame(this.context(normalizeSeed(seed)), seed, { jurisdiction: this.jurisdiction });
+    this.beginSession(session, newMediaTag());
     log.info(`New game, seed ${String(session.seed)}`);
     return session;
   }
@@ -536,7 +554,7 @@ export class App {
       this.quitToTitle();
       throw error;
     }
-    this.beginSession(session);
+    this.beginSession(session, Phase5Presenter.tagOfSlot(slot));
     log.info(`Loaded '${slot}' (seed ${String(session.seed)}, ${String(session.entityCount)} entities)`);
     return session;
   }
@@ -603,6 +621,7 @@ export class App {
     this.audio.dispose();
     this.presenter.dispose();
     this.phase4.dispose();
+    this.phase5.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -661,6 +680,7 @@ export class App {
     this.mdtValue?.update(now);
     this.panels.update(now);
     this.phase4.updatePanels(session, now, dt);
+    this.phase5.updatePanels(session, now);
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
@@ -674,6 +694,7 @@ export class App {
     this.renderer?.render();
     // The drawing buffer is not preserved: a pending photo thumbnail is read in the same task as the render.
     this.phase4.afterRender(this.sessionValue, this.renderer?.canvas ?? null);
+    this.phase5.afterRender(this.sessionValue, this.renderer?.canvas ?? null);
     const s = this.perfSample;
     const stats = this.loop.stats;
     s.fps = stats.fps;
@@ -733,7 +754,12 @@ export class App {
       session.cameraMode = this.rig.vehicleMode;
     }
     if (input.wasPressed('vehicle.headlights')) session.toggleHeadlights();
-    if (input.wasPressed('vehicle.lights')) session.toggleLightbar();
+    if (input.wasPressed('vehicle.lights')) {
+      const wasOn = session.drivenVehicle?.lightbar === true;
+      session.toggleLightbar();
+      // Switching the light bar off during a vehicle pursuit ends it (the supervisor's terminate advisory).
+      if (wasOn && session.drivenVehicle?.lightbar === false) session.scene.request({ kind: 'terminatePursuit' });
+    }
     const eq = session.drivenEquipment;
     if (!eq) return;
     const p = this.policeInput;
@@ -744,16 +770,19 @@ export class App {
     if (p.equipmentPanel) this.panels.openEquipment();
   }
 
-  /** On foot: weapon, fire (mouse 0, only with a weapon drawn), tackle and shout become scene requests. */
+  /** On foot: force tool (C), apply (mouse 0, only with a tool selected), intervene (H), bodycam mute (J), tackle and shout. */
   private handleOfficerActions(session: GameSession): void {
     const input = this.input;
     const scene = session.scene;
-    // Gamepad Start is both menu.toggle and the default officer.weapon: a menu press never cycles the weapon.
-    if (input.wasPressed('officer.weapon') && !input.wasPressed('menu.toggle')) scene.request({ kind: 'weapon' });
-    if (input.wasPressed('officer.fire') && scene.officerWeapon !== 'none') {
+    const force = session.force;
+    // Gamepad Start is both menu.toggle and the default officer.weapon: a menu press never cycles the tool.
+    if (input.wasPressed('officer.weapon') && !input.wasPressed('menu.toggle')) force.request({ kind: 'cycleTool' });
+    if (input.wasPressed('officer.fire') && force.tool !== 'none') {
       const dir = this.aimDirection(session);
-      scene.request({ kind: 'fire', dirX: dir.x, dirZ: dir.z });
+      force.request({ kind: 'apply', dirX: dir.x, dirZ: dir.z });
     }
+    if (input.wasPressed('officer.intervene')) force.request({ kind: 'intervene' });
+    if (input.wasPressed('officer.bodycamMute')) session.incidents.request({ kind: 'mute', on: !session.incidents.cam.muted });
     if (input.wasPressed('officer.tackle')) scene.request({ kind: 'tackle' });
     if (input.wasPressed('officer.shout')) {
       scene.request({ kind: 'shout' });
@@ -1118,6 +1147,7 @@ export class App {
     feed?.fillHud(snapshot, this.targets?.target ?? null, this.radioMenuKey, now);
     this.presenter.fillHud(snapshot, session);
     this.phase4.fillHud(snapshot, session);
+    this.phase5.fillHud(snapshot, session, session.clock.simTime);
     this.hud.update(snapshot, now);
     const view = this.view;
     if (!view) return;
@@ -1201,6 +1231,21 @@ export class App {
     this.perf.setExtra('investigation', inv && session ? `${String(inv.store.files().length)} files, ${String(session.investigation.ledger.entries().length)} custody entries, rev ${String(inv.revision)}` : undefined);
     const tac = session?.tactical;
     this.perf.setExtra('tactical', tac ? `noise ${tac.noise.toFixed(2)}, vis ${tac.visibility.toFixed(2)}${tac.stance.crouched ? ', crouched' : ''}${tac.flashlightOn ? ', light' : ''}` : undefined);
+    const fs = session?.force;
+    this.perf.setExtra('force', fs ? `${fs.hud.label}${fs.hud.ammo === '' ? '' : ` ${fs.hud.ammo}`}, rev ${String(fs.revision)}` : undefined);
+    const inc = session?.incidents;
+    if (inc) {
+      const keys = inc.keys();
+      let events = 0;
+      for (const k of keys) events += inc.log(k)?.events.length ?? 0;
+      this.perf.setExtra('incidents', `${String(keys.length)} logs, ${String(events)} events, current ${inc.current === '' ? '-' : inc.current}`);
+    } else this.perf.setExtra('incidents', undefined);
+    if (session) {
+      this.phase5.media.stats().then(
+        (st) => this.perf.setExtra('media', `${String(st.count)} snapshots, ${String(Math.round(st.bytes / 1024))} KiB`),
+        () => this.perf.setExtra('media', 'unavailable'),
+      );
+    } else this.perf.setExtra('media', undefined);
     const idraw = this.phase4.interiorRenderer?.drawCalls ?? 0;
     this.perf.setExtra('interior draw', idraw > 0 ? `${String(idraw)} draw calls` : undefined);
     const cockpit = this.cockpit?.stats.drawCalls ?? 0;
@@ -1250,7 +1295,7 @@ export class App {
     clearWorld(this.world);
   }
 
-  private beginSession(session: GameSession): void {
+  private beginSession(session: GameSession, mediaTag: string): void {
     this.sessionValue = session;
     this.detachSystems = session.attachSystems(this.systems);
     this.rig.setVehicleMode(session.cameraMode);
@@ -1261,6 +1306,7 @@ export class App {
       shadows: this.settings.get('graphics.shadows'),
     });
     this.beginPatrol(session);
+    this.phase5.begin(session, mediaTag);
     this.route = null;
     this.flashUntilMs = 0;
     this.hazeWarm = false;
@@ -1282,6 +1328,7 @@ export class App {
       this.detachSystems?.();
       this.detachSystems = null;
       this.endPatrol();
+      this.phase5.end();
       for (const vehicle of session.vehicles) this.carRenderer?.setDrivable(vehicle.eid, null);
       this.carRenderer?.setHeadlightTarget(0);
       this.carRenderer?.setSpotlightTarget(0);
@@ -1309,6 +1356,7 @@ export class App {
       createMdtDeps(session, {
         target: () => this.targets?.target ?? null,
         bookingCompleted: (_id, released) => this.flash(released >= 0 ? 'Booking complete: prisoner handed over' : 'Booking complete'),
+        openIa: (caseId) => this.phase5.openIa(caseId),
       }),
     );
     const panel = new RadioPanel(this.ui.hud);
@@ -1378,6 +1426,7 @@ export class App {
       ...createCallsCommands(),
       ...createPhase3Commands({ session }),
       ...createPhase4Commands({ session, flash: (text) => this.flash(text) }),
+      ...createPhase5Commands({ session, flash: (text) => this.flash(text), openIa: (id) => this.phase5.openIa(id), media: () => this.phase5.media, mediaTag: () => this.phase5.tag }),
     ];
   }
 
@@ -1507,7 +1556,10 @@ export class App {
         this.refreshPointerLock();
       }),
       this.input.onPointerLockLost(() => this.onPointerLockLost()),
-      this.bus.on('save:completed', () => void this.refreshSaveList()),
+      this.bus.on('save:completed', (e) => {
+        this.phase5.rememberSlot(e.slot);
+        void this.refreshSaveList();
+      }),
       // Radio log and captions (written on events, presentation only).
       this.bus.on('radio:start', (e) => this.onRadioStart(e.tx)),
       this.bus.on('radio:blocked', (e) => {

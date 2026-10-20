@@ -10,6 +10,8 @@ export interface MdtHooks {
   target(): TargetInfo | null;
   /** A booking was completed; `released` is the person let out of the cage (-1 none). */
   bookingCompleted(bookingId: string, released: number): void;
+  /** Phase 5: the Career tab's REVIEW on an IA case (the app opens the evidence review with the statement footer). */
+  openIa?(caseId: string): void;
 }
 
 /**
@@ -42,5 +44,21 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
     },
     defaultDisposition: (callId) => session.dispatcher.defaultDisposition(callId),
     plateRun: (vehicleId, readback) => session.bus.emit('dispatch:plateResult', { callsign, via: 'mdt', vehicleId, readback }),
+    // Phase 5 (design 12.1): career, community and the report statements checklist.
+    career: {
+      revision: () => session.conduct.revision * 4096 + session.court.revision,
+      view: () => session.conduct.career,
+      cases: () => session.court.cases(),
+      canAttend: (id) => session.court.canAttend(id, session.env.time.totalSeconds),
+      attend: (id) => session.court.request({ kind: 'attend', caseId: id }),
+      openIa: (id) => hooks.openIa?.(id),
+      jurisdiction: () => ({ id: session.incidents.ruleset.id, name: session.incidents.ruleset.name }),
+      now: () => session.now(),
+    },
+    community: { revision: () => session.conduct.revision, rows: () => session.conduct.trustRows() },
+    // The hidden truth, key, person and event of a choice never reach the UI.
+    reportChoices: (callId) => session.incidents.reportChoices(session.incidents.keyOfCall(callId)).map((c) => ({ id: c.id, group: c.group, text: c.text })),
+    submitReport: (docId, callId, ids) => void session.phase5.submitReport(docId, callId, ids),
+    reportGrade: (docId) => session.conduct.reportGrade(docId),
   };
 }
