@@ -1,0 +1,9 @@
+{
+  "name": "Patrol demo",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "postAttachCommand": "bash scripts/demo.sh",
+  "forwardPorts": [4173],
+  "portsAttributes": {
+    "4173": { "label": "Patrol demo", "onAutoForward": "openBrowser" }
+  }
+}
