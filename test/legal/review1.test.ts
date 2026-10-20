@@ -152,14 +152,15 @@ describe('call-level arrest warrant', () => {
     expect(one(evaluate(b.build()), 'arrest')).toMatchObject({ outcome: 'lawful', basis: 'warrant' });
   });
 
-  it('is cut off by an unlawful stop under strict, not under generic', () => {
+  it('is an independent basis for the stop and the arrest under both rulesets', () => {
     const b = warrantCall();
     b.at(10).detain(1, 'command').arrest(1);
     const { generic, strict } = both(b.build());
-    // The suspect has no indicators and was detained with the warrant already known.
-    expect(one(generic, 'arrest').outcome).toBe('lawful');
-    expect(dets(strict, 'detention')[0]?.outcome).toBe('unlawful');
-    expect(one(strict, 'arrest').outcome).toBe('unlawful');
+    // The suspect has no indicators, but the warrant was known from the call, before the stop.
+    for (const a of [generic, strict]) {
+      expect(dets(a, 'detention')[0]?.outcome).toBe('lawful');
+      expect(one(a, 'arrest').outcome).toBe('lawful');
+    }
   });
 
   it('does not make a vehicle or person search lawful on its own', () => {

@@ -182,7 +182,8 @@ export function parseRuleset(raw: unknown, file: string): Ruleset {
     maxAggressiveLines: num(co.maxAggressiveLines, file, 'consent.maxAggressiveLines', 0),
   };
 
-  const exigency = { ruleId: rid(obj(root.exigency, file, 'exigency').ruleId, 'exigency.ruleId') };
+  const ex = obj(root.exigency, file, 'exigency');
+  const exigency = { ruleId: rid(ex.ruleId, 'exigency.ruleId'), windowS: num(ex.windowS, file, 'exigency.windowS', 0) };
   const entry = { ruleId: rid(obj(root.entry, file, 'entry').ruleId, 'entry.ruleId') };
   const pr = obj(root.premises, file, 'premises');
   const premises = {

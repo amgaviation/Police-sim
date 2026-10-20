@@ -125,6 +125,20 @@ describe.each(factories)('$name', ({ make }) => {
     expect(await s.stats()).toEqual({ count: 1, bytes: 1 });
   });
 
+  it('dropAfter deletes the tag\'s snapshots newer than the sim time, in every incident, and nothing else', async () => {
+    const s = make();
+    await s.put(put('g', 'C-1', 5), blobOf(1));
+    await s.put(put('g', 'C-1', 10), blobOf(1));
+    await s.put(put('g', 'C-1', 12), blobOf(1));
+    await s.put(put('g', 'C-2', 30, 'dash'), blobOf(1));
+    await s.put(put('other', 'C-1', 30), blobOf(1));
+    expect(await s.dropAfter('g', 10)).toBe(2);
+    expect((await s.list('g', 'C-1')).map((m) => m.sim)).toEqual([5, 10]);
+    expect(await s.list('g', 'C-2')).toEqual([]);
+    expect((await s.list('other', 'C-1')).length).toBe(1);
+    expect(await s.dropAfter('g', 10)).toBe(0);
+  });
+
   it('prune without keep only applies the caps', async () => {
     const s = make();
     await s.put(put('g', 'C-1', 1), blobOf(1));

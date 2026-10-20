@@ -54,6 +54,12 @@ const BASIS_TEXT: Readonly<Record<string, string>> = {
   plainView: 'in plain view', publicArea: 'in a public area',
 };
 const SEARCH_CONSENTS: readonly ConsentKind[] = ['searchPerson', 'searchVehicle', 'searchPremises', 'searchRoom'];
+/** Consents that let the officer enter a building (the game accepts any of them for lawful presence). */
+const ENTRY_CONSENTS: readonly ConsentKind[] = ['entry', 'searchPremises', 'searchRoom'];
+/** Roles that are never a suspect: a complied command to them is a consensual encounter, not a detention. */
+const CONSENSUAL_ROLES: ReadonlySet<string> = new Set([
+  'victim', 'witness', 'caller', 'reporter', 'reportingParty', 'bystander', 'staff', 'resident', 'owner',
+]);
 /** Consecutive other-officer force events of one officer within this many seconds form one episode. */
 const EPISODE_GAP_S = 10;
 
@@ -115,7 +121,8 @@ class Pass {
   private readonly recChecks: IncidentEvent[] = [];
   private readonly firstT = new Map<number, number>();
   private readonly required: ReadonlySet<string>;
-  private exigencySeen = false;
+  /** Building (-1 the whole call) -> sim time the exigency was last confirmed. */
+  private readonly exigencyAt = new Map<number, number>();
   private warrantSearch = false;
   private warrantArrest = false;
   private readonly roleOf = new Map<number, string>();
@@ -220,7 +227,8 @@ class Pass {
       case 'statement': this.statement(e); break;
       case 'miranda': {
         const p = this.person(e.personId);
-        p.miranda = e.result;
+        // An invocation stands: a later waiver is not a new, subject-initiated one (the dialogue never re-asks after an invocation).
+        if (p.miranda !== 'invoked') p.miranda = e.result;
         p.mirandaCustody = e.custody;
         break;
       }
@@ -235,7 +243,7 @@ class Pass {
       case 'otherForce': this.otherForce(e); break;
       case 'intervene': this.intervene(e); break;
       case 'entry': this.entry(e); break;
-      case 'exigency': this.exigencySeen = true; break;
+      case 'exigency': this.exigencyAt.set(e.buildingId !== undefined && e.buildingId >= 0 ? e.buildingId : -1, e.t); break;
       case 'warrant':
         if (e.scope === 'search') this.warrantSearch = true;
         else this.warrantArrest = true;
@@ -284,15 +292,17 @@ class Pass {
     const p = this.person(e.personId);
     if (e.how === 'cuffed' && p.custodySince < 0) p.custodySince = e.t;
     if (p.detained) return;
+    if (e.how === 'command' && CONSENSUAL_ROLES.has(this.roleOf.get(e.personId) ?? '')) return;
     p.detained = true;
     const rs = this.rs;
     const rsSum = this.book.rs(e.personId, e.t);
     p.rsAtDetention = rsSum;
-    const lawful = rsSum >= rs.thresholds.rs || this.book.bestPc(e.personId, e.t, false) !== null || this.hasLawfulArrest(p);
+    const warrant = this.callWarrantFor(p);
+    const lawful = rsSum >= rs.thresholds.rs || this.book.bestPc(e.personId, e.t, false) !== null || this.hasLawfulArrest(p) || warrant;
     p.detentionLawful = lawful;
     if (lawful) {
       const labels = this.book.indicators(e.personId, e.t).map((i) => rs.indicators[i]?.label ?? i);
-      this.det('detention', e, 'lawful', [rs.detention.ruleId], `Stop supported by: ${labels.join(', ') || 'probable cause'}`);
+      this.det('detention', e, 'lawful', [rs.detention.ruleId], `Stop supported by: ${labels.join(', ') || (warrant ? 'an outstanding warrant' : 'probable cause')}`);
     } else {
       p.taintFrom = e.id;
       this.taint.set(e.id, e.id);
@@ -371,7 +381,8 @@ class Pass {
     switch (target) {
       case 'person': return ['searchPerson'];
       case 'vehicle': return ['searchVehicle'];
-      case 'room': return ['searchRoom', 'searchPremises'];
+      case 'room':
+      case 'container': return ['searchRoom', 'searchPremises'];
       default: return ['searchPremises'];
     }
   }
@@ -449,8 +460,18 @@ class Pass {
   }
 
   private basisExigency(e: SearchEvent): Basis | null {
-    if (e.target === 'person' || e.target === 'vehicle' || !this.exigencySeen) return null;
+    if (e.target === 'person' || e.target === 'vehicle' || !this.exigencyActive(e.t, e.buildingId)) return null;
     return { basis: 'exigency', ruleIds: [this.rs.exigency.ruleId] };
+  }
+
+  /** The call's exigency was confirmed (for the whole call or this building) within the ruleset's window before `t`. */
+  private exigencyActive(t: number, buildingId: number): boolean {
+    const window = this.rs.exigency.windowS;
+    for (const key of buildingId >= 0 ? [-1, buildingId] : [-1]) {
+      const at = this.exigencyAt.get(key);
+      if (at !== undefined && t - at <= window) return true;
+    }
+    return false;
   }
 
   /** A call-level arrest warrant covers the call's suspect or subject, and is cut off by an unlawful stop like a warrant hit. */
@@ -725,10 +746,10 @@ class Pass {
     let ruleId = rs.entry.ruleId;
     let basis: string | null = null;
     if (e.publicPlace) basis = 'publicPlace';
-    else if (this.allConsents.some((c) => c.effective && c.event.consent === 'entry' && c.event.buildingId === e.buildingId)) {
+    else if (this.allConsents.some((c) => c.effective && ENTRY_CONSENTS.includes(c.event.consent) && c.event.buildingId === e.buildingId)) {
       basis = 'consent';
       ruleId = rs.consent.ruleId;
-    } else if (this.exigencySeen) {
+    } else if (this.exigencyActive(e.t, e.buildingId)) {
       basis = 'exigency';
       ruleId = rs.exigency.ruleId;
     } else if (this.warrantSearch) {

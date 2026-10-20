@@ -2,6 +2,7 @@ import {
   CAM, RESISTANCE_LEVELS,
   type ForceEvent, type ForceRuling, type IncidentLog, type LegalAssessment,
 } from '../legal/types';
+import { QUESTIONS } from '../court/data';
 import { DISCIPLINE_CONFIG, IA_CONFIG, IA_SEVERITIES, type DisciplineConfig, type IaConfig, type IaRule, type IaSeverity } from './data';
 import type { DisciplineAction, IaCase, IaFinding, IaStatement, IaStatementOption, IaTrigger } from './types';
 
@@ -87,7 +88,7 @@ export function iaTriggers(
 
 function words(tool: string): string {
   if (tool === 'none' || tool === 'hands') return 'hands';
-  return tool.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  return (QUESTIONS.labels.tool[tool] ?? tool.replace(/([a-z0-9])([A-Z])/g, '$1 $2')).toLowerCase();
 }
 
 /**
@@ -177,7 +178,7 @@ export function resolveIa(
   const recorded = violating.some((t) => {
     const rule = ruleOf(t.rule);
     if (rule?.when === 'doctrine' && rule.doctrine === 'recording') return true;
-    return t.eventIds.some((id) => (log.events.find((x) => x.id === id)?.cam ?? 0) & CAM.body);
+    return t.eventIds.some((id) => recordedOnCamera(log, id));
   });
   if (!recorded && c.severity !== 'critical' && statement.kind !== 'acknowledge') {
     return { finding: 'notSustained', untruthful, reasons: ['A violation could not be proven: no body camera footage.'], severity: null };

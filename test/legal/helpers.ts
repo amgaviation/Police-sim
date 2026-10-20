@@ -155,8 +155,8 @@ export class LogBuilder {
     return this.add(pid, { kind: 'entry', buildingId, publicPlace });
   }
 
-  exigency(reason = 'screaming inside'): this {
-    return this.add(-1, { kind: 'exigency', reason });
+  exigency(reason = 'screaming inside', buildingId?: number): this {
+    return this.add(-1, buildingId === undefined ? { kind: 'exigency', reason } : { kind: 'exigency', reason, buildingId });
   }
 
   warrant(scope: 'arrest' | 'search'): this {

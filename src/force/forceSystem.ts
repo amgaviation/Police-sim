@@ -364,12 +364,13 @@ export class ForceSystem {
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i] ?? 0;
       const info = npc.actor(id, this.scan);
-      if (!info || info.hidden || info.body !== BODY.human || (info.building ?? -1) !== o.building) continue;
+      if (!info || info.hidden || info.dead === true || info.body !== BODY.human || (info.building ?? -1) !== o.building) continue;
       const dx = info.x - o.x;
       const dz = info.z - o.z;
       const d = Math.hypot(dx, dz);
       if (d > bestD || d < minD) continue;
       if (coneCos > -1 && d > 1e-6 && (dx * hx + dz * hz) / d < coneCos) continue;
+      if (this.deceased(info.personId)) continue;
       best = id;
       bestD = d;
     }
@@ -378,12 +379,17 @@ export class ForceSystem {
     return best;
   }
 
+  /** A dead person is no target (the body stays in the actor list). Only asked for a candidate that is already in range. */
+  private deceased(personId: number): boolean {
+    return personId >= 0 && this.deps.people.state(personId).deceased;
+  }
+
   /** The actor the TASER probes are attached to, when it is still in reach and in the cone; fills `this.target`. */
   private reachAttached(o: ForceOfficer, hx: number, hz: number, coneCos: number): number {
     const att = this.attached;
     if (!att) return 0;
     const info = this.deps.npc.actor(att.actorId, this.target);
-    if (!info || info.hidden || (info.building ?? -1) !== o.building || info.personId !== att.personId) return 0;
+    if (!info || info.hidden || info.dead === true || (info.building ?? -1) !== o.building || info.personId !== att.personId || this.deceased(info.personId)) return 0;
     const dx = info.x - o.x;
     const dz = info.z - o.z;
     const d = Math.hypot(dx, dz);

@@ -762,6 +762,9 @@ export function waiveChance(subject: SubjectProfile, mem: SubjectMemory): number
 
 /** A recital the subject took in: one draw against `waiveChance`. */
 function mirandaOutcome(subject: SubjectProfile, mem: SubjectMemory, rng: Rng): Outcome {
+  // A decision made once stands: re-reading the rights neither lifts an invocation nor flips a waiver.
+  if (mem.miranda === 'invoked') return { ...plain('miranda.silent'), miranda: 'invoked' };
+  if (mem.miranda === 'waived') return { ...plain('miranda.waive'), miranda: 'waived' };
   const result: MirandaResult = rng.next() < waiveChance(subject, mem) ? 'waived' : 'invoked';
   mem.mirandized = true;
   mem.miranda = result;

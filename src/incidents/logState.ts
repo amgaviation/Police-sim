@@ -29,6 +29,8 @@ export interface Rt {
   lastOther: number;
   /** The call's own facts (exigency, warrant, suspects) were logged. */
   callFacts: boolean;
+  /** Sim time of the latest exigency event (-1 none). */
+  exigencySim: number;
   /** A first detention / frisk / search / force was logged (the bodycam advisory is checked once). */
   camChecked: boolean;
   /** Person -> custody at the latest question. */
@@ -54,7 +56,7 @@ export function itemDetail(label: string, ref: string): string {
 export function newRt(log: IncidentLog): Rt {
   return {
     log, version: 0, lastSim: log.openedSim, persons: new Set(), detained: new Set(), arrested: new Set(), indKeys: new Set(),
-    entries: new Map(), found: new Map(), tests: new Map(), finds: new Map(), otherSeq: new Map(), lastOther: -1, callFacts: false,
+    entries: new Map(), found: new Map(), tests: new Map(), finds: new Map(), otherSeq: new Map(), lastOther: -1, callFacts: false, exigencySim: -1,
     camChecked: false, custody: new Map(), pursuit: null, samples: [], display: null,
   };
 }
@@ -109,6 +111,7 @@ export function note(rt: Rt, e: IncidentEvent): void {
       break;
     case 'exigency':
       if (e.reason === 'call') rt.callFacts = true;
+      rt.exigencySim = e.t;
       break;
     case 'warrant':
       rt.callFacts = true;
@@ -148,6 +151,7 @@ export function rebuild(rt: Rt): void {
   rt.otherSeq.clear();
   rt.lastOther = -1;
   rt.callFacts = false;
+  rt.exigencySim = -1;
   rt.camChecked = false;
   rt.custody.clear();
   rt.pursuit = null;

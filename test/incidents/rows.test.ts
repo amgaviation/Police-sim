@@ -562,6 +562,25 @@ describe('rows interior:transition and scene:service', () => {
     expect(rig.of(K, 'entry').map((e) => [e.buildingId, e.publicPlace, e.personId])).toEqual([[4, true, -1]]);
   });
 
+  it('an exigency that starts mid-call is logged before the entry, and again only after the refresh interval', () => {
+    const rig = rigWithCall();
+    rig.world.buildingCalls.set(4, 7);
+    rig.world.calls.set(7, callInfo({ exigency: true }));
+    rig.bus.emit('interior:transition', { buildingId: 4, entering: true, phase: 'done' });
+    expect(rig.kinds(K)).toEqual(['start', 'exigency', 'entry']);
+    expect(rig.of(K, 'exigency')[0]).toMatchObject({ reason: 'emergency in progress', buildingId: 4 });
+    rig.world.items.set('it1', { ...item('it1'), ownerPersonId: 6, buildingId: 4 });
+    rig.bus.emit('investigation:found', { callId: 7, itemId: 'it1', basis: 'exigency', suppressed: false });
+    expect(rig.of(K, 'exigency').length).toBe(1);
+  });
+
+  it('no exigency is logged while the call has none', () => {
+    const rig = rigWithCall();
+    rig.world.buildingCalls.set(4, 7);
+    rig.bus.emit('interior:transition', { buildingId: 4, entering: true, phase: 'done' });
+    expect(rig.kinds(K)).toEqual(['start', 'entry']);
+  });
+
   it('services are logged', () => {
     const rig = rigWithCall();
     rig.bus.emit('scene:service', { callId: 7, kind: 'ems', phase: 'requested' });

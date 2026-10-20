@@ -208,8 +208,29 @@ describe('resolveIa', () => {
     expect(resolveIa({ ...c, severity: 'critical' }, a, log, none).finding).toBe('sustained');
   });
 
-  it('a muted camera still has the body bit, so it counts as recorded', () => {
+  it('IA statement options name a tackle and a cuffing struggle in words', () => {
+    for (const [tool, word] of [['tackle', 'the tackle'], ['cuffResisted', 'the handcuffing']] as const) {
+      const b = new LogBuilder('k').start().person(1, 'suspect', 'Doe').cam(true).force(1, 'hardHands', 'active', { tool });
+      const id = b.lastId;
+      const log = b.build();
+      const a = assess('k', { force: [ruling(id, 'excessive')] });
+      const texts = iaStatementOptions(caseOf(triggers(a, log)), log).map((o) => o.text).join('\n');
+      expect(texts).toContain(`When I used ${word}`);
+    }
+  });
+
+  it('a muted camera recorded nothing, so the violation is not sustained', () => {
     const b = new LogBuilder('k').start().person(1, 'suspect').cam(true, true).force(1, 'taser', 'active');
+    const id = b.lastId;
+    const log = b.build();
+    const a = assess('k', { force: [ruling(id, 'excessive')] });
+    const c = caseOf(triggers(a, log));
+    expect(resolveIa(c, a, log, none).finding).toBe('notSustained');
+    expect(resolveIa(c, a, log, { kind: 'acknowledge' }).finding).toBe('sustained');
+  });
+
+  it('an unmuted camera still sustains it', () => {
+    const b = new LogBuilder('k').start().person(1, 'suspect').cam(true).force(1, 'taser', 'active');
     const id = b.lastId;
     const log = b.build();
     const a = assess('k', { force: [ruling(id, 'excessive')] });

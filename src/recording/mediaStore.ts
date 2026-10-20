@@ -34,6 +34,8 @@ export interface MediaStore {
   get(key: string): Promise<Blob | null>;
   /** Deletes incidents of `tag` not in `keep` (when given), then oldest-first until within the caps; returns the deleted count. */
   prune(policy: RetentionPolicy, tag: string, keep?: ReadonlySet<string>): Promise<number>;
+  /** Deletes the snapshots of `tag` taken after sim time `sim` (a loaded save discards the timeline it left); returns the deleted count. */
+  dropAfter(tag: string, sim: number): Promise<number>;
   stats(): Promise<{ count: number; bytes: number }>;
   clear(): Promise<void>;
 }
@@ -133,6 +135,16 @@ export class MemoryMediaStore implements MediaStore {
     const drop = planPrune(metas, policy, tag, keep);
     for (const k of drop) this.rows.delete(k);
     return Promise.resolve(drop.length);
+  }
+
+  dropAfter(tag: string, sim: number): Promise<number> {
+    let n = 0;
+    for (const [k, r] of [...this.rows]) {
+      if (r.meta.tag !== tag || r.meta.sim <= sim) continue;
+      this.rows.delete(k);
+      n++;
+    }
+    return Promise.resolve(n);
   }
 
   stats(): Promise<{ count: number; bytes: number }> {
@@ -248,6 +260,23 @@ export class IdbMediaStore implements MediaStore {
     return drop.length;
   }
 
+  async dropAfter(tag: string, sim: number): Promise<number> {
+    const db = await this.db();
+    const tx = db.transaction(MEDIA_STORE_NAME, 'readwrite');
+    const done = transactionDone(tx);
+    done.catch(() => undefined);
+    const store = tx.objectStore(MEDIA_STORE_NAME);
+    const rows = await requestToPromise(store.index('sim').getAll(IDBKeyRange.lowerBound(sim, true)) as IDBRequest<IdbRow[]>);
+    let n = 0;
+    for (const r of rows) {
+      if (r.tag !== tag) continue;
+      store.delete(r.key);
+      n++;
+    }
+    await done;
+    return n;
+  }
+
   async stats(): Promise<{ count: number; bytes: number }> {
     const db = await this.db();
     const store = db.transaction(MEDIA_STORE_NAME, 'readonly').objectStore(MEDIA_STORE_NAME);
@@ -306,6 +335,10 @@ class FallbackMediaStore implements MediaStore {
 
   prune(policy: RetentionPolicy, tag: string, keep?: ReadonlySet<string>): Promise<number> {
     return this.store().then((s) => s.prune(policy, tag, keep));
+  }
+
+  dropAfter(tag: string, sim: number): Promise<number> {
+    return this.store().then((s) => s.dropAfter(tag, sim));
   }
 
   stats(): Promise<{ count: number; bytes: number }> {

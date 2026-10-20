@@ -82,6 +82,8 @@ export interface ActorInfo {
   building?: number;
   /** Awareness 0..1 (always written by `actor()`). */
   aware?: number;
+  /** The actor is a body (always written by `actor()`). */
+  dead?: boolean;
   /** Resistance level of the actor now, design §4.2 (always written by `actor()`). */
   resistance?: ResistanceLevel;
 }

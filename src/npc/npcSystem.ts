@@ -1007,6 +1007,7 @@ export class NpcSystem {
     out.body = a.body;
     out.building = a.building;
     out.aware = a.aware;
+    out.dead = (a.flags & FLAG.dead) !== 0;
     out.resistance = this.resistanceOf(a);
     return out;
   }

@@ -294,7 +294,7 @@ export class ConductState {
     this.points += this.reportPoints(grade) - (old ? this.reportPoints(old) : 0);
     this.deps.bus.emit('conduct:report', { docId, key, score: grade.score, letter: grade.letter });
     const excellent = commendationRule(this.cfg.commendations, 'excellentReport');
-    if (excellent && grade.score >= (excellent.minScore ?? 95) && !this.commendations.some((c) => c.id === 'excellentReport' && c.key === key)) {
+    if (excellent && assertions.length > 0 && grade.score >= (excellent.minScore ?? 95) && !this.commendations.some((c) => c.id === 'excellentReport' && c.key === key)) {
       this.addCommendation('excellentReport', key, t.game, this.deps.districtOf(key));
     }
   }

@@ -595,7 +595,8 @@
     "maxAggressiveLines": 3
   },
   "exigency": {
-    "ruleId": "GS-6.1"
+    "ruleId": "GS-6.1",
+    "windowS": 1800
   },
   "entry": {
     "ruleId": "GS-6.2"

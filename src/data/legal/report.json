@@ -30,7 +30,10 @@
       "lessLethal": "the less-lethal launcher",
       "firearm": "my firearm",
       "firearmDisplay": "my firearm drawn",
-      "k9": "the K9 unit"
+      "k9": "the K9 unit",
+      "tackle": "a tackle",
+      "struggle": "hands-on control",
+      "cuffResisted": "handcuffing"
     },
     "target": {
       "person": "the person",

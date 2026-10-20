@@ -7,7 +7,7 @@ import { COURT_CONFIG, type CourtConfig } from './data';
 import { generateCrossExam, scoreTestimony } from './crossExam';
 import { convictionChance, evidenceStrength, motionRulings, scheduleHearing } from './rulings';
 import { MAX_CASES, type CourtSave } from './save';
-import type { Answer, CourtCase, CourtDeps, CourtRequest, TestimonyResult, Verdict } from './types';
+import type { Answer, CourtCase, CourtDeps, CourtRequest, MotionRuling, TestimonyResult, Verdict } from './types';
 
 import './events';
 
@@ -155,6 +155,15 @@ export class CourtState {
     this.list.unshift(c);
     this.trim();
     this.rev++;
+    // An unlawful arrest or stop, or evidence that is all suppressed, ends the case at once: no plea, payment or hearing.
+    const a = this.deps.incidents.assessment(key);
+    const motions = a === null ? [] : motionRulings(a, c.personId, c.offenses as Offense[], rs);
+    const dismissed = this.dismissal(c, motions);
+    if (dismissed !== null) {
+      c.motions = motions;
+      this.finish(c, 'dismissed', dismissed, 'closed', null, false);
+      return;
+    }
     if (r.docKind === 'citation') {
       if (u1 < this.cfg.citationContest) this.schedule(c, u2);
       else this.finish(c, 'paid', 'paid', 'closed', null, false);
@@ -273,11 +282,18 @@ export class CourtState {
     return s === null || s.length === 0 ? 0.5 : Math.max(...s);
   }
 
+  /** The reason the case is dismissed (a granted dismissal motion, or no admissible evidence left), else null. */
+  private dismissal(c: CourtCase, motions: readonly MotionRuling[]): string | null {
+    if (motions.some((m) => m.dismissesCase)) return 'unlawfulArrest';
+    const s = this.strengths(c);
+    return s !== null && s.length > 0 && s.every((x) => x <= 0) ? 'suppression' : null;
+  }
+
   /** Dismissal by motion or by lack of evidence, else one draw against the conviction chance. */
   private decide(c: CourtCase, testimony: number | null, missed: boolean): [Verdict, string] {
-    if (c.motions.some((m) => m.dismissesCase)) return ['dismissed', 'unlawfulArrest'];
+    const dismissed = this.dismissal(c, c.motions);
+    if (dismissed !== null) return ['dismissed', dismissed];
     const s = this.strengths(c);
-    if (s !== null && s.length > 0 && s.every((x) => x <= 0)) return ['dismissed', 'suppression'];
     const strength = s === null || s.length === 0 ? 0.5 : Math.max(...s);
     const p = convictionChance(strength, testimony, this.deps.reportGrade(c.key), missed, this.cfg);
     const convicted = this.deps.rng.next() < p;

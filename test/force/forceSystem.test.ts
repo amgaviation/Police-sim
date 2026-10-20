@@ -316,6 +316,32 @@ describe('effects', () => {
     expect(rig.sys.hud.ammo).toBe('14/15');
   });
 
+  it('a body is no target: a second shot after a fatal one finds nothing, and a living subject behind it is hit instead', () => {
+    const rig = new Rig(scriptedRng([0.99, 0, 0.1, 0.5, 0.0]));
+    rig.add(makeActor(1, { x: 0, z: -3 }), 'lethal');
+    rig.select('firearm');
+    rig.applied.length = 0;
+    rig.apply(0, -1);
+    expect(rig.applied).toHaveLength(1);
+    expect(rig.deceased.has(10)).toBe(true);
+    rig.applied.length = 0;
+    rig.apply(0, -1);
+    expect(rig.applied).toHaveLength(0);
+    expect(rig.flashes.at(-1)).toBe('Missed');
+    rig.add(makeActor(2, { x: 0, z: -6 }), 'lethal');
+    rig.apply(0, -1);
+    expect(rig.applied[0]).toMatchObject({ actorId: 2, tool: 'firearm' });
+  });
+
+  it('an actor flagged dead by the npc system is no target either', () => {
+    const rig = new Rig();
+    rig.add(makeActor(1, { x: 0, z: -3, dead: true }), 'compliant');
+    rig.select('baton');
+    rig.applied.length = 0;
+    rig.apply(0, -1);
+    expect(rig.applied).toHaveLength(0);
+  });
+
   it('firearm miss wounds nobody', () => {
     const rig = new Rig(scriptedRng([1e-9, 0, 0.1, 0.5, 0.0]));
     rig.add(makeActor(1, { x: 0, z: -8 }), 'lethal');

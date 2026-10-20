@@ -285,6 +285,19 @@ describe('ConductState: reports', () => {
     return h;
   }
 
+  it('a blank report on an incident without key facts earns no commendation', () => {
+    const h = harness();
+    const { log } = forceLog('C-2');
+    h.incidents.add(log, assess('C-2'), [choice('x', 'true')]);
+    h.state.request({ kind: 'report', key: 'C-2', docId: 'DOC-2', assertions: [] });
+    h.step();
+    expect(h.state.reportGrade('DOC-2')).toMatchObject({ score: 0, letter: 'F' });
+    expect(h.state.career.commendations).toEqual([]);
+    h.state.request({ kind: 'report', key: 'C-2', docId: 'DOC-3', assertions: ['x'] });
+    h.step();
+    expect(h.state.reportGrade('DOC-3')?.score).toBe(100);
+  });
+
   it('grades and stores a report, awarding points', () => {
     const h = reportHarness();
     h.state.request({ kind: 'report', key: 'C-1', docId: 'DOC-1', assertions: ['a', 'b'] });

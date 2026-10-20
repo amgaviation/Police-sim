@@ -39,9 +39,10 @@ export function gradeReport(
   const asserted = new Set(assertions);
   const keyTrue = choices.filter((c) => c.key && c.truth === 'true');
   const hit = keyTrue.filter((c) => asserted.has(c.id)).length;
-  const completeness = keyTrue.length === 0 ? 1 : hit / keyTrue.length;
-
   const chosen = choices.filter((c) => asserted.has(c.id));
+  // With no key facts, a report earns full completeness only by asserting something true: a blank report scores nothing.
+  const completeness = keyTrue.length === 0 ? (chosen.some((c) => c.truth === 'true') ? 1 : 0) : hit / keyTrue.length;
+
   const contradictions: ReportGrade['contradictions'] = [];
   const consumed = new Set<string>();
 

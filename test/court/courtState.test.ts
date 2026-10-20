@@ -5,7 +5,7 @@ import {
 } from '../../src/court';
 import { getRuleset } from '../../src/legal';
 import {
-  HOUR, SEED, arrestOnlyFixture, harness, richFixture, scriptedRng, sourceOf, suppressedFixture, time, unlawfulArrestFixture, withReport,
+  HOUR, LogBuilder, SEED, arrestOnlyFixture, fixtureOf, harness, richFixture, scriptedRng, sourceOf, suppressedFixture, time, unlawfulArrestFixture, withReport,
   type Fixture, type Harness, type ScriptedRng,
 } from './helpers';
 
@@ -38,6 +38,18 @@ function scheduled(fixtures: Fixture[], statutes = DUI, callId = 7, extra: numbe
 }
 
 const HEARING = 14 * HOUR;
+
+/** Like `scheduled`, but the incident's assessment only becomes known after the case was opened (`reveal`). */
+function late(fixtures: Fixture[], statutes = DUI): Rig & { reveal: () => void } {
+  const src = sourceOf(...fixtures);
+  let live = false;
+  const rng = scriptedRng(0.99, 0.5);
+  const h = harness({ ...src, assessment: (k: string) => (live ? src.assessment(k) : null) }, rng, null);
+  const court = new CourtState(h.deps);
+  court.request(open(7, statutes));
+  step({ court, h, rng }, DAY_TEN);
+  return { court, h, rng, reveal: () => { live = true; } };
+}
 
 describe('CourtState: opening cases', () => {
   it('queues requests until the next step', () => {
@@ -92,16 +104,49 @@ describe('CourtState: opening cases', () => {
   });
 
   it('the plea chance rises with the strength of the evidence', () => {
-    const weak = unlawfulArrestFixture(); // dui strength 0.2 -> plea chance 0.36
-    const f = { ...weak, log: { ...weak.log, key: 'C-00007' }, assessment: { ...weak.assessment, key: 'C-00007' } };
-    const w = rig([f], [0.4, 0.5]);
+    // A lawful stop on weaving and alcohol odor, no arrest: dui strength 0.5 -> plea chance 0.45 (a strong case pleads at 0.6).
+    const b = new LogBuilder('C-00007', 'trafficStop');
+    b.at(0).start().person(1, 'driver', 'Sam Rivera');
+    b.at(5).indicator(1, 'weaving').indicator(1, 'odorAlcohol');
+    b.at(10).detain(1);
+    const mid = fixtureOf(b.build());
+    const w = rig([mid], [0.5, 0.5]);
     w.court.request(open(7, DUI));
     step(w, DAY_TEN);
     expect(w.court.cases()[0]?.status).toBe('scheduled');
-    const lo = rig([f], [0.35, 0.5]);
+    const lo = rig([mid], [0.44, 0.5]);
     lo.court.request(open(7, DUI));
     step(lo, DAY_TEN);
     expect(lo.court.cases()[0]?.status).toBe('pleaded');
+  });
+
+  it('a bad arrest or all-suppressed evidence is dismissed at booking, whatever the plea roll', () => {
+    for (const [fixture, statutes, reason] of [
+      [unlawfulArrestFixture(), DUI, 'unlawfulArrest'], [suppressedFixture(), DRUGS, 'suppression'],
+    ] as const) {
+      const key = 'C-00007';
+      const f = { ...fixture, log: { ...fixture.log, key }, assessment: { ...fixture.assessment, key } };
+      for (const u1 of [0.01, 0.99]) {
+        const r = rig([f], [u1, 0.5]);
+        r.court.request(open(7, statutes));
+        step(r, DAY_TEN);
+        expect(r.court.cases()[0], reason).toMatchObject({ status: 'closed', verdict: 'dismissed', reason, hearingGame: -1 });
+        expect(r.rng.draws).toBe(2);
+        expect(r.h.of('court:subpoena')).toHaveLength(0);
+        expect(r.h.of('court:verdict')).toHaveLength(1);
+      }
+    }
+  });
+
+  it('a citation after an unlawful stop with all evidence suppressed is dismissed, not paid', () => {
+    const f = suppressedFixture();
+    const bad = { ...f, log: { ...f.log, key: 'C-00007' }, assessment: { ...f.assessment, key: 'C-00007' } };
+    for (const u1 of [0.01, 0.99]) {
+      const r = rig([bad], [u1, 0.5]);
+      r.court.request(open(7, DRUGS, 'citation'));
+      step(r, DAY_TEN);
+      expect(r.court.cases()[0]).toMatchObject({ status: 'closed', verdict: 'dismissed', reason: 'suppression' });
+    }
   });
 
   it('a booking that does not plead is scheduled with a subpoena event', () => {
@@ -318,8 +363,12 @@ describe('CourtState: attending and testifying', () => {
   it('a dismissing motion cuts the questions to three', () => {
     const f = unlawfulArrestFixture();
     const bad = { ...f, log: { ...f.log, key: 'C-00007' }, assessment: { ...f.assessment, key: 'C-00007' } };
-    const r = attended([bad]);
+    const r = late([bad]);
+    r.reveal();
+    r.court.request({ kind: 'attend', caseId: 'CR-0001' });
+    step(r, HEARING);
     const c = r.court.cases()[0];
+    expect(c?.status).toBe('inSession');
     expect(c?.motions[0]?.dismissesCase).toBe(true);
     expect(c?.questions.length).toBeLessThanOrEqual(3);
   });
@@ -436,7 +485,10 @@ describe('CourtState: attending and testifying', () => {
   it('an unlawful arrest dismisses the case without a draw', () => {
     const f = unlawfulArrestFixture();
     const bad = { ...f, log: { ...f.log, key: 'C-00007' }, assessment: { ...f.assessment, key: 'C-00007' } };
-    const r = attended([bad]);
+    const r = late([bad]);
+    r.reveal();
+    r.court.request({ kind: 'attend', caseId: 'CR-0001' });
+    step(r, HEARING);
     r.court.request({ kind: 'testify', caseId: 'CR-0001', answers: truthful(r) });
     step(r, HEARING + 60);
     expect(r.court.cases()[0]).toMatchObject({ status: 'closed', verdict: 'dismissed', reason: 'unlawfulArrest' });
@@ -447,7 +499,10 @@ describe('CourtState: attending and testifying', () => {
   it('suppressed evidence with nothing left dismisses the case', () => {
     const f = suppressedFixture();
     const bad = { ...f, log: { ...f.log, key: 'C-00007' }, assessment: { ...f.assessment, key: 'C-00007' } };
-    const r = attended([bad], DRUGS);
+    const r = late([bad], DRUGS);
+    r.reveal();
+    r.court.request({ kind: 'attend', caseId: 'CR-0001' });
+    step(r, HEARING);
     expect(r.court.cases()[0]?.motions.some((m) => m.text.includes('GRANTED'))).toBe(true);
     r.court.request({ kind: 'testify', caseId: 'CR-0001', answers: truthful(r) });
     step(r, HEARING + 60);
@@ -490,7 +545,8 @@ describe('CourtState: missed hearings', () => {
   it('motions are applied to a missed hearing: an unlawful arrest is dismissed without a draw', () => {
     const f = unlawfulArrestFixture();
     const bad = { ...f, log: { ...f.log, key: 'C-00007' }, assessment: { ...f.assessment, key: 'C-00007' } };
-    const r = scheduled([bad]);
+    const r = late([bad]);
+    r.reveal();
     step(r, HEARING + 3 * HOUR);
     expect(r.court.cases()[0]).toMatchObject({ status: 'missed', verdict: 'dismissed', reason: 'unlawfulArrest' });
     expect(r.rng.draws).toBe(2);

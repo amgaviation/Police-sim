@@ -80,7 +80,8 @@ export interface ForceEvent extends EventBase {
 export interface OtherForceEvent extends EventBase { kind: 'otherForce'; officer: string; level: ForceLevel; resistance: Resistance; distanceToOfficer: number; seq: number; restrained: boolean }
 export interface InterveneEvent extends EventBase { kind: 'intervene'; otherEvent: number }
 export interface EntryEvent extends EventBase { kind: 'entry'; buildingId: number; publicPlace: boolean }
-export interface ExigencyEvent extends EventBase { kind: 'exigency'; reason: string }
+/** `buildingId` limits the exigency to that building (absent or -1: the whole call). */
+export interface ExigencyEvent extends EventBase { kind: 'exigency'; reason: string; buildingId?: number }
 export interface WarrantEvent extends EventBase { kind: 'warrant'; scope: 'arrest' | 'search' }
 export interface ServiceEvent extends EventBase { kind: 'service'; service: string; phase: 'requested' | 'arrived' }
 export interface PursuitStartEvent extends EventBase { kind: 'pursuitStart'; pursuit: 'vehicle' | 'foot'; pursuitCallId: number }
@@ -148,7 +149,7 @@ export interface Ruleset {
   sita: { ruleId: string; vehicleRuleId: string; windowS: number; preArrestS: number; vehicle: 'broad' | 'gant' };
   automobile: { enabled: boolean; ruleId: string };
   consent: { ruleId: string; scopeRuleId: string; coercionRuleId: string; coercedByWeaponDrawn: boolean; maxAggressiveLines: number };
-  exigency: { ruleId: string };
+  exigency: { ruleId: string; windowS: number };
   entry: { ruleId: string };
   premises: { protectiveSweepRuleId: string; plainViewRuleId: string };
   test: { ruleId: string; impliedAfterArrest: boolean };

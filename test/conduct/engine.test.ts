@@ -72,7 +72,8 @@ describe('conduct on real legal assessments', () => {
     const a = register(h, log);
     expect(a.summary.unlawful).toBe(0);
     h.state.request({ kind: 'incidentClosed', key: log.key, aggressiveLines: 0 });
-    const key = h.incidents.reportChoices(log.key).filter((c) => c.key).map((c) => c.id);
+    const key = h.incidents.reportChoices(log.key).filter((c) => c.truth === 'true').map((c) => c.id);
+    expect(key.length).toBeGreaterThan(0);
     h.state.request({ kind: 'report', key: log.key, docId: 'CIT-1', assertions: key });
     h.step();
     expect(h.state.career.ia).toHaveLength(0);

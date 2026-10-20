@@ -194,6 +194,29 @@ describe('after invoking', () => {
     return m;
   };
 
+  it('re-reading the rights never lifts the invocation, whatever the draw', () => {
+    const s = withPriors(0, { guilty: true });
+    for (let seed = 1; seed <= 24; seed++) {
+      const m = invoked(s);
+      const r = say('miranda', s, ctx, m, seed);
+      expect(r.miranda, String(seed)).toBe('invoked');
+      expect(r.lineKey).toBe('miranda.silent');
+      expect(m.miranda).toBe('invoked');
+    }
+  });
+
+  it('re-reading the rights does not flip a waiver either', () => {
+    const s = withPriors(0, { guilty: true });
+    for (let seed = 1; seed <= 24; seed++) {
+      const m = memoryOf(s, ctx, 0, 0.2);
+      m.mirandized = true;
+      m.miranda = 'waived';
+      const r = say('miranda', s, ctx, m, seed);
+      expect(r.miranda, String(seed)).toBe('waived');
+      expect(m.miranda).toBe('waived');
+    }
+  });
+
   it('silences every incriminating ask without a statement', () => {
     const s = withPriors(0, { guilty: true, vehicleOwnerId: 3 });
     const asks = UTTERANCES.filter((u) => u.intent === 'ask' && u.fact !== null && (INCRIMINATING_FACTS as readonly string[]).includes(u.fact));

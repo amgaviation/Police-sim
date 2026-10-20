@@ -29,9 +29,18 @@ describe('gradeReport', () => {
     expect(g.contradictions).toEqual([]);
   });
 
-  it('scores 100 when there is nothing key to assert and nothing wrong is claimed', () => {
-    expect(gradeReport([choice('x', 'true')], [], log, 'D', 0).score).toBe(100);
-    expect(gradeReport([], [], log, 'D', 0).completeness).toBe(1);
+  it('scores 100 when there is nothing key to assert and a true fact is asserted', () => {
+    expect(gradeReport([choice('x', 'true')], ['x'], log, 'D', 0).score).toBe(100);
+  });
+
+  it('a blank report scores 0 / F even when no fact is key', () => {
+    const g = gradeReport([choice('x', 'true')], [], log, 'D', 0);
+    expect(g).toMatchObject({ score: 0, letter: 'F', completeness: 0 });
+    expect(gradeReport([], [], log, 'D', 0).score).toBe(0);
+  });
+
+  it('asserting only false or unsupported facts is not complete when no fact is key', () => {
+    expect(gradeReport([choice('f', 'false')], ['f'], log, 'D', 0).completeness).toBe(0);
   });
 
   it('lowers completeness for missing key facts and lists what is missing', () => {

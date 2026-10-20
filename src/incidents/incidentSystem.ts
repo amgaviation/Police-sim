@@ -46,6 +46,8 @@ const MAX_CLOSED = 24;
 const DAY_S = 86400;
 /** A fact and the action that produced it are matched when they are at most this far apart. */
 const LINK_S = 5;
+/** A live exigency is logged again after this many seconds (the engine lets one lapse after the ruleset window). */
+const EXIGENCY_REFRESH_S = 60;
 /** A scene `sidearmDrawn` and the force system's display event are one event when this close. */
 const DISPLAY_MERGE_S = 0.5;
 const MAX_PENDING_PLATES = 16;
@@ -1073,11 +1075,18 @@ export class IncidentSystem implements IncidentSource {
 
   // --- Investigation, interiors, services ----------------------------------------------------
 
+  /** Logs the call's exigency while it is live (it can start mid-call: a welfare call nobody answers, a fight); refreshed at most every `EXIGENCY_REFRESH_S`. */
+  private refreshExigency(rt: Rt, buildingId: number): void {
+    if (rt.log.callId <= 0 || (rt.exigencySim >= 0 && this.now - rt.exigencySim < EXIGENCY_REFRESH_S)) return;
+    if (this.ports.callInfo(rt.log.callId)?.exigency) this.add(rt, { kind: 'exigency', personId: -1, reason: 'emergency in progress', buildingId });
+  }
+
   private onFound(e: EventMap['investigation:found']): void {
     const info = this.ports.itemInfo(e.itemId);
     if (!info) return;
     const rt = this.target('', e.callId, true);
     if (!rt) return;
+    this.refreshExigency(rt, info.buildingId);
     const basis: ClaimedBasis | null = e.basis;
     this.add(rt, {
       kind: 'search', personId: info.ownerPersonId, target: 'container', claimedBasis: basis, found: [toFound(info)], buildingId: info.buildingId, vehicleId: -1,
@@ -1109,6 +1118,7 @@ export class IncidentSystem implements IncidentSource {
     if (callId <= 0) return;
     const rt = this.target('', callId, true);
     if (!rt || rt.entries.has(e.buildingId)) return;
+    this.refreshExigency(rt, e.buildingId);
     this.add(rt, { kind: 'entry', personId: -1, buildingId: e.buildingId, publicPlace: this.ports.publicPlace(e.buildingId) });
   }
 

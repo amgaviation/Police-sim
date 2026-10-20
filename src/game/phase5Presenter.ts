@@ -89,6 +89,8 @@ export class Phase5Presenter {
     this.scheduler.immediate();
     this.pendingCourt = '';
     this.nextPruneMs = 0;
+    // A loaded save keeps its tag, so frames of the timeline it left (newer than the save) must not mix into the replayed footage.
+    this.media.dropAfter(tag, session.clock.simTime).catch((error: unknown) => log.warn('Media drop failed:', error));
     const bus = session.bus;
     this.offs.push(
       // The court asks to open its session (a hearing was attended, or a saved case was in session).
