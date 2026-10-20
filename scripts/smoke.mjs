@@ -653,7 +653,7 @@ async function phase2(page, hasRenderer) {
     };
   });
   console.log('patrol roster:', JSON.stringify(roster));
-  check(roster.units.length === 7 && roster.units[0]?.startsWith('12:'), `CAD roster: player unit 12 and six AI units (${roster.units.join(', ')})`);
+  check(roster.units.length === 30 && roster.units[0]?.startsWith('12:'), `CAD roster: player unit 12, six AI units and the 23 Phase 6 resource units (${roster.units.length})`);
   check(roster.fleet === 6, `AI units drive fleet cars (${roster.fleet})`);
   check(roster.equipped.every(Boolean), 'both patrol cars carry equipment (siren, light bar, spotlight, rack, cage, trunk, MDT)');
 
@@ -998,7 +998,7 @@ async function phase2(page, hasRenderer) {
   });
   const same = (k) => saveLoad.before[k] === saveLoad.after[k];
   console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
-  check(saveLoad.slot === 7, `saved as v7 (${saveLoad.slot})`);
+  check(saveLoad.slot === 8, `saved as v8 (${saveLoad.slot})`);
   check(same('calls') && same('docs') && same('units'), 'save/load v6 keeps the CAD (calls, units, documents)');
   check(same('records'), 'save/load v6 keeps the records (touched persons and vehicles, contacts, query log)');
   check(same('radio'), `save/load v6 keeps the radio (${saveLoad.after.radio})`);
@@ -1121,11 +1121,11 @@ async function phase3(page, hasRenderer) {
     };
   }, stepSim.toString());
   console.log('call stream:', JSON.stringify(stream));
-  const catalogSize = Number(/(\d+)\s*(?:call )?types/.exec(stream.stats)?.[1] ?? '0');
+  const catalogSize = Number(/(\d+)\s*Phase 3 call types/.exec(stream.stats)?.[1] ?? /(\d+)\s*(?:call )?types/.exec(stream.stats)?.[1] ?? '0');
   check(stream.generated >= 5 && stream.types.length >= 4, `the CAD received a varied stream: ${stream.generated} calls of ${stream.types.length} types in 20 sim minutes (${stream.types.join(', ')})`);
   check(stream.aiTaken > 0, `AI units took ${stream.aiTaken} of them`);
   check(stream.scenarios > 0, `open calls carry scenarios (${stream.scenarios})`);
-  check(catalogSize >= 150 || stream.stats.includes('163'), `the catalog holds 150+ call types (${stream.stats})`);
+  check(catalogSize >= 150, `the catalog holds 150+ call types (${stream.stats})`);
 
   // --- A spawned call: accept, walk up, scene panel (Y), knock, people appear ----------------------
   const setup = await page.evaluate(async (stepSrc) => {
@@ -2535,6 +2535,8 @@ async function phase6(page, hasRenderer) {
     const lane = 58 * 16;
     const p = s.city.graph.lanePoint(lane, s.city.graph.laneStart(lane) + 40, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
     app.teleport(p.x, p.z, p.yaw);
+    // Evening rush hour: busy roads make the chase riskier (the supervisor weighs traffic density).
+    await app.console.execute('time 17:30');
     for (let i = 0; i < 60; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     if (!s.drivenVehicle?.lightbar) s.toggleLightbar();
     await app.console.execute('pursuit spawn');
@@ -2550,7 +2552,7 @@ async function phase6(page, hasRenderer) {
   await press(page, 'Escape');
   await page.evaluate(async () => {
     await window.patrol.console.execute('pursuit spikes');
-    for (let i = 0; i < 60 * 120 && !(window.__p6.some((x) => x.t === 'pursuit:order') && window.__p6.some((x) => x.t === 'pursuit:tactic')); i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+    for (let i = 0; i < 60 * 240 && !(window.__p6.some((x) => x.t === 'pursuit:order') && window.__p6.some((x) => x.t === 'pursuit:tactic')); i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
   });
   const sup = await page.evaluate(() => ({
     order: window.__p6.some((x) => x.t === 'pursuit:order' && x.e.order === 'terminate'),
@@ -2570,7 +2572,7 @@ async function phase6(page, hasRenderer) {
   });
 
   // --- A mass-casualty incident: command post, triage, the command panel and the MDT Command tab ------------------------------
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const app = window.patrol;
     const s = app.session;
     for (const c of s.cad.openCalls()) {
@@ -2579,6 +2581,7 @@ async function phase6(page, hasRenderer) {
     for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     // Back to the city centre (the units' bases are there): the chase ended on the far highway.
     app.teleport(s.city.spawn.x + 40, s.city.spawn.z + 20, 0);
+    await app.console.execute('time 13:00');
     for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
   });
   await press(page, 'KeyE'); // out of the patrol car: assessments are made on foot
@@ -2636,7 +2639,9 @@ async function phase6(page, hasRenderer) {
   check(mdt.tab === 'command' && mdt.model, 'the MDT Command tab shows the ICS board');
   await page.evaluate(() => window.patrol.mdt.close());
   const ems = await page.evaluate(() => {
-    for (let i = 0; i < 60 * 240; i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
+    // The ambulance comes from the hospital: its trip depends on the traffic, so run until it has worked (at most 10 minutes).
+    const worked = () => window.__p6.some((x) => x.t === 'resource:arrived' && x.e.typeId === 'ems') && window.__p6.some((x) => x.t === 'command:triage' && x.e.by === 'ems');
+    for (let i = 0; i < 60 * 600 && !worked(); i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
     return { dispatched: window.__p6.some((x) => x.t === 'resource:dispatched' && x.e.typeId === 'ems'), arrived: window.__p6.some((x) => x.t === 'resource:arrived' && x.e.typeId === 'ems'), emsTags: window.__p6.filter((x) => x.t === 'command:triage' && x.e.by === 'ems').length };
   });
   console.log('phase 6 EMS:', JSON.stringify(ems));
@@ -2692,7 +2697,10 @@ async function phase6(page, hasRenderer) {
     for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     await app.console.execute('ics post');
     await app.console.execute('request negotiator');
-    for (let i = 0; i < 60 * 420; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    // The teams drive in from their bases: run until both are on scene (at most 15 minutes).
+    const onScene = (cs) => s.phase6.resources.units().some((u) => u.callsign === cs && u.status === 'onScene');
+    for (let i = 0; i < 60 * 900 && !(onScene('TAC-1') && onScene('NEG-1')); i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    for (let i = 0; i < 60 * 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     return { id, phase: s.phase6.backup.swatPhase(id), units: s.phase6.resources.units().filter((u) => u.status === 'onScene').map((u) => u.callsign) };
   });
   console.log('phase 6 barricade:', JSON.stringify(bar));
@@ -3075,7 +3083,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v7'), "slot 'smoke' listed as a v7 save");
+    check(saveLoad.slots.includes('smoke v8'), "slot 'smoke' listed as a v8 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);
