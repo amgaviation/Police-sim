@@ -94,6 +94,7 @@ export class Phase5 {
   private readonly host: Phase5Host;
   private readonly offs: (() => void)[] = [];
   private lastRetainMinute = -1;
+  private nextDutyCheckSim = 0;
   private readonly forceOfficerScratch: ForceOfficer = { x: 0, z: 0, yaw: 0, building: -1, onFoot: true, moving: false, crouched: false, callId: 0 };
   private readonly dummyTarget = { kind: 'actor' as const, actorId: 0 };
 
@@ -149,6 +150,14 @@ export class Phase5 {
 
   stepConduct(dt: number, t: { sim: number; game: number }): void {
     this.conduct.step(dt, t);
+    // A suspended or terminated officer stays out of service, whatever the MDT or the keys ask for (checked once per sim second).
+    if (t.sim >= this.nextDutyCheckSim) {
+      this.nextDutyCheckSim = t.sim + 1;
+      if (this.conduct.dutyStatus(t.game).status !== 'active') {
+        const callsign = this.host.dispatcher.playerCallsign;
+        if (this.host.cad.unit(callsign)?.status === 'available') this.host.dispatcher.request(callsign, { kind: 'status', status: 'outOfService' }, 'auto');
+      }
+    }
   }
 
   stepCourt(dt: number, t: { sim: number; game: number }): void {

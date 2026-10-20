@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser smoke test (Phases 0-2).
+ * Browser smoke test (Phases 0-5).
  *
  * Starts the Vite dev server (unless SMOKE_URL points at a running one), drives
  * the game in headless Chromium with SwiftShader: a new shift in the city, chunk
@@ -19,11 +19,17 @@
  * locker room (HUD objective, locker, roll call, armory, the garage door), entering a house with the real keys, the
  * interior meshes and lights, flashlight / crouch / lean, a door kick, a domestic call bound to the house with its
  * people inside, evidence markers, the camera (thumbnail), the case file, the deposit at the station's evidence room,
- * a prisoner in a holding cell and the interview room, a v6 save/load and the Phase 4 console commands.
+ * a prisoner in a holding cell and the interview room, a v6 save/load and the Phase 4 console commands. Phase 5: the force
+ * tool keys (C, mouse 0) and HUD chip, a scripted stop (bodycam, speeding, odor, consent PBT) with a TASER application and
+ * its force verdict, arrest, rights, booking and the case in court, `law explain` with citations, the MDT report statements
+ * checklist and grade, the Career and Community tabs, the courtroom answered with the real keys, an unlawful frisk and an
+ * excessive TASER that open an IA case reviewed with bodycam snapshots from the live canvas, a v7 save/load and the Phase 5
+ * console commands.
  * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
  * in-car MDT), phase2-mdt.png (the MDT overlay), phase3.png (a call scene with people),
  * phase3-dialogue.png (the dialogue panel), phase4.png (an interior with the flashlight and markers),
- * phase4-station.png (the roll-call briefing) and phase4-case.png (the case file).
+ * phase4-station.png (the roll-call briefing), phase4-case.png (the case file), phase5-mdt.png (the Career tab),
+ * phase5-court.png (the courtroom) and phase5-review.png (the evidence review).
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
@@ -1383,7 +1389,7 @@ async function phase3(page, hasRenderer) {
     return { before, after, version: list.find((x) => x.slot === 'smoke-phase3')?.version ?? -1 };
   });
   console.log('phase 3 save/load:', JSON.stringify({ version: v5.version, people: v5.after.people.length, scenarios: v5.after.scenarios, closed: v5.after.closed.length, contacts: v5.after.contacts, peds: v5.after.peds }));
-  check(v5.version === 6, `saved as v6 (${v5.version})`);
+  check(v5.version === 7, `saved as v7 (${v5.version})`);
   check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v6 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
   check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v6 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
   check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v6 keeps the open contacts and the pedestrians/actors');
@@ -1848,7 +1854,7 @@ async function phase4(page, hasRenderer) {
     };
   });
   console.log('phase 4 save/load:', JSON.stringify(save));
-  check(save.version === 6, `the save is written as version 6 (${save.version})`);
+  check(save.version === 7, `the save is written as version 7 (${save.version})`);
   check(save.after.building === save.before.building && save.after.building >= 0, 'the officer is back inside the station after the load');
   check(save.after.files === save.before.files && save.after.ledger === save.before.ledger, `case files and the custody ledger survive (${save.after.files} files, ${save.after.ledger} entries)`);
   check(save.after.holding === save.before.holding && save.after.flow === save.before.flow, 'holding cells and the shift flow survive');
@@ -1891,6 +1897,474 @@ async function phase4(page, hasRenderer) {
   return { perf, frame, extras };
 }
 
+/**
+ * The scripted Phase 5 incident, run in the page with fast-forwarded sim time (`stepSrc` = stepSim). `stage` 1: the
+ * bodycam on, a speeding car pulled over (the violation seen before the lights), ID, drinking question (odor), a
+ * consent PBT, the driver steps out and fights, the officer faces them from 3 m with the TASER selected. Stage 2:
+ * kneel, cuff, rights, a question in custody, the booking(s) (court cases, one of them scheduled), the call cleared.
+ * Stage 3: a bystander is frisked without suspicion and tased while compliant (an unlawful frisk, excessive force:
+ * an IA case) while the real loop records a few snapshots; the field contact is closed.
+ */
+function phase5Flow([stepSrc, stage, ids]) {
+  const step = new Function(`return ${stepSrc}`)();
+  const app = window.patrol;
+  const s = app.session;
+  const out = { ok: true, detail: '' };
+  const scratch = { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 };
+  const actor = (id) => ({ ...s.npc.actor(id, scratch) });
+  const pos = () => s.playerPosition({ x: 0, z: 0 });
+  const place = (x, z) => {
+    s.physics.getBody(s.player).setTranslation({ x, y: 0.9, z }, true);
+    step(1);
+  };
+  const say = (cid, utterance, n = 300) => {
+    s.contact.request({ kind: 'say', contactId: cid, utteranceId: utterance, tone: 'polite' });
+    step(n);
+  };
+  const act = (cid, action, n = 60) => {
+    s.contact.request({ kind: 'action', contactId: cid, action });
+    step(n);
+  };
+  const close = (cid) => {
+    s.contact.request({ kind: 'close', contactId: cid });
+    step(5);
+  };
+  const faceTo = (tx, tz) => {
+    const p = pos();
+    s.controller.yaw = Math.atan2(-(tx - p.x), -(tz - p.z));
+  };
+
+  if (stage === 1) {
+    step(60);
+    s.investigation.request({ kind: 'bodycam', on: true });
+    step(5);
+    const g = s.city.graph;
+    const lane = 58 * 16;
+    let stopped = -1;
+    for (let attempt = 0; attempt < 60 && stopped < 0; attempt++) {
+      const car = s.vehicles[0];
+      s.enterVehicle(car);
+      const s0 = g.laneStart(lane) + 40;
+      const p = g.lanePoint(lane, s0, { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 });
+      s.teleport(p.x, p.z, p.yaw);
+      step(30);
+      const slot = s.traffic.spawnAt(lane, s0 + 14, { speed: 4, behavior: 0, desiredFactor: 0.3 });
+      const vehicleId = s.traffic.view.vehicleId[slot];
+      const who = s.npc.occupantsOf(vehicleId)[0];
+      const idn = who >= 0 ? s.people.identity(who) : null;
+      if (!idn || idn.juvenile || idn.hearing !== 'normal' || idn.language.english !== 'fluent' || idn.dementia || idn.temperament !== 'calm' || idn.attitude < 0 || idn.wanted) {
+        s.traffic.removeVehicle(vehicleId);
+        continue;
+      }
+      // The officer saw the speeding before lighting the car up (the traffic module's own event).
+      s.bus.emit('traffic:violation', { eid: 0, vehicleId, kind: 'speeding', x: p.x, z: p.z, speedMph: 52, limitMph: 35 });
+      if (!car.lightbar) s.toggleLightbar();
+      const d = s.driverInput;
+      d.handbrake = false;
+      d.brake = 0;
+      d.accelerate = 0.35;
+      for (let i = 0; i < 900 && s.cad.trafficStop === null; i++) step(1);
+      d.accelerate = 0;
+      d.brake = 1;
+      for (let i = 0; i < 300 && car.telemetry.speed > 0.2; i++) step(1);
+      d.brake = 0;
+      d.handbrake = true;
+      step(30);
+      d.handbrake = false;
+      if (s.cad.trafficStop?.vehicleId === vehicleId && s.cad.trafficStop.outcome === 'active') stopped = vehicleId;
+      else {
+        s.traffic.stopFlee(vehicleId);
+        s.traffic.removeVehicle(vehicleId);
+        const pu = s.cad.playerUnit();
+        if (pu?.callId != null) s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId: pu.callId, disposition: 'handled' }, 'key');
+        step(120);
+      }
+    }
+    if (stopped < 0) return { ok: false, detail: 'no car could be stopped' };
+    const stop = s.cad.trafficStop;
+    const driver = s.npc.occupantsOf(stopped)[0];
+    s.people.setIntoxication(driver, 0.12, 'none');
+    s.interact();
+    const st = s.traffic.stopState({ vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 });
+    for (const [lx, lz] of [[-1.35, -0.77], [-1.2, -0.5], [-1.5, -1.1], [-1.1, -0.2], [-1.4, 0.2]]) {
+      place(st.x + lx * Math.cos(st.yaw) + lz * Math.sin(st.yaw), st.z - lx * Math.sin(st.yaw) + lz * Math.cos(st.yaw));
+      if (s.atStoppedDriver()) break;
+    }
+    step(10);
+    s.interact();
+    step(10);
+    const dc = s.contact.active;
+    say(dc, 'greet', 120);
+    say(dc, 'requestId');
+    say(dc, 'askDrinking');
+    const hasPbt = () => s.contact.view(dc).facts.some((f) => f.text.includes('Breath test'));
+    for (let k = 0; k < 6 && !hasPbt(); k++) {
+      say(dc, 'consentPbt');
+      act(dc, 'pbt', 200);
+      if (!hasPbt()) say(dc, 'reassure', 200);
+    }
+    say(dc, 'cmdStepOut');
+    let actorId = s.npc.actorOfPerson(driver);
+    if (actorId === 0) actorId = s.npc.stepOut(stopped, 0);
+    // The driver attacks: the fight state, the officer 3 m away facing them with the TASER selected.
+    s.npc.forceState(actorId, 'fight');
+    step(30);
+    const a = actor(actorId);
+    place(a.x - 3, a.z);
+    faceTo(a.x, a.z);
+    s.force.request({ kind: 'selectTool', tool: 'taser' });
+    step(5);
+    const pbt = hasPbt();
+    // The dialogue panel closes: the controls (mouse 0 = apply the tool) are the player's again.
+    close(dc);
+    return { ok: pbt, detail: `pbt ${pbt}`, key: s.incidents.current, callId: stop.callId, driver, actorId };
+  }
+
+  if (stage === 2) {
+    const { actorId, driver, callId, key } = ids;
+    s.npc.forceState(actorId, 'kneel');
+    step(200);
+    const a = actor(actorId);
+    place(a.x - 1.2, a.z);
+    step(30);
+    s.contact.request({ kind: 'open', target: { kind: 'actor', actorId } });
+    step(10);
+    const dc = s.contact.active;
+    act(dc, 'cuff', 200);
+    say(dc, 'miranda');
+    say(dc, 'askDrugs');
+    // Bookings: every case rolls a plea; more bookings are filed until one of them is scheduled for a hearing.
+    const booked = [];
+    for (let k = 0; k < 12; k++) {
+      const t = s.now();
+      const draft = s.cad.docs.create('booking', { callId, personId: driver, charges: ['TR-360'], arrestLocation: 'smoke test', arrestedGame: t.game }, t, 'Officer Doe #4071');
+      s.cad.docs.finalize(draft.id, t);
+      booked.push(true);
+      step(30);
+      if (s.court.cases().some((c) => c.status === 'scheduled')) break;
+    }
+    close(dc);
+    s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId, disposition: 'arrestMade' }, 'key');
+    step(300);
+    const log = s.incidents.log(key);
+    return {
+      ok: booked[0] === true && log?.closed === true,
+      detail: `booked ${booked.length}, closed ${String(log?.closed)}`,
+      cases: s.court.cases().map((c) => `${c.id}:${c.status}`),
+      scheduled: s.court.cases().find((c) => c.status === 'scheduled')?.id ?? '',
+    };
+  }
+
+  // stage 3
+  const at = pos();
+  const personId = 51234;
+  const actorId = s.npc.spawnActor({ personId, x: at.x + 6, z: at.z, yaw: 0, profile: 'bystander', role: 'bystander', callId: 0, hidden: false, body: 'human', weapon: null, vehicleId: -1 });
+  step(30);
+  const a = actor(actorId);
+  place(a.x - 1.2, a.z);
+  step(20);
+  s.contact.request({ kind: 'open', target: { kind: 'actor', actorId } });
+  step(10);
+  const cid = s.contact.active;
+  s.npc.forceState(actorId, 'hold');
+  step(10);
+  act(cid, 'frisk', 120);
+  const key = s.incidents.current;
+  // A TASER on a compliant bystander: excessive.
+  const b = actor(actorId);
+  place(b.x - 3, b.z);
+  faceTo(b.x, b.z);
+  s.force.request({ kind: 'selectTool', tool: 'taser' });
+  step(5);
+  const p = pos();
+  const len = Math.hypot(b.x - p.x, b.z - p.z);
+  s.force.request({ kind: 'apply', dirX: (b.x - p.x) / len, dirZ: (b.z - p.z) / len });
+  step(10);
+  return { ok: key !== '', detail: `incident ${key}`, key, actorId, contact: cid };
+}
+
+/**
+ * Phase 5 checks on a fresh outdoor shift: the force tool keys and HUD chip, a scripted stop with a TASER application
+ * (real mouse click), the legal line, `law explain`, the MDT report checklist and grade, the Career and Community tabs, a
+ * court case through the courtroom with the real keys, an IA case with the evidence review (snapshots from the live
+ * canvas), a v7 save / load and the Phase 5 console commands.
+ */
+async function phase5(page, hasRenderer) {
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.indoorScenes = false;
+    app.ui.closeAll();
+    app.newGame(42, 'generic');
+    app.perf.setVisible(false);
+  });
+  await waitFor(page, () => window.patrol.session !== null && (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  await page.evaluate(async () => {
+    await window.patrol.console.execute('time 10:30');
+    await window.patrol.console.execute('weather clear');
+    // The shift starts in the station: the duty pistol and the TASER are signed out at the armory (Phase 4 keys).
+    const st = window.patrol.session.station;
+    st.request({ kind: 'armory', item: 'sidearm', action: 'out' });
+    st.request({ kind: 'armory', item: 'taser', action: 'out' });
+    st.request({ kind: 'complete', step: 'garage' });
+  });
+  await sleep(1500);
+
+  // --- C cycles the force tools (the TASER is available: the armory log has it signed out) -----------------
+  const tools = [];
+  for (let k = 0; k < 8; k++) {
+    await press(page, 'KeyC');
+    const t = await page.evaluate(() => window.patrol.session.force.tool);
+    tools.push(t);
+    if (t === 'taser') break;
+  }
+  await waitFor(page, () => /TASER/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
+  const chip = await page.evaluate(() => /TASER \d+\/\d+/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
+  console.log(`phase 5 tools: ${tools.join(' > ')}; chip "${chip}"`);
+  check(tools.at(-1) === 'taser' && /TASER/.test(chip), `C cycles the force tools to the TASER with a HUD chip (${tools.join(', ')}; "${chip}")`);
+
+  // --- The scripted stop up to the TASER ---------------------------------------------------------------
+  const s1 = await page.evaluate(phase5Flow, [stepSim.toString(), 1, null]);
+  console.log('phase 5 stage 1:', JSON.stringify(s1));
+  check(s1.ok, `stop: speeding car pulled over, ID, odor and a consent PBT (${s1.detail})`);
+  const beforeFire = await page.evaluate(() => window.patrol.session.force.hud.ammo);
+  await waitFrames(page, 3);
+  // Headless Chromium never grants pointer lock, and the input layer swallows the click that asks for it: the lock is
+  // switched off for this one click, which then reaches the game as mouse 0 (officer.fire).
+  await page.evaluate(() => window.patrol.input.setPointerLockEnabled(false));
+  await page.mouse.click(640, 360);
+  const clicked = await waitFor(page, () => window.patrol.session.force.hud.attached, null, 4000);
+  if (!clicked) {
+    console.log('note: the mouse click did not fire the TASER; applying through the force system');
+    await page.evaluate((ids) => {
+      const s = window.patrol.session;
+      const a = s.npc.actor(ids.actorId, { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 });
+      const p = s.playerPosition({ x: 0, z: 0 });
+      const len = Math.hypot(a.x - p.x, a.z - p.z);
+      s.force.request({ kind: 'apply', dirX: (a.x - p.x) / len, dirZ: (a.z - p.z) / len });
+    }, s1);
+    await waitFor(page, () => window.patrol.session.force.hud.attached, null, 4000);
+  }
+  const legalLine = await waitFor(page, () => /within policy|questionable|excessive/.test(document.querySelector('#hud')?.textContent ?? ''), null, 4000);
+  const afterFire = await page.evaluate(() => ({ ammo: window.patrol.session.force.hud.ammo, attached: window.patrol.session.force.hud.attached, text: /TASER on[^\n]*/.exec(document.body.innerText)?.[0] ?? '' }));
+  console.log('phase 5 fire:', JSON.stringify({ beforeFire, ...afterFire, clicked, legalLine }));
+  check(afterFire.attached, `the TASER fired at the fighting driver, probes attached (${clicked ? 'mouse 0' : 'force request'})`);
+  check(legalLine && /within policy/.test(afterFire.text), `the HUD shows the force verdict (${afterFire.text})`);
+
+  // --- Arrest and booking, the call cleared ---------------------------------------------------------------
+  const s2 = await page.evaluate(phase5Flow, [stepSim.toString(), 2, { ...s1 }]);
+  console.log('phase 5 stage 2:', JSON.stringify(s2));
+  check(s2.ok, `arrest: cuffed, rights, a custodial question, booking and the call cleared (${s2.detail})`);
+  check(s2.scheduled !== '' || s2.cases.length > 0, `the booking opened court cases (${s2.cases.join(', ')})`);
+  const explained = await page.evaluate(async (key) => {
+    const c = window.patrol.console;
+    const before = c.lines.length;
+    await c.execute(`law explain ${key}`);
+    return c.lines.slice(before).map((l) => l.text).join('\n');
+  }, s1.key);
+  console.log('law explain:\n  ' + explained.split('\n').join('\n  '));
+  check(/GS-\d/.test(explained) && /detention/.test(explained) && /force #\d+ taser vs assaultive: justified/.test(explained), 'law explain lists the determinations with citations and the justified TASER');
+
+  // --- The report with the statements checklist --------------------------------------------------------------
+  const report = await page.evaluate(async (ids) => {
+    const app = window.patrol;
+    const s = app.session;
+    const mdt = app.mdt;
+    mdt.open('reports');
+    const opened = mdt.openForm('report', { callId: ids.callId, title: 'Traffic stop with arrest', location: '95 S Park Avenue', narrative: 'Stopped a speeding car, smelled alcohol, the driver fought and was tased, then arrested.' });
+    await new Promise((r) => setTimeout(r, 200));
+    const choices = s.incidents.reportChoices(ids.key);
+    const trueIds = choices.filter((c) => c.key === true).map((c) => c.id);
+    const boxes = [...document.querySelectorAll('.mdt-statements input')];
+    for (const b of boxes) if (trueIds.includes(b.value)) b.checked = true;
+    const shown = boxes.length;
+    const result = mdt.submitForm(true);
+    await new Promise((r) => setTimeout(r, 600));
+    const docId = result.doc?.id ?? '';
+    const grade = s.conduct.reportGrade(docId);
+    return { opened, shown, hidden: JSON.stringify(boxes.map((b) => b.outerHTML)).includes('truth'), ticked: trueIds.length, errors: result.errors, grade: grade ? { score: grade.score, letter: grade.letter, completeness: grade.completeness } : null };
+  }, s1);
+  console.log('phase 5 report:', JSON.stringify(report));
+  check(report.opened && report.shown > 0 && !report.hidden, `the report form lists the statements of fact without the truth (${report.shown} boxes)`);
+  check(report.errors.length === 0 && report.grade !== null && report.grade.score > 0, `the report was graded (${report.grade ? `${report.grade.letter} ${report.grade.score}` : 'no grade'})`);
+
+  // --- Career and Community tabs ------------------------------------------------------------------------------
+  const tabs = await page.evaluate(async () => {
+    const mdt = window.patrol.mdt;
+    mdt.open('career');
+    await new Promise((r) => setTimeout(r, 400));
+    const career = { sections: mdt.careerSections?.sections.map((x) => x.id) ?? [], text: document.querySelector('#ui')?.innerText ?? '' };
+    mdt.open('community');
+    await new Promise((r) => setTimeout(r, 300));
+    const community = mdt.communityRows.map((r) => `${r.label} ${r.percent}`);
+    mdt.open('career');
+    await new Promise((r) => setTimeout(r, 300));
+    return { career: career.sections, hasCal: /Calendar|Court/i.test(career.text), community };
+  });
+  console.log('phase 5 tabs:', JSON.stringify(tabs));
+  check(tabs.career.includes('duty') && tabs.community.length >= 8, `the Career tab (${tabs.career.join(', ')}) and Community tab (${tabs.community.length} districts) render`);
+  await page.screenshot({ path: path.join(SHOTS, 'phase5-mdt.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase5-mdt.png')}`);
+  await page.evaluate(() => window.patrol.mdt.close());
+
+  // --- Court: advance a scheduled case, attend, answer with the real keys ---------------------------------------
+  const court = await page.evaluate(async (scheduled) => {
+    const app = window.patrol;
+    const s = app.session;
+    if (scheduled === '') return { skipped: true };
+    await app.console.execute(`court advance ${scheduled}`);
+    await new Promise((r) => setTimeout(r, 400));
+    const can = s.court.canAttend(scheduled, s.env.time.totalSeconds);
+    app.mdt.open('career');
+    const attended = app.mdt.attendCase(scheduled);
+    await new Promise((r) => setTimeout(r, 600));
+    const panel = app.phase5.courtroom;
+    return { skipped: false, can, attended, open: panel.isOpen, questions: panel.view?.questions.length ?? 0, status: s.court.case(scheduled)?.status };
+  }, s2.scheduled);
+  console.log('phase 5 court:', JSON.stringify(court));
+  if (court.skipped) {
+    console.log('note: every case was settled by a plea; the courtroom is covered by the unit tests');
+  } else {
+    check(court.can && court.attended && court.open, `the hearing opens the courtroom (${JSON.stringify(court)})`);
+    await page.screenshot({ path: path.join(SHOTS, 'phase5-court.png') });
+    console.log(`screenshot: ${path.join(SHOTS, 'phase5-court.png')}`);
+    await press(page, 'Enter');
+    for (let k = 0; k < court.questions; k++) await press(page, 'Digit1');
+    await press(page, 'Enter');
+    const verdict = await waitFor(page, (id) => window.patrol.session.court.case(id)?.verdict != null, s2.scheduled, 6000);
+    const done = await page.evaluate((id) => ({ open: window.patrol.phase5.courtroom.isOpen, c: window.patrol.session.court.case(id) }), s2.scheduled);
+    console.log('phase 5 verdict:', JSON.stringify({ verdict: done.c?.verdict, reason: done.c?.reason, status: done.c?.status }));
+    check(verdict && !done.open, `the testimony ends in a verdict (${done.c?.verdict} / ${done.c?.reason})`);
+  }
+
+  await page.evaluate(() => window.patrol.mdt.close());
+
+  // --- An unlawful frisk and an excessive TASER: IA, with snapshots from the live canvas ---------------------------
+  const s3 = await page.evaluate(phase5Flow, [stepSim.toString(), 3, null]);
+  console.log('phase 5 stage 3:', JSON.stringify(s3));
+  check(s3.ok, `field contact: a bystander frisked and tased without cause (${s3.detail})`);
+  // Real time with the bodycam recording: the scheduler takes frames of the live canvas.
+  if (hasRenderer) await sleep(3000);
+  const snaps = await page.evaluate(async (key) => {
+    const app = window.patrol;
+    const list = await app.phase5.media.list(app.phase5.tag, key);
+    return { count: list.length, bytes: list.reduce((n, m) => n + m.bytes, 0), key, current: app.session.incidents.current, paused: app.loop.paused, menus: app.ui.menuStack.map((m) => m.id), cam: app.session.incidents.cam.bits };
+  }, s3.key);
+  console.log('phase 5 snapshots:', JSON.stringify(snaps));
+  if (hasRenderer) check(snaps.count >= 1, `the bodycam took snapshots of the live canvas (${snaps.count}, ${snaps.bytes} bytes)`);
+  const ia = await page.evaluate(async (key) => {
+    const app = window.patrol;
+    const s = app.session;
+    await app.console.execute(`incident close ${key}`);
+    // The close, the assessment (one per step) and the conduct step that opens the IA case run in the live loop.
+    for (let i = 0; i < 80 && !(s.incidents.log(key)?.closed && s.incidents.assessment(key) !== null && s.conduct.career.ia.length > 0); i++) await new Promise((r) => setTimeout(r, 100));
+    const legal = [];
+    const c = app.console;
+    const before = c.lines.length;
+    await c.execute(`law explain ${key}`);
+    legal.push(...c.lines.slice(before).map((l) => l.text));
+    const cases = s.conduct.career.ia;
+    return { legal: legal.join('\n'), cases: cases.map((x) => `${x.id}:${x.key}:${x.status}`), id: cases.find((x) => x.key === key)?.id ?? cases[0]?.id ?? '' };
+  }, s3.key);
+  console.log('phase 5 frisk:\n  ' + ia.legal.split('\n').join('\n  '));
+  check(/\[unlawful\] frisk/.test(ia.legal) && /vs compliant: excessive/.test(ia.legal), 'law explain shows the unlawful frisk and the excessive TASER of the field contact');
+  check(ia.cases.length > 0, `an internal-affairs case was opened (${ia.cases.join(', ')})`);
+  if (ia.id !== '') {
+    const review = await page.evaluate(async (id) => {
+      const app = window.patrol;
+      app.phase5.openIa(id);
+      await new Promise((r) => setTimeout(r, 800));
+      const panel = app.phase5.review;
+      return { open: panel.isOpen, menus: app.ui.menuStack.map((m) => m.id), text: (document.querySelector('.rev-root, [class*="rev-"]')?.textContent ?? '').slice(0, 200) };
+    }, ia.id);
+    console.log('phase 5 review:', JSON.stringify(review));
+    check(review.open, 'the evidence review opens for the IA case');
+    await page.screenshot({ path: path.join(SHOTS, 'phase5-review.png') });
+    console.log(`screenshot: ${path.join(SHOTS, 'phase5-review.png')}`);
+    // The review pauses the game: the statement is a queued request that conduct applies once the world runs again.
+    await press(page, 'Digit1');
+    await press(page, 'Escape');
+    const closed = await page.evaluate(() => !window.patrol.phase5.review.isOpen);
+    check(closed, 'Escape closes the evidence review');
+    const decided = await waitFor(page, (id) => window.patrol.session.conduct.iaCase(id)?.statement != null, ia.id, 6000);
+    const statement = await page.evaluate((id) => ({ statement: window.patrol.session.conduct.iaCase(id)?.statement ?? null, finding: window.patrol.session.conduct.iaCase(id)?.finding ?? null }), ia.id);
+    console.log('phase 5 IA statement:', JSON.stringify(statement));
+    check(decided, `the officer's statement was recorded from the review footer (${JSON.stringify(statement)})`);
+  }
+
+  // --- A v7 save / load round trip ---------------------------------------------------------------------------------
+  const save = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const before = {
+      keys: s.incidents.keys().length,
+      cases: s.court.cases().length,
+      ia: s.conduct.career.ia.length,
+      trust: s.conduct.trustRows().map((r) => r.value.toFixed(5)).join(','),
+      reports: s.conduct.career.reports.length,
+    };
+    await app.saveGame('p5');
+    const list = await app.saves.list();
+    await app.loadGame('p5');
+    const l = app.session;
+    await new Promise((r) => setTimeout(r, 800));
+    return {
+      version: list.find((x) => x.slot === 'p5')?.version ?? 0,
+      before,
+      after: {
+        keys: l.incidents.keys().length,
+        cases: l.court.cases().length,
+        ia: l.conduct.career.ia.length,
+        trust: l.conduct.trustRows().map((r) => r.value.toFixed(5)).join(','),
+        reports: l.conduct.career.reports.length,
+      },
+    };
+  });
+  console.log('phase 5 save/load:', JSON.stringify(save));
+  check(save.version === 7, `the save is written as version 7 (${save.version})`);
+  check(JSON.stringify(save.before) === JSON.stringify(save.after), 'incident logs, court cases, IA cases, report grades and trust survive the load');
+
+  // --- Console commands -------------------------------------------------------------------------------------------------
+  const cmds = await page.evaluate(async () => {
+    const c = window.patrol.console;
+    const run = async (line) => {
+      const before = c.lines.length;
+      await c.execute(line);
+      return c.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    const out = [];
+    for (const line of ['law ruleset', 'law ruleset strict', 'jurisdiction', 'law ruleset generic', 'law list', 'incident list', 'incident show', 'legal', 'force stats', 'force test', 'trust', 'trust downtown', 'career', 'ia list', 'court list', 'court next', 'cam status', 'cam mute on', 'cam mute off', 'media stats']) {
+      out.push(`> ${line}`, ...(await run(line)));
+    }
+    return out;
+  });
+  console.log('phase 5 console commands:\n  ' + cmds.map((l) => l.slice(0, 160)).join('\n  '));
+  check(!cmds.some((l) => l.startsWith('error:')), 'Phase 5 console commands ran without errors');
+  const strict = await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.console.execute('law ruleset strict');
+    await new Promise((r) => setTimeout(r, 300));
+    const id = app.session.incidents.ruleset.id;
+    await app.console.execute('law ruleset generic');
+    return id;
+  });
+  check(strict === 'strict', 'the jurisdiction can be swapped to the strict ruleset from the console');
+
+  // --- Perf -----------------------------------------------------------------------------------------------------------------
+  const perf = await page.evaluate(perfSnapshot);
+  const extras = await page.evaluate(() => {
+    const out = {};
+    for (const [name, ms] of window.patrol.systems.timings) if (['force', 'incidents', 'conduct', 'court', 'scene', 'contact'].includes(name)) out[name] = Number(ms.toFixed(4));
+    const s = window.patrol.session;
+    let events = 0;
+    for (const k of s.incidents.keys()) events += s.incidents.log(k)?.events.length ?? 0;
+    return { systems: out, incidents: s.incidents.keys().length, events };
+  });
+  const frame = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+  console.log('perf phase 5:', JSON.stringify(perf));
+  console.log('phase 5 sim costs:', JSON.stringify(extras));
+  return { perf, frame, extras };
+}
+
 async function run() {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({
@@ -1920,6 +2394,17 @@ async function run() {
 
     const hasRenderer = await page.evaluate(() => window.patrol.renderer !== null);
     console.log(`renderer: ${hasRenderer ? 'WebGL available' : 'UNAVAILABLE (headless simulation only)'}`);
+
+    // SMOKE_ONLY=5 runs just the Phase 5 checks.
+    if (process.env.SMOKE_ONLY === '5') {
+      const only = await phase5(page, hasRenderer);
+      console.log('phase 5 frame:', JSON.stringify(only.frame));
+      check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+      check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
+      console.log('--- browser console ---');
+      for (const line of consoleLines) console.log(line);
+      return;
+    }
 
     // SMOKE_ONLY=4 runs just the Phase 4 checks.
     if (process.env.SMOKE_ONLY === '4') {
@@ -2150,7 +2635,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v6'), "slot 'smoke' listed as a v6 save");
+    check(saveLoad.slots.includes('smoke v7'), "slot 'smoke' listed as a v7 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);
@@ -2211,6 +2696,7 @@ async function run() {
     const phase2Perf = await phase2(page, hasRenderer);
     const phase3Perf = await phase3(page, hasRenderer);
     const phase4Perf = await phase4(page, hasRenderer);
+    const phase5Perf = await phase5(page, hasRenderer);
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -2233,6 +2719,10 @@ async function run() {
     console.log('perf phase 4:', JSON.stringify(phase4Perf.perf));
     console.log('phase 4 sim costs:', JSON.stringify(phase4Perf.extras));
     check(phase4Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls indoors within the cap (${phase4Perf.perf.drawCalls})`);
+    console.log(describe('Phase 5 patrol (HUD additions, bodycam):', phase5Perf.frame));
+    console.log('perf phase 5:', JSON.stringify(phase5Perf.perf));
+    console.log('phase 5 sim costs:', JSON.stringify(phase5Perf.extras));
+    check(phase5Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 5 within the cap (${phase5Perf.perf.drawCalls})`);
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
   } finally {

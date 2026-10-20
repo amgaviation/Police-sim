@@ -19,6 +19,10 @@
  * Phase 4: `interior:*` in indoors/events.ts, `tactical:*` in tactical/events.ts, `npc:aware` in npc/events.ts,
  * `contact:consent` in contact/events.ts, `investigation:*` in investigation/events.ts, `station:*` in station/events.ts,
  * `scene:service` (and `scene:materialized.buildingId`) in scene/events.ts.
+ * Phase 5: `force:*` in force/events.ts (tool, applied, other, intervened, flash), `contact:fact` / `contact:said` /
+ * `contact:action` / `contact:miranda` in contact/events.ts, `scene:command` (and the optional `scene:pursuit` owner,
+ * person and end reason) in scene/events.ts, `npc:caught.by` 'force' in npc/events.ts, `incident:*` in incidents/events.ts,
+ * `conduct:*` in conduct/events.ts, `court:*` in court/events.ts.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;
