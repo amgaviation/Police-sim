@@ -118,6 +118,7 @@ function countsText(b: CommandBoard): string {
 function swatBlock(swatPhase: string | null): string {
   if (swatPhase === null) return 'No SWAT unit assigned';
   if (swatPhase === 'enRoute') return 'SWAT is en route';
+  if (swatPhase === 'arrived') return 'No building to enter';
   return '';
 }
 

@@ -124,10 +124,12 @@ describe('service provider (external services)', () => {
     expect(rt.actions.find((a) => a.id === 'requestEms')?.state).toBe('requested');
   });
 
-  it('an external SWAT service does not resolve the barricade (the tactical units and the negotiation do)', async () => {
+  it('an external SWAT service does not resolve a building-bound barricade (the tactical units and the negotiation do)', async () => {
     const r = await makeRig();
     const id = spawnWhere(r, 'barricadedSubject', (rt) => NOT_FALSE(rt) && rt.scenario.participants.some((p) => p.role === 'subject'));
     const rt = engage(r, id, 30, 2);
+    // Bound to a building: the SWAT team has a house to work.
+    rt.buildingId = 1;
     r.scene.setServiceProvider(() => true);
     r.scene.request({ kind: 'action', callId: id, actionId: 'requestSwat' });
     run(r, 0.5);
@@ -136,6 +138,20 @@ describe('service provider (external services)', () => {
     expect(rt.flags.has('arrived:swat')).toBe(true);
     expect(rt.services[0]?.effectDueSim).toBe(-1);
     expect(rt.flags.has('custody:subject')).toBe(false);
+  });
+
+  it('an external SWAT service on an unbound barricade falls back to the scene timer (no team can enter, so it still ends)', async () => {
+    const r = await makeRig();
+    const id = spawnWhere(r, 'barricadedSubject', (rt) => NOT_FALSE(rt) && rt.scenario.participants.some((p) => p.role === 'subject'));
+    const rt = engage(r, id, 30, 2);
+    expect(rt.buildingId).toBeLessThan(0);
+    r.scene.setServiceProvider(() => true);
+    r.scene.request({ kind: 'action', callId: id, actionId: 'requestSwat' });
+    run(r, 0.5);
+    r.scene.request({ kind: 'serviceArrived', callId: id, service: 'swat' });
+    run(r, 400);
+    expect(rt.flags.has('arrived:swat')).toBe(true);
+    expect(rt.flags.has('custody:subject')).toBe(true);
   });
 
   it('keeps an external service through save and load without a non-finite number', async () => {

@@ -54,6 +54,8 @@ const SIGHT_M = 250;
 const BAIL_WINDOW_S = 30;
 /** A spike strip placed ahead needs the suspect at least this far from the node (m). */
 const STRIP_MIN_GAP_M = 80;
+/** A slow or stopped suspect still covers the road ahead at this speed when judging whether a tactic can be set in time. */
+const SUSPECT_MIN_MPS = 5;
 /** An AI unit counts as arrived at its strip node within this distance (m). */
 const UNIT_AT_NODE_M = 30;
 /** Strips are removed this long after the pursuit ended (sim s). */
@@ -150,6 +152,9 @@ export class PursuitSystem {
 
   // Runtime caches (rebuilt after a restore).
   private tacticUnits: string[] = [];
+  /** ETA of the last `bestUnit` pick, and of each unit of the last `rankUnits` (same order), seconds. */
+  private bestEta = Infinity;
+  private readonly rankEta: number[] = [];
   private supName = '';
   private airOnTarget = false;
   private airReported = false;
@@ -481,6 +486,12 @@ export class PursuitSystem {
       this.flash('No unit available for spikes');
       return;
     }
+    // The strip must be set while the suspect is still STRIP_MIN_GAP_M short of the junction.
+    const spare = this.suspectTimeToNode(route, idx) - STRIP_MIN_GAP_M / Math.max(this.fi.speed, SUSPECT_MIN_MPS);
+    if (this.bestEta > spare) {
+      this.flash('No unit can reach it in time');
+      return;
+    }
     this.direct(run, unit, node.x, node.z);
     run.tactic = { kind: 'spikes', unit, node: nodeId, sinceSim: t.sim };
     this.tacticUnits.length = 0;
@@ -556,7 +567,14 @@ export class PursuitSystem {
       this.tactic(run.callId, 'roadblock', 'failed', 'Not enough units for a roadblock.');
       return;
     }
-    const chosen = ranked.slice(0, 3);
+    // The units must be in place while the suspect is still a braking distance short of the junction.
+    const spare = this.suspectTimeToNode(route, idx) - this.cfg.roadblock.aheadM / Math.max(this.fi.speed, SUSPECT_MIN_MPS);
+    const chosen: string[] = [];
+    for (let i = 0; i < ranked.length && chosen.length < 3; i++) if ((this.rankEta[i] ?? Infinity) <= spare) chosen.push(ranked[i] as string);
+    if (chosen.length < this.cfg.roadblock.minUnits) {
+      this.flash('No unit can reach it in time');
+      return;
+    }
     for (const cs of chosen) this.direct(run, cs, node.x, node.z);
     run.tactic = { kind: 'roadblock', unit: chosen.join(','), node: nodeId, sinceSim: t.sim };
     this.tacticUnits.length = 0;
@@ -871,6 +889,9 @@ export class PursuitSystem {
     // The officer's units disengage.
     this.clearTactic(run);
     this.releaseRun(run);
+    // The state unit has eyes on him: the lose timer is suspended until the resolve roll, so the car cannot
+    // vanish as 'escaped' (focus far away) before the catch chance is rolled.
+    this.deps.traffic.setFleeTracked(run.vehicleId, true);
     this.airOnTarget = false;
     this.dirty = true;
   }
@@ -897,6 +918,8 @@ export class PursuitSystem {
       this.say('state', h.unit, `${h.unit}, suspect in custody.`);
       h.removeAt = t.sim + this.cfg.handoff.removeAfterS;
     } else {
+      // Got away from the state unit too: the car is untracked again and escapes or despawns as usual.
+      this.deps.traffic.setFleeTracked(run.vehicleId, false);
       this.finishState(t);
     }
   }
@@ -1085,7 +1108,16 @@ export class PursuitSystem {
     }).etaS;
   }
 
-  /** The AI unit of the call with the lowest ETA to (x, z), '' none. */
+  /** Seconds the suspect needs to reach node `idx` of its predicted route (at least SUSPECT_MIN_MPS). */
+  private suspectTimeToNode(route: { nodes: number[]; edges: number[] }, idx: number): number {
+    const g = this.deps.graph;
+    const first = g.nodes[route.nodes[0] as number];
+    let len = first === undefined ? 0 : Math.hypot(first.x - this.fi.x, first.z - this.fi.z);
+    for (let k = 1; k <= idx; k++) len += g.edges[route.edges[k] as number]?.length ?? 0;
+    return len / Math.max(this.fi.speed, SUSPECT_MIN_MPS);
+  }
+
+  /** The AI unit of the call with the lowest ETA to (x, z), '' none; its ETA is left in `bestEta`. */
   private bestUnit(callId: number, x: number, z: number): string {
     const list = this.deps.dispatcher.aiUnitsOnCall(callId, []);
     let best = '';
@@ -1097,6 +1129,7 @@ export class PursuitSystem {
         best = cs;
       }
     }
+    this.bestEta = bestEta;
     return best;
   }
 
@@ -1112,6 +1145,8 @@ export class PursuitSystem {
       out.push(cs);
     }
     out.sort((a, b) => (etas.get(a) ?? 0) - (etas.get(b) ?? 0));
+    this.rankEta.length = 0;
+    for (const cs of out) this.rankEta.push(etas.get(cs) ?? Infinity);
     return out;
   }
 

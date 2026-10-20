@@ -97,7 +97,7 @@ function capture(session: GameSession): Captured {
   const out: Captured = [];
   const topics = [
     'pursuit:tactic', 'pursuit:order', 'pursuit:handoff', 'scene:pursuit', 'resource:dispatched', 'resource:arrived',
-    'backup:callout', 'backup:radio', 'command:post', 'command:triage', 'dispatch:backup',
+    'pursuit:flash', 'backup:callout', 'backup:radio', 'command:post', 'command:triage', 'dispatch:backup',
   ] as const;
   for (const t of topics) session.bus.on(t, (e: unknown) => out.push(`${String(Math.round(session.now().sim))} ${t} ${JSON.stringify(e)}`));
   return out;
@@ -263,6 +263,24 @@ describe('Phase 6 session', () => {
     expect(second).toBe(first);
   }, 240_000);
 
+  it('the officer-needs-assistance button puts the player on the emergency call, so the responding officers get out', () => {
+    const h = fresh();
+    const session = h.start(SEED);
+    h.step(session, 60);
+    const events = capture(session);
+    const flashes: string[] = [];
+    session.bus.on('backup:flash', (e) => flashes.push(e.text));
+    session.dispatcher.request(session.dispatcher.playerCallsign, { kind: 'emergency' }, 'key');
+    h.step(session, 60 * 240);
+    const call = session.cad.calls().find((c) => c.typeId === 'officerEmergency');
+    expect(call).toBeDefined();
+    expect(session.cad.playerUnit()?.callId).toBe(call?.id);
+    expect(session.phase6.backup.officers().length).toBeGreaterThan(0);
+    expect(flashes.length).toBeGreaterThan(0);
+    expect(events.length).toBeGreaterThan(0);
+    h.reset(session);
+  }, 120_000);
+
   it('a pursuit: spikes, the air unit, a PIT contact, the supervisor\'s order, the bail-out and the perimeter; two runs give bit-identical v8 saves', () => {
     const h = fresh();
     const run = (): { saved: string; events: Captured } => {
@@ -277,7 +295,8 @@ describe('Phase 6 session', () => {
     expect(has(ev, 'scene:pursuit', '"kind":"vehicle","active":true')).toBe(true);
     expect(has(ev, 'resource:dispatched', 'SGT-1')).toBe(true);
     expect(has(ev, 'pursuit:order', '"order":"terminate"')).toBe(true);
-    expect(has(ev, 'pursuit:tactic', '"tactic":"spikes"')).toBe(true);
+    // The spikes request at 20 s is either set (and judged) or refused as unreachable in time: never silently accepted.
+    expect(has(ev, 'pursuit:tactic', '"tactic":"spikes"') || has(ev, 'pursuit:flash', 'No unit can reach it in time')).toBe(true);
     expect(has(ev, 'pursuit:tactic', '"tactic":"pit"')).toBe(true);
     expect(has(ev, 'resource:dispatched', 'AIR-1')).toBe(true);
     expect(has(ev, 'scene:pursuit', '"kind":"foot","active":true')).toBe(true);

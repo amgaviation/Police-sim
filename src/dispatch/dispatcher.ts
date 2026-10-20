@@ -1225,7 +1225,17 @@ export class Dispatcher {
     this.emergencyActive = true;
     cad.setEmergency(pc, true, t);
     const location = this.generator.locate(p.x, p.z);
-    const call = this.openOfficerCall('officerEmergency', 1, location, t);
+    // Like backup: the player's open call (stop / scenario) carries the emergency, so the Phase 6 backup
+    // officers (keyed on the player's call) come out; otherwise a new call with the player on it.
+    const pu = cad.unit(pc);
+    let call = pu && pu.callId !== null ? cad.call(pu.callId) : null;
+    if (!call || call.status === 'closed') {
+      call = this.openOfficerCall('officerEmergency', 1, location, t);
+      this.withdrawOffer(t);
+      this.makeAssignable(t);
+      cad.assign(call.id, pc, t, 'self');
+      cad.setUnitStatus(pc, 'onScene', t, 'auto');
+    }
     this.emergencyCallId = call.id;
     const units = this.pickUnits(this.cfg.emergency.units, p.x, p.z, call.id, 'preemptAll', 'emergency');
     for (const u of units) this.dispatchUnit(u, call.id, p.x, p.z, 'emergency', 'dispatch', 'emergency', t);
@@ -1732,6 +1742,15 @@ export class Dispatcher {
         if (call.id === this.emergencyCallId) this.emergencyCallId = -1;
       } else {
         cad.unassign(u.callsign, t);
+        // The player's own emergency call (opened by the button) closes with its last responder after Code 4.
+        if (u.role === 'emergency' && call.typeId === 'officerEmergency' && !this.emergencyActive) {
+          let others = 0;
+          for (const cs of call.units) if (cs !== this.playerCallsign && cad.unit(cs)?.kind !== 'resource') others++;
+          if (others === 0) {
+            cad.closeCall(call.id, 'handled', t);
+            if (call.id === this.emergencyCallId) this.emergencyCallId = -1;
+          }
+        }
       }
     }
     this.toPatrol(u, t);

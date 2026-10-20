@@ -2170,8 +2170,9 @@ export class SceneDirector implements IncidentResolver {
         this.transportInjured(rt);
         return;
       case 'resolveBarricade':
-        // Phase 6: real tactical units (and the negotiation) resolve the standoff themselves.
-        if (s.external) return;
+        // Phase 6: real tactical units (and the negotiation) resolve a bound standoff themselves; an unbound call has
+        // no building for the team, so the scene's own timer ends it.
+        if (s.external && rt.buildingId >= 0) return;
         s.effectDueSim = t.sim + this.rng.nextFloat(this.cfg.tactics.standoffResolveS[0], this.cfg.tactics.standoffResolveS[1]);
         return;
       case 'revealHidden':

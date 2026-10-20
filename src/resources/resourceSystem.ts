@@ -668,8 +668,11 @@ export class ResourceSystem implements ResourcePort {
     // 5. Pick by response time.
     const picked = type.behavior === 'air' ? this.pickAir(type, call) : this.pickGround(type, call);
     if (!picked) {
-      this.radio('Dispatch', `No ${type.label} available.`, type.channel);
-      this.flash(`No ${type.label} available`);
+      // Automatic retries (the EMS shuttle every 20 s) fail silently; only a request someone made is answered.
+      if (via !== 'auto') {
+        this.radio('Dispatch', `No ${type.label} available.`, type.channel);
+        this.flash(`No ${type.label} available`);
+      }
       return;
     }
     // 6. Assign.

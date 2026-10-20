@@ -452,6 +452,17 @@ describe('SWAT team runtime', () => {
     expect(rig.sys.swat(callId, 'stack')).toBe('The SWAT team has not arrived yet.');
   });
 
+  it('swatPhase: a SWAT unit on scene of a call with no building reads arrived, and the command says there is nothing to enter', () => {
+    const rig = new Rig();
+    const callId = rig.openCall();
+    rig.unitOnScene('TAC-1', 5, 5, 0, 'resource');
+    rig.callBuildingId = -1;
+    rig.swatCount = 1;
+    rig.step(2);
+    expect(rig.sys.swatPhase(callId)).toBe('arrived');
+    expect(rig.sys.swat(callId, 'stack')).toBe('No building to enter here.');
+  });
+
   it('roomAt sanity: the subject fixture stands in the last room to clear', () => {
     const s = swatRig(1);
     const a = s.rig.npc.actors.get(7)!;

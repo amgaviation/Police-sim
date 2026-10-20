@@ -178,6 +178,8 @@ interface World {
   rngSeed: number;
   /** Keep the player 20 m behind the suspect (in sight) unless a test places the player itself. */
   trackPlayer: boolean;
+  /** The traffic focus stays where it is (the player stopped at the handoff point). */
+  freezeFocus: boolean;
 }
 
 interface Options {
@@ -269,7 +271,7 @@ async function makeWorld(opts: Options = {}): Promise<World> {
   const ctx: PursuitContext = {
     car: null, carId: 0, lights: true, siren: true, onFoot: false, x: 0, z: 0, yaw: 0, carryingStrip: false, playerCallsign: '1-A-12',
   };
-  return { h, pursuit, cad, sim: 0, ctx, log, dispatcher, resources, npc, sceneRequests, rules, offenseKeys, callId: call.id, burst, strips, rngSeed: seed, trackPlayer: true };
+  return { h, pursuit, cad, sim: 0, ctx, log, dispatcher, resources, npc, sceneRequests, rules, offenseKeys, callId: call.id, burst, strips, rngSeed: seed, trackPlayer: true, freezeFocus: false };
 }
 
 /** The first edge at least `minLen` long with a forward lane. */
@@ -290,6 +292,7 @@ function startPursuit(w: World, edge: number, s: number, cap = 13, ownerCallId =
 }
 
 function follow(w: World): void {
+  if (w.freezeFocus) return;
   const slot = w.h.sys.slotOfVehicle(ID);
   if (slot < 0) return;
   w.h.focus.x = w.h.sys.view.x[slot] ?? 0;
@@ -707,6 +710,46 @@ describe('spike strips', () => {
     });
   });
 
+  it('refuses spikes and a roadblock the units cannot set in time and leaves the tactic slot free', async () => {
+    const aheadM = PURSUIT_CONFIG.roadblock.aheadM;
+    const roadblock = PURSUIT_CONFIG.roadblock as Mutable<typeof PURSUIT_CONFIG.roadblock>;
+    await noGiveUp(async () => {
+      const w = await makeWorld();
+      w.dispatcher.onCall = ['21', '22'];
+      w.dispatcher.teleport = false;
+      // The units are across the city; the suspect is 40 m short of a junction.
+      w.cad.setUnitPosition('21', -2400, -2400);
+      w.cad.setUnitPosition('22', -2400, -2380);
+      const edge = longEdge(CITY.graph);
+      startPursuit(w, edge, (CITY.graph.edges[edge]?.length ?? 100) - 40);
+      run(w, sec(1));
+      // A strip must be set STRIP_MIN_GAP_M before the junction: not with the suspect this close.
+      const spikes = PURSUIT_CONFIG.spikes as Mutable<typeof PURSUIT_CONFIG.spikes>;
+      const junctions = spikes.aheadJunctions;
+      spikes.aheadJunctions = 1;
+      try {
+        w.pursuit.request({ kind: 'spikesAhead' });
+        run(w, 1);
+      } finally {
+        spikes.aheadJunctions = junctions;
+      }
+      expect(w.log.flashes.at(-1)).toBe('No unit can reach it in time');
+      expect(w.pursuit.serialize().pursuit?.tactic).toBeNull();
+      expect(w.dispatcher.directed.size).toBe(0);
+      // The roadblock units are refused the same way (braking distance made huge), and neither locks the other out.
+      roadblock.aheadM = 100_000;
+      try {
+        w.pursuit.request({ kind: 'roadblock' });
+        run(w, 1);
+      } finally {
+        roadblock.aheadM = aheadM;
+      }
+      expect(w.log.flashes.at(-1)).toBe('No unit can reach it in time');
+      expect(w.pursuit.serialize().pursuit?.tactic).toBeNull();
+      expect(w.dispatcher.directed.size).toBe(0);
+    });
+  });
+
   it('flashes when no unit is available or another tactic runs', async () => {
     await noGiveUp(async () => {
       const w = await makeWorld({ graph: chainGraph() });
@@ -999,6 +1042,35 @@ describe('jurisdiction handoff', () => {
         expect(w.pursuit.hud()).toBeNull();
       }
       expect(handedAt).toBeGreaterThan(0);
+    });
+  });
+
+  it('keeps the suspect alive until the state unit rolls the catch, even when the player stops far away', async () => {
+    await noGiveUp(async () => {
+      const edge = longEdge(CITY.graph);
+      const e = CITY.graph.edges[edge];
+      const a = CITY.graph.nodes[e?.from ?? 0];
+      if (!a) throw new Error('no node');
+      // Default resolveS (60..180 s) is longer than the 20 s lose timer.
+      const config = cfgWith({ handoff: { cityLimits: { minX: a.x - 150, maxX: a.x + 150, minZ: a.z - 150, maxZ: a.z + 150 } } });
+      const w = await makeWorld({ city: CITY, config, seed: 11 });
+      w.resources.directToOk.add('STATE-1');
+      startPursuit(w, edge, 20);
+      w.dispatcher.onCall = ['21'];
+      for (let i = 0; i < sec(60) && w.log.handoffs.length === 0; i++) {
+        run(w, 1, () => {
+          const f = suspectInfo(w);
+          w.resources.poses.set('STATE-1', { x: f.x + 100, z: f.z, yaw: 0, speed: 20 });
+        });
+      }
+      expect(w.log.handoffs).toHaveLength(1);
+      // The player stops at the handoff point: the car drives away from the focus for a good while.
+      w.freezeFocus = true;
+      expect(suspectInfo(w).tracked).toBe(true);
+      run(w, sec(PULLOVER.flee.loseS + 25));
+      expect(w.log.ended.map((x) => x.reason)).not.toContain('escaped');
+      expect(w.h.sys.slotOfVehicle(ID)).toBeGreaterThanOrEqual(0);
+      expect(w.pursuit.hud()?.line).toMatch(/STATE PURSUIT/);
     });
   });
 

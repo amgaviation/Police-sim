@@ -211,7 +211,9 @@ describe('backup, emergency, location', () => {
     expect(h.cad.playerUnit()?.emergency).toBe(true);
     const call = h.cad.calls().find((c) => c.typeId === 'officerEmergency');
     expect(call?.priority).toBe(1);
-    expect(call?.units).toEqual(em[0]?.units);
+    expect(call?.units).toEqual(['12', ...(em[0]?.units ?? [])].sort((a, b) => (call?.units ?? []).indexOf(a) - (call?.units ?? []).indexOf(b)));
+    expect(new Set(call?.units)).toEqual(new Set(['12', ...(em[0]?.units ?? [])]));
+    expect(h.cad.playerUnit()?.callId).toBe(call?.id);
     h.dispatcher.request('12', { kind: 'emergency' }, 'key');
     step(h);
     expect(lastAck(h)).toMatchObject({ kind: 'emergency', ok: false });

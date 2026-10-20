@@ -140,6 +140,8 @@ const DETAIN_GIVE_UP_S = 20;
 const DETAIN_PAUSE_S = 30;
 /** A car moving faster than this (m/s) while its officer is still away leaves the officer behind. */
 const CAR_LEAVING_MPS = 2;
+/** A player in a vehicle farther than this from the officer has driven off: the officers walk back to their own cars. */
+const DRIVE_OFF_RANGE_M = 35;
 const DOOR_OFFSET_M = 1.2;
 const STANDBY_BEHIND_M = 3;
 const CONTACT_SCAN_S = 0.25;
@@ -451,7 +453,12 @@ export class BackupSystem implements BackupPort {
   }
 
   swat(callId: number, command: SwatCommand, plan?: Partial<SwatPlan>): string {
-    if (this.team === null || this.team.callId !== callId) return this.swatPhase(callId) === null ? 'No SWAT team on this call.' : 'The SWAT team has not arrived yet.';
+    if (this.team === null || this.team.callId !== callId) {
+      const phase = this.swatPhase(callId);
+      if (phase === null) return 'No SWAT team on this call.';
+      // On scene of a call with no building to enter: the standoff is resolved from the street by the scene's timer.
+      return phase === 'arrived' ? 'No building to enter here.' : 'The SWAT team has not arrived yet.';
+    }
     this.request(plan === undefined ? { kind: 'swat', callId, command } : { kind: 'swat', callId, command, plan });
     return `${command[0]?.toUpperCase() ?? ''}${command.slice(1)} acknowledged.`;
   }
@@ -460,8 +467,13 @@ export class BackupSystem implements BackupPort {
     if (this.team !== null && this.team.callId === callId) return this.team.phase;
     const call = this.deps.cad.call(callId);
     if (call === null) return null;
-    for (const cs of call.units) if (SWAT_CALLSIGNS.includes(cs)) return 'enRoute';
-    return null;
+    let phase: string | null = null;
+    for (const cs of call.units) {
+      if (!SWAT_CALLSIGNS.includes(cs)) continue;
+      phase = 'enRoute';
+      if (this.deps.cad.unit(cs)?.status === 'onScene' && this.deps.callBuilding(callId) < 0) return 'arrived';
+    }
+    return phase;
   }
 
   // --- Step ------------------------------------------------------------------------------------------------
@@ -627,6 +639,8 @@ export class BackupSystem implements BackupPort {
       if (!this.deps.unitCar(u.callsign, pose)) continue;
       const max = this.cfg.spawn.maxCarDistanceM;
       if (dist2(pose.x, pose.z, ctx.x, ctx.z) > max * max) continue;
+      // A driving player who is already away does not get new officers running after the car.
+      if (!ctx.onFoot && dist2(pose.x, pose.z, ctx.x, ctx.z) > DRIVE_OFF_RANGE_M * DRIVE_OFF_RANGE_M) continue;
       this.createOfficer(u, pose, t, ctx);
     }
   }
@@ -690,7 +704,8 @@ export class BackupSystem implements BackupPort {
     o.prevYaw = o.yaw;
     const u = cad.unit(o.callsign);
     const present = ctx.callId === o.callId && u !== null && u.callId === o.callId && u.status === 'onScene';
-    const onCall = present && !(this.deps.releasing?.(o.callsign) ?? false);
+    const drovePast = !ctx.onFoot && dist2(o.x, o.z, ctx.x, ctx.z) > DRIVE_OFF_RANGE_M * DRIVE_OFF_RANGE_M;
+    const onCall = present && !drovePast && !(this.deps.releasing?.(o.callsign) ?? false);
     if (!present) o.flags |= F_LEFT;
     else if (onCall && o.fsm.state === 'returning' && (o.flags & F_LEFT) !== 0) {
       // The unit came back to the call: a fresh arrival, the officer goes back to its role.

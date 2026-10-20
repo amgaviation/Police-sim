@@ -87,6 +87,19 @@ describe('response-time selection', () => {
     expect(h.flashes).toContain('No K9 unit available');
   });
 
+  it('an automatic retry that finds nobody stays silent, an explicit one is answered', () => {
+    const city = stubCity(() => null);
+    const h = makeHarness({ city });
+    const c = makeCall(h, 3, h.city.spawn.x + 500, h.city.spawn.z);
+    for (let i = 0; i < 3; i++) h.res.request({ kind: 'request', typeId: 'k9', callId: c.id, via: 'auto' });
+    step(h);
+    expect(radioTexts(h)).not.toContain('No K9 unit available.');
+    expect(h.flashes).not.toContain('No K9 unit available');
+    h.res.request({ kind: 'request', typeId: 'k9', callId: c.id, via: 'mdt' });
+    step(h);
+    expect(radioTexts(h)).toContain('No K9 unit available.');
+  });
+
   it('the radio ETA text matches estimateResponse over the real route from the base', () => {
     const h = makeHarness({ density: 1.5, wetness: 0.4 });
     const to = pointFromStation(h, 1800);

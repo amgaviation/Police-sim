@@ -2552,6 +2552,8 @@ async function phase6(page, hasRenderer) {
   await press(page, 'Escape');
   await page.evaluate(async () => {
     await window.patrol.console.execute('pursuit spikes');
+    // Spikes are refused when no unit can set them in time; a box-in attempt is always judged.
+    await window.patrol.console.execute('pursuit box');
     for (let i = 0; i < 60 * 240 && !(window.__p6.some((x) => x.t === 'pursuit:order') && window.__p6.some((x) => x.t === 'pursuit:tactic')); i++) window.patrol.loop.hooks.fixedUpdate(1 / 60, 0);
   });
   const sup = await page.evaluate(() => ({

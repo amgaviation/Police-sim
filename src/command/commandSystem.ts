@@ -22,6 +22,7 @@ import {
   type CommandContext,
   type CommandDeps,
   type CommandLevel,
+  type CommandParticipant,
   type CommandPostView,
   type CommandRequest,
   type NegSubject,
@@ -40,6 +41,10 @@ import {
 const WORK_S = 0.25;
 /** Seconds between two automatic ambulance requests for patients left on scene. */
 const SHUTTLE_S = 20;
+/** Participant roles whose presence, free, keeps EMS from working the patients on its own. */
+const HOSTILE_ROLES: readonly string[] = ['subject', 'suspect', 'assailant', 'ambusher'];
+/** Scene flag prefixes (`<prefix>:<role>`) that mean a hostile participant is no longer a danger on scene. */
+const SECURED_PREFIXES: readonly string[] = ['custody', 'caged', 'detained', 'caught', 'fled', 'escaped'];
 /** Player distance to the incident that opens the post automatically. */
 const AUTO_RANGE_M = 80;
 /** Outer perimeter radius of a containment. */
@@ -795,7 +800,25 @@ export class CommandSystem {
     return i;
   }
 
+  /**
+   * EMS tags and loads patients on its own only where the scene is safe: a mass-casualty incident, or no hostile
+   * participant (subject, suspect, assailant, ambusher) still at the scene and free. A held hostage stays put.
+   */
+  private emsMayWork(p: PostState): boolean {
+    if (this.family === 'massCasualty') return true;
+    const flags = this.deps.scene.flagsOf(p.callId);
+    const parts = this.deps.scene.participants(p.callId);
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i] as CommandParticipant;
+      if (part.deceased || !HOSTILE_ROLES.includes(part.role)) continue;
+      const role = part.role;
+      if (flags === null || !SECURED_PREFIXES.some((f) => flags.has(`${f}:${role}`))) return false;
+    }
+    return true;
+  }
+
   private tickCrews(p: PostState, dt: number): void {
+    if (!this.emsMayWork(p)) return;
     const units = this.deps.resources.onSceneUnits(p.callId, 'ems', this.scratchEms);
     // Units that left take their timers and reservations with them.
     for (let i = this.emsCallsigns.length - 1; i >= 0; i--) {
