@@ -123,4 +123,16 @@ describe('tools panel', () => {
     stand(h, 0, 0, -1, 0, -1);
     expect(h.sys.toolsModel().options[TOOL_ROW.canvass]?.enabled).toBe(false);
   });
+
+  it('disables Request K9 with a reason for a call family that has no K9 action', () => {
+    const h = makeHarness();
+    stand(h, 0, 0, -1, 0, -1);
+    const base = h.sys.toolsModel().options[TOOL_ROW.k9];
+    expect(base?.enabled).not.toBe(false);
+    h.world.calls.set(42, {
+      exigency: false, warrant: false, arrests: [], buildingId: -1, family: 'trafficStop', suspectPersonId: -1, anchorX: 0, anchorZ: 0, k9: false,
+    });
+    expect(h.sys.toolsModel().options[TOOL_ROW.k9]).toMatchObject({ enabled: false, detail: 'No K9 for this kind of call' });
+    expect(h.sys.toolsSelect(TOOL_ROW.k9)).toEqual({ kind: 'none' });
+  });
 });

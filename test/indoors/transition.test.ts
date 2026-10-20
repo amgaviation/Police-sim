@@ -123,8 +123,8 @@ describe('enter and exit', () => {
       rig.officer.x = door.exit.x;
       rig.officer.z = door.exit.z;
       rig.steps(16);
-      // A neighbour's front door can be nearer than this back door: only the nearest entrance streams in.
-      if (!rig.sys.resident.includes(b.id)) continue;
+      // Residency follows the footprint, so the back door's own building is resident whatever its neighbours' front doors.
+      expect(rig.sys.resident).toContain(b.id);
       rig.sys.request({ kind: 'enter', buildingId: b.id, door: door.index });
       rig.steps(60);
       const m = moves(rig)[0] as InteriorMoveOfficerEvent;

@@ -15,6 +15,7 @@ import { FlashlightRig } from '../render/tactical';
 import type { Renderer } from '../render/renderer';
 import { BriefingScreen } from '../ui/station';
 import { CameraOverlay, CaseFilePanel, FingerprintPanel, MarkerLabels, type MarkerLabel } from '../ui/investigation';
+import { MAX_BRUSH_S } from '../investigation';
 import { FadeOverlay } from '../ui/hud';
 import type { HudSnapshot } from '../ui/hud/hud';
 import type { HudBodycam, HudLocation, HudTactical } from '../ui/hud/types';
@@ -280,30 +281,40 @@ export class Phase4Presenter {
       case 'tag':
         inv.request({ kind: action, itemId });
         return;
-      case 'deposit':
-        // Deposit has no location check in the system: only at the evidence room's point.
-        if (session.nearEvidenceRoom()) inv.request({ kind: 'deposit' });
-        else this.host.flash('Deposit evidence at the station evidence room');
+      case 'deposit': {
+        // Deposit has no location check in the system: only at the evidence room's point; away from it the officer
+        // can secure the item in a patrol car trunk (a transfer) and deposit it from there later.
+        if (session.nearEvidenceRoom()) {
+          inv.request({ kind: 'deposit' });
+          return;
+        }
+        const trunk = session.trunkLocker();
+        if (trunk !== '' && inv.ledger.custodian(itemId).startsWith('officer:')) inv.request({ kind: 'transfer', itemId, to: trunk });
+        else this.host.flash('Deposit evidence at the station evidence room, or secure it at a patrol car trunk');
         return;
+      }
       default:
-        this.host.flash('Transfers are not available yet');
+        this.host.flash('Nothing to do with that item');
     }
   }
 
-  /** Per frame: the fingerprint panel follows `investigation.dust`; the case file refreshes when its revision changes. */
-  updatePanels(session: GameSession, nowMs: number): void {
+  /**
+   * Per frame: the fingerprint panel follows `investigation.dust` and, while Space is held, brushes for the frame time
+   * `dt` (s); the case file refreshes when its revision changes.
+   */
+  updatePanels(session: GameSession, nowMs: number, dt: number): void {
     const inv = session.investigation;
     const dust = inv.dust;
     if (dust && !this.dust.isOpen) {
       this.dust.open(dust, {
         move: (dir) => inv.request({ kind: 'dustMove', dir }),
-        brush: (seconds) => inv.request({ kind: 'dustBrush', seconds }),
         lift: () => inv.request({ kind: 'dustLift' }),
         cancel: () => inv.request({ kind: 'dustCancel' }),
       });
     } else if (!dust && this.dust.isOpen) {
       this.dust.close();
     }
+    if (dust && this.dust.brushing && dt > 0) inv.request({ kind: 'dustBrush', seconds: Math.min(dt, MAX_BRUSH_S) });
     if (nowMs < this.nextPanelMs) return;
     this.nextPanelMs = nowMs + PANEL_INTERVAL_MS;
     if (this.dust.isOpen && dust) this.dust.update(dust);

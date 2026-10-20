@@ -139,6 +139,8 @@ export class InteriorSystem implements InteriorQuery {
   private lastX = Number.NaN;
   private lastZ = Number.NaN;
   private lastNearest = -1;
+  /** Exit pose of the move that just put the officer outdoors; read once by the residency pass of that step. */
+  private exitedAt: { x: number; z: number } | null = null;
   private readonly plan: OccupantSpawn[] = [];
   private readonly sEntrance: Entrance = { kind: 'entrance', buildingId: 0, door: 0, distance: 0 };
   private readonly sExit: Exit = { kind: 'exit', buildingId: 0, door: 0, distance: 0 };
@@ -175,6 +177,12 @@ export class InteriorSystem implements InteriorQuery {
       hideSpot: (b, x, z, ax, az, pose) => this.claimHide(b, x, z, ax, az, pose),
       releaseHide: (b, index) => {
         this.claims.get(b)?.delete(index);
+      },
+      sameRoom: (b, ax, az, bx, bz) => {
+        const layout = this.navFor(b);
+        if (layout === null) return false;
+        const room = roomAt(layout, ax, az);
+        return room >= 0 && room === roomAt(layout, bx, bz);
       },
     };
   }
@@ -488,12 +496,16 @@ export class InteriorSystem implements InteriorQuery {
     const due = this.dirty || (outdoors && this.stepCount % RESIDENCY_PERIOD === 0);
     if (!due) return;
     let w0 = this.inside;
+    // The step that teleports the officer out still carries the interior position: use the door's exit pose.
+    const at = this.exitedAt ?? officer;
+    this.exitedAt = null;
     if (outdoors) {
-      const moved = Math.abs(officer.x - this.lastX) > RESIDENCY_MOVE || Math.abs(officer.z - this.lastZ) > RESIDENCY_MOVE;
+      const moved = Math.abs(at.x - this.lastX) > RESIDENCY_MOVE || Math.abs(at.z - this.lastZ) > RESIDENCY_MOVE;
       if (this.dirty || moved || Number.isNaN(this.lastX)) {
-        this.lastX = officer.x;
-        this.lastZ = officer.z;
-        this.lastNearest = this.deps.buildings.nearestEntrance(officer.x, officer.z, STREAM_RADIUS)?.id ?? -1;
+        this.lastX = at.x;
+        this.lastZ = at.z;
+        // The footprint, not the front door: back, side and sally-port doors must find their building too.
+        this.lastNearest = this.deps.buildings.nearestFootprint(at.x, at.z, STREAM_RADIUS)?.id ?? -1;
       }
       w0 = this.lastNearest;
     }
@@ -650,6 +662,7 @@ export class InteriorSystem implements InteriorQuery {
     } else if (d.exit !== null) {
       this.inside = -1;
       this.lastX = Number.NaN;
+      this.exitedAt = { x: d.exit.x, z: d.exit.z };
       this.revisionCount++;
       this.deps.bus.emit('interior:moveOfficer', { buildingId: -1, x: d.exit.x, y: 0, z: d.exit.z, yaw: d.exit.yaw });
     }

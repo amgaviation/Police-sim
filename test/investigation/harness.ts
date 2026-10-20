@@ -57,6 +57,8 @@ export interface World {
   spawned: { buildingId: number; personId: number; callId: number; role: string }[];
   zones: NoGoZone[];
   zoneCalls: number;
+  /** Custodian id of the trunk within reach, '' when none. */
+  trunk: string;
 }
 
 export interface Harness {
@@ -100,6 +102,7 @@ export function makeHarness(): Harness {
     spawned: [],
     zones: [],
     zoneCalls: 0,
+    trunk: '',
   };
   const defaultCall = (): CallContext => ({
     exigency: false,
@@ -116,6 +119,7 @@ export function makeHarness(): Harness {
     [neighbor.buildingId, neighbor],
   ]);
   const ports: InvestigationPorts = {
+    trunkLocker: () => world.trunk,
     callContext: (callId) => world.calls.get(callId) ?? (callId > 0 ? defaultCall() : null),
     currentCall: () => world.call,
     incidentOf: (callId) => `C-${String(callId).padStart(5, '0')}`,

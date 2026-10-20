@@ -54,6 +54,8 @@ export interface CallContext {
   suspectPersonId: number;
   anchorX: number;
   anchorZ: number;
+  /** The call's family offers the K9 request (false disables the tools row; omitted counts as true). */
+  k9?: boolean;
 }
 
 /** Implemented by the integrator over SceneDirector / CAD / npc / records / interiors. */
@@ -94,6 +96,11 @@ export interface InvestigationPorts {
    * offer "Knock (canvass)"; without it that row is disabled and the door panel issues `canvass` requests.
    */
   doorBuilding?(x: number, z: number): number;
+  /**
+   * Optional: the custodian id of the patrol car trunk within reach of the officer (`locker:<car index>`), '' when
+   * none. Without it the tools panel cannot offer to secure evidence in a trunk.
+   */
+  trunkLocker?(): string;
 }
 
 export interface PlaceItemSpec {
@@ -168,15 +175,16 @@ export const TOOL_ROW = {
   collect: 2,
   bag: 3,
   tag: 4,
-  search: 5,
-  dust: 6,
-  tapePost: 7,
-  tapeClose: 8,
-  tapeClear: 9,
-  canvass: 10,
-  k9: 11,
-  bodycam: 12,
-  caseFile: 13,
+  transfer: 5,
+  search: 6,
+  dust: 7,
+  tapePost: 8,
+  tapeClose: 9,
+  tapeClear: 10,
+  canvass: 11,
+  k9: 12,
+  bodycam: 13,
+  caseFile: 14,
 } as const;
 
 /** The fingerprint minigame as the panel draws it; the object is updated in place (check `InvestigationSystem.revision`). */

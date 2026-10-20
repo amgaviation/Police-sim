@@ -42,6 +42,8 @@ export interface StationSave {
 /** Requests waiting for the next step beyond this are dropped (oldest first). */
 const MAX_QUEUE = 64;
 const DONE_LABEL = 'Done';
+/** A prisoner is transferred to county after this long in a cell (sim seconds), so the cells never fill for good. */
+export const HOLD_LIMIT_S = 1800;
 
 const BODYCAM_LABELS: Readonly<Record<(typeof BODYCAM_MOUNTS)[number], string>> = { chest: 'Chest', shoulder: 'Shoulder', none: 'None' };
 const AUDIO_LABELS: Readonly<Record<(typeof RADIO_AUDIO)[number], string>> = { speaker: 'Speaker', earpiece: 'Earpiece' };
@@ -79,8 +81,14 @@ export class StationState {
     if (this.queue.length > MAX_QUEUE) this.queue.shift();
   }
 
-  /** Fixed step (order -670): applies the queued requests in order and emits the `station:*` events. */
+  /**
+   * Fixed step (order -670): releases prisoners held for `HOLD_LIMIT_S`, applies the queued requests in order and emits
+   * the `station:*` events.
+   */
   step(_dt: number, t: { sim: number; game: number }): void {
+    for (let due = this.holding.dueFor(t.sim, HOLD_LIMIT_S, this.interview); due >= 0; due = this.holding.dueFor(t.sim, HOLD_LIMIT_S, this.interview)) {
+      this.release(due);
+    }
     if (this.queue.length === 0) return;
     const pending = this.queue;
     this.queue = [];
@@ -228,21 +236,31 @@ export class StationState {
         this.bus.emit('station:loadout', { loadout: { ...this.current } });
         break;
       case 'hold': {
+        if (this.holding.cellOf(r.personId) >= 0) break;
+        // Every cell taken: the longest-held prisoner (not the one being interviewed) goes to county to make room.
+        if (this.holding.full) {
+          const oldest = this.holding.oldest(this.interview);
+          if (oldest >= 0) this.release(oldest);
+        }
         const cell = this.holding.place(r.personId, t.sim);
         if (cell >= 0) this.bus.emit('station:holding', { personId: r.personId, cell, placed: true });
         break;
       }
-      case 'release': {
-        const cell = this.holding.cellOf(r.personId);
-        if (!this.holding.remove(r.personId)) break;
-        this.bus.emit('station:holding', { personId: r.personId, cell, placed: false });
-        if (this.interview === r.personId) this.setInterview(-1);
+      case 'release':
+        this.release(r.personId);
         break;
-      }
       case 'interview':
         this.setInterview(r.personId ?? -1);
         break;
     }
+  }
+
+  /** Frees the person's cell (`station:holding` with `placed` false); a prisoner in the interview room leaves it. */
+  private release(personId: number): void {
+    const cell = this.holding.cellOf(personId);
+    if (!this.holding.remove(personId)) return;
+    this.bus.emit('station:holding', { personId, cell, placed: false });
+    if (this.interview === personId) this.setInterview(-1);
   }
 
   private setInterview(personId: number): void {

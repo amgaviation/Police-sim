@@ -1094,20 +1094,39 @@ export class InvestigationSystem {
       this.flash(this.ports.currentCall(), 'Unknown evidence item.');
       return;
     }
+    // Into a trunk: the officer must be standing at that car's trunk.
+    if (to.startsWith('locker:') && this.ports.trunkLocker && this.ports.trunkLocker() !== to) {
+      this.flash(item.callId, 'Stand at the patrol car trunk to secure evidence.');
+      return;
+    }
     const holder = this.custody.custodian(itemId);
     if (!this.record(item, 'transfer', holder, to, `Transferred to ${to}`, t)) return;
     if (holder === this.officerId()) this.held = this.held.filter((id) => id !== itemId);
-    this.flash(item.callId, `${item.label} transferred to ${to}`);
+    this.flash(item.callId, to.startsWith('locker:') ? `${item.label} secured in the patrol car` : `${item.label} transferred to ${to}`);
+  }
+
+  /** Tagged items the officer holds or that sit in a patrol car trunk (a transfer), for the evidence room deposit. */
+  private depositable(who: string): string[] {
+    const out: string[] = [];
+    for (const id of this.held) {
+      if (this.custody.state(id) === 'tagged' && this.custody.custodian(id) === who) out.push(id);
+    }
+    for (const f of this.caseStore.files()) {
+      for (const it of f.items) {
+        if (this.custody.state(it.id) === 'tagged' && this.custody.custodian(it.id).startsWith('locker:')) out.push(it.id);
+      }
+    }
+    return out;
   }
 
   private doDeposit(t: { sim: number; game: number }): void {
     const who = this.officerId();
     const callId = this.ports.currentCall();
     let n = 0;
-    for (const id of this.held.slice()) {
+    for (const id of this.depositable(who)) {
       const item = this.caseStore.item(id);
-      if (!item || this.custody.state(id) !== 'tagged' || this.custody.custodian(id) !== who) continue;
-      if (!this.record(item, 'deposit', who, 'evidenceRoom', 'Deposited in the evidence room', t)) continue;
+      if (!item) continue;
+      if (!this.record(item, 'deposit', this.custody.custodian(id), 'evidenceRoom', 'Deposited in the evidence room', t)) continue;
       this.held = this.held.filter((x) => x !== id);
       n++;
       this.bus.emit('investigation:custodyComplete', { callId: item.callId, itemId: item.id });
@@ -1609,6 +1628,16 @@ export class InvestigationSystem {
       add('Tag', NONE, 'Nothing bagged to tag');
     }
 
+    // Tagged evidence can be secured in a patrol car trunk (a transfer); the evidence room deposit takes it from there.
+    const tagged = mine.find((id) => this.custody.state(id) === 'tagged');
+    const taggedItem = tagged !== undefined ? this.caseStore.item(tagged) : null;
+    const trunk = ports.trunkLocker ? ports.trunkLocker() : '';
+    if (taggedItem !== null) {
+      add(`Secure ${taggedItem.label} in the patrol car`, { kind: 'request', request: { kind: 'transfer', itemId: taggedItem.id, to: trunk } }, trunk === '' ? 'Stand at a patrol car trunk' : undefined);
+    } else {
+      add('Secure in the patrol car', NONE, 'Nothing tagged to secure');
+    }
+
     const cont = this.nearestFurniture(o.x, o.z, o.yaw, o.building, 'container');
     const probe = cont >= 0 ? this.authorityFor(o.building, cont, this.lastSim) : null;
     if (probe !== null) {
@@ -1650,7 +1679,8 @@ export class InvestigationSystem {
       add('Knock (canvass)', NONE, call === FIELD_CASE ? 'No active call' : 'Stand at a front door');
     }
 
-    add('Request K9', { kind: 'k9' }, call === FIELD_CASE ? 'No active call' : this.k9 !== null ? 'K9 is searching' : undefined);
+    const k9Call = call === FIELD_CASE ? null : ports.callContext(call);
+    add('Request K9', { kind: 'k9' }, call === FIELD_CASE ? 'No active call' : k9Call?.k9 === false ? 'No K9 for this kind of call' : this.k9 !== null ? 'K9 is searching' : undefined);
     add(this.camOn ? 'Bodycam off' : 'Bodycam on', { kind: 'request', request: { kind: 'bodycam', on: !this.camOn } }, !this.camOn && !ports.bodycamWorn() ? 'No bodycam mounted' : undefined);
     add('Case file', { kind: 'caseFile' }, file === null ? 'No case file yet' : undefined);
     return rows;

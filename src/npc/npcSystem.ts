@@ -1216,7 +1216,7 @@ export class NpcSystem {
   }
 
   /** Forces an actor into `state`; flee, fight and armed raise their events like a natural transition. */
-  forceState(id: number, state: 'flee' | 'fight' | 'armed' | 'handsUp' | 'kneel' | 'prone' | 'leave' | 'lying' | 'crowd' | 'hold'): void {
+  forceState(id: number, state: 'flee' | 'fight' | 'armed' | 'handsUp' | 'kneel' | 'prone' | 'leave' | 'lying' | 'crowd' | 'hold' | 'idle'): void {
     const a = this.byId.get(id);
     if (!a) return;
     // Restrained and helpless people cannot bolt or fight (cuffs only come off through `uncuff`).
@@ -1259,6 +1259,10 @@ export class NpcSystem {
         break;
       case 'hold':
         this.setHold(a);
+        break;
+      case 'idle':
+        // Back to the profile's own behaviour (an ambient occupant returned home).
+        if (a.state === ACTOR_STATE.hold) this.setPose(a, ACTOR_STATE.idle);
         break;
     }
   }
@@ -1876,6 +1880,17 @@ export class NpcSystem {
     this.removeActorRec(a);
   }
 
+  /**
+   * A hidden actor shows itself to an officer within `revealDistanceM` outdoors; indoors only within `revealIndoorM`
+   * and in the same room (a closet behind a wall and a closed door stays hidden).
+   */
+  private revealsTo(a: ActorRec, d: number): boolean {
+    if (a.building < 0) return d <= this.cfg.actors.revealDistanceM;
+    if (d > this.cfg.actors.revealIndoorM) return false;
+    const nav = this.nav;
+    return nav?.sameRoom === undefined || nav.sameRoom(a.building, a.x, a.z, this.fx, this.fz);
+  }
+
   /** Evaluates the state machine for `a` after `ddt` seconds; true when the actor was removed. */
   private decideActor(a: ActorRec): boolean {
     const cfg = this.cfg.actors;
@@ -1889,7 +1904,7 @@ export class NpcSystem {
       this.startLeave(a);
     }
     if (a.state === ACTOR_STATE.hide) {
-      if (this.rsame && d <= cfg.revealDistanceM) this.revealRec(a);
+      if (this.rsame && this.revealsTo(a, d)) this.revealRec(a);
       return false;
     }
     a.age += ddt;

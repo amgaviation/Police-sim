@@ -63,4 +63,29 @@ describe('EnvironmentRenderer.setIndoor', () => {
     expect((scene.getObjectByName('precipitation') as THREE.Points).visible).toBe(true);
     er.dispose();
   });
+
+  it('turns the sun and the sky ambient off indoors so the interior lights decide the brightness', () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 800);
+    const env = new Environment(1);
+    env.setTimeOfDay(12);
+    const er = new EnvironmentRenderer(scene, null);
+    const lights: THREE.Light[] = [];
+    scene.traverse((o) => { if ((o as THREE.Light).isLight === true) lights.push(o as THREE.Light); });
+    const sun = lights.find((l) => (l as THREE.DirectionalLight).isDirectionalLight === true) as THREE.DirectionalLight;
+    const sky = lights.find((l) => (l as THREE.HemisphereLight).isHemisphereLight === true) as THREE.HemisphereLight;
+    er.update(env, camera, { x: 0, y: 0, z: 0 }, 1 / 60);
+    const sunOut = sun.intensity, skyOut = sky.intensity;
+    expect(sunOut).toBeGreaterThan(1);
+    er.setIndoor(true);
+    er.update(env, camera, { x: 0, y: 0, z: 0 }, 1 / 60);
+    expect(sun.intensity).toBe(0);
+    expect(sky.intensity).toBeGreaterThan(0);
+    expect(sky.intensity).toBeLessThan(skyOut / 4);
+    er.setIndoor(false);
+    er.update(env, camera, { x: 0, y: 0, z: 0 }, 1 / 60);
+    expect(sun.intensity).toBe(sunOut);
+    expect(sky.intensity).toBe(skyOut);
+    er.dispose();
+  });
 });

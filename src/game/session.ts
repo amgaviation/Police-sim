@@ -30,9 +30,9 @@ import { InvestigationSystem, type InvestigationOfficer, type InvestigationPorts
 import { levelY } from '../interior/constants';
 import { lineOfSight } from '../interior/los';
 import { roomAt } from '../interior/nav';
-import { StationState, migratedStationSave, newShiftStationSave, type ShiftStep } from '../station';
+import { StationState, beyondFurniture, migratedStationSave, newShiftStationSave, type ShiftStep } from '../station';
 import { TacticalSystem, type OfficerPose, type SoundKind } from '../tactical';
-import { NpcSystem, type ActorInfo, type NpcFocus, type PersonPick } from '../npc';
+import { ACTOR_STATE, NpcSystem, type ActorInfo, type NpcFocus, type PersonPick } from '../npc';
 import { Population, describePerson } from '../people';
 import { PhysicsWorld, type Vec3 } from '../physics/physics';
 import { CAMERA_MODE, type VehicleCameraModeId } from '../player/cameraRig';
@@ -266,6 +266,7 @@ const scratchVel: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchVec: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchQuat: Quat = { x: 0, y: 0, z: 0, w: 1 };
 const scratchPoint = { x: 0, z: 0 };
+const scratchSeat = { x: 0, z: 0 };
 const scratchDoor = { x: 0, z: 0 };
 const scratchPick: PersonPick = { kind: 'ped', id: 0, seat: -1, personId: -1, distance: 0 };
 const scratchActor: ActorInfo = {
@@ -295,10 +296,16 @@ const EVIDENCE_REACH = 3;
 const COLLECT_REACH = 1.5;
 /** The door panel stays open while the door is within this distance (m). */
 const DOOR_PANEL_REACH = 3;
+/** Where an ambient occupant answering a canvass stood before; they go back there afterwards. */
+interface CanvassHome { building: number; x: number; z: number; yaw: number }
+interface CanvassStay { id: number; until: number; home: CanvassHome | null }
+/** Occupant states in which a resident can come to the door (not asleep, hiding, restrained or fleeing). */
+const CANVASS_MOVABLE = new Set<number>([ACTOR_STATE.idle, ACTOR_STATE.wander, ACTOR_STATE.hold, ACTOR_STATE.sit, ACTOR_STATE.seated, ACTOR_STATE.walkTo]);
 /** A canvass needs the player's call anchor within this distance (m). */
 const CANVASS_CALL_REACH = 150;
 /** The prisoner stands this far beyond the interview point (m). */
-const INTERVIEW_DISTANCE = 1.2;
+/** Distance (m) the interviewee stands beyond the far edge of the interview table. */
+const INTERVIEW_BEYOND = 0.5;
 /** What a new shift's officer carries at the start (item, count). */
 const FIELD_KIT: readonly (readonly [string, number])[] = [['evidenceMarkers', 8], ['evidenceBags', 8], ['camera', 1], ['fingerprintKit', 1], ['sceneTape', 1]];
 const scratchStop: StopState = { vehicleId: -1, eid: 0, phase: 'pulling', x: 0, z: 0, yaw: 0 };
@@ -440,7 +447,7 @@ export class GameSession {
   /** Last line each person said (statement text for the case file). */
   private readonly lastLine = new Map<number, string>();
   /** Canvass residents (actor id, sim second they leave). */
-  private readonly canvassActors: { id: number; until: number }[] = [];
+  private readonly canvassActors: CanvassStay[] = [];
   /** Prisoner moved to the interview room: the cell they return to is `HoldingCells.cellOf`. */
   private interviewActor = 0;
   /** Level of the officer before the last `interior:moveOfficer` (-1 outdoors). */
@@ -1524,6 +1531,7 @@ export class GameSession {
       currentCall: () => this.cad.unit(this.dispatcher.playerCallsign)?.callId ?? 0,
       incidentOf: (id) => (id <= 0 ? '' : callNumber(id)),
       spawnResident: (building, personId, callId, role) => this.spawnCanvassResident(building, personId, callId, role),
+      trunkLocker: () => this.trunkLocker(),
       residentOf: (building, index) => residentPerson(this.seed, building, index),
       hiddenActors: (building, out) => {
         this.npc.actorsInBuilding(building, ids);
@@ -1579,29 +1587,44 @@ export class GameSession {
     };
   }
 
-  /** Canvass: the resident comes to the door (a witness is registered with the scene for the call). */
+  /**
+   * Canvass: the resident comes to the door (a witness is registered with the scene for the call). A resident who is
+   * already an ambient occupant of the building is walked out to the door and back inside afterwards; one who is
+   * asleep, hiding or otherwise busy does not answer.
+   */
   private spawnCanvassResident(building: number, personId: number, callId: number, role: 'witness' | 'resident'): number {
     const exit = this.interiors.layout(building)?.doors.find((d) => d.main)?.exit;
     if (!exit || personId < 0) return 0;
-    const id = this.npc.spawnActor({
-      personId,
-      x: exit.x,
-      z: exit.z,
-      yaw: exit.yaw,
-      profile: 'bystander',
-      role,
-      callId: 0,
-      hidden: false,
-      body: 'human',
-      weapon: null,
-      vehicleId: -1,
-      building: -1,
-    });
+    let id = this.npc.actorOfPerson(personId);
+    let home: CanvassHome | null = null;
+    if (id > 0) {
+      const a = this.npc.actor(id, scratchActor);
+      if (!a || !CANVASS_MOVABLE.has(a.state) || a.cuffed || a.following || a.callId > 0 || this.contact.contactOfPerson(personId) >= 0) return 0;
+      const at = a.building ?? -1;
+      if (at >= 0) home = { building: at, x: a.x, z: a.z, yaw: a.yaw };
+      this.npc.setActorPosition(id, -1, exit.x, exit.z, exit.yaw);
+      this.npc.forceState(id, 'hold');
+    } else {
+      id = this.npc.spawnActor({
+        personId,
+        x: exit.x,
+        z: exit.z,
+        yaw: exit.yaw,
+        profile: 'bystander',
+        role,
+        callId: 0,
+        hidden: false,
+        body: 'human',
+        weapon: null,
+        vehicleId: -1,
+        building: -1,
+      });
+    }
     if (id <= 0) return 0;
     if (role === 'witness') this.scene.addWitness(callId, personId);
     const address = this.buildings.building(building)?.address ?? '';
     if (address !== '') this.records.setAddress(personId, address);
-    this.canvassActors.push({ id, until: this.clock.simTime + CANVASS_STAY_S });
+    this.canvassActors.push({ id, until: this.clock.simTime + CANVASS_STAY_S, home });
     return id;
   }
 
@@ -1609,13 +1632,30 @@ export class GameSession {
   private stepCanvassActors(): void {
     const list = this.canvassActors;
     for (let i = list.length - 1; i >= 0; i--) {
-      const c = list[i] as { id: number; until: number };
+      const c = list[i] as CanvassStay;
       if (this.clock.simTime < c.until) continue;
       const a = this.npc.actor(c.id, scratchActor);
       if (a && this.contact.contactOfPerson(a.personId) >= 0) continue;
-      if (a) this.npc.forceState(c.id, 'leave');
+      if (a && c.home !== null) {
+        // An occupant walks home (a teleport inside, like the move to the door); anyone else leaves the area.
+        this.npc.setActorPosition(c.id, c.home.building, c.home.x, c.home.z, c.home.yaw);
+        this.npc.forceState(c.id, 'idle');
+      } else if (a) this.npc.forceState(c.id, 'leave');
       list.splice(i, 1);
     }
+  }
+
+  /** Custodian id of the patrol car trunk within reach (`locker:<car index>`), '' when none. */
+  trunkLocker(): string {
+    const v = this.trunkVehicle();
+    return v === null ? '' : `locker:${String(this.vehicleList.indexOf(v))}`;
+  }
+
+  /** G on foot: the officer's shout also goes out as a sound (85 dB) that actors in other rooms and outdoors can hear. */
+  shout(): void {
+    if (this.playerEid === 0 || this.driving) return;
+    const at = this.playerPosition(scratchPoint);
+    this.tactical.request({ kind: 'sound', source: 'voiceShout', x: at.x, z: at.z, building: this.interiors.officerBuilding });
   }
 
   /** The station block's interior point of `kind` (first one), null without a station layout. */
@@ -1835,9 +1875,12 @@ export class GameSession {
     }
     if (personId < 0) return;
     const id = this.npc.actorOfPerson(personId);
-    const spot = this.stationPoint('interview');
-    if (id <= 0 || !spot) return;
-    this.npc.setActorPosition(id, st.id, spot.x - Math.sin(spot.yaw) * INTERVIEW_DISTANCE, spot.z - Math.cos(spot.yaw) * INTERVIEW_DISTANCE, spot.yaw + Math.PI);
+    const layout = this.interiors.layout(st.id);
+    const spot = layout?.points.find((q) => q.kind === 'interview');
+    if (id <= 0 || !layout || !spot) return;
+    // Across the table: the point is the officer's stand position 0.6 m before it.
+    const seat = beyondFurniture(layout.furniture[spot.furniture], spot, INTERVIEW_BEYOND, scratchSeat);
+    this.npc.setActorPosition(id, st.id, seat.x, seat.z, spot.yaw + Math.PI);
     this.interviewActor = id;
     this.contact.request({ kind: 'open', target: { kind: 'actor', actorId: id } });
   }
@@ -2244,8 +2287,8 @@ export class GameSession {
 
   /** Kinematic officer body and box mesh at `position` (spawn and getting out); nothing is left if it throws. */
   private addOfficerBody(eid: EntityId, position: Vec3): void {
-    const half = { x: PLAYER_SIZE.x / 2, y: PLAYER_SIZE.y / 2, z: PLAYER_SIZE.z / 2 };
-    const body = this.ctx.physics.addBox(eid, position, half, { kinematic: true, friction: 0.2 });
+    // A cylinder: the footprint stays 0.8 m wide whatever the facing (a yawed box needs a 1.13 m gap at 45 degrees).
+    const body = this.ctx.physics.addCylinder(eid, position, PLAYER_SIZE.y / 2, PLAYER_SIZE.x / 2, { kinematic: true, friction: 0.2 });
     try {
       // The officer is drawn as a humanoid figure (PeopleRenderer); the pool box is a hidden placeholder for the pool slot.
       this.ctx.meshes.addBox(eid, { size: OFFICER_MESH_SIZE, color: PLAYER_COLOR });

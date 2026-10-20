@@ -16,9 +16,16 @@ const HALF = { x: 0.4, y: 0.9, z: 0.4 };
 const EID = 9001;
 const FILTER = RAPIER.QueryFilterFlags.EXCLUDE_KINEMATIC | RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
 
-/** An officer body and character controller set up like game/session.ts (same box, skin and filter). */
-function walker(r: Rig, x: number, z: number): { walk(vx: number, vz: number, steps: number): { x: number; z: number } } {
-  const body = r.physics.addBox(EID, { x, y: INTERIOR_FLOOR_Y + HALF.y, z }, HALF, { kinematic: true, friction: 0.2 });
+/** An officer body and character controller set up like game/session.ts (same cylinder, skin and filter). */
+function walker(
+  r: Rig, x: number, z: number, yaw = 0, shape: 'cylinder' | 'box' = 'cylinder',
+): { walk(vx: number, vz: number, steps: number): { x: number; z: number } } {
+  const at = { x, y: INTERIOR_FLOOR_Y + HALF.y, z };
+  const body = shape === 'cylinder'
+    ? r.physics.addCylinder(EID, at, HALF.y, HALF.x, { kinematic: true, friction: 0.2 })
+    : r.physics.addBox(EID, at, HALF, { kinematic: true, friction: 0.2 });
+  body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
+  r.physics.step();
   const collider: Collider = body.collider(0);
   const mover: KinematicCharacterController = r.physics.raw.createCharacterController(0.02);
   mover.disableSnapToGround();
@@ -127,5 +134,23 @@ describe('officer movement through interiors', () => {
       }
     }
     expect(passed).toBeGreaterThanOrEqual(3);
+  });
+
+  it('passes a 0.9 m door at every facing (the collider footprint does not depend on the yaw)', async () => {
+    rig = await makeRig();
+    // Two wall slabs 0.15 m thick with a 0.9 m gap at x = 0, 2 m of floor on the near side (the interior level).
+    const y = INTERIOR_FLOOR_Y + 0.5;
+    // Untracked static colliders, like the interior walls.
+    for (const cx of [-1.9, 1.9]) rig.physics.raw.createCollider(RAPIER.ColliderDesc.cuboid(1.45, 0.5, 0.075).setTranslation(cx, y, 0));
+    for (const deg of [0, 10, 15, 20, 30, 45, 60, 75, 90]) {
+      const yaw = (deg * Math.PI) / 180;
+      const w = walker(rig, 0, 2, yaw, 'cylinder');
+      const end = w.walk(0, -2, 120);
+      expect(end.z, `yaw ${String(deg)}`).toBeLessThan(-1);
+      rig.physics.removeBody(EID);
+    }
+    // Control: the old yawed box is stuck in front of the door at 20 degrees.
+    const stuck = walker(rig, 0, 2, (20 * Math.PI) / 180, 'box').walk(0, -2, 120);
+    expect(stuck.z).toBeGreaterThan(0);
   });
 });

@@ -42,6 +42,8 @@ const SNOW_COLOR = { r: 0.95, g: 0.96, b: 1.0 };
  * everything in shadow (street canyons at low sun) rendered near black.
  */
 const AMBIENT_SCALE = Math.PI;
+/** Hemisphere intensity indoors (before AMBIENT_SCALE): a faint fill so unlit rooms are not pitch black. */
+const INDOOR_AMBIENT = 0.05;
 
 function smoothstep(edge0: number, edge1: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -153,7 +155,8 @@ export class EnvironmentRenderer {
     const nightWeight = smoothstep(0, 0.08, -l.sunDirY);
     const sign = l.sunDirY >= 0 ? 1 : -1;
     this.lightDir.set(l.sunDirX * sign, l.sunDirY * sign, l.sunDirZ * sign);
-    this.light.intensity = l.sunIntensity * dayWeight + l.moonIntensity * nightWeight;
+    // Indoors the interior's own light pool does all the lighting: the sun has no occluder (the city is hidden, not shadowing).
+    this.light.intensity = this.indoor ? 0 : l.sunIntensity * dayWeight + l.moonIntensity * nightWeight;
     setSrgb(this.light.color, sky.sunColor);
     this.placeLight(focus);
     const shadowsOn = this.shadowQuality !== 'off' && dayWeight > 0;
@@ -165,7 +168,7 @@ export class EnvironmentRenderer {
 
     setSrgb(this.hemisphere.color, sky.ambientSky);
     setSrgb(this.hemisphere.groundColor, sky.ambientGround);
-    this.hemisphere.intensity = sky.ambientIntensity * AMBIENT_SCALE;
+    this.hemisphere.intensity = this.indoor ? INDOOR_AMBIENT * AMBIENT_SCALE : sky.ambientIntensity * AMBIENT_SCALE;
 
     this.updatePrecipitation(env, camera, cameraPos, Math.max(0, realDt));
     this.updateHaze(this.indoor ? 0 : w.heatHaze, camera);
@@ -190,7 +193,10 @@ export class EnvironmentRenderer {
     points.visible = visible;
   }
 
-  /** Indoors (an interior is resident under the camera): hides the precipitation points and skips the heat-haze pass. */
+  /**
+   * Indoors (an interior is resident under the camera): hides the precipitation points, skips the heat-haze pass and
+   * replaces the sun / moon and the sky ambient with a faint constant ambient, so only the interior's lights light it.
+   */
   setIndoor(on: boolean): void {
     this.indoor = on;
   }

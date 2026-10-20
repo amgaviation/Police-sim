@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { verifyLedger } from '../../src/evidence';
+import { TOOL_ROW } from '../../src/investigation/types';
 import { PROP } from '../../src/render/people/pose';
 import { BADGE, makeHarness, placeSpec, stand, type Harness } from './harness';
 
@@ -121,22 +122,37 @@ describe('chain of custody', () => {
     expect(h.world.kit['evidenceBags']).toBe(1);
   });
 
-  it('a transferred item leaves the officer and cannot be deposited by them', () => {
+  it('a tagged item is secured in a patrol car trunk only at that trunk, and the evidence room deposit takes it from there', () => {
     const { h, id } = withFoundItem();
     for (const kind of ['collect', 'bag', 'tag'] as const) {
       h.sys.request({ kind, itemId: id });
       h.step();
     }
+    // Away from every trunk the tools panel says why, and a request is refused.
+    expect(h.sys.toolsModel().options[TOOL_ROW.transfer]).toMatchObject({ enabled: false, detail: 'Stand at a patrol car trunk' });
+    h.sys.request({ kind: 'transfer', itemId: id, to: 'locker:2' });
+    h.step();
+    expect(h.sys.ledger.custodian(id)).toBe('officer:4417');
+    expect(h.flashes()).toContain('Stand at the patrol car trunk to secure evidence.');
+    // At the trunk the row offers the transfer to that car's locker.
+    h.world.trunk = 'locker:2';
+    expect(h.sys.toolsModel().options[TOOL_ROW.transfer]?.label).toBe('Secure Knife in the patrol car');
+    expect(h.sys.toolsSelect(TOOL_ROW.transfer)).toEqual({ kind: 'request', request: { kind: 'transfer', itemId: id, to: 'locker:2' } });
     h.sys.request({ kind: 'transfer', itemId: id, to: 'locker:2' });
     h.step();
     expect(h.sys.ledger.custodian(id)).toBe('locker:2');
-    h.sys.request({ kind: 'deposit' });
-    h.step();
     expect(h.sys.ledger.state(id)).toBe('tagged');
     // A transfer to the evidence room must be a deposit.
     h.sys.request({ kind: 'transfer', itemId: id, to: 'evidenceRoom' });
     h.step();
     expect(h.sys.ledger.custodian(id)).toBe('locker:2');
+    // The deposit at the evidence room takes tagged items out of the trunk: collect, bag, tag, transfer, deposit.
+    h.sys.request({ kind: 'deposit' });
+    h.step();
+    expect(h.sys.ledger.state(id)).toBe('deposited');
+    expect(h.sys.ledger.itemEntries(id).map((e) => e.action)).toEqual(['collect', 'bag', 'tag', 'transfer', 'deposit']);
+    expect(h.sys.ledger.complete(id)).toBe(true);
+    expect(h.of('investigation:custodyComplete')).toHaveLength(1);
     expect(verifyLedger(h.sys.ledger.entries()).ok).toBe(true);
   });
 

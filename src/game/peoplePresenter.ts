@@ -225,7 +225,7 @@ export class PeoplePresenter {
     this.staff.count = 0;
     if (!loaded) return;
     const layout = session.interiors.layout(buildingId);
-    if (layout) stationStaff(layout.points, layout.floorY, this.staff);
+    if (layout) stationStaff(layout, this.staff);
   }
 
   /** Draw calls of the people and prop meshes, and the figures drawn (perf overlay). */

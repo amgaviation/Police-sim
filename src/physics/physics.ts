@@ -170,6 +170,11 @@ export class PhysicsWorld {
     return this.addBody(eid, position, shape, options);
   }
 
+  /** Adds an upright cylinder body for `eid` (rotation about Y does not change its footprint). */
+  addCylinder(eid: EntityId, position: Vec3, halfHeight: number, radius: number, options: BodyOptions = {}): RigidBody {
+    return this.addBody(eid, position, RAPIER.ColliderDesc.cylinder(halfHeight, radius), options);
+  }
+
   /** Adds a sphere body for `eid`. */
   addSphere(eid: EntityId, position: Vec3, radius: number, options: BodyOptions = {}): RigidBody {
     return this.addBody(eid, position, RAPIER.ColliderDesc.ball(radius), options);

@@ -3,27 +3,23 @@ import type { Menu, UIRoot } from '../ui';
 import { div, setClass, setText } from '../panels/dom';
 import type { DustView } from '../../investigation/types';
 
-/** Brush time one Space key event applies (s): key repeat fires about 30 times a second. */
-export const BRUSH_STEP_S = 1 / 30;
 const GRID = 4;
 
 export type DustDir = 'up' | 'down' | 'left' | 'right';
 
 export type DustEmit =
   | { readonly kind: 'move'; readonly dir: DustDir }
-  | { readonly kind: 'brush'; readonly seconds: number }
+  | { readonly kind: 'brush' }
   | { readonly kind: 'lift' }
   | { readonly kind: 'cancel' };
 
 export interface DustHandlers {
   move(dir: DustDir): void;
-  /** Brush the cursor cell for `seconds` (the app may also call `InvestigationSystem.request` itself while a key is held). */
-  brush(seconds: number): void;
   lift(): void;
   cancel(): void;
 }
 
-/** Pure key map: arrows / WASD move the cursor, Space brushes, Enter lifts, Escape cancels; null for other keys. */
+/** Pure key map: arrows / WASD move the cursor, Space brushes (while held), Enter lifts, Escape cancels; null for other keys. */
 export function reduceDustKey(key: string): DustEmit | null {
   switch (key) {
     case 'ArrowUp':
@@ -43,7 +39,7 @@ export function reduceDustKey(key: string): DustEmit | null {
     case 'D':
       return { kind: 'move', dir: 'right' };
     case ' ':
-      return { kind: 'brush', seconds: BRUSH_STEP_S };
+      return { kind: 'brush' };
     case 'Enter':
       return { kind: 'lift' };
     case 'Escape':
@@ -79,12 +75,37 @@ export class FingerprintPanel implements Menu {
   private shown: DustView | null = null;
   private handlers: DustHandlers | null = null;
   private openFlag = false;
+  private held = false;
   private readonly lastCov: number[] = new Array<number>(GRID * GRID).fill(-1);
 
   constructor(ui: UIRoot | null) {
     this.ui = ui;
     this.dom = ui !== null && typeof document !== 'undefined' ? build() : null;
     this.element = this.dom?.root ?? HEADLESS_ELEMENT;
+    this.listen(true);
+  }
+
+  private readonly keyUp = (event: Event): void => this.onKeyUp(event as KeyboardEvent);
+  private readonly release = (): void => {
+    this.held = false;
+  };
+
+  /** Space release and window blur end a brush stroke (a real page only). */
+  private listen(on: boolean): void {
+    if (typeof document === 'undefined' || typeof document.addEventListener !== 'function' || typeof window === 'undefined') return;
+    const op = on ? 'addEventListener' : 'removeEventListener';
+    document[op]('keyup', this.keyUp);
+    window[op]('blur', this.release);
+  }
+
+  /** Space is down while the panel is open: the app applies the brush each frame with the frame time. */
+  get brushing(): boolean {
+    return this.openFlag && this.held;
+  }
+
+  /** Space released (the panel also listens on the document). */
+  onKeyUp(event: { readonly key: string }): void {
+    if (event.key === ' ') this.held = false;
   }
 
   get isOpen(): boolean {
@@ -100,6 +121,7 @@ export class FingerprintPanel implements Menu {
     this.handlers = handlers;
     this.openFlag = true;
     this.lastCov.fill(-1);
+    this.held = false;
     this.render();
     if (this.ui && !this.ui.isOpen(this)) this.ui.push(this);
   }
@@ -114,6 +136,7 @@ export class FingerprintPanel implements Menu {
   close(): void {
     if (!this.openFlag) return;
     this.openFlag = false;
+    this.held = false;
     this.handlers = null;
     if (this.ui?.isOpen(this)) this.ui.pop(this);
   }
@@ -134,7 +157,7 @@ export class FingerprintPanel implements Menu {
         h.move(emit.dir);
         break;
       case 'brush':
-        h.brush(emit.seconds);
+        this.held = true;
         break;
       case 'lift':
         if (!event.repeat) this.finish(false);
@@ -147,6 +170,7 @@ export class FingerprintPanel implements Menu {
   }
 
   dispose(): void {
+    this.listen(false);
     this.close();
     this.dom?.root.remove();
   }
@@ -155,6 +179,7 @@ export class FingerprintPanel implements Menu {
   private finish(cancelled: boolean): void {
     const h = this.handlers;
     this.openFlag = false;
+    this.held = false;
     this.handlers = null;
     if (this.ui?.isOpen(this)) this.ui.pop(this);
     if (cancelled) h?.cancel();
@@ -196,6 +221,6 @@ function build(): DustDom {
   const fill = div('inv-quality-fill', bar);
   const quality = div('inv-dust-sub', root);
   const hint = div('inv-dust-sub', root);
-  hint.textContent = 'Arrows / WASD move · Space brush · Enter lift · Esc cancel';
+  hint.textContent = 'Arrows / WASD move · hold Space to brush · Enter lift · Esc cancel';
   return { root, sub, cells, fill, quality };
 }

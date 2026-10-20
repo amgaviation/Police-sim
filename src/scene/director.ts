@@ -1504,6 +1504,7 @@ export class SceneDirector implements IncidentResolver {
       suspectPersonId: suspect?.personId ?? -1,
       anchorX: sc.anchor.x,
       anchorZ: sc.anchor.z,
+      k9: familyDef(sc.family)?.actions.includes('requestK9') ?? false,
     };
   }
 

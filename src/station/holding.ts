@@ -38,6 +38,24 @@ export class HoldingCells {
     return this.cells.findIndex((c) => c !== null && c.personId === personId);
   }
 
+  /** True when no cell is free. */
+  get full(): boolean {
+    return !this.cells.includes(null);
+  }
+
+  /** A person (other than `skip`) held for at least `limit` s at `sim`; -1 when none. Allocation-free. */
+  dueFor(sim: number, limit: number, skip: number): number {
+    for (const c of this.cells) if (c !== null && c.personId !== skip && sim - c.since >= limit) return c.personId;
+    return -1;
+  }
+
+  /** The longest-held person other than `skip`; -1 when none. Allocation-free. */
+  oldest(skip: number): number {
+    let best: CellOccupant | null = null;
+    for (const c of this.cells) if (c !== null && c.personId !== skip && (best === null || c.since < best.since)) best = c;
+    return best === null ? -1 : best.personId;
+  }
+
   /** Everyone held, by cell. */
   occupants(): readonly CellOccupant[] {
     return this.cells.filter((c): c is CellOccupant => c !== null);

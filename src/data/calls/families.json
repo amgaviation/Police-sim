@@ -225,7 +225,7 @@
       "variants": {"escalation": 1, "deescalation": 1, "false": 0.5, "duplicate": 1, "swatting": 0, "ambush": 0.2},
       "escalation": {"narratives": ["Caller now reports the suspect is breaking things inside."], "roleOverrides": {"suspect": {"profile": "suspectHostile"}}},
       "deescalation": {"narratives": ["Caller advises the suspect has calmed down and is sitting outside."], "roleOverrides": {"suspect": {"profile": "suspectCalm", "spot": "curb"}}},
-      "actions": ["knock", "separateParties", "requestEms", "photograph", "collectEvidence", "canvass", "requestInterpreter", "writeReport"],
+      "actions": ["knock", "separateParties", "requestEms", "photograph", "collectEvidence", "canvass", "requestInterpreter", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
         {"text": "Locate and separate the parties", "done": {"any": ["separated", "custody:suspect"]}},
@@ -268,7 +268,7 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["knock", "requestEms", "requestCoroner", "notifyGuardian", "canvass", "writeReport"],
+      "actions": ["knock", "requestEms", "requestCoroner", "notifyGuardian", "canvass", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
         {"text": "Check on the occupant", "done": {"any": ["contacted:subject", "found:subject"]}, "show": "role:subject"},
@@ -383,7 +383,7 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 0.5, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["photograph", "collectEvidence", "canvass", "searchArea", "writeReport"],
+      "actions": ["photograph", "collectEvidence", "canvass", "searchArea", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:victim"},
         {"text": "Photograph and collect evidence", "done": "evidenceCollected"},
@@ -417,7 +417,7 @@
       "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.2, "duplicate": 0.3, "swatting": 0, "ambush": 0},
       "escalation": {"narratives": ["Store security advises the suspect is now trying to push past staff to leave."], "roleOverrides": {"suspect": {"profile": "suspectHostile"}}},
       "deescalation": {"narratives": ["Store security advises the suspect is cooperating and waiting in the office."], "roleOverrides": {"suspect": {"profile": "suspectCalm"}}},
-      "actions": ["photograph", "collectEvidence", "searchArea", "writeReport"],
+      "actions": ["photograph", "collectEvidence", "searchArea", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact store security", "done": "contacted:guard"},
         {"text": "Locate the suspect", "done": {"any": ["contacted:suspect", "found:suspect", "custody:suspect"]}},
@@ -651,7 +651,7 @@
       "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.3, "duplicate": 1, "swatting": 1.5, "ambush": 0},
       "escalation": {"narratives": ["Caller now reports the subject has threatened to shoot anyone who approaches."], "roleOverrides": {"subject": {"profile": "suspectArmedHostile"}}},
       "deescalation": {"narratives": ["Caller advises the subject has stopped shouting and the house is quiet."], "roleOverrides": {"subject": {"profile": "suspectNervous"}}},
-      "actions": ["contain", "perimeter", "evacuate", "requestSwat", "requestSupervisor", "requestEms", "writeReport"],
+      "actions": ["contain", "perimeter", "evacuate", "requestSwat", "requestSupervisor", "requestEms", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contain the location", "done": "contained"},
         {"text": "Evacuate nearby residents", "done": "evacuated"},
@@ -984,7 +984,7 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 0.3, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["preserveScene", "perimeter", "photograph", "collectEvidence", "canvass", "requestEms", "requestCoroner", "requestSupervisor", "notifyGuardian", "writeReport"],
+      "actions": ["preserveScene", "perimeter", "photograph", "collectEvidence", "canvass", "requestEms", "requestCoroner", "requestSupervisor", "notifyGuardian", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:reporter"},
         {"text": "Preserve the scene", "done": "scenePreserved", "show": {"any": ["deceased:deceased", "sceneEvidence"]}},

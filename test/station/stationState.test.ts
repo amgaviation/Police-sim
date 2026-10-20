@@ -4,6 +4,7 @@ import { EventBus } from '../../src/core/events';
 import { ARMORY_ITEMS } from '../../src/station/armory';
 import { defaultLoadout } from '../../src/station/locker';
 import {
+  HOLD_LIMIT_S,
   StationState,
   isStationSave,
   migratedStationSave,
@@ -93,7 +94,6 @@ describe('StationState requests', () => {
   it('holds and releases people, emitting the cell', () => {
     const { s, events } = make(1, 1);
     s.request({ kind: 'hold', personId: 3 });
-    s.request({ kind: 'hold', personId: 4 });
     s.step(0.016, T);
     expect(events).toEqual([{ topic: 'station:holding', payload: { personId: 3, cell: 0, placed: true } }]);
     events.length = 0;
@@ -101,6 +101,47 @@ describe('StationState requests', () => {
     s.request({ kind: 'release', personId: 99 });
     s.step(0.016, T);
     expect(events).toEqual([{ topic: 'station:holding', payload: { personId: 3, cell: 0, placed: false } }]);
+  });
+
+  it('never leaves a prisoner without a cell: the longest-held goes to county when every cell is taken', () => {
+    const { s, events } = make(42, 3);
+    for (let n = 1; n <= 5; n++) {
+      s.request({ kind: 'hold', personId: n });
+      s.step(0.016, { sim: 10 + n, game: 500 + n });
+    }
+    // 1, 2, 3 fill the cells; 4 takes 1's cell, 5 takes 2's.
+    expect(events.map((e) => e.payload)).toEqual([
+      { personId: 1, cell: 0, placed: true },
+      { personId: 2, cell: 1, placed: true },
+      { personId: 3, cell: 2, placed: true },
+      { personId: 1, cell: 0, placed: false },
+      { personId: 4, cell: 0, placed: true },
+      { personId: 2, cell: 1, placed: false },
+      { personId: 5, cell: 1, placed: true },
+    ]);
+    expect(s.holding.occupants().map((o) => o.personId)).toEqual([4, 5, 3]);
+  });
+
+  it('transfers prisoners out of the cells after HOLD_LIMIT_S, except the one being interviewed', () => {
+    const { s, events } = make(42, 3);
+    s.request({ kind: 'hold', personId: 1 });
+    s.request({ kind: 'hold', personId: 2 });
+    s.request({ kind: 'interview', personId: 1 });
+    s.step(0.016, { sim: 100, game: 0 });
+    events.length = 0;
+    s.step(0.016, { sim: 100 + HOLD_LIMIT_S - 1, game: 0 });
+    expect(events).toEqual([]);
+    s.step(0.016, { sim: 100 + HOLD_LIMIT_S, game: 0 });
+    expect(events).toEqual([{ topic: 'station:holding', payload: { personId: 2, cell: 1, placed: false } }]);
+    expect(s.holding.occupants().map((o) => o.personId)).toEqual([1]);
+    // The interview ends: the next step sends the first prisoner on as well, and the cells are free again.
+    s.request({ kind: 'interview', personId: null });
+    s.step(0.016, { sim: 100 + HOLD_LIMIT_S + 1, game: 0 });
+    s.step(0.016, { sim: 100 + HOLD_LIMIT_S + 2, game: 0 });
+    expect(s.holding.occupants()).toEqual([]);
+    s.request({ kind: 'hold', personId: 9 });
+    s.step(0.016, { sim: 100 + HOLD_LIMIT_S + 3, game: 0 });
+    expect(s.holding.cellOf(9)).toBe(0);
   });
 
   it('sets and ends the interview, ending it when the person is released', () => {

@@ -1,6 +1,6 @@
 { "version": 1,
   "actors": { "max": 64, "walkSpeed": [1.1, 1.5], "runSpeed": [5.2, 7.2], "staminaS": [15, 40], "tiredFactor": 0.55,
-    "followDistance": 1.4, "approachTriggerM": 15, "revealDistanceM": 6, "tackleRangeM": 1.6, "taserRangeM": 7, "taserHit": 0.8,
+    "followDistance": 1.4, "approachTriggerM": 15, "revealDistanceM": 6, "revealIndoorM": 3, "tackleRangeM": 1.6, "taserRangeM": 7, "taserHit": 0.8,
     "taserDownS": 6, "tackleDownS": 4, "struggleS": 3, "officerWinBase": 0.6, "officerWinPerBackup": 0.1,
     "escapeDistanceM": 120, "escapeS": 15, "fleeRouteM": [150, 350], "armedActionS": [4, 9],
     "leaveDistanceM": 40, "crowdRadiusM": 12,

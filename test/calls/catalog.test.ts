@@ -98,6 +98,13 @@ describe('call catalog', () => {
     }
   });
 
+  it('offers the K9 request on every family whose calls bind to a building', () => {
+    for (const id of ['domestic', 'welfare', 'property', 'retail', 'barricade', 'investigation', 'inProgress', 'violent']) {
+      const family = CALL_CATALOG.families.find((f) => f.id === id);
+      expect(family?.actions, id).toContain('requestK9');
+    }
+  });
+
   it('references only existing actions, services, profiles, items, roles and branches', () => {
     const actions = new Set(CALL_CATALOG.actions.map((a) => a.id));
     for (const f of CALL_CATALOG.families) {

@@ -103,6 +103,7 @@ export interface IndoorNavPort {
   exit(buildingId: number, x: number, z: number, out: Float32Array, pose: { x: number; z: number; yaw: number }): number;
   hideSpot(buildingId: number, x: number, z: number, awayX: number, awayZ: number, pose: { x: number; z: number; yaw: number }): number;
   releaseHide(buildingId: number, index: number): void;
+  sameRoom?(buildingId: number, ax: number, az: number, bx: number, bz: number): boolean;
 }
 
 /**

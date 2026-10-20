@@ -96,7 +96,7 @@ describe('FingerprintPanel DOM', () => {
     const ui = fakeUi();
     const p = new FingerprintPanel(asUi(ui));
     const v = view();
-    p.open(v, { move: vi.fn(), brush: vi.fn(), lift: vi.fn(), cancel: vi.fn() });
+    p.open(v, { move: vi.fn(), lift: vi.fn(), cancel: vi.fn() });
     const root = el(p.element);
     const cells = root.all('inv-cell');
     expect(cells).toHaveLength(16);

@@ -21,5 +21,5 @@ export {
   type CaseFileKeyResult,
   type CaseFilePanelState,
 } from './caseFilePanel';
-export { BRUSH_STEP_S, FingerprintPanel, reduceDustKey, type DustDir, type DustEmit, type DustHandlers } from './fingerprintPanel';
+export { FingerprintPanel, reduceDustKey, type DustDir, type DustEmit, type DustHandlers } from './fingerprintPanel';
 export { MarkerLabels, type MarkerLabel } from './markerLabels';

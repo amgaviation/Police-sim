@@ -9,11 +9,13 @@ import { createRng, type Rng } from '../core/rng';
 import type { BuildingInfo, FrontSide } from '../world/buildings';
 import { frontYaw } from '../world/buildings';
 import { DOOR_WIDTH, INTERIOR_FLOOR_Y, MIN_ROOM_SIDE } from './constants';
+import { nodesConnected } from './walk';
 import {
   INTERIOR_TEMPLATES,
   type BuildingTemplate,
   type DoorSide,
   type FurnitureDef,
+  type FurnitureEntry,
   type RoomDef,
   type TemplateSet,
 } from './templates';
@@ -37,6 +39,15 @@ const WALL_BACK = 0.05;
 const CORNER_MARGIN = 0.1;
 const CLEARANCE_SIDE = 0.3;
 const CLEARANCE_DEPTH = 1.0;
+/** Exterior doors: the arrival pose is 1.0 m inside, so keep the officer's 0.4 m radius and a margin free beyond it. */
+const CLEARANCE_DEPTH_EXTERIOR = 1.5;
+/** Half side of the floor reserved around a point's stand position. */
+const STAND_HALF = 0.45;
+/** Stand positions keep the officer's radius, the skin and half a wall from the room edge. */
+const STAND_WALL = 0.5;
+/** Distance of a door's walkability node from the wall line; also the exterior-door arrival depth. */
+const NODE_DEPTH = 0.5;
+const ARRIVE_DEPTH = 1.0;
 const EXIT_DISTANCE = 0.8;
 
 const r05 = (v: number): number => Math.round(v * 20) / 20 + 0;
@@ -380,14 +391,26 @@ export function generateInterior(seed: number, building: BuildingInfo, templates
   const walls = buildWalls(rooms, outDoors);
 
   // 8. Furniture.
-  const clearance = outDoors.map((d) => d.axis === 'x'
-    ? { minX: d.x - d.width / 2 - CLEARANCE_SIDE, maxX: d.x + d.width / 2 + CLEARANCE_SIDE, minZ: d.z - CLEARANCE_DEPTH, maxZ: d.z + CLEARANCE_DEPTH }
-    : { minX: d.x - CLEARANCE_DEPTH, maxX: d.x + CLEARANCE_DEPTH, minZ: d.z - d.width / 2 - CLEARANCE_SIDE, maxZ: d.z + d.width / 2 + CLEARANCE_SIDE });
+  const clearance = outDoors.map((d) => {
+    const depth = d.b < 0 ? CLEARANCE_DEPTH_EXTERIOR : CLEARANCE_DEPTH;
+    return d.axis === 'x'
+      ? { minX: d.x - d.width / 2 - CLEARANCE_SIDE, maxX: d.x + d.width / 2 + CLEARANCE_SIDE, minZ: d.z - depth, maxZ: d.z + depth }
+      : { minX: d.x - depth, maxX: d.x + depth, minZ: d.z - d.width / 2 - CLEARANCE_SIDE, maxZ: d.z + d.width / 2 + CLEARANCE_SIDE };
+  });
   const furniture: FurnitureItem[] = [];
   const points: InteriorPoint[] = [];
   rooms.forEach((room, ri) => {
     const def = (parts[ri] as Part).def;
-    placeFurniture(rng, templates.furniture, def, room, clearance, furniture, points);
+    // Floor the officer must be able to reach: just inside each door of the room and, for exterior doors, the arrival pose.
+    const nodes: { x: number; z: number }[] = [];
+    const rcx = (room.rect.minX + room.rect.maxX) / 2, rcz = (room.rect.minZ + room.rect.maxZ) / 2;
+    for (const di of roomDoors[ri] as number[]) {
+      const d = outDoors[di] as InteriorDoor;
+      const sx = d.axis === 'z' ? (rcx >= d.x ? 1 : -1) : 0, sz = d.axis === 'x' ? (rcz >= d.z ? 1 : -1) : 0;
+      nodes.push({ x: d.x + sx * NODE_DEPTH, z: d.z + sz * NODE_DEPTH });
+      if (d.b < 0) nodes.push({ x: d.x + sx * ARRIVE_DEPTH, z: d.z + sz * ARRIVE_DEPTH });
+    }
+    placeFurniture(rng, templates.furniture, def, room, clearance, nodes, furniture, points);
   });
 
   // 9. Derived spots.
@@ -438,7 +461,7 @@ export function generateInterior(seed: number, building: BuildingInfo, templates
   });
 
   const entry = {
-    x: r05(worldX(frame, mainU, 1.0)), z: r05(worldZ(frame, mainU, 1.0)), yaw: frontYaw(sideOfDirection(frame.vx, frame.vz)),
+    x: r05(worldX(frame, mainU, ARRIVE_DEPTH)), z: r05(worldZ(frame, mainU, ARRIVE_DEPTH)), yaw: frontYaw(sideOfDirection(frame.vx, frame.vz)),
   };
 
   return {
@@ -622,13 +645,28 @@ const WALL_YAW = [Math.PI, Math.PI / 2, 0, -Math.PI / 2] as const;
 
 interface Box { minX: number; minZ: number; maxX: number; maxZ: number }
 
+/** A piece accepted for the room that is still open to the walkability pass. */
+interface Pending {
+  entry: FurnitureEntry;
+  piece: FurnitureDef;
+  x: number; z: number; yaw: number;
+  box: Box;
+  stand: { x: number; z: number } | null;
+}
+
+const overlaps = (a: Box, b: Box, gap: number): boolean =>
+  a.minX < b.maxX + gap - EPS && a.maxX > b.minX - gap + EPS && a.minZ < b.maxZ + gap - EPS && a.maxZ > b.minZ - gap + EPS;
+
 function placeFurniture(
   rng: Rng, catalog: Readonly<Record<string, FurnitureDef>>, def: RoomDef, room: InteriorRoom, clearance: readonly Box[],
-  furniture: FurnitureItem[], points: InteriorPoint[],
+  nodes: readonly { x: number; z: number }[], furniture: FurnitureItem[], points: InteriorPoint[],
 ): void {
   const R = room.rect;
   const cx = (R.minX + R.maxX) / 2, cz = (R.minZ + R.maxZ) / 2;
   const mine: Box[] = [];
+  /** Floor reserved around accepted stand positions: later pieces keep out. */
+  const stands: Box[] = [];
+  const pending: Pending[] = [];
   for (const entry of def.furniture) {
     const piece = catalog[entry.id] as FurnitureDef;
     const n = rng.chance(entry.chance) ? rng.nextInt(entry.count[0], entry.count[1]) : 0;
@@ -674,30 +712,55 @@ function placeFurniture(
         const box: Box = { minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz };
         if (box.minX < R.minX + WALL_BACK - EPS || box.maxX > R.maxX - WALL_BACK + EPS) continue;
         if (box.minZ < R.minZ + WALL_BACK - EPS || box.maxZ > R.maxZ - WALL_BACK + EPS) continue;
-        if (mine.some((o) => box.minX < o.maxX + FURNITURE_GAP - EPS && box.maxX > o.minX - FURNITURE_GAP + EPS
-          && box.minZ < o.maxZ + FURNITURE_GAP - EPS && box.maxZ > o.minZ - FURNITURE_GAP + EPS)) continue;
-        if (clearance.some((o) => box.minX < o.maxX - EPS && box.maxX > o.minX + EPS && box.minZ < o.maxZ - EPS && box.maxZ > o.minZ + EPS)) continue;
+        if (mine.some((o) => overlaps(box, o, FURNITURE_GAP))) continue;
+        if (clearance.some((o) => overlaps(box, o, 0))) continue;
+        if (stands.some((o) => overlaps(box, o, 0))) continue;
         let stand: { x: number; z: number } | null = null;
         if (entry.point !== null) {
-          const sx = x + forwardX(yaw) * (piece.d / 2 + 0.6), sz = z + forwardZ(yaw) * (piece.d / 2 + 0.6);
-          if (sx < R.minX + 0.2 || sx > R.maxX - 0.2 || sz < R.minZ + 0.2 || sz > R.maxZ - 0.2) continue;
-          if (mine.some((o) => sx > o.minX && sx < o.maxX && sz > o.minZ && sz < o.maxZ)) continue;
-          stand = { x: r05(sx), z: r05(sz) };
+          const sx = r05(x + forwardX(yaw) * (piece.d / 2 + 0.6)), sz = r05(z + forwardZ(yaw) * (piece.d / 2 + 0.6));
+          if (sx < R.minX + STAND_WALL || sx > R.maxX - STAND_WALL || sz < R.minZ + STAND_WALL || sz > R.maxZ - STAND_WALL) continue;
+          const sbox: Box = { minX: sx - STAND_HALF, maxX: sx + STAND_HALF, minZ: sz - STAND_HALF, maxZ: sz + STAND_HALF };
+          if (mine.some((o) => overlaps(sbox, o, 0))) continue;
+          stand = { x: sx, z: sz };
+          stands.push(sbox);
         }
         mine.push(box);
-        const item: FurnitureItem = {
-          index: furniture.length, id: piece.id, room: room.index, x, z, yaw, w: piece.w, d: piece.d, h: piece.h,
-          minX: box.minX, minZ: box.minZ, maxX: box.maxX, maxZ: box.maxZ,
-          color: piece.color, solid: piece.solid, cover: piece.h >= 0.8 && piece.h <= 1.3,
-          surface: piece.surface, container: piece.container, hide: piece.hide, seat: piece.seat,
-        };
-        furniture.push(item);
-        if (entry.point !== null && stand !== null) {
-          points.push({ kind: entry.point, room: room.index, furniture: item.index, x: stand.x, z: stand.z, yaw: yawToward(stand.x, stand.z, x, z) });
-        }
+        pending.push({ entry, piece, x, z, yaw, box, stand });
         break;
       }
     }
+  }
+  prune(R, pending, nodes);
+  for (const pe of pending) {
+    const { piece, x, z, yaw, box } = pe;
+    const item: FurnitureItem = {
+      index: furniture.length, id: piece.id, room: room.index, x, z, yaw, w: piece.w, d: piece.d, h: piece.h,
+      minX: box.minX, minZ: box.minZ, maxX: box.maxX, maxZ: box.maxZ,
+      color: piece.color, solid: piece.solid, cover: piece.h >= 0.8 && piece.h <= 1.3,
+      surface: piece.surface, container: piece.container, hide: piece.hide, seat: piece.seat,
+    };
+    furniture.push(item);
+    if (pe.entry.point !== null && pe.stand !== null) {
+      points.push({ kind: pe.entry.point, room: room.index, furniture: item.index, x: pe.stand.x, z: pe.stand.z, yaw: yawToward(pe.stand.x, pe.stand.z, x, z) });
+    }
+  }
+}
+
+/**
+ * Drops pieces (latest first, pieces without a point before those with one) until the door nodes and stand
+ * points of the room are mutually reachable for the officer. No random draws.
+ */
+function prune(R: Rect, pending: Pending[], nodes: readonly { x: number; z: number }[]): void {
+  if (pending.length === 0) return;
+  for (;;) {
+    const required = [...nodes];
+    for (const p of pending) if (p.stand !== null) required.push(p.stand);
+    if (nodesConnected(R, pending.filter((p) => p.piece.solid).map((p) => p.box), required)) return;
+    let drop = -1;
+    for (let i = pending.length - 1; i >= 0 && drop < 0; i--) if ((pending[i] as Pending).stand === null) drop = i;
+    if (drop < 0) drop = pending.length - 1;
+    pending.splice(drop, 1);
+    if (pending.length === 0) return;
   }
 }
 

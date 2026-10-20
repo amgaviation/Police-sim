@@ -207,6 +207,8 @@ export interface IndoorNavPort {
   /** Claims the hiding spot farthest from (awayX, awayZ), writes where to stand into `pose`; returns its index, -1 when none. */
   hideSpot(buildingId: number, x: number, z: number, awayX: number, awayZ: number, pose: { x: number; z: number; yaw: number }): number;
   releaseHide(buildingId: number, index: number): void;
+  /** Optional: true when both points lie in the same room of the building (a hidden actor shows itself only then). */
+  sameRoom?(buildingId: number, ax: number, az: number, bx: number, bz: number): boolean;
 }
 
 /** A closed polygon pedestrians do not enter (scene tape). `points` are x, z pairs; the box is its bounds. */

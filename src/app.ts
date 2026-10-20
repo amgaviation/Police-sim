@@ -648,7 +648,7 @@ export class App {
     this.updateTarget(session, now);
     this.mdtValue?.update(now);
     this.panels.update(now);
-    this.phase4.updatePanels(session, now);
+    this.phase4.updatePanels(session, now, dt);
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
@@ -743,7 +743,10 @@ export class App {
       scene.request({ kind: 'fire', dirX: dir.x, dirZ: dir.z });
     }
     if (input.wasPressed('officer.tackle')) scene.request({ kind: 'tackle' });
-    if (input.wasPressed('officer.shout')) scene.request({ kind: 'shout' });
+    if (input.wasPressed('officer.shout')) {
+      scene.request({ kind: 'shout' });
+      session.shout();
+    }
   }
 
   /** The camera's horizontal forward direction (the officer's heading headless). */

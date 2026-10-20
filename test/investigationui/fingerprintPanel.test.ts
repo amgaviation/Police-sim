@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { DustView } from '../../src/investigation/types';
-import { BRUSH_STEP_S, FingerprintPanel, MarkerLabels, reduceDustKey, type DustHandlers } from '../../src/ui/investigation';
+import { FingerprintPanel, MarkerLabels, reduceDustKey, type DustHandlers } from '../../src/ui/investigation';
 import { asUi, fakeUi, key } from './helpers';
 
 const view: DustView = {
@@ -14,11 +14,10 @@ const view: DustView = {
 
 function handlers() {
   const move = vi.fn<(dir: string) => void>();
-  const brush = vi.fn<(seconds: number) => void>();
   const lift = vi.fn<() => void>();
   const cancel = vi.fn<() => void>();
-  const h: DustHandlers = { move: (d) => move(d), brush: (s) => brush(s), lift: () => lift(), cancel: () => cancel() };
-  return { h, move, brush, lift, cancel };
+  const h: DustHandlers = { move: (d) => move(d), lift: () => lift(), cancel: () => cancel() };
+  return { h, move, lift, cancel };
 }
 
 describe('reduceDustKey', () => {
@@ -30,7 +29,7 @@ describe('reduceDustKey', () => {
   });
 
   it('Space brushes, Enter lifts, Escape cancels, anything else is ignored', () => {
-    expect(reduceDustKey(' ')).toEqual({ kind: 'brush', seconds: BRUSH_STEP_S });
+    expect(reduceDustKey(' ')).toEqual({ kind: 'brush' });
     expect(reduceDustKey('Enter')).toEqual({ kind: 'lift' });
     expect(reduceDustKey('Escape')).toEqual({ kind: 'cancel' });
     expect(reduceDustKey('x')).toBeNull();
@@ -45,17 +44,39 @@ describe('FingerprintPanel (headless)', () => {
     expect(p.pausesGame).toBe(false);
   });
 
-  it('forwards moves and (repeating) brush strokes', () => {
+  it('forwards moves and brushes while Space is held, whatever the key repeat does', () => {
     const p = new FingerprintPanel(null);
     const m = handlers();
     const h = m.h;
     p.open(view, h);
+    expect(p.brushing).toBe(false);
     expect(p.onKeyDown(key('ArrowRight'))).toBe(true);
     expect(m.move).toHaveBeenCalledWith('right');
-    p.onKeyDown(key(' '));
+    expect(p.onKeyDown(key(' '))).toBe(true);
+    expect(p.brushing).toBe(true);
+    // Moving the cursor (another key's repeat) and a repeating Space leave it held until the key is released.
+    p.onKeyDown(key('ArrowLeft'));
     p.onKeyDown(key(' ', true));
-    expect(m.brush).toHaveBeenCalledTimes(2);
-    expect(m.brush).toHaveBeenCalledWith(BRUSH_STEP_S);
+    expect(p.brushing).toBe(true);
+    p.onKeyUp({ key: 'a' });
+    expect(p.brushing).toBe(true);
+    p.onKeyUp({ key: ' ' });
+    expect(p.brushing).toBe(false);
+  });
+
+  it('stops brushing when it closes or lifts, and starts released when reopened', () => {
+    const p = new FingerprintPanel(null);
+    const m = handlers();
+    p.open(view, m.h);
+    p.onKeyDown(key(' '));
+    p.onKeyDown(key('Enter'));
+    expect(p.brushing).toBe(false);
+    p.open(view, m.h);
+    expect(p.brushing).toBe(false);
+    p.onKeyDown(key(' '));
+    p.close();
+    p.open(view, m.h);
+    expect(p.brushing).toBe(false);
   });
 
   it('Enter lifts once and closes; Escape cancels once and closes', () => {
@@ -103,7 +124,7 @@ describe('FingerprintPanel (headless)', () => {
     expect(p.onKeyDown({ key: ' ', repeat: false, altKey: true } as KeyboardEvent)).toBe(false);
     p.update({ ...view, cursor: 5 });
     expect(p.view?.cursor).toBe(5);
-    expect(m.brush).not.toHaveBeenCalled();
+    expect(p.brushing).toBe(false);
   });
 });
 

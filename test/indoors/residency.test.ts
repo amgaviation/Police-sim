@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAX_RESIDENT, STREAM_RADIUS } from '../../src/interior/constants';
-import { findBuilding, makeRig, type Rig } from './helpers';
+import { BuildingIndex } from '../../src/world/buildings';
+import { cityFor } from '../world/helpers';
+import { cityBuildings } from '../interior/helpers';
+import { findBuilding, layoutOf, makeRig, type Rig } from './helpers';
 
 let rig: Rig | null = null;
 afterEach(() => {
@@ -11,14 +14,14 @@ afterEach(() => {
 const colliderCount = (r: Rig): number => r.physics.raw.colliders.len();
 
 describe('residency', () => {
-  it('loads the nearest entrance within 25 m and removes every collider again beyond', async () => {
+  it('loads the nearest building within 25 m and removes every collider again beyond', async () => {
     rig = await makeRig();
     const b = findBuilding('house');
     expect(colliderCount(rig)).toBe(0);
     rig.officer.x = b.door.x;
     rig.officer.z = b.door.z - 20;
     rig.steps(2);
-    const near = rig.buildings.nearestEntrance(rig.officer.x, rig.officer.z, STREAM_RADIUS);
+    const near = rig.buildings.nearestFootprint(rig.officer.x, rig.officer.z, STREAM_RADIUS);
     expect(near).not.toBeNull();
     expect(rig.sys.resident).toEqual([near?.id]);
     expect(rig.sys.stats.resident).toBe(1);
@@ -36,16 +39,16 @@ describe('residency', () => {
     expect(rig.events.at(-1)).toEqual({ topic: 'interior:resident', payload: { buildingId: near?.id, loaded: false } });
   });
 
-  it('streams only inside STREAM_RADIUS of an entrance', async () => {
+  it('streams only inside STREAM_RADIUS of a building', async () => {
     rig = await makeRig();
     const b = findBuilding('house');
-    // A point just beyond the radius from the chosen door that still has a nearer-than-25 m entrance elsewhere would
-    // be ambiguous, so compare against the index: resident exactly when an entrance is within reach.
+    // A point just beyond the radius that still has a nearer-than-25 m building elsewhere would be ambiguous, so
+    // compare against the index: resident exactly when a footprint is within reach.
     for (const dz of [-10, -24, -30, -60, -120]) {
       rig.officer.x = b.door.x;
       rig.officer.z = b.door.z + dz;
       rig.steps(16);
-      const near = rig.buildings.nearestEntrance(rig.officer.x, rig.officer.z, STREAM_RADIUS);
+      const near = rig.buildings.nearestFootprint(rig.officer.x, rig.officer.z, STREAM_RADIUS);
       expect(rig.sys.resident).toEqual(near === null ? [] : [near.id]);
     }
   });
@@ -146,5 +149,53 @@ describe('residency', () => {
     const t = performance.now();
     for (let i = 0; i < 3000; i++) rig.sys.step(1 / 60, rig.officer);
     expect((performance.now() - t) / 3000).toBeLessThan(0.05);
+  });
+
+  it('makes the building resident at its back, side and sally-port doors, whatever front doors are nearer', async () => {
+    rig = await makeRig();
+    const index = new BuildingIndex(cityFor(42));
+    const sample = [...cityBuildings(index, 40), index.station()!];
+    let tested = 0;
+    let frontMisses = 0;
+    for (const b of sample) {
+      for (const d of layoutOf(b).doors) {
+        if (d.b >= 0 || d.main || d.exit === null) continue;
+        // The old rule (nearest front door) picked another building or none here.
+        if (rig.buildings.nearestEntrance(d.exit.x, d.exit.z, STREAM_RADIUS)?.id !== b.id) frontMisses++;
+        rig.officer.x = 1e6;
+        rig.officer.z = 1e6;
+        rig.steps(16);
+        rig.officer.x = d.exit.x;
+        rig.officer.z = d.exit.z;
+        rig.steps(16);
+        expect(rig.sys.resident, `${String(b.kind)} ${String(b.id)} door ${String(d.index)}`).toEqual([b.id]);
+        tested++;
+      }
+    }
+    expect(tested).toBeGreaterThan(20);
+    expect(frontMisses).toBeGreaterThan(0);
+  });
+
+  it('keeps the building resident in the step that leaves it by a secondary door', async () => {
+    rig = await makeRig();
+    const index = new BuildingIndex(cityFor(42));
+    let tested = 0;
+    for (const b of [...cityBuildings(index, 40), index.station()!]) {
+      const layout = layoutOf(b);
+      const door = layout.doors.find((d) => d.b < 0 && !d.main && d.exit !== null);
+      if (!door?.exit) continue;
+      rig.sys.placeOfficerInside(b.id, layout.entry);
+      rig.officer.x = door.x;
+      rig.officer.z = door.z;
+      rig.steps(2);
+      rig.sys.request({ kind: 'exit', door: door.index });
+      // Run the fade with the officer still reporting its interior position, as the session does until the move event.
+      rig.steps(60);
+      expect(rig.sys.officerBuilding).toBe(-1);
+      expect(rig.sys.resident).toEqual([b.id]);
+      tested++;
+      if (tested >= 8) break;
+    }
+    expect(tested).toBeGreaterThanOrEqual(5);
   });
 });

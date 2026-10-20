@@ -714,8 +714,9 @@ only while swinging), fixtures + switches (small emissive boxes) → ≤ 6 draw 
 false`, `frustumCulled = false` on the group, `visible` only for the officer's building. Geometry/material built once
 per residency (no per-frame allocation). Headless constructs nothing heavy.
 
-`EnvironmentRenderer.setIndoor(on: boolean)`: hides the precipitation points and the heat-haze pass while on
-(nothing else changes). Default off.
+`EnvironmentRenderer.setIndoor(on: boolean)`: hides the precipitation points and the heat-haze pass while on and
+replaces the sun / moon (intensity 0) and the sky ambient (a faint constant 0.05) so the interior's pooled lights alone
+decide how bright a room is (the sun has no occluder: the city is hidden, not shadowing). Default off.
 
 ### 6.7 Trunk items (`src/data/police/items.json`, `equipment.json`)
 Append (labels generic):

@@ -71,6 +71,8 @@ export interface NpcConfig {
     readonly followDistance: number;
     readonly approachTriggerM: number;
     readonly revealDistanceM: number;
+    /** Indoors a hidden actor shows itself only to an officer this close in the same room. */
+    readonly revealIndoorM: number;
     readonly tackleRangeM: number;
     readonly taserRangeM: number;
     readonly taserHit: number;
@@ -243,6 +245,7 @@ export function parseNpcConfig(raw: unknown, file = 'npc.json'): NpcConfig {
       followDistance: readNumber(a.followDistance, file, 'actors.followDistance', 0.3, 10),
       approachTriggerM: readNumber(a.approachTriggerM, file, 'actors.approachTriggerM', 1, 200),
       revealDistanceM: readNumber(a.revealDistanceM, file, 'actors.revealDistanceM', 0.5, 200),
+      revealIndoorM: readNumber(a.revealIndoorM, file, 'actors.revealIndoorM', 0.5, 200),
       tackleRangeM: readNumber(a.tackleRangeM, file, 'actors.tackleRangeM', 0.5, 10),
       taserRangeM: readNumber(a.taserRangeM, file, 'actors.taserRangeM', 1, 50),
       taserHit: readNumber(a.taserHit, file, 'actors.taserHit', 0, 1),

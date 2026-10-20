@@ -270,3 +270,32 @@ describe('following indoors', () => {
     expect(infoOf(r, prisoner).building).toBe(-1);
   });
 });
+
+describe('hidden actors indoors', () => {
+  it('show themselves only to an officer in the same room within revealIndoorM, not through a wall at 6 m', async () => {
+    const { r, nav } = await rig();
+    let sameRoom = false;
+    (nav as unknown as { sameRoom: () => boolean }).sameRoom = () => sameRoom;
+    r.focus.building = B;
+    const id = r.npc.spawnActor(spec(2400, P.x + 2.5, P.z, { building: B, hidden: true }));
+    r.run(60);
+    // 2.5 m away but in another room: stays hidden, and so does a closet 5 m away in the same room.
+    expect(stateOf(r.npc, id)).toBe(ACTOR_STATE.hide);
+    sameRoom = true;
+    r.focus.x = P.x - 2.5;
+    r.run(60);
+    expect(stateOf(r.npc, id)).toBe(ACTOR_STATE.hide);
+    // Same room and within 3 m.
+    r.focus.x = P.x;
+    r.run(30);
+    expect(stateOf(r.npc, id)).not.toBe(ACTOR_STATE.hide);
+    expect(r.events['npc:revealed']).toHaveLength(1);
+  });
+
+  it('keep the 6 m rule outdoors', async () => {
+    const { r } = await rig();
+    const id = r.npc.spawnActor(spec(2401, P.x + 5, P.z, { hidden: true }));
+    r.run(30);
+    expect(stateOf(r.npc, id)).not.toBe(ACTOR_STATE.hide);
+  });
+});

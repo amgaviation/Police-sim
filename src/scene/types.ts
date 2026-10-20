@@ -133,6 +133,8 @@ export interface SceneCallContext {
   suspectPersonId: number;
   anchorX: number;
   anchorZ: number;
+  /** The call's family offers the `requestK9` action. */
+  k9: boolean;
 }
 
 /** An arrest made on a call, with where it happened (`custody:<role>`). */

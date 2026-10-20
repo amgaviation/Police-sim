@@ -277,6 +277,18 @@ export class BuildingIndex {
 
   /** Enterable building whose `door` is nearest to (x, z) within maxDist (kinds filter optional); ties: lower id. */
   nearestEntrance(x: number, z: number, maxDist: number, kinds?: readonly BuildingKind[] | null): BuildingInfo | null {
+    return this.nearestEnterable(x, z, maxDist, kinds, false);
+  }
+
+  /**
+   * Enterable building whose footprint is nearest to (x, z) within maxDist (0 inside it); ties: lower id. Unlike
+   * `nearestEntrance` this follows every side of the building, so back and side doors count as near.
+   */
+  nearestFootprint(x: number, z: number, maxDist: number, kinds?: readonly BuildingKind[] | null): BuildingInfo | null {
+    return this.nearestEnterable(x, z, maxDist, kinds, true);
+  }
+
+  private nearestEnterable(x: number, z: number, maxDist: number, kinds: readonly BuildingKind[] | null | undefined, footprint: boolean): BuildingInfo | null {
     this.stats.lookups++;
     let best: BuildingInfo | null = null;
     let bestD = maxDist * maxDist;
@@ -287,13 +299,14 @@ export class BuildingIndex {
       if (entry === null) continue;
       const rects = entry.rects;
       for (let i = 0, local = 0; i < rects.length; i += BUILDING_STRIDE, local++) {
+        const rd = rectDistanceSq(rects[i] ?? 0, rects[i + 1] ?? 0, rects[i + 2] ?? 0, rects[i + 3] ?? 0, x, z);
         // The door is at most 0.6 m outside the footprint.
-        if (rectDistanceSq(rects[i] ?? 0, rects[i + 1] ?? 0, rects[i + 2] ?? 0, rects[i + 3] ?? 0, x, z) > (reach + 0.1) * (reach + 0.1)) continue;
+        if (rd > (reach + 0.1) * (reach + 0.1)) continue;
         const info = this.info(entry, local);
         if (info === null || info.kind === null) continue;
         if (kinds && !kinds.includes(info.kind)) continue;
         const dx = info.door.x - x, dz = info.door.z - z;
-        const d2 = dx * dx + dz * dz;
+        const d2 = footprint ? rd : dx * dx + dz * dz;
         if (d2 < bestD || (d2 === bestD && best !== null && info.id < best.id)) {
           best = info;
           bestD = d2;
