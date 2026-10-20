@@ -462,7 +462,7 @@ export class TacticalSystem {
     const count = Math.min(this.deps.listeners.listeners(cx, cz, Math.hypot(r.maxX - r.minX, r.maxZ - r.minZ) / 2 + 1, buf), buf.length);
     for (let i = 0; i < count; i++) {
       const l = buf[i] as Listener;
-      if (l.building === building && !l.asleep && roomAt(layout, l.x, l.z) === room) return true;
+      if (l.building === building && !l.asleep && !l.hidden && roomAt(layout, l.x, l.z) === room) return true;
     }
     return false;
   }

@@ -1,11 +1,23 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { InteriorLayout } from '../../src/interior/types';
 import type { ActorInfo } from '../../src/npc';
+import { Transform } from '../../src/ecs/components';
+import { PLAYER_SIZE, serializeGame, type GameSession } from '../../src/game/session';
+import { levelY } from '../../src/interior/constants';
 import { initRapier } from '../../src/physics/physics';
 import type { BuildingInfo } from '../../src/world/buildings';
-import { Harness } from './harness';
+import { Harness, roundTrip } from './harness';
 
 const SEED = 4242;
+
+/** Puts the officer at (x, z) on the level of their building. */
+function place(session: GameSession, x: number, z: number): void {
+  const y = levelY(session.officerBuilding) + PLAYER_SIZE.y / 2;
+  session.physics.getBody(session.player)?.setTranslation({ x, y, z }, true);
+  Transform.x[session.player] = x;
+  Transform.y[session.player] = y;
+  Transform.z[session.player] = z;
+}
 
 beforeAll(async () => {
   await initRapier();
@@ -109,4 +121,70 @@ describe('trunk locker', () => {
     expect(session.trunkLocker()).toBe('');
     h.dispose();
   });
+});
+
+describe('indoor contact, locked doors and saved transients', () => {
+  it('E-to-talk targets the people on the officer level, and a locked front door opens its panel', () => {
+    const h = new Harness(undefined, undefined, true);
+    const session = h.start(SEED, false);
+    h.step(session, 60);
+    const at = session.playerPosition({ x: 0, z: 0 });
+    const near: BuildingInfo[] = [];
+    session.buildings.near(at.x, at.z, 700, near);
+    let tested = 0;
+    for (const b of near) {
+      if (b.kind !== 'house' && b.kind !== 'apartment') continue;
+      const layout = session.interiors.layout(b.id);
+      const main = layout?.doors.find((d) => d.main);
+      if (!layout || !main?.exit) continue;
+      session.teleport(main.exit.x, main.exit.z, main.exit.yaw + Math.PI);
+      h.step(session, 30);
+      // Locked: tapping E opens the door options instead of a refused 'enter'.
+      session.interiors.setDoorState(b.id, main.index, 'locked');
+      expect(session.interact()).toBe('doorPanel');
+      session.interiors.setDoorState(b.id, main.index, 'open');
+      session.interiors.request({ kind: 'enter', buildingId: b.id, door: main.index });
+      h.step(session, 60);
+      if (session.officerBuilding !== b.id) continue;
+      const ids = session.npc.actorsInBuilding(b.id, []);
+      const id = ids.find((i) => (session.npc.actor(i, blank())?.role ?? '') !== '');
+      const a = id !== undefined ? session.npc.actor(id, blank()) : null;
+      if (!a) continue;
+      place(session, a.x + 1, a.z);
+      session.controller.yaw = Math.PI / 2;
+      const pick = session.talkTarget();
+      expect(pick?.personId).toBe(a.personId);
+      tested++;
+      break;
+    }
+    expect(tested).toBe(1);
+    h.dispose();
+  }, 120_000);
+
+  it('a prisoner at the interview table goes back to the cell after a save and load', () => {
+    const h = new Harness(undefined, undefined, true);
+    const session = h.start(SEED, true);
+    h.step(session, 30);
+    const cell = session.stationPoint('cell')!;
+    session.npc.spawnActor({
+      personId: 777, x: cell.x, z: cell.z, yaw: cell.yaw, profile: 'suspectCalm', role: 'prisoner', callId: 0,
+      hidden: false, body: 'human', weapon: null, vehicleId: -1, pose: 'sit', building: session.buildings.station()!.id,
+    });
+    session.station.request({ kind: 'hold', personId: 777 });
+    h.step(session, 3);
+    session.station.request({ kind: 'interview', personId: 777 });
+    h.step(session, 3);
+    const table = session.npc.actor(session.npc.actorOfPerson(777), blank())!;
+    expect(Math.hypot(table.x - cell.x, table.z - cell.z)).toBeGreaterThan(3);
+    const data = roundTrip(serializeGame(session));
+    h.reset(session);
+    const loaded = h.load(data);
+    h.step(loaded, 10);
+    loaded.station.request({ kind: 'interview', personId: null });
+    h.step(loaded, 10);
+    const back = loaded.npc.actor(loaded.npc.actorOfPerson(777), blank())!;
+    const home = loaded.stationPoint('cell', loaded.station.holding.cellOf(777)) ?? cell;
+    expect(Math.hypot(back.x - home.x, back.z - home.z)).toBeLessThan(1);
+    h.dispose();
+  }, 60_000);
 });

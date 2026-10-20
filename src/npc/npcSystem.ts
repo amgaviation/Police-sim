@@ -2370,7 +2370,7 @@ export class NpcSystem {
       if (dx * dx + dz * dz > r2) continue;
       let l = out[n];
       if (!l) {
-        l = { actorId: 0, personId: -1, x: 0, z: 0, building: -1, hearing: 'normal', asleep: false, yaw: 0, eyeY: EYE_STAND };
+        l = { actorId: 0, personId: -1, x: 0, z: 0, building: -1, hearing: 'normal', asleep: false, hidden: false, yaw: 0, eyeY: EYE_STAND };
         out.push(l);
       }
       const dead = a.profile.id === 'subjectDeceased' || a.profile.id === 'subjectUnconscious';
@@ -2381,6 +2381,7 @@ export class NpcSystem {
       l.building = a.building;
       l.hearing = dead ? 'deaf' : a.hearing;
       l.asleep = a.state === ACTOR_STATE.lying && !dead && hour < 6;
+      l.hidden = (a.flags & FLAG.hidden) !== 0;
       l.yaw = a.yaw;
       l.eyeY = a.body === BODY.dog ? EYE_DOG : eyeHeight(a.state);
       n++;

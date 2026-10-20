@@ -465,6 +465,23 @@ describe('officer levels and weapons', () => {
   });
 });
 
+describe('returned weapon', () => {
+  it('a drawn weapon returned to the armory is holstered and cannot fire', async () => {
+    const r = await makeIndoorRig();
+    r.scene.request({ kind: 'weapon' });
+    r.scene.request({ kind: 'weapon' });
+    run(r, 0.1);
+    expect(r.scene.officerWeapon).toBe('taser');
+    r.weapons.taser = false;
+    r.scene.request({ kind: 'fire', dirX: 1, dirZ: 0 });
+    run(r, 0.1);
+    expect(r.scene.officerWeapon).toBe('none');
+    expect(r.scene.presence.weapon).toBe('none');
+    expect(eventsOf<{ text: string }>(r, 'scene:flash').map((e) => e.text)).toContain('No weapon signed out (armory)');
+    expect(eventsOf<{ kind: string }>(r, 'force:used').some((e) => e.kind === 'taser')).toBe(false);
+  });
+});
+
 describe('evidence port', () => {
   it('unbound ground evidence goes through placeItem and the scene lays no prop of its own', async () => {
     const r = await makeIndoorRig();

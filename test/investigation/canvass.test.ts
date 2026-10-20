@@ -37,6 +37,23 @@ describe('canvass', () => {
     expect(h.of('investigation:canvass')[0]?.payload).toMatchObject({ callId, result: 'sawSomething' });
   });
 
+  it('measures the reach from the outdoor pose of the door, as the prompt does', () => {
+    const h = makeHarness();
+    const callId = callWith(h, (r) => r.answered);
+    h.world.call = callId;
+    const door = h.neighbor.doors.find((d) => d.main);
+    if (!door?.exit) throw new Error('no door exit');
+    // 1.5 m from the exit pose (more than 1.8 m from the opening): still within the 1.8 m reach.
+    const dx = door.exit.x - door.x;
+    const dz = door.exit.z - door.z;
+    const len = Math.hypot(dx, dz);
+    stand(h, door.exit.x + (dx / len) * 1.5, door.exit.z + (dz / len) * 1.5, -1, 0, -1);
+    h.sys.request({ kind: 'canvass', buildingId: h.neighbor.buildingId });
+    h.step();
+    expect(h.flashes()).not.toContain('Stand at the door to knock.');
+    expect(h.sys.store.get(callId)?.canvass).toHaveLength(1);
+  });
+
   it('a resident who saw nothing is spawned as a plain resident; no answer spawns nobody', () => {
     const h = makeHarness();
     const nothing = callWith(h, (r) => r.result === 'nothingSeen');

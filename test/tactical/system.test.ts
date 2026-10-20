@@ -504,6 +504,19 @@ describe('partner through the system', () => {
     expect(said[3]).toBe('Room clear.');
   });
 
+  it('a hidden actor in the room is not contact (the partner is no hiding-spot detector)', () => {
+    const r = makeRig(twoRooms());
+    r.port.add({ x: 8, z: 4, building: 1, hidden: true });
+    r.officer.x = 3.5;
+    r.officer.z = 3.5;
+    const said: string[] = [];
+    r.bus.on('tactical:partner', (e) => said.push(e.text));
+    r.sys.request({ kind: 'partner', command: 'summon' });
+    r.sys.request({ kind: 'partner', command: 'clear' });
+    stepN(r, 60 * 8);
+    expect(said).not.toContain('Contact!');
+  });
+
   it('reports contact through the listener port', () => {
     const r = makeRig(twoRooms());
     r.port.add({ x: 8, z: 4, building: 1 });

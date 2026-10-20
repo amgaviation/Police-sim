@@ -266,6 +266,7 @@ const scratchVel: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchVec: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchQuat: Quat = { x: 0, y: 0, z: 0, w: 1 };
 const scratchPoint = { x: 0, z: 0 };
+const scratchIds: number[] = [];
 const scratchSeat = { x: 0, z: 0 };
 const scratchDoor = { x: 0, z: 0 };
 const scratchPick: PersonPick = { kind: 'ped', id: 0, seat: -1, personId: -1, distance: 0 };
@@ -987,7 +988,7 @@ export class GameSession {
   talkTarget(): PersonPick | null {
     if (this.driving || this.playerEid === 0) return null;
     const f = this.syncFocus();
-    return this.npc.nearestPerson(f.x, f.z, f.yaw, TALK_DISTANCE, TALK_CONE_COS, scratchPick);
+    return this.npc.nearestPerson(f.x, f.z, f.yaw, TALK_DISTANCE, TALK_CONE_COS, scratchPick, f.building ?? -1);
   }
 
   /**
@@ -1628,6 +1629,25 @@ export class GameSession {
     return id;
   }
 
+  /**
+   * After a load: re-derives the session-only links that are not saved. The interviewee is the station's saved
+   * interview person; a resident or witness left standing at a door (outdoors, in `hold`, on no call) was a canvass
+   * contact whose home is lost, so they leave the area as soon as the officer is not talking to them.
+   */
+  restoreTransients(): void {
+    const sid = this.station.interviewing;
+    this.interviewActor = sid >= 0 ? this.npc.actorOfPerson(sid) : 0;
+    this.canvassActors.length = 0;
+    const ids = this.npc.actorIds(scratchIds);
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i] as number;
+      const a = this.npc.actor(id, scratchActor);
+      if (!a || (a.building ?? -1) >= 0 || a.callId > 0 || a.state !== ACTOR_STATE.hold) continue;
+      if (a.role !== 'resident' && a.role !== 'witness') continue;
+      this.canvassActors.push({ id, until: this.clock.simTime, home: null });
+    }
+  }
+
   /** Canvass residents leave their door after `CANVASS_STAY_S` unless the officer is talking to them. */
   private stepCanvassActors(): void {
     const list = this.canvassActors;
@@ -1766,6 +1786,7 @@ export class GameSession {
   private interactInterior(t: InteriorInteractable): InteractResult {
     switch (t.kind) {
       case 'entrance':
+        if (this.interiors.doorState(t.buildingId, t.door) === 'locked') return 'doorPanel';
         this.interiors.request({ kind: 'enter', buildingId: t.buildingId, door: t.door });
         return 'interior';
       case 'exit':
@@ -2603,6 +2624,7 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     session.contact.restore(data.contacts);
     session.investigation.restore(data.investigation);
     session.station.restore(data.station);
+    session.restoreTransients();
     session.radio.restore(data.radio);
     // Every body was just created with its saved state, so reading them back gives exactly that state.
     primeContacts(ctx.physics, sessionBodies(session));

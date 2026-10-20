@@ -30,6 +30,8 @@ export interface Listener {
   building: number;
   hearing: 'normal' | 'hardOfHearing' | 'deaf';
   asleep: boolean;
+  /** Concealed in a hiding spot (not a visible occupant of the room). */
+  hidden: boolean;
   yaw: number;
   eyeY: number;
 }
@@ -54,7 +56,7 @@ export interface OfficerPose {
 
 /** A fresh `Listener` (for pools). */
 export function createListener(): Listener {
-  return { actorId: 0, personId: 0, x: 0, z: 0, building: -1, hearing: 'normal', asleep: false, yaw: 0, eyeY: 1.6 };
+  return { actorId: 0, personId: 0, x: 0, z: 0, building: -1, hearing: 'normal', asleep: false, hidden: false, yaw: 0, eyeY: 1.6 };
 }
 
 /** Queued tactical requests (applied at the start of the next fixed step). */

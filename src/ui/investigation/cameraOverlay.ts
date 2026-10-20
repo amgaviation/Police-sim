@@ -140,6 +140,11 @@ export class CameraOverlay implements Menu {
     if (this.ui?.isOpen(this)) this.ui.pop(this);
   }
 
+  /** Closes the viewfinder as Escape does (through `handlers.close`). */
+  cancel(): void {
+    if (this.openFlag) this.finish();
+  }
+
   onHide(): void {
     // Popped by someone else (the menu stack was cleared): the user left camera mode.
     if (this.openFlag && this.ui && !this.ui.isOpen(this)) this.finish();

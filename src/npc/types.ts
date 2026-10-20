@@ -230,6 +230,7 @@ export interface Listener {
   building: number;
   hearing: 'normal' | 'hardOfHearing' | 'deaf';
   asleep: boolean;
+  hidden: boolean;
   yaw: number;
   eyeY: number;
 }

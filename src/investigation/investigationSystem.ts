@@ -1452,7 +1452,9 @@ export class InvestigationSystem {
       this.flash(callId, 'Nobody answers there.');
       return;
     }
-    if (Math.hypot(o.x - door.x, o.z - door.z) > CANVASS_DOOR_M) {
+    // Measured from the outdoor pose, the same point the door prompt is offered from.
+    const at = door.exit ?? door;
+    if (Math.hypot(o.x - at.x, o.z - at.z) > CANVASS_DOOR_M) {
       this.flash(callId, 'Stand at the door to knock.');
       return;
     }

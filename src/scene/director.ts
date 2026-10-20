@@ -2213,6 +2213,17 @@ export class SceneDirector implements IncidentResolver {
 
   private fire(dirX: number, dirZ: number): void {
     const { npc, bus } = this.deps;
+    if (this.weapon !== 'none') {
+      // The drawn weapon may have been returned to the armory since it was drawn.
+      const avail = this.deps.weaponsAvailable?.() ?? { sidearm: true, taser: true };
+      if (!avail[this.weapon]) {
+        this.weapon = 'none';
+        this.pres.weapon = 'none';
+        this.rev++;
+        this.flash('No weapon signed out (armory)');
+        return;
+      }
+    }
     if (this.weapon === 'sidearm') {
       this.flash('Firearm discharge is not modelled until Phase 5');
       bus.emit('force:used', { kind: 'sidearmFire', personId: -1, callId: this.playerRuntime()?.scenario.callId ?? 0 });

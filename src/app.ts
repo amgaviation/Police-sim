@@ -571,8 +571,18 @@ export class App {
 
   /** Pointer lock is wanted only while playing with no menu, console or debug camera active. */
   refreshPointerLock(): void {
-    const wanted = this.inGame && !this.ui.isMenuOpen() && !this.console.isOpen() && !(this.renderer?.debugCameraEnabled ?? false);
+    const wanted = this.inGame && !this.menuBlocksControls() && !this.console.isOpen() && !(this.renderer?.debugCameraEnabled ?? false);
     this.input.setPointerLockEnabled(wanted);
+  }
+
+  /** True when the evidence viewfinder is the top menu: it is a live overlay, look and movement stay active. */
+  private cameraLive(): boolean {
+    return this.phase4.camera.isOpen && this.ui.top === this.phase4.camera;
+  }
+
+  /** A menu is open that takes the controls (the viewfinder alone does not). */
+  private menuBlocksControls(): boolean {
+    return this.ui.isMenuOpen() && !this.cameraLive();
   }
 
   /** Stops the loop and releases every resource; the instance is unusable afterwards. */
@@ -633,10 +643,12 @@ export class App {
     const session = this.sessionValue;
     if (!session) return;
 
-    const controlsActive = !this.ui.isMenuOpen() && !this.console.isOpen();
+    const controlsActive = !this.menuBlocksControls() && !this.console.isOpen();
+    const cameraLive = this.cameraLive();
     const debugCam = this.renderer?.debugCameraEnabled ?? false;
     const police = readPoliceInput(this.input, this.policeInput);
-    if (controlsActive) this.handleActions(session);
+    // The viewfinder owns the fire button (shutter); the other actions wait until it is closed.
+    if (controlsActive && !cameraLive) this.handleActions(session);
     this.phase4.updateInput(session, this.input, controlsActive, () => this.panels.openTools(), () => this.panels.openPartner());
     if (this.phase4.camera.isOpen && this.input.wasPressed('officer.fire')) this.phase4.shutter();
     this.readControls(session, dt, controlsActive && !debugCam);
@@ -1447,6 +1459,11 @@ export class App {
    * close the radio menu when it is open, else pause.
    */
   private onPointerLockLost(): void {
+    if (this.inGame && this.cameraLive() && !(this.renderer?.debugCameraEnabled ?? false)) {
+      // Escape released the pointer lock: it closes the viewfinder.
+      this.phase4.camera.cancel();
+      return;
+    }
     const playing = this.inGame && !this.ui.isMenuOpen() && !this.console.isOpen();
     if (!playing || (this.renderer?.debugCameraEnabled ?? false)) return;
     const radioMenu = this.sessionValue?.radio.menu;

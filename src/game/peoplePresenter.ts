@@ -380,7 +380,7 @@ export class PeoplePresenter {
     }
     if (session.driving) return null;
     const f = session.playerPosition({ x: 0, z: 0 });
-    const pick = session.npc.nearestPerson(f.x, f.z, session.controller.yaw, CHIP_RANGE_M, 0.5, this.pick);
+    const pick = session.npc.nearestPerson(f.x, f.z, session.controller.yaw, CHIP_RANGE_M, 0.5, this.pick, session.officerBuilding);
     if (!pick || pick.personId < 0) return null;
     const d = describePerson(session.people.identity(pick.personId));
     chip.name = `${d.ageBand} ${d.sex}`;
