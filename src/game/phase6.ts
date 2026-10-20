@@ -33,7 +33,8 @@ import type { SceneDirector } from '../scene';
 import { DENSITY, PULLOVER } from '../traffic/data';
 import { vehicleRecord } from '../traffic/registry';
 import type { FleetState, StopState, TrafficSystem } from '../traffic/trafficSystem';
-import { RosterState, UNIT_TYPES, resourceSlots, unitType } from '../units';
+import type { RadioRequestType } from '../radio/requestTypes';
+import { RosterState, UNIT_TYPES, requestableTypes, resourceSlots, unitType } from '../units';
 import type { RosterSave } from '../units';
 import type { BuildingIndex, BuildingInfo } from '../world/buildings';
 import type { City } from '../world/city';
@@ -102,6 +103,28 @@ const PURSUIT_ROAD_RADIUS = 40;
 function rankOfSlot(typeId: string): 'officer' | 'sergeant' | 'lieutenant' | 'chief' {
   const r = unitType(typeId)?.rank;
   return r === 'sergeant' || r === 'lieutenant' || r === 'chief' ? r : 'officer';
+}
+
+/** 'a K9 unit', 'an EMS', 'a supervisor': the player's radio line names the unit with an article. */
+function requestLabel(label: string): string {
+  const text = /^[A-Z][a-z]/.test(label) ? `${label.charAt(0).toLowerCase()}${label.slice(1)}` : label;
+  return `${/^[aeiouAEIOU]/.test(text) ? 'an' : 'a'} ${text}`;
+}
+
+/**
+ * The radio menu / voice request types (design 14): the patrol types map to the Phase 2 requests (backup code 2, code 3,
+ * officer needs assistance), every other requestable type to `{ kind: 'resource', typeId }`. Set once at app start with
+ * `setRadioRequestTypes`.
+ */
+export function radioRequestTypeList(): RadioRequestType[] {
+  return requestableTypes().map((t) => {
+    let request: RadioRequestType['request'];
+    if (t.send === 'backup2') request = { kind: 'backup', code: 2 };
+    else if (t.send === 'backup3') request = { kind: 'backup', code: 3 };
+    else if (t.send === 'emergency') request = { kind: 'emergency' };
+    else request = { kind: 'resource', typeId: t.id };
+    return { id: t.id, menu: t.menu, label: requestLabel(t.label), voice: t.voice.map((v) => v.toLowerCase()), request };
+  });
 }
 
 /** The save blocks the v8 schema adds. */
@@ -288,6 +311,23 @@ export class Phase6 {
   start(t: { sim: number; game: number }): void {
     this.ensureRoster();
     this.resources.start(t);
+  }
+
+  // --- Requests ---------------------------------------------------------------------------------
+
+  /**
+   * The MDT / console request of a unit type for the player's call: patrol types go through the dispatcher (backup,
+   * officer needs assistance), every other type through the resources module. False for an unknown or non-requestable type.
+   */
+  requestType(typeId: string, via: 'mdt' | 'radio' = 'mdt'): boolean {
+    const t = unitType(typeId);
+    if (!t) return false;
+    const player = this.host.dispatcher.playerCallsign;
+    if (t.send === 'backup2') this.host.dispatcher.request(player, { kind: 'backup', code: 2 }, via);
+    else if (t.send === 'backup3') this.host.dispatcher.request(player, { kind: 'backup', code: 3 }, via);
+    else if (t.send === 'emergency') this.host.dispatcher.request(player, { kind: 'emergency' }, via);
+    else this.resources.request({ kind: 'request', typeId, callId: 0, via });
+    return true;
   }
 
   // --- Fixed steps (orders -698, -678, -665, -662) ------------------------------------------------

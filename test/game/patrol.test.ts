@@ -115,8 +115,10 @@ describe('patrol session (Phase 2)', () => {
   it('starts with the CAD roster, the AI units in fleet cars, equipped patrol cars with PoliceLights and an empty kit', () => {
     const h = fresh();
     const session = h.start(SEED);
-    const units = session.cad.units();
+    // The player and the AI patrol units first, then the Phase 6 resource units (22 ground + AIR-1).
+    const units = session.cad.units().filter((u) => u.kind !== 'resource');
     expect(units.map((u) => u.callsign)).toEqual(['12', '21', '23', '25', '27', '31', '33']);
+    expect(session.cad.units().filter((u) => u.kind === 'resource')).toHaveLength(23);
     expect(session.cad.playerUnit()?.callsign).toBe(session.dispatcher.playerCallsign);
     for (let i = 0; i < 6; i++) expect(session.traffic.fleetEntity(i)).not.toBe(0);
     for (const v of session.vehicles) {
@@ -311,7 +313,8 @@ describe('patrol session (Phase 2)', () => {
     expect(migrated.dispatch).toBeNull();
     const h = fresh();
     const session = h.load(migrated);
-    expect(session.cad.units()).toHaveLength(7);
+    expect(session.cad.units().filter((u) => u.kind !== 'resource')).toHaveLength(7);
+    expect(session.cad.units().filter((u) => u.kind === 'resource')).toHaveLength(23);
     for (let i = 0; i < 6; i++) expect(session.traffic.fleetEntity(i)).not.toBe(0);
     expect(session.equipmentOf(vehicle(session, 0))?.trunkCount('cones')).toBe(6);
     expect(session.officerKit.carriedTotal).toBe(0);

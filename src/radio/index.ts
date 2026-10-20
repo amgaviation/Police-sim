@@ -43,3 +43,4 @@ export {
   type SpeechInLike,
 } from './controller';
 export { createRadioCommands, formatTransmission, type RadioCommandDeps } from './commands';
+export { setRadioRequestTypes, radioRequestTypes, requestLabel, radioRequestTypesRevision, type RadioRequestType } from './requestTypes';

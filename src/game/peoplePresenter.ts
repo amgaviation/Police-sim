@@ -83,7 +83,7 @@ export class PeoplePresenter {
   private readonly officerFigure = createHumanoidSource(1);
   private readonly staff = createHumanoidSource(8);
   private readonly mergedProps = createPropSource(MERGED_PROP_CAPACITY);
-  private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure, createHumanoidSource(0), createHumanoidSource(0), this.staff];
+  private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure, createHumanoidSource(0), createHumanoidSource(0), this.staff, createHumanoidSource(0), createHumanoidSource(0)];
   /** The camera is at the officer's eyes: the officer's own figure is hidden. */
   private firstPerson = false;
   private readonly offs: (() => void)[] = [];
@@ -191,6 +191,9 @@ export class PeoplePresenter {
     this.sources[0] = session.npc.view;
     this.sources[2] = session.tactical.partner.view;
     this.sources[3] = session.investigation.dog;
+    // Phase 6: the backup officers and SWAT operators, and the crews of the service vehicles.
+    this.sources[5] = session.phase6.backup.view;
+    this.sources[6] = session.phase6.resources.crews;
     r?.update(alpha, this.sources, camX, camZ, PEOPLE_DRAW_DISTANCE);
     this.props?.update(this.mergeProps(session), nightFactor);
   }

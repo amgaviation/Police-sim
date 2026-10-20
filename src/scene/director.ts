@@ -2692,6 +2692,13 @@ export class SceneDirector implements IncidentResolver {
     this.startVehiclePursuit(vehicleId, owner, t);
   }
 
+  /** Debug and tests (`pursuit spawn`): the car runs now and a pursuit call opens with the officer; false when it cannot flee. */
+  startPursuitOf(vehicleId: number, t: CadTime): boolean {
+    if (!this.deps.traffic.flee(vehicleId)) return false;
+    this.startVehiclePursuit(vehicleId, null, t);
+    return true;
+  }
+
   private startVehiclePursuit(vehicleId: number, owner: ScenarioRuntime | null, t: CadTime): void {
     const { dispatcher, npc, traffic, records, city, cad } = this.deps;
     const family = familyForType('vehiclePursuit');

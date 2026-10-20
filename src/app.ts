@@ -32,6 +32,10 @@ import { EnvironmentRenderer } from './environment/render/environmentRenderer';
 import { createCommands } from './game/commands';
 import { HudFeed, interactPrompt, keyLabel } from './game/hudFeed';
 import { createMdtDeps } from './game/mdtDeps';
+import { Phase6Presenter } from './game/phase6Presenter';
+import { radioRequestTypeList } from './game/phase6';
+import { createPhase6Commands } from './game/phase6Commands';
+import { setRadioRequestTypes } from './radio/requestTypes';
 import { createNpcCommands } from './npc/commands';
 import { createPeopleCommands } from './people/commands';
 import { createSceneCommands } from './scene/commands';
@@ -99,7 +103,7 @@ import { SettingsMenu } from './ui/settingsMenu';
 import { UIRoot } from './ui/ui';
 import { vehicleModel } from './vehicles/model';
 import { createSimWorker } from './workers/createSimWorker';
-import type { WorkerRequestMap } from './workers/protocol';
+import { ETA_MATRIX_MAX_FROM, type WorkerRequestMap } from './workers/protocol';
 import type { WorkerClient } from './workers/workerClient';
 import type { City } from './world/city';
 import { generateCity } from './world/generate';
@@ -206,6 +210,8 @@ export class App {
   readonly phase4: Phase4Presenter;
   /** Phase 5 presentation: snapshots and media store, courtroom, evidence review (IA), HUD additions. */
   readonly phase5: Phase5Presenter;
+  /** Phase 6 presentation: backup / pursuit / command panels, negotiation, FLIR, helicopter and spike strips, HUD additions. */
+  readonly phase6: Phase6Presenter;
   /** Jurisdiction chosen on the title screen for the next new game. */
   private jurisdiction = 'generic';
 
@@ -363,6 +369,14 @@ export class App {
       baseFov: () => settings.get('graphics.fov'),
     });
     this.phase5 = new Phase5Presenter(this.ui, { session: () => this.sessionValue, flash: (text) => this.flash(text) });
+    this.phase6 = new Phase6Presenter(this.renderer ? this.scene : null, this.renderer, this.ui, this.ui.hud, {
+      session: () => this.sessionValue,
+      flash: (text) => this.flash(text),
+      closePatrolPanels: () => this.panels.close(),
+      baseFov: () => settings.get('graphics.fov'),
+    });
+    // The radio menu and the voice grammar request any unit type (design 14).
+    setRadioRequestTypes(radioRequestTypeList());
     this.presenter = new PeoplePresenter(
       this.renderer ? this.scene : null,
       this.ui,
@@ -377,6 +391,17 @@ export class App {
     for (const command of createCommands(this)) this.console.register(command);
     for (const command of createWorldCommands(this.worldCommandDeps())) this.console.register(command);
     for (const command of this.patrolCommands()) this.console.register(command);
+    // Phase 6: `units` extends the CAD list (it keeps the Phase 2 listing without arguments).
+    const cadUnits = this.console.getCommand('units');
+    for (const command of createPhase6Commands({
+      session: () => this.sessionValue,
+      flash: (text) => this.flash(text),
+      flir: () => this.phase6.toggleFlir(),
+      flirOn: () => this.phase6.flirOn,
+      baseUnits: () => cadUnits,
+    })) {
+      this.console.register(command);
+    }
 
     this.saves = new SaveManager({ bus: this.bus });
     this.settingsMenu = new SettingsMenu(this.ui, settings, this.input);
@@ -622,6 +647,7 @@ export class App {
     this.presenter.dispose();
     this.phase4.dispose();
     this.phase5.dispose();
+    this.phase6.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -681,6 +707,7 @@ export class App {
     this.panels.update(now);
     this.phase4.updatePanels(session, now, dt);
     this.phase5.updatePanels(session, now);
+    this.phase6.updatePanels(session, now);
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
@@ -744,6 +771,11 @@ export class App {
     }
     if (input.wasPressed('target.runPlate')) this.runTargetPlate(session);
     if (input.wasPressed('scene.menu')) this.panels.openScene();
+    // Phase 6: backup, incident command and pursuit tactics panels, and the air unit camera (FLIR).
+    if (input.wasPressed('backup.menu')) this.phase6.openBackup();
+    if (input.wasPressed('command.menu')) this.phase6.openCommand();
+    if (input.wasPressed('pursuit.menu')) this.phase6.openPursuit();
+    if (input.wasPressed('air.flir')) this.phase6.toggleFlir();
     if (!session.driving) {
       if (input.wasPressed('camera.toggle')) this.phase4.toggleView();
       this.handleOfficerActions(session);
@@ -937,6 +969,8 @@ export class App {
 
   /** On foot: the Phase 0 orbit camera. Driving: the rig's chase/hood/cockpit view of the interpolated car. */
   private updateCamera(session: GameSession, camera: THREE.PerspectiveCamera, dt: number, alpha: number, lookActive: boolean): void {
+    // FLIR: the air unit's camera replaces the rig while it is on (and the air unit is up).
+    if (this.phase6.flirOn && this.phase6.updateFlirCamera(session, camera)) return;
     const vehicle = session.drivenVehicle;
     if (!vehicle) {
       if (session.player === 0) return;
@@ -996,6 +1030,7 @@ export class App {
       const cam = renderer.activeCamera;
       this.presenter.render(session, alpha, cam.position.x, cam.position.z, lighting.nightFactor, dt);
     }
+    this.phase6.updateRender(session, alpha);
     const cars = this.carRenderer;
     if (!cars) return;
     const ownCar = session.drivenVehicle?.eid ?? session.lastVehicle?.eid ?? 0;
@@ -1148,6 +1183,7 @@ export class App {
     this.presenter.fillHud(snapshot, session);
     this.phase4.fillHud(snapshot, session);
     this.phase5.fillHud(snapshot, session, session.clock.simTime);
+    this.phase6.fillHud(snapshot, session);
     this.hud.update(snapshot, now);
     const view = this.view;
     if (!view) return;
@@ -1246,6 +1282,23 @@ export class App {
         () => this.perf.setExtra('media', 'unavailable'),
       );
     } else this.perf.setExtra('media', undefined);
+    const p6 = session?.phase6;
+    if (p6) {
+      let enRoute = 0;
+      let onScene = 0;
+      for (const u of p6.resources.units()) {
+        if (u.status === 'turnout' || u.status === 'enRoute') enRoute++;
+        else if (u.status === 'onScene') onScene++;
+      }
+      this.perf.setExtra('resources', `${String(enRoute)} en route, ${String(onScene)} on scene${p6.resources.airView() ? ', air up' : ''}`);
+      this.perf.setExtra('backup', `${String(p6.backup.officers().length)} officers on foot`);
+      const hud = p6.pursuit.hud();
+      this.perf.setExtra('pursuit', hud ? hud.line : 'none');
+      const board = p6.command.board();
+      this.perf.setExtra('command', board.post ? `${board.post.level}, ${String(board.victims.length)} victims` : 'no post');
+    } else {
+      for (const k of ['resources', 'backup', 'pursuit', 'command']) this.perf.setExtra(k, undefined);
+    }
     const idraw = this.phase4.interiorRenderer?.drawCalls ?? 0;
     this.perf.setExtra('interior draw', idraw > 0 ? `${String(idraw)} draw calls` : undefined);
     const cockpit = this.cockpit?.stats.drawCalls ?? 0;
@@ -1307,6 +1360,7 @@ export class App {
     });
     this.beginPatrol(session);
     this.phase5.begin(session, mediaTag);
+    this.phase6.begin();
     this.route = null;
     this.flashUntilMs = 0;
     this.hazeWarm = false;
@@ -1329,6 +1383,7 @@ export class App {
       this.detachSystems = null;
       this.endPatrol();
       this.phase5.end();
+      this.phase6.end();
       for (const vehicle of session.vehicles) this.carRenderer?.setDrivable(vehicle.eid, null);
       this.carRenderer?.setHeadlightTarget(0);
       this.carRenderer?.setSpotlightTarget(0);
@@ -1358,6 +1413,7 @@ export class App {
         bookingCompleted: (_id, released) => this.flash(released >= 0 ? 'Booking complete: prisoner handed over' : 'Booking complete'),
         openIa: (caseId) => this.phase5.openIa(caseId),
         openReview: (key) => this.phase5.openReview(key),
+        etaBoard: (callId) => this.etaBoard(session, callId),
       }),
     );
     const panel = new RadioPanel(this.ui.hud);
@@ -1377,6 +1433,26 @@ export class App {
     this.nextRouteMs = 0;
     this.nextTargetMs = 0;
     this.cockpitEid = -1;
+  }
+
+  /**
+   * The MDT's ETA board (design 15): every unit's free-flow road route to the call, computed in the sim worker.
+   * Presentation only: it never feeds back into the simulation. Empty without a worker.
+   */
+  private async etaBoard(session: GameSession, callId: number): Promise<readonly { callsign: string; label: string; etaS: number }[]> {
+    const worker = this.worker;
+    const call = session.cad.call(callId);
+    if (!worker || !call) return [];
+    const labels = new Map<string, string>();
+    for (const u of session.phase6.resources.units()) labels.set(u.callsign, u.label);
+    const player = session.dispatcher.playerCallsign;
+    const from: { id: string; x: number; z: number }[] = [];
+    for (const u of session.cad.units()) {
+      if (u.callsign === player || from.length >= ETA_MATRIX_MAX_FROM) continue;
+      from.push({ id: u.callsign, x: u.x, z: u.z });
+    }
+    const { rows } = await worker.call('eta.matrix', { seed: session.seed, from, to: { x: call.location.x, z: call.location.z } });
+    return rows.map((r) => ({ callsign: r.id, label: labels.get(r.id) ?? 'Patrol', etaS: r.timeS }));
   }
 
   private endPatrol(): void {

@@ -2,7 +2,8 @@ import { observedVehicle } from '../records/vehicle';
 import { REGISTRY_POPULATION } from '../traffic/registry';
 import { isFleetVehicleId } from '../traffic/trafficSystem';
 import { CAREER_LIST_MAX } from '../ui/mdt/career';
-import type { MdtDeps } from '../ui/mdt/types';
+import { requestableTypes } from '../units';
+import type { MdtDeps, MdtEtaRow } from '../ui/mdt/types';
 import type { GameSession } from './session';
 import type { TargetInfo } from './target';
 
@@ -15,6 +16,8 @@ export interface MdtHooks {
   openIa?(caseId: string): void;
   /** Phase 5: the Career tab's REVIEW on a recorded incident (read-only evidence review). */
   openReview?(key: string): void;
+  /** Phase 6: the presentation-only ETA board of the Resources tab (the worker's `eta.matrix`); empty without a worker. */
+  etaBoard?(callId: number): Promise<readonly MdtEtaRow[]>;
 }
 
 /**
@@ -70,5 +73,19 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
     reportChoices: (callId) => session.incidents.reportChoices(session.incidents.keyOfCall(callId)).map((c) => ({ id: c.id, group: c.group, text: c.text })),
     submitReport: (docId, callId, ids) => void session.phase5.submitReport(docId, callId, ids),
     reportGrade: (docId) => session.conduct.reportGrade(docId),
+    // Phase 6 (design 12.3): live ETAs, the Resources tab (request any unit type) and the Command tab (ICS board).
+    eta: (cs) => session.phase6.resources.eta(cs),
+    resources: {
+      revision: () => session.phase6.resources.revision,
+      units: () => session.phase6.resources.units(),
+      types: () => requestableTypes().map((t) => ({ id: t.id, label: t.label, resolves: t.resolves, send: t.send })),
+      request: (typeId) => void session.phase6.requestType(typeId, 'mdt'),
+      ...(hooks.etaBoard ? { etaBoard: (callId: number) => hooks.etaBoard?.(callId) ?? Promise.resolve([]) } : {}),
+    },
+    command: {
+      revision: () => session.phase6.command.revision,
+      board: () => session.phase6.command.board(),
+      request: (r) => session.phase6.command.request(r),
+    },
   };
 }
