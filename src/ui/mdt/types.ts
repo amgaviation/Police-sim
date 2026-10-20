@@ -19,6 +19,12 @@ export interface MdtCareerDeps {
   attend(caseId: string): void;
   /** The app opens the IA review (bodycam timeline and statement) for an open case. */
   openIa(caseId: string): void;
+  /** Recorded incidents, newest first (for the Incident footage list). */
+  incidents?(): readonly { key: string; typeId: string; district: string; game: number; closed: boolean }[];
+  /** Whether the incident's record is still on file. */
+  canReview?(key: string): boolean;
+  /** The app opens the read-only evidence review (timeline, events, snapshots) of an incident. */
+  openReview?(key: string): void;
   jurisdiction(): { id: string; name: string };
   now(): CadTime;
 }

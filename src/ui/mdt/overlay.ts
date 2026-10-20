@@ -1057,11 +1057,19 @@ export class MdtOverlay implements Menu {
     return true;
   }
 
-  /** REVIEW on an open internal affairs case: the app opens the bodycam review. */
+  /** REVIEW on an internal affairs case: the app opens the bodycam review (read-only once the case is closed). */
   reviewIa(caseId: string): boolean {
     const career = this.deps.career;
-    if (!career?.view().ia.some((c) => c.id === caseId && c.status === 'open')) return false;
+    if (!career?.view().ia.some((c) => c.id === caseId)) return false;
     career.openIa(caseId);
+    return true;
+  }
+
+  /** REVIEW on a recorded incident: the app opens the read-only evidence review. */
+  reviewIncident(key: string): boolean {
+    const career = this.deps.career;
+    if (!career?.openReview || career.canReview?.(key) === false) return false;
+    career.openReview(key);
     return true;
   }
 
@@ -1079,9 +1087,11 @@ export class MdtOverlay implements Menu {
     const model = careerModel(career.view(), career.cases(), career.now(), {
       canAttend: (id) => career.canAttend(id),
       jurisdiction: career.jurisdiction(),
+      ...(career.incidents && career.openReview ? { incidents: career.incidents() } : {}),
+      ...(career.canReview && career.openReview ? { canReview: (key: string) => career.canReview?.(key) === true } : {}),
     });
     this.careerShown = model;
-    if (dom) renderCareer(dom.careerBody, model, { attend: (id) => this.attendCase(id), review: (id) => this.reviewIa(id) });
+    if (dom) renderCareer(dom.careerBody, model, { attend: (id) => this.attendCase(id), review: (id) => this.reviewIa(id), watch: (key) => this.reviewIncident(key) });
   }
 
   private renderCommunityTab(): void {

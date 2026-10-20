@@ -408,6 +408,18 @@ describe('fight', () => {
     expect(alone.fled).toBeGreaterThan(5);
   });
 
+  it('samples the resistance before the tackle takes the actor down', async () => {
+    const r = await rig();
+    r.focus.yaw = 0;
+    const calm = r.npc.spawnActor(spec(person(1), P.x, P.z - 1.2));
+    expect(r.npc.tackle(P.x, P.z, 0)).toBe(calm);
+    expect(r.npc.lastTackleResistance).toBe('compliant');
+    const runner = r.npc.spawnActor(spec(person(2), P.x + 10, P.z - 1.2));
+    r.npc.forceState(runner, 'flee');
+    expect(r.npc.tackle(P.x + 10, P.z, 0)).toBe(runner);
+    expect(r.npc.lastTackleResistance).toBe('active');
+  });
+
   it('down becomes prone after the down time and stays prone until cuffed', async () => {
     const r = await rig();
     r.focus.yaw = 0;

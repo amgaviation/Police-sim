@@ -71,13 +71,16 @@ export const CHOICES: readonly ChoiceInfo[] = [
 export interface CareerFeed {
   career: MdtCareerDeps;
   community: MdtCommunityDeps;
-  state: { rev: number; communityRev: number; view: CareerView; cases: CourtCase[]; attendable: Set<string>; game: number };
-  calls: { attend: string[]; ia: string[] };
+  state: {
+    rev: number; communityRev: number; view: CareerView; cases: CourtCase[]; attendable: Set<string>; game: number;
+    incidents: { key: string; typeId: string; district: string; game: number; closed: boolean }[]; onFile: Set<string>;
+  };
+  calls: { attend: string[]; ia: string[]; review: string[] };
 }
 
 export function careerFeed(): CareerFeed {
-  const state: CareerFeed['state'] = { rev: 1, communityRev: 1, view: careerView(), cases: [], attendable: new Set(), game: at(0).game };
-  const calls: CareerFeed['calls'] = { attend: [], ia: [] };
+  const state: CareerFeed['state'] = { rev: 1, communityRev: 1, view: careerView(), cases: [], attendable: new Set(), game: at(0).game, incidents: [], onFile: new Set() };
+  const calls: CareerFeed['calls'] = { attend: [], ia: [], review: [] };
   return {
     state,
     calls,
@@ -88,6 +91,9 @@ export function careerFeed(): CareerFeed {
       canAttend: (id) => state.attendable.has(id),
       attend: (id) => calls.attend.push(id),
       openIa: (id) => calls.ia.push(id),
+      incidents: () => state.incidents,
+      canReview: (key) => state.onFile.has(key),
+      openReview: (key) => calls.review.push(key),
       jurisdiction: () => ({ id: 'generic', name: 'Generic State Code' }),
       now: () => ({ sim: 0, game: state.game }),
     },

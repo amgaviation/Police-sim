@@ -425,6 +425,23 @@ describe('row force:used', () => {
   });
 });
 
+describe('row force:used tackle resistance', () => {
+  it('uses the resistance sampled before the takedown and grades it live', () => {
+    const rig = rigWithCall();
+    rig.bus.emit('force:used', { kind: 'tackle', personId: 5, callId: 7, resistance: 'compliant' });
+    const f = rig.of(K, 'force')[0];
+    expect(f).toMatchObject({ level: 'hardHands', tool: 'tackle', resistance: 'compliant' });
+    expect(rig.verdicts).toHaveLength(1);
+    expect(rig.verdicts[0]?.verdict).not.toBe('justified');
+  });
+
+  it('an active subject is a justified tackle and later events see the rank', () => {
+    const rig = rigWithCall();
+    rig.bus.emit('force:used', { kind: 'tackle', personId: 5, callId: 7, resistance: 'active' });
+    expect(rig.verdicts[0]?.verdict).toBe('justified');
+  });
+});
+
 describe('row force:applied', () => {
   const applied = (rig: Rig, over: Partial<Parameters<Rig['bus']['emit']>[1]> = {}): void =>
     rig.bus.emit('force:applied', {
@@ -443,7 +460,7 @@ describe('row force:applied', () => {
   it('judges risk factors, restrained subjects and displays under the active ruleset', () => {
     const rig = rigWithCall();
     applied(rig);
-    expect(rig.verdicts[0]?.verdict).toBe('excessive');
+    expect(rig.verdicts[0]?.verdict).not.toBe('justified');
     expect(rig.verdicts[0]?.text).toBe('TASER on active resistance: excessive (GS-8.4)');
     applied(rig, { tool: 'baton', level: 'baton', riskFactors: [], restrained: true });
     expect(rig.verdicts[1]?.text).toBe('Baton on active resistance: excessive (GS-8.2)');
@@ -576,6 +593,22 @@ describe('row cad:documentSaved and scene:outcome', () => {
     rig.bus.emit('cad:documentSaved', { id: 'B-0001', kind: 'booking', final: true });
     expect(rig.kinds(K).slice(-2)).toEqual(['close', 'charges']);
     expect(rig.of(K, 'arrest').length).toBe(1);
+  });
+
+  it('keyOfDoc finds the log of a booking or a citation, also for a field contact without a call', () => {
+    const rig = new Rig();
+    const fc = 'FC-5-1';
+    rig.world.contact = fc;
+    said(rig, 0, 5, { ...cx(0, 5, 'suspect', fc) });
+    rig.step();
+    rig.world.bookings.set('B-0001', { personId: 5, callId: 0, charges: ['PC-260'] });
+    rig.world.citations.set('CT-0001', { personId: 5, callId: 0, statutes: ['TR-300'] });
+    rig.bus.emit('cad:documentSaved', { id: 'B-0001', kind: 'booking', final: true });
+    rig.bus.emit('cad:documentSaved', { id: 'CT-0001', kind: 'citation', final: true });
+    expect(rig.sys.keyOfDoc('B-0001')).toBe(fc);
+    expect(rig.sys.keyOfDoc('CT-0001')).toBe(fc);
+    expect(rig.sys.keyOfDoc('B-9999')).toBeNull();
+    expect(rig.of(fc, 'charges').map((c) => c.statutes)).toEqual([['PC-260'], ['TR-300']]);
   });
 
   it('a booking for an unknown log is dropped', () => {

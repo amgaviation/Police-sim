@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EvidenceReviewPanel } from '../../src/ui/review';
 import { FakeEl, installFakeDocument } from './fakeDom';
-import { asUi, ev, fakeUi, flush, key, makeFooter, makeSource } from './helpers';
+import { asUi, ev, fakeUi, flush, key, makeFooter, makeLiveSource, makeSource, snap } from './helpers';
 
 const fakeEl = (e: HTMLElement): FakeEl => e as unknown as FakeEl;
 
@@ -150,28 +150,28 @@ describe('EvidenceReviewPanel (headless)', () => {
   });
 
   it('requests an image only when the nearest snapshot index changes', async () => {
-    const src = makeSource();
+    const src = makeLiveSource();
     const p = new EvidenceReviewPanel(null);
     p.open(src);
     await flush();
-    expect(src.imageCalls).toEqual([]); // before the first snapshot (10 s): no video
+    expect(src.imageCalls).toEqual([]); // before the first snapshot (3 s): no video
     p.onKeyDown(key('ArrowRight', { shiftKey: true })); // 10 s
-    expect(src.imageCalls).toEqual(['s10']);
-    for (let i = 0; i < 5; i++) p.onKeyDown(key('ArrowRight')); // 11..15 s
+    expect(src.imageCalls).toEqual(['s9']);
+    p.onKeyDown(key('ArrowRight')); // 11 s: same snapshot
     p.update(0);
-    expect(src.imageCalls).toEqual(['s10']);
-    p.onKeyDown(key('ArrowRight', { shiftKey: true })); // 25 s
-    expect(src.imageCalls).toEqual(['s10', 's20']);
+    expect(src.imageCalls).toEqual(['s9']);
+    p.onKeyDown(key('ArrowRight', { shiftKey: true })); // 21 s
+    expect(src.imageCalls).toEqual(['s9', 's21']);
     p.onKeyDown(key('End'));
-    expect(src.imageCalls).toEqual(['s10', 's20', 's50']);
+    expect(src.imageCalls).toEqual(['s9', 's21', 's57']);
     p.onKeyDown(key('Home'));
-    expect(src.imageCalls).toEqual(['s10', 's20', 's50']); // back to no video: nothing to load
+    expect(src.imageCalls).toEqual(['s9', 's21', 's57']); // back to no video: nothing to load
     p.onKeyDown(key('Home'));
     expect(src.imageCalls).toHaveLength(3);
   });
 
   it('swaps the image during playback only at snapshot boundaries', async () => {
-    const src = makeSource();
+    const src = makeLiveSource();
     const p = new EvidenceReviewPanel(null);
     p.open(src);
     await flush();
@@ -181,7 +181,27 @@ describe('EvidenceReviewPanel (headless)', () => {
     for (let ms = 16; ms <= 5200; ms += 16) p.update(ms);
     // 5 s of real time at 4x = ~20 sim s: 10 s -> ~30 s
     expect(p.time).toBeGreaterThan(29);
-    expect(src.imageCalls).toEqual(['s10', 's20', 's30']);
+    expect(src.imageCalls.slice(0, 7)).toEqual(['s9', 's12', 's15', 's18', 's21', 's24', 's27']);
+    expect(src.imageCalls.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it('shows no video once the camera is muted: the last frame is not played as footage', async () => {
+    const snaps = [3, 6, 9, 12, 15, 18, 33, 36].map(snap);
+    const src = makeSource({
+      events: [ev(1, 0, 1), ev(2, 20, 3), ev(3, 30, 1)],
+      snapshots: () => Promise.resolve(snaps),
+    });
+    const p = new EvidenceReviewPanel(null);
+    p.open(src);
+    await flush();
+    p.onKeyDown(key('End')); // 60 s: recording again but the last frame (36 s) is stale
+    expect(src.imageCalls).toEqual([]);
+    p.onKeyDown(key('Home'));
+    for (let i = 0; i < 19; i++) p.onKeyDown(key('ArrowRight')); // 19 s
+    expect(src.imageCalls.at(-1)).toBe('s18');
+    const calls = src.imageCalls.length;
+    for (let i = 0; i < 3; i++) p.onKeyDown(key('ArrowRight')); // 22 s: muted since 20 s
+    expect(src.imageCalls).toHaveLength(calls);
   });
 
   it('survives a failing source and a late snapshot list', async () => {
@@ -296,7 +316,7 @@ describe('EvidenceReviewPanel (DOM)', () => {
 
   it('shows the snapshot image, swaps it, revokes object URLs and shows NO VIDEO again', async () => {
     const p = new EvidenceReviewPanel(asUi(fakeUi()));
-    const src = makeSource();
+    const src = makeLiveSource();
     p.open(src);
     await flush();
     const root = fakeEl(p.element);
@@ -330,7 +350,7 @@ describe('EvidenceReviewPanel (DOM)', () => {
 
   it('drops a superseded image result without creating a URL for it', async () => {
     const resolvers: Array<(b: Blob) => void> = [];
-    const src = makeSource({
+    const src = makeLiveSource({
       image: () => new Promise<Blob>((r) => {
         resolvers.push(r);
       }),

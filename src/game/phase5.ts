@@ -50,6 +50,8 @@ export interface Phase5Host {
   forceOfficer(out: ForceOfficer): ForceOfficer;
   /** Fills the officer for the incident recorder. */
   officerProbe(out: OfficerProbe): void;
+  /** Lowercase district id at a world position ('' outside the city). */
+  districtAt(x: number, z: number): string;
   dashProbe(out: DashProbe): void;
   pursuitProbe(out: PursuitProbe): boolean;
 }
@@ -66,6 +68,7 @@ const VERDICT_HOLD_S = 2;
 /** Seconds a legal line stays on the HUD. */
 export const LEGAL_LINE_S = 6;
 
+const scratchOfficer: OfficerProbe = { x: 0, z: 0, building: -1, inVehicle: false, weapon: 'none' };
 const scratchPartner: FellowOfficer[] = [{ name: 'Partner', x: 0, z: 0, building: -1 }];
 const NO_FELLOWS: readonly FellowOfficer[] = [];
 
@@ -124,7 +127,7 @@ export class Phase5 {
       bus,
       rng: rng.stream('conduct'),
       incidents: this.incidents,
-      districtOf: (key) => this.incidents.log(key)?.district ?? '',
+      districtOf: (key) => (this.incidents.log(key)?.district ?? '').toLowerCase(),
       injuryOf: (personId) => (personId < 0 ? 0 : host.people.state(personId).injured),
     });
     this.court = new CourtState({
@@ -298,7 +301,7 @@ export class Phase5 {
           warrant: ctx?.warrant ?? false,
           suspects,
           weaponReported: (armed && !(sc?.errors.missingWeapon ?? false)) || sc?.family === 'weapons',
-          district: call.location.district,
+          district: call.location.district.toLowerCase(),
         };
       },
       personLabel: (personId) => {
@@ -340,6 +343,11 @@ export class Phase5 {
         if (doc?.kind !== 'booking') return null;
         return { personId: doc.personId, callId: doc.callId ?? 0, charges: [...doc.charges] };
       },
+      citation: (docId) => {
+        const doc = h.cad.docs.get(docId);
+        if (doc?.kind !== 'citation') return null;
+        return { personId: doc.personId, callId: doc.callId ?? 0, statutes: doc.violations.map((v) => v.statuteId) };
+      },
       buildingIncident: (buildingId) => h.scene.callOfBuilding(buildingId),
       publicPlace: (buildingId) => {
         const layout = h.interiors.layout(buildingId);
@@ -347,6 +355,10 @@ export class Phase5 {
         return layout.kind === 'policeStation' || (!layout.residential && isOpenAt(layout.occupants.openHours, hourOf(h.env.time.totalSeconds)));
       },
       officer: (out) => h.officerProbe(out),
+      officerDistrict: () => {
+        h.officerProbe(scratchOfficer);
+        return h.districtAt(scratchOfficer.x, scratchOfficer.z);
+      },
       bodycamWorn: () => h.station.loadout.bodycamMount !== 'none',
       dashcam: (out) => h.dashProbe(out),
       pursuitProbe: (out) => h.pursuitProbe(out),
@@ -381,6 +393,7 @@ export class Phase5 {
           personLabel: displayName(h.records.person(doc.personId)),
           callId: doc.callId ?? 0,
           statutes,
+          key: this.incidents.current,
         });
       }),
       bus.on('court:verdict', (e) => {

@@ -18,6 +18,8 @@ export interface Phase5CommandDeps {
   flash(text: string): void;
   /** Opens the evidence review of an IA case. */
   openIa(caseId: string): void;
+  /** Opens the read-only evidence review of an incident. */
+  openReview(key: string): void;
   media(): MediaStore;
   mediaTag(): string;
 }
@@ -105,8 +107,8 @@ export function createPhase5Commands(deps: Phase5CommandDeps): Command[] {
     },
     {
       name: 'incident',
-      description: 'Incident logs: list, show or close',
-      usage: 'list | show [key] | close <key>',
+      description: 'Incident logs: list, show, review the footage or close',
+      usage: 'list | show [key] | review [key] | close <key>',
       run: (args) => {
         const s = session();
         const inc = s.incidents;
@@ -129,13 +131,19 @@ export function createPhase5Commands(deps: Phase5CommandDeps): Command[] {
           for (const e of l.events.slice(-30)) lines.push(`  #${String(e.id)} t=${e.t.toFixed(1)} ${e.kind} person ${String(e.personId)} cam ${String(e.cam)}`);
           return lines.join('\n');
         }
+        if (sub === 'review') {
+          const key = keyOf(s, args[1]);
+          if (!inc.log(key)) return `No incident '${key}'`;
+          deps.openReview(key);
+          return `Opening the evidence review for ${key}`;
+        }
         if (sub === 'close') {
           const key = args[1];
           if (key === undefined) return 'incident close <key>';
           inc.request({ kind: 'close', key });
           return `Closing ${key} at the next step`;
         }
-        return 'incident list | show [key] | close <key>';
+        return 'incident list | show [key] | review [key] | close <key>';
       },
     },
     {

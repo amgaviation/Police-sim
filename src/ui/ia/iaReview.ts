@@ -198,17 +198,17 @@ export function reviewEventsOf(log: IncidentLog, a: LegalAssessment | null): Rev
  * the incident from the media store. Events an IA trigger is about are at least `warn`. Pass the incident's assessment to
  * colour the list; without it only the trigger events stand out.
  */
-export function iaReviewSource(log: IncidentLog, c: IaCase, media: MediaStore, tag: string, a: LegalAssessment | null = null): ReviewSource {
+export function iaReviewSource(log: IncidentLog, c: IaCase | null, media: MediaStore, tag: string, a: LegalAssessment | null = null): ReviewSource {
   const events = reviewEventsOf(log, a);
   const flagged = new Set<number>();
-  for (const t of c.triggers) for (const id of t.eventIds) flagged.add(id);
+  if (c) for (const t of c.triggers) for (const id of t.eventIds) flagged.add(id);
   for (const e of events) if (e.severity === 'info' && flagged.has(e.id)) e.severity = 'warn';
   const first = log.events[0]?.t ?? log.openedSim;
   const last = log.events[log.events.length - 1]?.t ?? first;
   const t0 = Math.min(first, log.openedSim);
   const t1 = Math.max(last, log.closedSim, t0 + 1);
   return {
-    title: `${c.id} · ${log.key}`,
+    title: c ? `${c.id} · ${log.key}` : `Incident ${log.key}`,
     t0,
     t1,
     events,

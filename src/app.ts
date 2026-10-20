@@ -1357,6 +1357,7 @@ export class App {
         target: () => this.targets?.target ?? null,
         bookingCompleted: (_id, released) => this.flash(released >= 0 ? 'Booking complete: prisoner handed over' : 'Booking complete'),
         openIa: (caseId) => this.phase5.openIa(caseId),
+        openReview: (key) => this.phase5.openReview(key),
       }),
     );
     const panel = new RadioPanel(this.ui.hud);
@@ -1426,7 +1427,7 @@ export class App {
       ...createCallsCommands(),
       ...createPhase3Commands({ session }),
       ...createPhase4Commands({ session, flash: (text) => this.flash(text) }),
-      ...createPhase5Commands({ session, flash: (text) => this.flash(text), openIa: (id) => this.phase5.openIa(id), media: () => this.phase5.media, mediaTag: () => this.phase5.tag }),
+      ...createPhase5Commands({ session, flash: (text) => this.flash(text), openIa: (id) => this.phase5.openIa(id), openReview: (key) => this.phase5.openReview(key), media: () => this.phase5.media, mediaTag: () => this.phase5.tag }),
     ];
   }
 

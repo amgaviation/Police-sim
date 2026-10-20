@@ -149,7 +149,7 @@ function violates(t: IaTrigger, rule: IaRule | undefined, a: LegalAssessment): b
  */
 export function resolveIa(
   c: IaCase, a: LegalAssessment, log: IncidentLog, statement: IaStatement, rules: IaConfig = IA_CONFIG,
-): { finding: IaFinding; untruthful: boolean; reasons: string[] } {
+): { finding: IaFinding; untruthful: boolean; reasons: string[]; severity: IaSeverity | null } {
   const reasons: string[] = [];
   let untruthful = false;
   if (statement.kind === 'account') {
@@ -159,27 +159,34 @@ export function resolveIa(
     }
   }
   if (untruthful) {
-    return { finding: 'sustained', untruthful, reasons: ['untruthfulness', 'The statement contradicts the bodycam recording.'] };
+    return { finding: 'sustained', untruthful, reasons: ['untruthfulness', 'The statement contradicts the bodycam recording.'], severity: null };
   }
 
   const ruleOf = (id: string): IaRule | undefined => rules.rules.find((r) => r.id === id);
   const only = c.triggers.length === 1 ? c.triggers[0] : undefined;
   if (only && ruleOf(only.rule)?.when === 'complaint' && a.summary.unlawful + a.summary.excessiveForce + a.summary.questionableForce === 0) {
-    return { finding: 'unfounded', untruthful, reasons: ['The complaint is not supported by the record.'] };
+    return { finding: 'unfounded', untruthful, reasons: ['The complaint is not supported by the record.'], severity: null };
   }
   const violating = c.triggers.filter((t) => violates(t, ruleOf(t.rule), a));
   if (violating.length === 0) {
     const lethal = c.triggers.some((t) => ruleOf(t.rule)?.when === 'forceTool');
     reasons.push(lethal ? 'The use of deadly force was within policy.' : 'No policy violation was found.');
-    return { finding: 'exonerated', untruthful, reasons };
+    return { finding: 'exonerated', untruthful, reasons, severity: null };
   }
-  const recorded = violating.some((t) => t.eventIds.some((id) => (log.events.find((x) => x.id === id)?.cam ?? 0) & CAM.body));
+  // The log itself proves a recording violation (the camera was off), so it needs no footage; every other violation does.
+  const recorded = violating.some((t) => {
+    const rule = ruleOf(t.rule);
+    if (rule?.when === 'doctrine' && rule.doctrine === 'recording') return true;
+    return t.eventIds.some((id) => (log.events.find((x) => x.id === id)?.cam ?? 0) & CAM.body);
+  });
   if (!recorded && c.severity !== 'critical' && statement.kind !== 'acknowledge') {
-    return { finding: 'notSustained', untruthful, reasons: ['A violation could not be proven: no body camera footage.'] };
+    return { finding: 'notSustained', untruthful, reasons: ['A violation could not be proven: no body camera footage.'], severity: null };
   }
   for (const t of violating) reasons.push(`${ruleLabel(t.rule)} is a policy violation.`);
   if (statement.kind === 'acknowledge') reasons.push('The officer acknowledged the violation.');
-  return { finding: 'sustained', untruthful, reasons };
+  // Discipline is judged by the violations found, not by the most serious thing the case was opened for.
+  const severity = violating.reduce<IaSeverity>((m, t) => maxSeverity(m, t.severity), violating[0]?.severity ?? 'minor');
+  return { finding: 'sustained', untruthful, reasons, severity };
 }
 
 /** Rounds a currency amount to thousands. */

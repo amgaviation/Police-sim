@@ -6,6 +6,7 @@ import {
   createReviewState,
   eventIndexAt,
   formatReviewTime,
+  frameAt,
   nearestSnapshot,
   reduceReviewKey,
   type ReviewEvent,
@@ -76,6 +77,41 @@ describe('camSegments', () => {
       expect((segs[i] as { t1: number; t0: number }).t1).toBeGreaterThan((segs[i] as { t0: number }).t0);
       if (i > 0) expect((segs[i] as { t0: number }).t0).toBe((segs[i - 1] as { t1: number }).t1);
     }
+  });
+});
+
+describe('frameAt', () => {
+  const snaps = [3, 6, 9, 12, 15, 18, 33, 36].map((t) => snap(t));
+  const events = [ev(1, 0, body), ev(2, 20, body | muted), ev(3, 30, body), ev(4, 40, 0), ev(5, 50, dash)];
+
+  it('shows the latest frame while the camera records', () => {
+    expect(frameAt(snaps, events, 10, 6)).toBe(2);
+    expect(frameAt(snaps, events, 19, 6)).toBe(5);
+    expect(frameAt(snaps, events, 37, 6)).toBe(7);
+  });
+
+  it('shows nothing before the first frame or when there are no events', () => {
+    expect(frameAt(snaps, events, 1, 6)).toBe(-1);
+    expect(frameAt(snaps, [], 10, 6)).toBe(-1);
+    expect(frameAt([], events, 10, 6)).toBe(-1);
+  });
+
+  it('shows nothing while the camera is muted, and not the frame from before the gap once it records again', () => {
+    expect(frameAt(snaps, events, 22, 6)).toBe(-1);
+    expect(frameAt(snaps, events, 31, 6)).toBe(-1); // the 18 s frame is older than the interval and the mute lies between
+    expect(frameAt(snaps, [ev(1, 0, body), ev(2, 20, body | muted), ev(3, 25, body)], 26, 100)).toBe(-1);
+  });
+
+  it('shows nothing once the camera is off, and for a frame older than the limit', () => {
+    expect(frameAt(snaps, events, 45, 6)).toBe(-1);
+    expect(frameAt(snaps, events, 39, 2.9)).toBe(-1);
+    expect(frameAt(snaps, events, 39, 3)).toBe(7);
+    expect(frameAt(snaps, events, 30, 6)).toBe(-1);
+  });
+
+  it('accepts the dashcam', () => {
+    expect(frameAt([snap(48, 'dash')], events, 52, 6)).toBe(-1); // the dashcam only came on at 50 s, after the frame
+    expect(frameAt([snap(51, 'dash')], events, 52, 6)).toBe(0);
   });
 });
 

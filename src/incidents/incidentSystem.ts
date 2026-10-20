@@ -533,7 +533,7 @@ export class IncidentSystem implements IncidentSource {
     const field = callId <= 0;
     const log: IncidentLog = {
       key, callId, typeId: info?.typeId ?? (field ? (key.startsWith('FI-') ? 'fieldIncident' : 'fieldContact') : 'unknown'),
-      family: info?.family ?? '', district: info?.district ?? '', openedSim: this.now, openedGame: this.gameNow(), closed: false,
+      family: info?.family ?? '', district: info?.district ?? this.ports.officerDistrict?.() ?? '', openedSim: this.now, openedGame: this.gameNow(), closed: false,
       closedSim: -1, closedGame: -1, events: [], people: [], reports: [],
     };
     const rt = newRt(log);
@@ -1008,13 +1008,20 @@ export class IncidentSystem implements IncidentSource {
     const rt = this.target('', e.callId, true);
     if (!rt) return;
     const state = this.ps(rt.log.key, e.personId);
+    // A tackle carries the resistance sampled before the takedown; a struggle or cuff implies at least active resistance.
     const known = e.kind !== 'struggle' && e.kind !== 'cuff' && state.rank >= 0;
-    const resistance: Resistance = known ? (RESISTANCE_LEVELS[state.rank] ?? 'active') : 'active';
+    const resistance: Resistance = e.resistance ?? (known ? (RESISTANCE_LEVELS[state.rank] ?? 'active') : 'active');
     const id = this.add(rt, {
       kind: 'force', personId: e.personId, forceId: -1, tool: row[1], level: row[0], resistance, hit: true, injury: 0, fatal: false,
       cycle: 0, riskFactors: [], distance: 0, restrained: false,
     });
     if (e.kind === 'sidearmDrawn' && id >= 0) rt.display = { id, personId: e.personId, t: this.now };
+    if (e.kind === 'tackle' && id >= 0) {
+      state.rank = RESISTANCE_LEVELS.indexOf(resistance);
+      const v = forceVerdict({ level: row[0], tool: row[1], resistance, cycle: 0, riskFactors: [], restrained: false }, this.rs);
+      const text = `${TOOL_LABELS[row[1]] ?? row[1]} on ${resistance} resistance: ${VERDICT_TEXT[v.verdict]} (${v.ruleIds.join(', ')})`;
+      this.bus.emit('incident:forceVerdict', { key: rt.log.key, eventId: id, verdict: v.verdict, text });
+    }
   }
 
   private onForceApplied(e: EventMap['force:applied']): void {
@@ -1164,8 +1171,24 @@ export class IncidentSystem implements IncidentSource {
 
   // --- Documents, closing --------------------------------------------------------------------
 
+  /** The key of the incident whose log has a `charges` event for this document, null none. */
+  keyOfDoc(docId: string): string | null {
+    for (const [key, rt] of this.logs) {
+      for (const ev of rt.log.events) if (ev.kind === 'charges' && ev.docId === docId) return key;
+    }
+    return null;
+  }
+
   private onDocument(e: EventMap['cad:documentSaved']): void {
-    if (e.kind !== 'booking' || !e.final) return;
+    if (!e.final) return;
+    if (e.kind === 'citation') {
+      const c = this.ports.citation?.(e.id);
+      if (!c || c.personId < 0) return;
+      const rt = this.target('', c.callId, false);
+      if (rt) this.add(rt, { kind: 'charges', personId: c.personId, statutes: [...c.statutes], docId: e.id });
+      return;
+    }
+    if (e.kind !== 'booking') return;
     const b = this.ports.booking(e.id);
     if (!b || b.personId < 0) return;
     const rt = this.target('', b.callId, false);

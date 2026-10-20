@@ -15,11 +15,12 @@ import type { LineSeverity } from './model';
 
 const MINUTE = 60;
 
-export type CareerSectionId = 'duty' | 'stats' | 'calendar' | 'cases' | 'ia' | 'commendations' | 'discipline' | 'reports';
+export type CareerSectionId = 'duty' | 'stats' | 'calendar' | 'cases' | 'incidents' | 'ia' | 'commendations' | 'discipline' | 'reports';
 
 /** What a button on a career line does. */
 export interface CareerAction {
-  readonly kind: 'attend' | 'review';
+  /** `review`: an internal affairs case id; `watch`: an incident key (read-only playback). */
+  readonly kind: 'attend' | 'review' | 'watch';
   readonly id: string;
 }
 
@@ -45,7 +46,20 @@ export interface CareerModel {
 export interface CareerOptions {
   /** ATTEND is offered for cases this says yes to (default: none). */
   canAttend?(caseId: string): boolean;
+  /** The recorded incidents, newest first (an Incidents section with a REVIEW action per row; absent = no section). */
+  incidents?: readonly CareerIncident[];
+  /** REVIEW is offered on court cases whose incident this says is still on file (default: none). */
+  canReview?(key: string): boolean;
   jurisdiction?: { readonly id: string; readonly name: string };
+}
+
+/** One recorded incident of the Career tab's list. */
+export interface CareerIncident {
+  readonly key: string;
+  readonly typeId: string;
+  readonly district: string;
+  readonly game: number;
+  readonly closed: boolean;
 }
 
 /** Rows each list shows at most. */
@@ -145,10 +159,10 @@ function statsSection(view: CareerView): CareerSection {
 
 /** Scheduled hearings soonest first, each with the time left and an ATTEND action when `canAttend` says so. */
 function calendarSection(cases: readonly CourtCase[], now: CadTime, opts: CareerOptions): CareerSection {
-  const scheduled = cases.filter((c) => c.status === 'scheduled' && c.hearingGame >= 0).sort((a, b) => a.hearingGame - b.hearingGame || (a.id < b.id ? -1 : 1));
+  const scheduled = cases.filter((c) => (c.status === 'scheduled' || c.status === 'inSession') && c.hearingGame >= 0).sort((a, b) => a.hearingGame - b.hearingGame || (a.id < b.id ? -1 : 1));
   const lines = scheduled.slice(0, CAREER_LIST_MAX).map((c) => {
     const attend = opts.canAttend?.(c.id) === true;
-    const text = `${c.id} ${c.personLabel} · ${formatUntil(c.hearingGame - now.game)}`;
+    const text = `${c.id} ${c.personLabel} · ${c.status === 'inSession' ? 'in session, resume' : formatUntil(c.hearingGame - now.game)}`;
     return line(formatStamp(c.hearingGame), text, attend ? 'caution' : 'none', attend ? { kind: 'attend', id: c.id } : undefined);
   });
   return { id: 'calendar', title: 'Court calendar', lines, empty: 'No hearings scheduled' };
@@ -166,11 +180,29 @@ function verdictSeverity(c: CourtCase): LineSeverity {
   return 'none';
 }
 
-function casesSection(cases: readonly CourtCase[]): CareerSection {
+function casesSection(cases: readonly CourtCase[], opts: CareerOptions): CareerSection {
   const lines = cases.slice(0, CAREER_LIST_MAX).map((c) =>
-    line(c.id, `${c.personLabel} · ${c.docKind} ${c.docId} · ${CASE_STATUS_LABELS[c.status] ?? c.status}${verdictText(c)}`, verdictSeverity(c)),
+    line(
+      c.id,
+      `${c.personLabel} · ${c.docKind} ${c.docId} · ${CASE_STATUS_LABELS[c.status] ?? c.status}${verdictText(c)}`,
+      verdictSeverity(c),
+      c.key !== '' && opts.canReview?.(c.key) === true ? { kind: 'watch', id: c.key } : undefined,
+    ),
   );
   return { id: 'cases', title: 'Cases', lines, empty: 'No court cases' };
+}
+
+/** Recorded incidents, newest first, each with a read-only REVIEW of its bodycam / dashcam record. */
+function incidentsSection(list: readonly CareerIncident[]): CareerSection {
+  const lines = list.slice(0, CAREER_LIST_MAX).map((i) =>
+    line(
+      i.key,
+      `${humanize(i.typeId)}${i.district !== '' ? ` · ${districtLabel(i.district)}` : ''} · ${formatStamp(i.game)} · ${i.closed ? 'closed' : 'in progress'}`,
+      i.closed ? 'none' : 'caution',
+      { kind: 'watch', id: i.key },
+    ),
+  );
+  return { id: 'incidents', title: 'Incident footage', lines, empty: 'No recorded incidents' };
 }
 
 function iaLine(c: IaCase): CareerLine {
@@ -178,7 +210,7 @@ function iaLine(c: IaCase): CareerLine {
   const finding = c.finding !== null ? ` · ${FINDING_LABELS[c.finding] ?? c.finding}` : '';
   const text = `${c.key} · ${c.severity} · ${c.status}${finding}${reasons !== '' ? ` · ${reasons}` : ''}`;
   const severity: LineSeverity = c.finding === 'sustained' ? 'alert' : c.status === 'open' ? 'caution' : 'none';
-  return line(c.id, text, severity, c.status === 'open' ? { kind: 'review', id: c.id } : undefined);
+  return line(c.id, text, severity, { kind: 'review', id: c.id });
 }
 
 function iaSection(view: CareerView): CareerSection {
@@ -202,7 +234,8 @@ export function careerModel(view: CareerView, cases: readonly CourtCase[], now: 
     sections: [
       dutySection(view, opts),
       calendarSection(cases, now, opts),
-      casesSection(cases),
+      casesSection(cases, opts),
+      ...(opts.incidents ? [incidentsSection(opts.incidents)] : []),
       iaSection(view),
       {
         id: 'commendations',
@@ -303,6 +336,8 @@ export function communityModel(rows: readonly CommunityInput[]): CommunityRow[] 
 export interface CareerHandlers {
   attend(caseId: string): void;
   review(caseId: string): void;
+  /** Opens the read-only review of an incident (optional: no button works without it). */
+  watch?(key: string): void;
 }
 
 /** Replaces `container`'s content with the model: a heading and a label / text list per section, buttons on actions. */
@@ -315,7 +350,12 @@ export function renderCareer(container: HTMLElement, model: CareerModel, handler
       const a = l.action;
       if (a) {
         const label = a.kind === 'attend' ? 'ATTEND' : 'REVIEW';
-        const b = button(label, () => (a.kind === 'attend' ? handlers.attend(a.id) : handlers.review(a.id)), 'small primary');
+        const act = (): void => {
+          if (a.kind === 'attend') handlers.attend(a.id);
+          else if (a.kind === 'watch') handlers.watch?.(a.id);
+          else handlers.review(a.id);
+        };
+        const b = button(label, act, 'small primary');
         b.setAttribute('aria-label', `${label} ${a.id}`);
         value.append(' ', b);
       }

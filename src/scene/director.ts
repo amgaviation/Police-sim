@@ -2363,7 +2363,7 @@ export class SceneDirector implements IncidentResolver {
       if (role !== '') this.setFlag(found.rt, `caught:${role}`);
       this.setFlag(found.rt, 'forceUsed');
     }
-    bus.emit('force:used', { kind: 'tackle', personId, callId });
+    bus.emit('force:used', { kind: 'tackle', personId, callId, resistance: npc.lastTackleResistance });
   }
 
   /** Context command to the nearest actor in front: fleeing -> stop, armed -> drop the weapon, weapon drawn -> hands up, else stop. */

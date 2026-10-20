@@ -107,7 +107,7 @@ describe('careerModel', () => {
     expect(lines[4]?.text).toContain('hearing scheduled');
   });
 
-  it('offers REVIEW only on open IA cases, newest first', () => {
+  it('offers REVIEW on every IA case, newest first', () => {
     const view = careerView({
       ia: [
         iaCase({ id: 'IA-0001', status: 'closed', finding: 'sustained', closedGame: 60000 }),
@@ -119,9 +119,29 @@ describe('careerModel', () => {
     expect(lines[0]?.action).toEqual({ kind: 'review', id: 'IA-0002' });
     expect(lines[0]?.text).toContain('Failure to intervene');
     expect(lines[0]?.severity).toBe('caution');
-    expect(lines[1]?.action).toBeUndefined();
+    expect(lines[1]?.action).toEqual({ kind: 'review', id: 'IA-0001' });
     expect(lines[1]?.text).toContain('SUSTAINED');
     expect(lines[1]?.severity).toBe('alert');
+  });
+
+  it('lists recorded incidents with a read-only REVIEW, and REVIEW on court cases whose incident is on file', () => {
+    const incidents = [
+      { key: 'C-00009', typeId: 'trafficStop', district: 'highway', game: 51000, closed: false },
+      { key: 'FC-1-1', typeId: 'fieldContact', district: '', game: 50000, closed: true },
+    ];
+    const m = careerModel(careerView(), [courtCase({ key: 'C-00007' }), courtCase({ id: 'CR-0002', key: '' })], now, { incidents, canReview: (k) => k === 'C-00007' });
+    const lines = section(m, 'incidents').lines;
+    expect(lines.map((l) => l.label)).toEqual(['C-00009', 'FC-1-1']);
+    expect(lines[0]?.action).toEqual({ kind: 'watch', id: 'C-00009' });
+    expect(lines[0]?.text).toContain('Traffic stop');
+    expect(lines[0]?.text).toContain('Highway');
+    expect(lines[0]?.text).toContain('in progress');
+    expect(lines[1]?.text).toContain('closed');
+    const cases = section(m, 'cases').lines;
+    expect(cases[0]?.action).toEqual({ kind: 'watch', id: 'C-00007' });
+    expect(cases[1]?.action).toBeUndefined();
+    // Without the option there is no Incident footage section.
+    expect(careerModel(careerView(), [], now).sections.some((s) => s.id === 'incidents')).toBe(false);
   });
 
   it('lists commendations, discipline and graded reports newest first', () => {

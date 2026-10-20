@@ -8,6 +8,7 @@ import { migrateEnvelope } from '../../src/save/migrations';
 import { CURRENT_SAVE_VERSION, isSaveGame, type SaveGame } from '../../src/save/schema';
 import { VehicleLook } from '../../src/vehicles/components';
 import { VEHICLE_MODELS } from '../../src/vehicles/model';
+import { DISTRICT_NAMES } from '../../src/world/ids';
 import type { City } from '../../src/world/city';
 import { generateCity } from '../../src/world/generate';
 import { laneRef } from '../../src/world/roadGraph';
@@ -220,6 +221,13 @@ describe('Phase 5 session', () => {
       expect(session.conduct.career.stats.incidents).toBe(1);
       expect(session.conduct.career.stats.arrests).toBe(1);
       expect(session.conduct.trustRows().some((r) => Math.abs(r.value - r.baseline) > 1e-6)).toBe(true);
+      // Trust is per district: the incident carries the lowercase district id, and that district moves well past the spill.
+      const district = log?.district ?? '';
+      expect(DISTRICT_NAMES as readonly string[]).toContain(district);
+      const deltas = session.conduct.trustRows().map((r) => ({ district: r.district, move: Math.abs(r.value - r.baseline) }));
+      const own = deltas.find((r) => r.district === district)?.move ?? 0;
+      const others = Math.max(...deltas.filter((r) => r.district !== district).map((r) => r.move));
+      expect(own).toBeGreaterThan(others * 2);
       // The report checklist hides the truth and offers true and false statements.
       const choices = session.incidents.reportChoices(ids.key);
       expect(choices.some((c) => c.truth === 'true')).toBe(true);

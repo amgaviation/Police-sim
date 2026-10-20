@@ -83,6 +83,30 @@ export function nearestSnapshot(snaps: readonly SnapshotMeta[], t: number): numb
   return lo - 1;
 }
 
+/**
+ * Index of the snapshot to show at `t`, or -1 for no video: the nearest earlier snapshot, provided the camera was recording
+ * (bodycam or dashcam, not muted or off) from the snapshot to `t` without a gap and the frame is at most `maxAgeS` old.
+ */
+export function frameAt(snaps: readonly SnapshotMeta[], events: readonly ReviewEvent[], t: number, maxAgeS: number): number {
+  const idx = nearestSnapshot(snaps, t);
+  const snap = snaps[idx];
+  if (!snap || t - snap.sim > maxAgeS) return -1;
+  const isLive = (cam: number): boolean => {
+    const state = camStateOf(cam);
+    return state === 'rec' || state === 'dash';
+  };
+  const at = eventIndexAt(events, snap.sim);
+  const first = events[at >= 0 ? at : 0];
+  if (first && !isLive(first.cam)) return -1;
+  if (!first) return -1;
+  for (let i = at + 1; i < events.length; i++) {
+    const e = events[i];
+    if (!e || e.t > t) break;
+    if (!isLive(e.cam)) return -1;
+  }
+  return idx;
+}
+
 /** Index of the last event with `e.t <= t` (`events` sorted by t; binary search), -1 when none. */
 export function eventIndexAt(events: readonly ReviewEvent[], t: number): number {
   let lo = 0;

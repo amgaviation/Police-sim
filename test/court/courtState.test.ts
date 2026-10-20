@@ -149,6 +149,15 @@ describe('CourtState: opening cases', () => {
     expect(court.cases()[0]?.key).toBe('C-00007');
   });
 
+  it('falls back to the key the officer was working when there is no call and no document link', () => {
+    const rng = scriptedRng(0.99, 0.5);
+    const h = harness(sourceOf(richFixture()), rng);
+    const court = new CourtState(h.deps);
+    court.request({ ...(open(0, DUI, 'booking', 'DOC-G') as Extract<CourtRequest, { kind: 'open' }>), key: 'FC-5-1' });
+    court.step(1 / 60, time(DAY_TEN));
+    expect(court.cases()[0]?.key).toBe('FC-5-1');
+  });
+
   it('opens a case whose incident is unknown and later hears it without questions', () => {
     const r = rig([], [0.99, 0.5]);
     r.court.request(open(99, DUI));
@@ -324,6 +333,26 @@ describe('CourtState: attending and testifying', () => {
     expect(r.court.cases()[0]?.questions).toBe(questions);
   });
 
+  it('a case left in session (the player closed the courtroom) can be resumed and shows as next', () => {
+    const r = attended([richFixture()]);
+    expect(r.court.canAttend('CR-0001', HEARING + 600)).toBe(true);
+    expect(r.court.next(HEARING + 600)?.id).toBe('CR-0001');
+    r.court.request({ kind: 'attend', caseId: 'CR-0001' });
+    step(r, HEARING + 660);
+    expect(r.h.of('court:session')).toHaveLength(2);
+  });
+
+  it('a case left in session past the window is missed, not stranded', () => {
+    const r = attended([richFixture()]);
+    step(r, HEARING + 130 * 60);
+    const c = r.court.cases()[0];
+    expect(c?.status).toBe('missed');
+    expect(c?.verdict).not.toBeNull();
+    expect(r.court.canAttend('CR-0001', HEARING + 131 * 60)).toBe(false);
+    expect(r.court.next(HEARING + 131 * 60)).toBeNull();
+    expect(r.h.of('court:verdict')).toHaveLength(1);
+  });
+
   it('testimony must answer every question', () => {
     const r = attended([richFixture()]);
     r.court.request({ kind: 'testify', caseId: 'CR-0001', answers: ['yes'] });
@@ -469,11 +498,11 @@ describe('CourtState: missed hearings', () => {
     expect(r.court.cases()[0]?.motions.length).toBeGreaterThan(0);
   });
 
-  it('an attended case is never missed', () => {
+  it('an attended case is not missed while its window is open', () => {
     const r = scheduled([richFixture()]);
     r.court.request({ kind: 'attend', caseId: 'CR-0001' });
     step(r, HEARING);
-    step(r, HEARING + 5 * HOUR);
+    step(r, HEARING + HOUR);
     expect(r.court.cases()[0]?.status).toBe('inSession');
   });
 

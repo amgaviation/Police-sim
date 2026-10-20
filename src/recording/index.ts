@@ -22,6 +22,7 @@ export {
   createReviewState,
   eventIndexAt,
   formatReviewTime,
+  frameAt,
   nearestSnapshot,
   reduceReviewKey,
   type CamSegment,

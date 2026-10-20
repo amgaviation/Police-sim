@@ -288,7 +288,16 @@ function phase3Flows(stepSrc) {
   const scratch = { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 };
   const actor = (id) => ({ ...s.npc.actor(id, scratch) });
   const pos = () => s.playerPosition({ x: 0, z: 0 });
+  // A flow can leave the officer in the patrol car (a failed cage step enters it): get out before moving the body.
+  const onFoot = () => {
+    for (let i = 0; i < 3 && s.driving; i++) {
+      s.interact();
+      step(10);
+    }
+    return Boolean(s.physics.getBody(s.player));
+  };
   const place = (x, z) => {
+    if (!onFoot()) return;
     s.physics.getBody(s.player).setTranslation({ x, y: 0.9, z }, true);
     step(1);
   };
@@ -318,6 +327,7 @@ function phase3Flows(stepSrc) {
   const walkTo = (x, z, until, max = 6000) => {
     let n = 0;
     for (; n < max && !until(); n++) {
+      if (!onFoot()) break;
       const p = pos();
       const d = Math.hypot(x - p.x, z - p.z);
       const k = Math.min(1, 0.03 / Math.max(d, 1e-6));
@@ -413,11 +423,25 @@ function phase3Flows(stepSrc) {
   const vview = s.contact.view(vc);
   close(vc);
   note('domesticVictim', vview.statements.some((n) => n.text.includes('Account')) && vview.facts.some((f) => f.text.includes('Identity')), `${vview.statements.length} statements, ${vview.facts.length} facts`);
-  const sc = meet(suspect.id);
+  let sc = meet(suspect.id);
   s.npc.forceState(suspect.id, 'kneel');
   step(90);
   act(sc, 'cuff', 120);
+  // The suspect can wander off or the contact close while the sim is fast-forwarded: face them again (up to twice).
+  for (let k = 0; k < 2 && !actor(suspect.id).cuffed; k++) {
+    sc = meet(suspect.id);
+    s.npc.forceState(suspect.id, 'kneel');
+    step(90);
+    act(sc, 'cuff', 120);
+  }
   const cuffed = actor(suspect.id).cuffed;
+  const cuffWhy = () => {
+    const a = actor(suspect.id);
+    const p = pos();
+    const lines = (s.contact.view(sc)?.transcript ?? []).slice(-3).map((l) => String(l.text ?? '')).join(' | ');
+    return `state ${a.state}, ${Math.hypot(a.x - p.x, a.z - p.z).toFixed(1)} m, contact ${sc}, last: ${lines}`;
+  };
+  const cuffDiag = cuffed ? '' : cuffWhy();
   act(sc, 'escort', 30);
   close(sc);
   const car0 = s.vehicles[0];
@@ -429,7 +453,7 @@ function phase3Flows(stepSrc) {
   const hint = s.interactHint();
   const cageResult = s.interact();
   step(10);
-  note('domesticCage', cuffed && hint === 'cage' && cageResult === 'cage' && s.prisoner() === suspect.personId, `cuffed ${cuffed}, hint ${hint}, interact ${cageResult}, prisoner ${s.prisoner()}`);
+  note('domesticCage', cuffed && hint === 'cage' && cageResult === 'cage' && s.prisoner() === suspect.personId, `cuffed ${cuffed}, hint ${hint}, interact ${cageResult}, prisoner ${s.prisoner()}${cuffDiag ? ` [${cuffDiag}]` : ''}`);
   clearCall(dom);
   note('domesticOutcome', s.scene.outcomes().some((o) => o.callId === dom && o.typeId === 'domesticDisturbance'), s.scene.outcomes().filter((o) => o.callId === dom).map((o) => `${o.branch}->${o.outcomeId}`).join(','));
   s.releasePrisoner(suspect.personId);
@@ -447,10 +471,16 @@ function phase3Flows(stepSrc) {
     say(cid, 'askAccount', 400);
     close(cid);
   }
-  const tc = meet(thief.id);
+  let tc = meet(thief.id);
   s.npc.forceState(thief.id, 'kneel');
   step(90);
   act(tc, 'cuff', 120);
+  for (let k = 0; k < 2 && !actor(thief.id).cuffed; k++) {
+    tc = meet(thief.id);
+    s.npc.forceState(thief.id, 'kneel');
+    step(90);
+    act(tc, 'cuff', 120);
+  }
   close(tc);
   note('shoplifting', srt.flags.has('contacted:guard') && srt.flags.has('contacted:suspect') && srt.flags.has('custody:suspect'), [...srt.flags].filter((f) => /contacted|custody/.test(f)).join(','));
   clearCall(shop);
@@ -1915,7 +1945,16 @@ function phase5Flow([stepSrc, stage, ids]) {
   const scratch = { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 };
   const actor = (id) => ({ ...s.npc.actor(id, scratch) });
   const pos = () => s.playerPosition({ x: 0, z: 0 });
+  // A flow can leave the officer in the patrol car (a failed cage step enters it): get out before moving the body.
+  const onFoot = () => {
+    for (let i = 0; i < 3 && s.driving; i++) {
+      s.interact();
+      step(10);
+    }
+    return Boolean(s.physics.getBody(s.player));
+  };
   const place = (x, z) => {
+    if (!onFoot()) return;
     s.physics.getBody(s.player).setTranslation({ x, y: 0.9, z }, true);
     step(1);
   };
@@ -2698,10 +2737,20 @@ async function run() {
       check(fixes.viewShort < fixes.viewDefault, `draw distance drives the view/streaming distance (${fixes.viewShort} m < ${fixes.viewDefault} m)`);
     }
 
-    const phase2Perf = await phase2(page, hasRenderer);
-    const phase3Perf = await phase3(page, hasRenderer);
-    const phase4Perf = await phase4(page, hasRenderer);
-    const phase5Perf = await phase5(page, hasRenderer);
+    // A phase that throws is a failed check, not the end of the run: the later phases still run.
+    const guarded = async (name, fn) => {
+      try {
+        return await fn();
+      } catch (error) {
+        failures.push(`${name} aborted: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
+        console.error(error);
+        return null;
+      }
+    };
+    const phase2Perf = await guarded('phase 2', () => phase2(page, hasRenderer));
+    const phase3Perf = await guarded('phase 3', () => phase3(page, hasRenderer));
+    const phase4Perf = await guarded('phase 4', () => phase4(page, hasRenderer));
+    const phase5Perf = await guarded('phase 5', () => phase5(page, hasRenderer));
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -2713,21 +2762,29 @@ async function run() {
     console.log(describe('on foot, day:', frameOnFoot));
     console.log(describe('driving, night + rain:', frameNight));
     console.log(describe('driving, night + rain, scale 0.5:', frameHalfScale));
-    console.log(describe('cockpit + in-car MDT, day:', phase2Perf.frameCockpit));
-    console.log(describe('MDT overlay open, day:', phase2Perf.frameMdt));
-    console.log('perf phase 2 (cockpit):', JSON.stringify(phase2Perf.perf));
-    console.log(describe('Phase 3 scene (people, dialogue closed):', phase3Perf.frame));
-    console.log('perf phase 3:', JSON.stringify(phase3Perf.perf));
-    console.log('phase 3 sim costs:', JSON.stringify(phase3Perf.extras));
-    check(phase3Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls with people within the cap (${phase3Perf.perf.drawCalls})`);
-    console.log(describe('Phase 4 interior (house, flashlight):', phase4Perf.frame));
-    console.log('perf phase 4:', JSON.stringify(phase4Perf.perf));
-    console.log('phase 4 sim costs:', JSON.stringify(phase4Perf.extras));
-    check(phase4Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls indoors within the cap (${phase4Perf.perf.drawCalls})`);
-    console.log(describe('Phase 5 patrol (HUD additions, bodycam):', phase5Perf.frame));
-    console.log('perf phase 5:', JSON.stringify(phase5Perf.perf));
-    console.log('phase 5 sim costs:', JSON.stringify(phase5Perf.extras));
-    check(phase5Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 5 within the cap (${phase5Perf.perf.drawCalls})`);
+    if (phase2Perf) {
+      console.log(describe('cockpit + in-car MDT, day:', phase2Perf.frameCockpit));
+      console.log(describe('MDT overlay open, day:', phase2Perf.frameMdt));
+      console.log('perf phase 2 (cockpit):', JSON.stringify(phase2Perf.perf));
+    }
+    if (phase3Perf) {
+      console.log(describe('Phase 3 scene (people, dialogue closed):', phase3Perf.frame));
+      console.log('perf phase 3:', JSON.stringify(phase3Perf.perf));
+      console.log('phase 3 sim costs:', JSON.stringify(phase3Perf.extras));
+      check(phase3Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls with people within the cap (${phase3Perf.perf.drawCalls})`);
+    }
+    if (phase4Perf) {
+      console.log(describe('Phase 4 interior (house, flashlight):', phase4Perf.frame));
+      console.log('perf phase 4:', JSON.stringify(phase4Perf.perf));
+      console.log('phase 4 sim costs:', JSON.stringify(phase4Perf.extras));
+      check(phase4Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls indoors within the cap (${phase4Perf.perf.drawCalls})`);
+    }
+    if (phase5Perf) {
+      console.log(describe('Phase 5 patrol (HUD additions, bodycam):', phase5Perf.frame));
+      console.log('perf phase 5:', JSON.stringify(phase5Perf.perf));
+      console.log('phase 5 sim costs:', JSON.stringify(phase5Perf.extras));
+      check(phase5Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 5 within the cap (${phase5Perf.perf.drawCalls})`);
+    }
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
   } finally {

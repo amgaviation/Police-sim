@@ -98,6 +98,8 @@ export type CourtRequest =
       readonly personLabel: string;
       readonly callId: number;
       readonly statutes: readonly string[];
+      /** The incident the officer was working when the document was filed (a fallback for field contacts). */
+      readonly key?: string;
     }
   | { readonly kind: 'attend'; readonly caseId: string }
   | { readonly kind: 'testify'; readonly caseId: string; readonly answers: readonly Answer[] }

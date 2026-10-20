@@ -121,6 +121,19 @@ describe('keys, ad hoc incidents and the current incident', () => {
   });
 });
 
+describe('field log district', () => {
+  it('a field contact opens in the district of the officer, and a call log keeps the call district', () => {
+    const rig = new Rig();
+    rig.world.district = 'harbor';
+    rig.world.calls.set(7, callInfo({ typeId: 'disturbance', family: 'disturbance', district: 'suburbs' }));
+    said(rig, 0, 5, { ...cx(0, 5, 'suspect', 'FC-5-1') });
+    rig.step();
+    expect(rig.log('FC-5-1').district).toBe('harbor');
+    fact(rig, 7, 6, { incident: K, callId: 7 });
+    expect(rig.log(K).district).toBe('suburbs');
+  });
+});
+
 describe('field contact to call merge', () => {
   it('renames a lone field contact into the call log, keeping ids', () => {
     const rig = new Rig();

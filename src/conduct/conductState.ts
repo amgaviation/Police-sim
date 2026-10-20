@@ -349,11 +349,13 @@ export class ConductState {
     let firearm = false;
     for (const e of log.events) {
       if (e.kind !== 'force' || !e.hit) continue;
+      // Only force that was not justified counts toward the civil suit and criminal charges.
+      if (!a.force.some((f) => f.eventId === e.id && !f.other && f.verdict !== 'justified')) continue;
       maxInjury = Math.max(maxInjury, e.injury, this.deps.injuryOf(e.personId));
       if (e.fatal) fatal = true;
       if (e.level === 'firearm') firearm = true;
     }
-    const actions = disciplineFor(r.finding, c.severity, prior, maxInjury, fatal, firearm, this.cfg.discipline);
+    const actions = disciplineFor(r.finding, r.severity ?? c.severity, prior, maxInjury, fatal, firearm, this.cfg.discipline);
     const credibility = this.cfg.discipline.credibility;
     if (r.untruthful) this.credibility += credibility.untruthful;
     if (r.finding === 'sustained') {

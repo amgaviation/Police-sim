@@ -118,6 +118,7 @@ class Pass {
   private exigencySeen = false;
   private warrantSearch = false;
   private warrantArrest = false;
+  private readonly roleOf = new Map<number, string>();
   private currentBuilding = -1;
   private qCustodial = false;
   private count = 0;
@@ -131,6 +132,7 @@ class Pass {
     for (const person of log.people) {
       this.person(person.personId);
       this.book.setRole(person.personId, person.role);
+      this.roleOf.set(person.personId, person.role);
     }
     for (const e of log.events) if (e.kind === 'arrest') this.arrestEvents.push(e);
   }
@@ -211,7 +213,7 @@ class Pass {
   private dispatch(e: IncidentEvent): void {
     switch (e.kind) {
       case 'start': this.book.setFamily(e.family); break;
-      case 'person': this.book.setRole(e.personId, e.role); this.person(e.personId); break;
+      case 'person': this.book.setRole(e.personId, e.role); this.roleOf.set(e.personId, e.role); this.person(e.personId); break;
       case 'indicator': this.indicator(e); break;
       case 'detention': this.detention(e); break;
       case 'question': this.question(e); break;
@@ -257,8 +259,20 @@ class Pass {
 
   // --- Indicators, detention ---------------------------------------------------------------------
 
+  /** The person a shared (-1) indicator is judged against: the first driver, else the first detained person. */
+  private stopSubject(): PState | null {
+    let detained: PState | null = null;
+    for (const id of this.personOrder) {
+      const p = this.persons.get(id);
+      if (!p) continue;
+      if (this.roleOf.get(id) === 'driver') return p;
+      if (detained === null && p.detained) detained = p;
+    }
+    return detained;
+  }
+
   private indicator(e: IndicatorEvent): void {
-    const p = this.person(e.personId);
+    const p = e.personId === -1 ? (this.stopSubject() ?? this.person(-1)) : this.person(e.personId);
     let root = this.taint.get(e.sourceEvent) ?? -1;
     if (root < 0 && p.taintFrom >= 0 && e.source !== 'call' && !this.rs.detention.attenuating.includes(e.indicator)) root = p.taintFrom;
     if (root < 0 && e.indicator === 'contrabandFound') root = this.scopeTaint.get(e.sourceEvent) ?? -1;
@@ -297,7 +311,15 @@ class Pass {
     const rec: ConsentRec = { event: e, effective, root: e.granted && tainted ? p.taintFrom : -1 };
     p.consents.push(rec);
     this.allConsents.push(rec);
-    if (!e.granted) return;
+    if (!e.granted) {
+      // A refusal or withdrawal revokes every earlier consent of the same kind (for the person or the same building).
+      for (const c of this.allConsents) {
+        const ev = c.event;
+        if (c === rec || ev.consent !== e.consent || !c.effective) continue;
+        if (ev.personId === e.personId || (e.buildingId >= 0 && ev.buildingId === e.buildingId)) c.effective = false;
+      }
+      return;
+    }
     if (rec.root >= 0) this.taint.set(e.id, rec.root);
     if (!e.valid) {
       this.det('consent', e, 'unlawful', [rs.consent.ruleId], 'The consent was not valid (the person could not lawfully give it)', e.consent);
@@ -431,7 +453,16 @@ class Pass {
     return { basis: 'exigency', ruleIds: [this.rs.exigency.ruleId] };
   }
 
-  private basisWarrant(): Basis | null {
+  /** A call-level arrest warrant covers the call's suspect or subject, and is cut off by an unlawful stop like a warrant hit. */
+  private callWarrantFor(p: PState): boolean {
+    if (!this.warrantArrest) return false;
+    const role = this.roleOf.get(p.id);
+    if (role !== 'suspect' && role !== 'subject') return false;
+    return p.taintFrom < 0 || this.rs.detention.attenuating.includes('warrantHit');
+  }
+
+  private basisWarrant(e: SearchEvent): Basis | null {
+    if (e.target === 'person' || e.target === 'vehicle') return null;
     return this.warrantSearch ? { basis: 'warrant', ruleIds: [this.rs.arrest.warrantRuleId] } : null;
   }
 
@@ -459,7 +490,7 @@ class Pass {
     const ctx: SearchCtx = { root: -1, scopeMiss: false, vehicleFail: false, entryFail: false };
     const bt = e.buildingId >= 0 ? (this.entryTaint.get(e.buildingId) ?? -1) : -1;
     const res = this.basisConsent(e, ctx) ?? this.basisSita(e, p, ctx) ?? this.basisAutomobile(e) ?? this.basisExigency(e)
-      ?? this.basisWarrant() ?? this.basisSweep(e) ?? this.basisPlainView(e, ctx);
+      ?? this.basisWarrant(e) ?? this.basisSweep(e) ?? this.basisPlainView(e, ctx);
 
     let root: number;
     if (res) {
@@ -524,7 +555,7 @@ class Pass {
     if (p.custodySince < 0) p.custodySince = e.t;
     if (e.how === 'booking' && p.arrests.length > 0) return;
 
-    const warrant = this.book.has(e.personId, 'warrantHit', e.t) || this.warrantArrest;
+    const warrant = this.book.has(e.personId, 'warrantHit', e.t) || this.callWarrantFor(p);
     const best = this.book.bestPc(e.personId, e.t, true);
     const table = this.book.pcTable(e.personId, e.t);
     const lawful = warrant || best !== null;
@@ -550,6 +581,7 @@ class Pass {
       return;
     }
     this.taint.set(e.id, e.id);
+    if (e.how !== 'booking' && p.taintFrom < 0) p.taintFrom = e.id;
     let top: Offense | null = null;
     let topPc = 0;
     for (let i = 0; i < OFFENSES.length; i++) {

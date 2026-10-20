@@ -154,6 +154,18 @@ export class Phase5Presenter {
     );
   }
 
+  /** Opens the read-only evidence review of an incident (no statement footer). */
+  openReview(key: string): void {
+    const session = this.host.session();
+    if (!session) return;
+    const incidentLog = session.incidents.log(key);
+    if (!incidentLog) {
+      this.host.flash('The incident record is no longer available');
+      return;
+    }
+    this.review.open(iaReviewSource(incidentLog, null, this.media, this.tag, session.incidents.assessment(key)));
+  }
+
   /** Right after `renderer.render()` (same task, after the Phase 4 thumbnail): a due 160x90 frame goes to the media store. */
   afterRender(session: GameSession | null, canvas: HTMLCanvasElement | null): void {
     if (!session || !canvas) return;

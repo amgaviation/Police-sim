@@ -36,6 +36,7 @@ export class FakeWorld {
   observed: Record<string, number> = {};
   items = new Map<string, FoundItem & { ownerPersonId: number; buildingId: number }>();
   bookings = new Map<string, { personId: number; callId: number; charges: string[] }>();
+  citations = new Map<string, { personId: number; callId: number; statutes: string[] }>();
   buildingCalls = new Map<number, number>();
   publicBuildings = new Set<number>();
   weapon: OfficerProbe['weapon'] = 'none';
@@ -43,6 +44,7 @@ export class FakeWorld {
   dash: DashProbe = { lights: false, nearCar: false };
   pursuit: PursuitProbe | null = null;
   contact: string | null = null;
+  district = '';
 }
 
 export function makePorts(w: FakeWorld): IncidentPorts {
@@ -54,6 +56,7 @@ export function makePorts(w: FakeWorld): IncidentPorts {
     observedViolations: () => w.observed,
     itemInfo: (id) => w.items.get(id) ?? null,
     booking: (id) => w.bookings.get(id) ?? null,
+    citation: (id) => w.citations.get(id) ?? null,
     buildingIncident: (b) => w.buildingCalls.get(b) ?? 0,
     publicPlace: (b) => w.publicBuildings.has(b),
     officer: (out) => {
@@ -63,6 +66,7 @@ export function makePorts(w: FakeWorld): IncidentPorts {
       out.inVehicle = false;
       out.weapon = w.weapon;
     },
+    officerDistrict: () => w.district,
     bodycamWorn: () => w.bodycamWorn,
     dashcam: (out) => {
       out.lights = w.dash.lights;

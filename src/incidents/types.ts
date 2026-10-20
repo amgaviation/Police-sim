@@ -58,11 +58,15 @@ export interface IncidentPorts {
   itemInfo(itemId: string): (FoundItem & { ownerPersonId: number; buildingId: number }) | null;
   /** CAD booking document. */
   booking(docId: string): { personId: number; callId: number; charges: string[] } | null;
+  /** CAD citation document (links court cases of tickets written outside a call to their log). */
+  citation?(docId: string): { personId: number; callId: number; statutes: string[] } | null;
   /** Call id of the open call bound to the building, 0 none. */
   buildingIncident(buildingId: number): number;
   /** Store / bar / bank / hospital / school lobby during open hours, station. */
   publicPlace(buildingId: number): boolean;
   officer(out: OfficerProbe): void;
+  /** Lowercase district id at the officer, '' unknown (opens field logs with their district). */
+  officerDistrict?(): string;
   bodycamWorn(): boolean;
   dashcam(out: DashProbe): void;
   /** False when the officer is not driving. */

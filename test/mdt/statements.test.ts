@@ -269,9 +269,17 @@ describe('Career and Community tabs (headless)', () => {
     expect(mdt.messageIsError).toBe(true);
     feed.state.view = careerView({ ia: [iaCase({ id: 'IA-0001' }), iaCase({ id: 'IA-0002', status: 'closed', finding: 'sustained' })] });
     expect(mdt.reviewIa('IA-0001')).toBe(true);
-    expect(mdt.reviewIa('IA-0002')).toBe(false);
+    expect(mdt.reviewIa('IA-0002')).toBe(true); // closed cases are read-only in the app
     expect(mdt.reviewIa('IA-0009')).toBe(false);
-    expect(feed.calls.ia).toEqual(['IA-0001']);
+    expect(feed.calls.ia).toEqual(['IA-0001', 'IA-0002']);
+  });
+
+  it('reviews a recorded incident when its record is on file', () => {
+    const { mdt, feed } = setup();
+    feed.state.onFile.add('C-00009');
+    expect(mdt.reviewIncident('C-00009')).toBe(true);
+    expect(mdt.reviewIncident('C-00001')).toBe(false);
+    expect(feed.calls.review).toEqual(['C-00009']);
   });
 
   it('builds the community rows and refreshes them on their own revision', () => {

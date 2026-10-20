@@ -227,6 +227,7 @@ export class NpcSystem {
   private readonly rng: Rng;
   private readonly pedsRng: Rng;
   private readonly actorsRng: Rng;
+  private tackleResistance: ResistanceLevel = 'compliant';
   private readonly nowFn: () => number;
   private readonly clockFn: (() => number) | undefined;
 
@@ -1407,8 +1408,14 @@ export class NpcSystem {
       best = a;
     }
     if (!best) return 0;
+    this.tackleResistance = this.resistanceOf(best);
     this.takeDown(best, this.cfg.actors.tackleDownS, 'tackle');
     return best.id;
+  }
+
+  /** The resistance of the actor the last successful `tackle` brought down, sampled before the takedown. */
+  get lastTackleResistance(): ResistanceLevel {
+    return this.tackleResistance;
   }
 
   /**

@@ -265,6 +265,13 @@ describe('reviewEventsOf severities', () => {
 });
 
 describe('iaReviewSource', () => {
+  it('reviews an incident without a case (the Career tab): titled with the key', () => {
+    const { log } = everyKind();
+    const src = iaReviewSource(log, null, new MemoryMediaStore(), 'game1');
+    expect(src.title).toBe('Incident C-00001');
+    expect(src.events).toEqual(reviewEventsOf(log, null));
+  });
+
   it('spans the incident, titles it with the case and keeps the cam bits for the REC strip', async () => {
     const { log } = everyKind();
     const media = new MemoryMediaStore();

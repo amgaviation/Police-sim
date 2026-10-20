@@ -2,12 +2,13 @@ import './review.css';
 import type { Menu, UIRoot } from '../ui';
 import { div, setClass, setText } from '../panels/dom';
 import type { SnapshotMeta } from '../../recording/mediaStore';
+import { RECORDING } from '../../recording/data';
 import {
   camSegments,
   createReviewState,
   eventIndexAt,
   formatReviewTime,
-  nearestSnapshot,
+  frameAt,
   reduceReviewKey,
   type ReviewEvent,
   type ReviewFooter,
@@ -18,6 +19,8 @@ import {
 export const REVIEW_PLAY_MS_PER_S = 250;
 /** A frame longer than this (hidden tab) advances playback by this much only. */
 const MAX_FRAME_MS = 500;
+/** A snapshot older than this many capture intervals is not shown as live footage. */
+const STALE_FRAMES = 2;
 /** DOM refresh interval while playing (about 30 Hz). */
 const PAINT_MS = 33;
 
@@ -233,12 +236,12 @@ export class EvidenceReviewPanel implements Menu {
 
   /** Requests the image of the nearest snapshot when it differs from the one shown. */
   private sync(): void {
-    const idx = nearestSnapshot(this.snaps, this.tNow);
+    const src = this.src;
+    const idx = src ? frameAt(this.snaps, src.events, this.tNow, RECORDING.intervalS * STALE_FRAMES) : -1;
     if (idx === this.snapIdx) return;
     this.snapIdx = idx;
     const token = ++this.imageToken;
     const meta = this.snaps[idx];
-    const src = this.src;
     if (!meta || !src) {
       this.setImage(null);
       return;

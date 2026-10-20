@@ -1485,6 +1485,7 @@ export class GameSession {
       observedViolations: (vehicleId) => this.violationLog.get(vehicleId) ?? NO_VIOLATIONS,
       forceOfficer: (out) => this.fillForceOfficer(out),
       officerProbe: (out) => this.fillOfficerProbe(out),
+      districtAt: (x, z) => DISTRICT_NAMES[this.city.districtAt(x, z)] ?? '',
       dashProbe: (out) => this.fillDashProbe(out),
       pursuitProbe: (out) => this.fillPursuitProbe(out),
     };

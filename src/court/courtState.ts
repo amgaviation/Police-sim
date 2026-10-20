@@ -60,20 +60,25 @@ export class CourtState {
     return this.list.find((c) => c.id === id) ?? null;
   }
 
-  /** The soonest scheduled hearing that is not yet missed (for the HUD and the calendar). */
+  /** The soonest scheduled or resumable (in session) hearing that is not yet missed (for the HUD and the calendar). */
   next(game: number): CourtCase | null {
     let best: CourtCase | null = null;
     for (const c of this.list) {
-      if (c.status !== 'scheduled' || c.hearingGame + this.cfg.windowAfterMin * MINUTE < game) continue;
+      if ((c.status !== 'scheduled' && c.status !== 'inSession') || c.hearingGame + this.cfg.windowAfterMin * MINUTE < game) continue;
       if (best === null || c.hearingGame < best.hearingGame) best = c;
     }
     return best;
   }
 
-  /** Scheduled and within `[hearing - windowBefore, hearing + windowAfter]`. */
+  /**
+   * Scheduled and within `[hearing - windowBefore, hearing + windowAfter]`, or in session (a player who left the courtroom
+   * resumes the same hearing until the window ends).
+   */
   canAttend(id: string, game: number): boolean {
     const c = this.case(id);
-    if (c === null || c.status !== 'scheduled') return false;
+    if (c === null) return false;
+    if (c.status === 'inSession') return true;
+    if (c.status !== 'scheduled') return false;
     return game >= c.hearingGame - this.cfg.windowBeforeMin * MINUTE && game <= c.hearingGame + this.cfg.windowAfterMin * MINUTE;
   }
 
@@ -138,7 +143,7 @@ export class CourtState {
       const o = rs.statuteOffense[s];
       if (o !== undefined && !offenses.includes(o)) offenses.push(o);
     }
-    const key = this.deps.incidents.keyOfDoc?.(r.docId) ?? (r.callId > 0 ? callNumber(r.callId) : '');
+    const key = this.deps.incidents.keyOfDoc?.(r.docId) ?? (r.callId > 0 ? callNumber(r.callId) : (r.key ?? ''));
     const c: CourtCase = {
       id: `CR-${pad(this.nextId++)}`, docId: r.docId, docKind: r.docKind, personId: r.personId, personLabel: r.personLabel, key,
       callId: r.callId, statutes: [...r.statutes], offenses, createdGame: game, hearingGame: -1, status: 'pending', questions: [],
@@ -232,10 +237,10 @@ export class CourtState {
   private perMinute(game: number): void {
     // Snapshot: a handler may queue requests but never edits the list synchronously.
     for (const c of this.list.slice()) {
-      if (c.status !== 'scheduled') continue;
+      if (c.status !== 'scheduled' && c.status !== 'inSession') continue;
       if (game > c.hearingGame + this.cfg.windowAfterMin * MINUTE) {
         this.miss(c);
-      } else if (!c.reminded && game >= c.hearingGame - this.cfg.reminderMin * MINUTE) {
+      } else if (c.status === 'scheduled' && !c.reminded && game >= c.hearingGame - this.cfg.reminderMin * MINUTE) {
         c.reminded = true;
         this.rev++;
         this.deps.bus.emit('court:reminder', { caseId: c.id, hearingGame: c.hearingGame });

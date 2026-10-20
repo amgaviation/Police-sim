@@ -70,6 +70,26 @@ export function makeSource(over: Partial<ReviewSource> = {}): TestSource {
   };
 }
 
+/** 0-60 s with the bodycam recording throughout and a snapshot every 3 s from 3 s (the real capture interval). */
+export function makeLiveSource(over: Partial<ReviewSource> = {}): TestSource {
+  const imageCalls: string[] = [];
+  const snaps: SnapshotMeta[] = [];
+  for (let t = 3; t <= 57; t += 3) snaps.push(snap(t));
+  return {
+    title: 'C-00042 · Disturbance',
+    t0: 0,
+    t1: 60,
+    events: [ev(1, 0, 1), ev(2, 10, 1), ev(3, 20, 1), ev(4, 40, 1)],
+    snapshots: () => Promise.resolve(snaps),
+    image: (k: string) => {
+      imageCalls.push(k);
+      return Promise.resolve(new Blob([k]));
+    },
+    imageCalls,
+    ...over,
+  };
+}
+
 export function makeFooter(): ReviewFooter & { picks: number[]; opts: string[] } {
   const picks: number[] = [];
   const f = {

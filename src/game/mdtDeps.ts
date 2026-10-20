@@ -1,6 +1,7 @@
 import { observedVehicle } from '../records/vehicle';
 import { REGISTRY_POPULATION } from '../traffic/registry';
 import { isFleetVehicleId } from '../traffic/trafficSystem';
+import { CAREER_LIST_MAX } from '../ui/mdt/career';
 import type { MdtDeps } from '../ui/mdt/types';
 import type { GameSession } from './session';
 import type { TargetInfo } from './target';
@@ -12,6 +13,8 @@ export interface MdtHooks {
   bookingCompleted(bookingId: string, released: number): void;
   /** Phase 5: the Career tab's REVIEW on an IA case (the app opens the evidence review with the statement footer). */
   openIa?(caseId: string): void;
+  /** Phase 5: the Career tab's REVIEW on a recorded incident (read-only evidence review). */
+  openReview?(key: string): void;
 }
 
 /**
@@ -46,12 +49,19 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
     plateRun: (vehicleId, readback) => session.bus.emit('dispatch:plateResult', { callsign, via: 'mdt', vehicleId, readback }),
     // Phase 5 (design 12.1): career, community and the report statements checklist.
     career: {
-      revision: () => session.conduct.revision * 4096 + session.court.revision,
+      revision: () => session.conduct.revision * 4096 + session.court.revision + session.incidents.revision * 16_777_216,
       view: () => session.conduct.career,
       cases: () => session.court.cases(),
       canAttend: (id) => session.court.canAttend(id, session.env.time.totalSeconds),
       attend: (id) => session.court.request({ kind: 'attend', caseId: id }),
       openIa: (id) => hooks.openIa?.(id),
+      incidents: () =>
+        session.incidents.keys().slice(0, CAREER_LIST_MAX).flatMap((key) => {
+          const l = session.incidents.log(key);
+          return l ? [{ key, typeId: l.typeId, district: l.district, game: l.openedGame, closed: l.closed }] : [];
+        }),
+      canReview: (key) => session.incidents.log(key) !== null,
+      openReview: (key) => hooks.openReview?.(key),
       jurisdiction: () => ({ id: session.incidents.ruleset.id, name: session.incidents.ruleset.name }),
       now: () => session.now(),
     },

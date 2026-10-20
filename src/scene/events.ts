@@ -80,6 +80,8 @@ export interface ForceUsedEvent {
   kind: ForceKind;
   personId: number;
   callId: number;
+  /** How hard the subject resisted just before the force (a tackle samples it before the takedown). */
+  resistance?: 'compliant' | 'passive' | 'active' | 'assaultive' | 'lethal';
 }
 
 /** Payload of the contact module's `contact:event` topic (design §10.3). */
