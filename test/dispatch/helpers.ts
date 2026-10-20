@@ -64,6 +64,8 @@ export interface HarnessOptions {
   config?: DispatchConfig;
   /** Player in a police vehicle (offers need it). Default true. */
   inPoliceVehicle?: boolean;
+  /** Phase 6: roster names of the AI officers (`DispatchDeps.officerName`). */
+  officerName?: (callsign: string) => string | null;
 }
 
 /** The default config with the call generator switched off (tests create calls themselves). */
@@ -103,7 +105,7 @@ export async function makeHarness(options: HarnessOptions = {}, seed = SEED): Pr
     formatAddress: (edge, t) => addressOnEdge(city.graph, edge, t * (city.graph.edges[edge]?.length ?? 0), districtOf).text,
     today: () => epochDayOfGameSeconds(GAME0 + h.sim * 30),
   });
-  const dispatcher = new Dispatcher({ seed, city, cad, records, traffic, world, bus, rng: createRng(seed).stream('dispatch'), config: options.config });
+  const dispatcher = new Dispatcher({ seed, city, cad, records, traffic, world, bus, rng: createRng(seed).stream('dispatch'), config: options.config, officerName: options.officerName });
   Object.assign(h, { records, dispatcher });
   for (const topic of TOPICS) bus.on(topic, (payload) => h.events.push({ topic, payload }));
   syncFocus(h);

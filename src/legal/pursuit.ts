@@ -41,7 +41,8 @@ function run(p: PursuitInput, rs: Ruleset): Checks {
   }
   const endT = p.end ? p.end.t : p.nowT;
   const durationS = endT - p.start.t;
-  const terminated = p.end?.reason === 'terminated';
+  // Phase 6: a jurisdiction handoff ends the officer's pursuit like a termination.
+  const terminated = p.end?.reason === 'terminated' || p.end?.reason === 'handoff';
   const advisoryIgnoredS = p.advisory ? Math.max(0, endT - p.advisory.t) : 0;
 
   const problems: { ruleId: string; reason: string }[] = [];

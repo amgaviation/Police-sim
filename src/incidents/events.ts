@@ -42,8 +42,21 @@ export interface IncidentFlashEvent {
   text: string;
 }
 
+/**
+ * Phase 6: an order of the pursuit supervisor (emitted by the pursuit module). `terminate` is recorded as the
+ * pursuit's termination advisory; the other orders are informational for the recorder.
+ */
+export interface PursuitOrderEvent {
+  callId: number;
+  order: 'terminate' | 'authorizePit' | 'denyPit' | 'handoff';
+  by: string;
+  text: string;
+  sim: number;
+}
+
 declare module '../core/event-map' {
   interface EventMap {
+    'pursuit:order': PursuitOrderEvent;
     'incident:opened': IncidentOpenedEvent;
     'incident:closed': IncidentClosedEvent;
     'incident:forceVerdict': IncidentForceVerdictEvent;

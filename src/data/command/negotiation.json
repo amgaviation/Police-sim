@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "listen", "label": "Active listening",
+      "options": [
+        { "id": "minimal", "text": "I'm here. Go on.", "trust": 0.04, "agitation": -0.03, "stages": ["contact", "rapport", "problem"] },
+        { "id": "label", "text": "It sounds like you feel nobody is listening to you.", "trust": 0.08, "agitation": -0.06, "stages": ["rapport", "problem"] },
+        { "id": "paraphrase", "text": "So you're saying they took the kids and you've had enough.", "trust": 0.07, "agitation": -0.04, "stages": ["rapport", "problem"] },
+        { "id": "openQuestion", "text": "What happened today?", "trust": 0.05, "agitation": -0.02, "stages": ["contact", "rapport"] },
+        { "id": "pause", "text": "(stay silent and let them talk)", "trust": 0.03, "agitation": -0.05, "stages": ["rapport", "problem"] }
+      ]
+    },
+    {
+      "id": "problem", "label": "Problem solving",
+      "options": [
+        { "id": "iMessage", "text": "I get worried when I hear you talk about the gun.", "trust": 0.05, "agitation": -0.04, "stages": ["problem"] },
+        { "id": "offer", "text": "If you put the gun down, I'll make sure you can talk to your sister.", "trust": 0.06, "agitation": -0.02, "stages": ["problem", "resolution"], "minTrust": 0.4 },
+        { "id": "plan", "text": "Here's how this ends safely: you walk out, hands empty, and I'll be right there.", "trust": 0.06, "agitation": -0.05, "stages": ["resolution"], "minTrust": 0.6 }
+      ]
+    },
+    {
+      "id": "pressure", "label": "Pressure",
+      "options": [
+        { "id": "deadline", "text": "You have five minutes to come out.", "trust": -0.1, "agitation": 0.15, "stages": ["contact", "rapport", "problem", "resolution"] },
+        { "id": "demand", "text": "Come out now with your hands up!", "trust": -0.06, "agitation": 0.12, "stages": ["contact", "rapport", "problem", "resolution"] },
+        { "id": "threat", "text": "The tactical team is ready to come in.", "trust": -0.12, "agitation": 0.2, "stages": ["contact", "rapport", "problem", "resolution"] }
+      ]
+    }
+  ],
+  "replies": {
+    "calm": ["...yeah. Yeah, okay.", "Nobody ever asked me that."],
+    "neutral": ["I don't know.", "What do you want from me?"],
+    "agitated": ["Back off! I swear!", "Don't come any closer!"],
+    "surrender": ["Okay. Okay. I'm coming out. Don't shoot."],
+    "breakdown": ["That's it! I'm done talking!"]
+  },
+  "toneFactor": { "polite": 1.1, "neutral": 1.0, "commanding": 0.8, "aggressive": 0.5 },
+  "stageTrust": { "contact": 0, "rapport": 0.25, "problem": 0.45, "resolution": 0.65 },
+  "subject": { "temperament": { "calm": -0.1, "timid": -0.05, "irritable": 0.05, "volatile": 0.15 }, "hostage": 0.05, "intoxicated": 0.08, "crisis": -0.05 }
+}

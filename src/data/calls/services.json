@@ -22,6 +22,18 @@
     { "id": "tow", "label": "Tow truck", "arriveS": [120, 240], "effect": "towVehicles", "sets": [],
       "radio": "{unit}, requesting a tow truck to {near}.", "ack": "Copy, tow truck en route to {near}.", "arrivedText": "Tow truck on scene." },
     { "id": "supervisor", "label": "Supervisor", "arriveS": [90, 180], "effect": "none", "sets": [],
-      "radio": "{unit}, requesting a supervisor to {near}.", "ack": "Copy, supervisor en route to {near}.", "arrivedText": "Supervisor on scene." }
+      "radio": "{unit}, requesting a supervisor to {near}.", "ack": "Copy, supervisor en route to {near}.", "arrivedText": "Supervisor on scene." },
+    { "id": "detectives", "label": "Detectives", "arriveS": [300, 600], "effect": "none", "sets": ["detectivesAssigned"],
+      "radio": "{unit}, requesting detectives to {near}.", "ack": "Copy, detectives notified, responding to {near}.", "arrivedText": "Detectives on scene." },
+    { "id": "csu", "label": "Crime scene unit", "arriveS": [240, 480], "effect": "none", "sets": ["csuProcessed"],
+      "radio": "{unit}, requesting the crime scene unit to {near}.", "ack": "Copy, crime scene unit en route to {near}.", "arrivedText": "Crime scene unit on scene." },
+    { "id": "negotiator", "label": "Negotiator", "arriveS": [180, 360], "effect": "none", "sets": ["negotiatorOnScene"],
+      "radio": "{unit}, requesting a negotiator to {near}.", "ack": "Copy, negotiator en route to {near}.", "arrivedText": "Negotiator on scene." },
+    { "id": "statePatrol", "label": "State patrol", "arriveS": [120, 300], "effect": "none", "sets": ["statePatrolOnScene"],
+      "radio": "{unit}, requesting state patrol to {near}.", "ack": "Copy, state patrol en route to {near}.", "arrivedText": "State patrol on scene." },
+    { "id": "federal", "label": "Federal agents", "arriveS": [600, 1200], "effect": "none", "sets": ["federalNotified"],
+      "radio": "{unit}, requesting federal agents to {near}.", "ack": "Copy, federal agents notified, responding to {near}.", "arrivedText": "Federal agents on scene." },
+    { "id": "airUnit", "label": "Air unit", "arriveS": [90, 240], "effect": "none", "sets": ["airSupport"],
+      "radio": "{unit}, requesting the air unit to {near}.", "ack": "Copy, air unit launching to {near}.", "arrivedText": "Air unit on station." }
   ]
 }

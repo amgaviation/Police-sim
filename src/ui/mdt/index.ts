@@ -20,3 +20,5 @@ export {
   type WorldPoint,
 } from './map';
 export { parseClock, callOptions } from './forms';
+export * from './resources';
+export * from './commandTab';

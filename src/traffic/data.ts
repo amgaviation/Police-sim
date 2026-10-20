@@ -116,6 +116,20 @@ export interface PulloverData {
     readonly minFleeS: number;
     readonly awayBias: number;
   };
+  /**
+   * Spike strips (Phase 6 design §6.1): fleeing-car speed cap factor on `flee.maxSpeed` per deflated tyre count
+   * (5 entries, 0..4 tyres), seconds until a car with at least `minTires` deflated stops.
+   */
+  readonly spikes: { readonly speedFactor: readonly number[]; readonly stopAfterS: number; readonly minTires: number };
+  /** PIT spin-out animation: duration (s), total yaw (degrees) and sliding deceleration (m/s²). */
+  readonly spin: { readonly durationS: number; readonly yawDeg: number; readonly slideDecel: number };
+  /**
+   * Blockades (traffic control points, roadblocks): cars look `lookaheadM` ahead, wait `waitS` before turning
+   * around (despawning out of sight), no spawns within `noSpawnM` of a blockade's edge, at most `max` blockades.
+   */
+  readonly blockade: { readonly lookaheadM: number; readonly waitS: number; readonly noSpawnM: number; readonly max: number };
+  /** PIT policy hook for the pursuit module: ramming at or above this closing speed (m/s) crashes the car. */
+  readonly pit: { readonly crashOnRamMps: number };
 }
 
 // --- Readers --------------------------------------------------------------------------
@@ -253,6 +267,12 @@ export function validatePullover(data: unknown, file = 'pullover.json'): Pullove
   const yld = section('yield');
   const fleet = section('fleet');
   const flee = section('flee');
+  const spikes = section('spikes');
+  const spin = section('spin');
+  const blockade = section('blockade');
+  const pit = section('pit');
+  const speedFactor = readArray(spikes.speedFactor, file, 'spikes.speedFactor', 5);
+  if (speedFactor.length !== 5) fail(file, 'spikes.speedFactor', `must have 5 items, got ${speedFactor.length}`);
   const result: PulloverData = {
     detect: {
       minDistance: num(detect, 'detect', 'minDistance', 0, 500),
@@ -300,7 +320,29 @@ export function validatePullover(data: unknown, file = 'pullover.json'): Pullove
       minFleeS: num(flee, 'flee', 'minFleeS', 0, 3600),
       awayBias: num(flee, 'flee', 'awayBias', 0, 1),
     },
+    spikes: {
+      speedFactor: speedFactor.map((v, i) => readNumber(v, file, `spikes.speedFactor[${i}]`, 0, 1)),
+      stopAfterS: num(spikes, 'spikes', 'stopAfterS', 0, 600),
+      minTires: readInt(spikes.minTires, file, 'spikes.minTires', 1, 4),
+    },
+    spin: {
+      durationS: num(spin, 'spin', 'durationS', 0.1, 10),
+      yawDeg: num(spin, 'spin', 'yawDeg', 0, 720),
+      slideDecel: num(spin, 'spin', 'slideDecel', 0, 50),
+    },
+    blockade: {
+      lookaheadM: num(blockade, 'blockade', 'lookaheadM', 1, 500),
+      waitS: num(blockade, 'blockade', 'waitS', 0, 600),
+      noSpawnM: num(blockade, 'blockade', 'noSpawnM', 0, 1000),
+      max: readInt(blockade.max, file, 'blockade.max', 0, 64),
+    },
+    pit: { crashOnRamMps: num(pit, 'pit', 'crashOnRamMps', 0, 100) },
   };
+  for (let i = 1; i < result.spikes.speedFactor.length; i++) {
+    if ((result.spikes.speedFactor[i] ?? 0) > (result.spikes.speedFactor[i - 1] ?? 0)) {
+      fail(file, `spikes.speedFactor[${i}]`, 'must not exceed the previous entry');
+    }
+  }
   if (result.detect.minDistance > result.detect.maxDistance) fail(file, 'detect.minDistance', 'must not exceed detect.maxDistance');
   return result;
 }

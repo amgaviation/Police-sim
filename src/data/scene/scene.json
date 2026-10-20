@@ -44,6 +44,10 @@
     "noAnswerExigencyS": 60,
     "canvassHits": 2
   },
+  "commandFlags": [
+    "commandPost", "contained", "perimeter", "evacuated", "trafficControl", "triaged", "transportedRed", "icsTransport",
+    "negotiated", "swatResolved", "csuProcessed", "federalNotified"
+  ],
   "limits": {
     "closedCap": 200,
     "propCap": 256

@@ -53,8 +53,12 @@ describe('traffic data', () => {
     expect(PULLOVER.curb).toEqual({ clearance: 0.15, lateralSpeed: 0.9, decel: 2, noPullNearLineM: 30, approachSpeed: 9, hazards: true });
     expect(PULLOVER.release).toEqual({ lateralSpeed: 0.7, autoReleaseM: 150 });
     expect(PULLOVER.yield).toEqual({ range: 50, lateral: 6, passMargin: 10, timeoutS: 20 });
-    expect(PULLOVER.fleet.maxCars).toBe(16);
+    expect(PULLOVER.fleet.maxCars).toBe(32);
     expect(PULLOVER.fleet.maxEmergencySpeed).toBe(30);
+    expect(PULLOVER.spikes).toEqual({ speedFactor: [1, 0.75, 0.5, 0.35, 0.25], stopAfterS: 12, minTires: 2 });
+    expect(PULLOVER.spin).toEqual({ durationS: 1.4, yawDeg: 150, slideDecel: 9 });
+    expect(PULLOVER.blockade).toEqual({ lookaheadM: 40, waitS: 20, noSpawnM: 80, max: 16 });
+    expect(PULLOVER.pit).toEqual({ crashOnRamMps: 11 });
     const p = clone(pulloverJson) as Record<string, unknown> & { curb: Record<string, unknown>; fleet: Record<string, unknown> };
     p.curb.hazards = 1;
     expect(() => validatePullover(p)).toThrow(/pullover\.json: curb\.hazards/);
@@ -67,5 +71,22 @@ describe('traffic data', () => {
     const v = clone(pulloverJson) as Record<string, unknown>;
     delete v.yield;
     expect(() => validatePullover(v)).toThrow(/pullover\.json: yield/);
+    // The Phase 6 sections are required and checked with their path.
+    for (const key of ['spikes', 'spin', 'blockade', 'pit']) {
+      const w = clone(pulloverJson) as Record<string, unknown>;
+      delete w[key];
+      expect(() => validatePullover(w)).toThrow(new RegExp(`pullover\\.json: ${key}`));
+    }
+    const sp = clone(pulloverJson) as Record<string, unknown> & { spikes: { speedFactor: number[]; minTires: number } };
+    sp.spikes.speedFactor = [1, 0.5];
+    expect(() => validatePullover(sp)).toThrow(/pullover\.json: spikes\.speedFactor/);
+    sp.spikes.speedFactor = [1, 0.5, 0.75, 0.3, 0.2];
+    expect(() => validatePullover(sp)).toThrow(/pullover\.json: spikes\.speedFactor\[2\]/);
+    const bl = clone(pulloverJson) as Record<string, unknown> & { blockade: Record<string, unknown>; spin: Record<string, unknown> };
+    bl.blockade.max = 1.5;
+    expect(() => validatePullover(bl)).toThrow(/pullover\.json: blockade\.max/);
+    bl.blockade.max = 16;
+    bl.spin.durationS = 0;
+    expect(() => validatePullover(bl)).toThrow(/pullover\.json: spin\.durationS/);
   });
 });

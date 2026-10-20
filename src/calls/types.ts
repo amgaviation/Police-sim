@@ -34,6 +34,8 @@ export type ProfileId = (typeof PROFILE_IDS)[number];
 /** Service stub kinds; defined by `src/data/calls/services.json`. */
 export const SERVICE_KINDS = [
   'ems', 'fire', 'hazmat', 'swat', 'k9', 'coroner', 'interpreter', 'animalControl', 'bombSquad', 'tow', 'supervisor',
+  // Phase 6
+  'detectives', 'csu', 'negotiator', 'statePatrol', 'federal', 'airUnit',
 ] as const;
 export type ServiceKind = (typeof SERVICE_KINDS)[number];
 

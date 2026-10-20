@@ -103,6 +103,11 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   // Phase 5 (design §12.5): H and J are also the headlights and the spotlight in a car (on foot vs in a car).
   'officer.intervene': [key('KeyH')],
   'officer.bodycamMute': [key('KeyJ')],
+  // Phase 6 (design §12.1): no gamepad defaults, no collisions with any other default.
+  'backup.menu': [key('Comma')],
+  'command.menu': [key('Period')],
+  'pursuit.menu': [key('Semicolon')],
+  'air.flir': [key('Slash')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "traits": {
+    "aggression": [0.1, 0.8],
+    "discipline": [0.3, 0.95],
+    "experience": [0.1, 0.95],
+    "composure": [0.2, 0.95],
+    "communication": [0.3, 0.95]
+  },
+  "rankTitles": { "officer": "Officer", "sergeant": "Sgt.", "lieutenant": "Lt.", "chief": "Chief" },
+  "stress": {
+    "start": 0.1,
+    "decayPerMin": 0.03,
+    "events": { "shotsFired": 0.45, "weaponSeen": 0.25, "fight": 0.2, "forceUsed": 0.1, "pursuitMinute": 0.06, "officerInjured": 0.4, "callHandled": -0.05 }
+  },
+  "fatigue": { "start": 0.05, "perHour": 0.06, "perCall": 0.015, "max": 1 },
+  "loyalty": {
+    "start": [0.4, 0.7],
+    "events": { "coveredByPlayer": 0.04, "requestedAndArrived": 0.01, "abandoned": -0.04, "intervenedOnThem": -0.08 }
+  },
+  "mistakes": {
+    "lateCallout": { "base": 0.04, "stress": 0.3, "fatigue": 0.25, "experience": -0.08, "discipline": -0.05, "composure": -0.05, "loyalty": -0.03 },
+    "poorPosition": { "base": 0.03, "stress": 0.25, "fatigue": 0.2, "experience": -0.06, "discipline": -0.06, "composure": -0.04, "loyalty": 0 },
+    "excessiveForce": { "base": 0.002, "stress": 0.1, "fatigue": 0.03, "aggression": 0.08, "discipline": -0.05, "composure": -0.04, "loyalty": 0 }
+  },
+  "maxChance": { "lateCallout": 0.6, "poorPosition": 0.5, "excessiveForce": 0.2 }
+}

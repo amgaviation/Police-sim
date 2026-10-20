@@ -290,6 +290,52 @@ describe('Phase 5 default bindings', () => {
   });
 });
 
+describe('Phase 6 default bindings', () => {
+  const phase6 = ['backup.menu', 'command.menu', 'pursuit.menu', 'air.flir'] as const;
+  const keys: Record<(typeof phase6)[number], string> = {
+    'backup.menu': 'Comma',
+    'command.menu': 'Period',
+    'pursuit.menu': 'Semicolon',
+    'air.flir': 'Slash',
+  };
+
+  it('bind Comma, Period, Semicolon and Slash with no gamepad default', () => {
+    for (const id of phase6) {
+      expect(DEFAULT_BINDINGS[id], id).toEqual([{ device: 'keyboard', code: keys[id] }]);
+      for (const b of DEFAULT_BINDINGS[id]) expect(isBinding(b), `${id}: ${b.code}`).toBe(true);
+    }
+  });
+
+  it('collide with no other default binding', () => {
+    for (const id of phase6) {
+      const code = keys[id];
+      const owners = ACTION_IDS.filter((a) => DEFAULT_BINDINGS[a].some((b) => b.device === 'keyboard' && b.code === code));
+      expect(owners, code).toEqual([id]);
+    }
+  });
+
+  it('survive a round trip and an old save without them gets the defaults', () => {
+    expect(parseBindings(JSON.parse(JSON.stringify(serializeBindings(DEFAULT_BINDINGS))))).toEqual(DEFAULT_BINDINGS);
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([id]) => !phase6.some((p) => p === id)));
+    expect(parseBindings({ version: BINDINGS_SCHEMA_VERSION, bindings: old })).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('resolve from their keys', () => {
+    const raw = (keys2: string[]): RawInputState => ({
+      keys: new Set(keys2),
+      mouseButtons: new Set<number>(),
+      mouse: { x: 0, y: 0, wheel: 0 },
+      gamepadButtons: [],
+      gamepadAxes: [],
+    });
+    for (const id of phase6) {
+      const r = resolveActions(DEFAULT_BINDINGS, raw([keys[id]]));
+      expect(r[id], id).toBe(1);
+      expect(phase6.filter((o) => r[o] === 1)).toEqual([id]);
+    }
+  });
+});
+
 describe('isBinding', () => {
   it('accepts well-formed bindings for each device', () => {
     expect(isBinding({ device: 'keyboard', code: 'KeyW' })).toBe(true);

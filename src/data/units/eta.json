@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "urgencyFactor": { "routine": 0.9, "respond": 1.05, "emergency": 1.35 },
+  "trafficPenalty": { "routine": 0.45, "respond": 0.35, "emergency": 0.15 },
+  "wetPenalty": 0.15,
+  "minTravelS": 5,
+  "rankCandidates": 4
+}

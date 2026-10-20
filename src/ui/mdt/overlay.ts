@@ -1,6 +1,6 @@
 /**
- * The MDT / CAD terminal (design §13.2): a full-screen, keyboard-first, non-pausing `Menu` with eleven
- * tabs (Phase 5 appends Career and Community). CAD changes go through `deps.request` (applied by the dispatcher in its next fixed step);
+ * The MDT / CAD terminal (design §13.2): a full-screen, keyboard-first, non-pausing `Menu` with thirteen
+ * tabs (Phase 5 appends Career and Community, Phase 6 Resources and Command). CAD changes go through `deps.request` (applied by the dispatcher in its next fixed step);
  * records queries call `deps.records` directly; documents are written to `deps.cad.docs`.
  *
  * Cost: nothing while closed. While open, `update` refreshes the visible tab at most 4 Hz and only
@@ -36,6 +36,16 @@ import { ListView, button, renderSections, selectField, setText, textField, type
 import { buildDocForm, showErrors, type DocFormView, type FormOptions } from './forms';
 import { MAP_ZOOM_STEP, MdtMap, type MapDrawState } from './map';
 import { careerModel, communityModel, renderCareer, renderCommunity, type CareerModel, type CommunityRow } from './career';
+import { commandTabModel, renderCommandTab, type CommandTabModel } from './commandTab';
+import {
+  EtaBoardState,
+  renderEtaBoard,
+  requestTargetText,
+  resourceTypeRows,
+  resourceUnitRows,
+  type ResourceTypeRow,
+  type ResourceUnitRow,
+} from './resources';
 import { gradeSections, normalizeAssertions, type ChoiceInfo } from './statements';
 import {
   type CallDetailLine,
@@ -168,6 +178,15 @@ interface Dom {
   // career / community
   readonly careerBody: HTMLElement;
   readonly communityBody: HTMLElement;
+  // resources / command (Phase 6)
+  readonly resourceTypes: ListView<ResourceTypeRow>;
+  readonly resourceUnits: ListView<ResourceUnitRow>;
+  readonly resourceRequest: HTMLButtonElement;
+  readonly resourceEta: HTMLButtonElement;
+  readonly resourceFooter: HTMLElement;
+  readonly resourceBoard: HTMLElement;
+  readonly resourceHint: HTMLElement;
+  readonly commandBody: HTMLElement;
   // stop
   readonly stopBody: HTMLElement;
   readonly stopButtons: { readonly run: HTMLButtonElement; readonly wants: HTMLButtonElement; readonly cite: HTMLButtonElement; readonly release: HTMLButtonElement };
@@ -253,10 +272,21 @@ export class MdtOverlay implements Menu {
   private readonly draftAssertions = new Map<string, string[]>();
   private careerShown: CareerModel | null = null;
   private communityShown: CommunityRow[] = [];
+  /** `deps.eta` as a plain function (undefined without the feed). */
+  private readonly etaFeed: ((callsign: string) => number) | undefined;
+  private resourceTypesShown: ResourceTypeRow[] = [];
+  private resourceUnitsShown: ResourceUnitRow[] = [];
+  private readonly etaBoardState = new EtaBoardState();
+  /** `etaBoardState.revision` last rendered, -1 before the first render. */
+  private renderedBoardRev = -1;
+  private commandShown: CommandTabModel | null = null;
+  /** `deps.command.revision()` last rendered, -1 before the first render (or after the feed changed). */
+  private renderedCommandRev = -1;
 
   constructor(ui: UIRoot | null, deps: MdtDeps) {
     this.ui = ui;
     this.deps = deps;
+    this.etaFeed = deps.eta ? (callsign) => deps.eta?.(callsign) ?? -1 : undefined;
     this.dom = ui !== null && typeof document !== 'undefined' ? this.build() : null;
     this.element = this.dom?.root ?? HEADLESS_ELEMENT;
   }
@@ -359,7 +389,14 @@ export class MdtOverlay implements Menu {
     const avlTab = this.current === 'units' || this.current === 'map';
     const log = records.queryLog;
     const logKey = this.current === 'bolo' ? `${log.length}:${log[log.length - 1]?.gameSeconds ?? -1}:${records.today()}` : this.lastLogKey;
-    const extTab = this.current === 'vehicle' || this.current === 'reports' || this.current === 'stop' || this.current === 'career' || this.current === 'community';
+    const extTab =
+      this.current === 'vehicle' ||
+      this.current === 'reports' ||
+      this.current === 'stop' ||
+      this.current === 'career' ||
+      this.current === 'community' ||
+      this.current === 'resources' ||
+      this.current === 'command';
     const extKey = extTab ? this.externalKey() : this.lastExtKey;
     const changed =
       this.dirty ||
@@ -376,8 +413,8 @@ export class MdtOverlay implements Menu {
       this.lastExtKey = extKey;
       this.refreshCount++;
       this.refreshTab();
-    } else if (tick && (this.current === 'queue' || this.current === 'units')) {
-      this.refreshTab(); // ages only: the lists write just the cells that changed
+    } else if (tick && (this.current === 'queue' || this.current === 'units' || (this.current === 'call' && this.deps.eta !== undefined))) {
+      this.refreshTab(); // ages and live ETAs only: the lists write just the cells that changed
     }
     if (tick || changed) {
       this.lastTickMs = nowMs;
@@ -394,6 +431,8 @@ export class MdtOverlay implements Menu {
     const d = this.deps;
     if (this.current === 'career') return d.career ? d.career.revision() * 100000 + (Math.floor(d.career.now().game / 60) % 100000) : 0;
     if (this.current === 'community') return d.community ? d.community.revision() : 0;
+    if (this.current === 'resources') return d.resources ? d.resources.revision() * 4096 + (this.etaBoardState.revision & 4095) : 0;
+    if (this.current === 'command') return d.command ? d.command.revision() : 0;
     const bits = (d.target() !== null ? 1 : 0) | (d.atStation() ? 2 : 0) | (this.activeStop() !== null ? 4 : 0);
     const key = (d.prisoner() + 1) * 8 + bits;
     // A report's grade arrives from the conduct system a step after the report is filed.
@@ -508,6 +547,7 @@ export class MdtOverlay implements Menu {
       person: [dom.personResults],
       bolo: [dom.bolos, dom.history],
       reports: [dom.docs],
+      resources: [dom.resourceTypes, dom.resourceUnits],
     };
     const candidates = lists[this.current] ?? [];
     return candidates.find((l) => l.contains(target)) ?? candidates[0] ?? null;
@@ -965,7 +1005,7 @@ export class MdtOverlay implements Menu {
         this.renderCall();
         break;
       case 'units': {
-        const rows = unitRows(cad, graph, now.sim);
+        const rows = unitRows(cad, graph, now.sim, this.etaFeed);
         if (dom) {
           dom.units.render(rows);
           const player = cad.unit(this.deps.callsign);
@@ -1029,7 +1069,131 @@ export class MdtOverlay implements Menu {
       case 'community':
         this.renderCommunityTab();
         break;
+      case 'resources':
+        this.renderResourcesTab();
+        break;
+      case 'command':
+        this.renderCommandTab();
+        break;
     }
+  }
+
+  // --- Resources and Command (design phase 6 §12.3) -------------------------------------------------
+
+  /** The Resources tab's requestable types as last built. */
+  get resourceTypeRows(): readonly ResourceTypeRow[] {
+    return this.resourceTypesShown;
+  }
+
+  /** The Resources tab's unit rows as last built. */
+  get resourceUnitRows(): readonly ResourceUnitRow[] {
+    return this.resourceUnitsShown;
+  }
+
+  /** The worker ETA board (status, rows, the call it is for). */
+  get etaBoard(): EtaBoardState {
+    return this.etaBoardState;
+  }
+
+  /** The Command tab's model as last built (null before the tab was shown or without `deps.command`). */
+  get commandModel(): CommandTabModel | null {
+    return this.commandShown;
+  }
+
+  /** The call the ETA board answers for: the selected call, else the player's call; -1 none. */
+  private etaCallId(): number {
+    return this.selectedCall ?? this.playerCall()?.id ?? -1;
+  }
+
+  /** Requests a unit type for the player's call (Enter on a row, the REQUEST button); false without a resources feed. */
+  requestResource(typeId: string): boolean {
+    const res = this.deps.resources;
+    const type = res?.types().find((t) => t.id === typeId);
+    if (!res || !type) return false;
+    res.request(typeId);
+    this.setMessage(`Requested: ${type.label}`);
+    this.dirty = true;
+    return true;
+  }
+
+  /** Fetches the worker ETA board for the selected call; false without the feed or a call. */
+  fetchEtaBoard(): boolean {
+    const res = this.deps.resources;
+    const call = this.etaCallId();
+    if (!res?.etaBoard || call < 0) return false;
+    this.etaBoardState.request(call, (id) => res.etaBoard?.(id) ?? Promise.resolve([]));
+    this.dirty = true;
+    return true;
+  }
+
+  /** Opens the command post (the tab's button). */
+  establishCommand(): boolean {
+    const cmd = this.deps.command;
+    if (!cmd) return false;
+    cmd.request({ kind: 'establish' });
+    this.setMessage('Establishing command');
+    return true;
+  }
+
+  /** REQUEST on the Command tab: asks for the recommended resources. */
+  requestCommandNeeds(): boolean {
+    const cmd = this.deps.command;
+    if (!cmd) return false;
+    cmd.request({ kind: 'requestNeeds' });
+    this.setMessage('Requesting the recommended resources');
+    return true;
+  }
+
+  private renderResourcesTab(): void {
+    const res = this.deps.resources;
+    const dom = this.dom;
+    const cad = this.deps.cad;
+    this.etaBoardState.select(this.etaCallId());
+    if (!res) {
+      this.resourceTypesShown = [];
+      this.resourceUnitsShown = [];
+      if (dom) {
+        dom.resourceTypes.render([]);
+        dom.resourceUnits.render([]);
+        setText(dom.resourceHint, 'No resources in this session.');
+        dom.resourceRequest.disabled = true;
+        dom.resourceEta.disabled = true;
+      }
+      return;
+    }
+    this.resourceTypesShown = resourceTypeRows(res.types());
+    this.resourceUnitsShown = resourceUnitRows(res.units(), (id) => cad.call(id)?.number ?? null);
+    if (!dom) return;
+    dom.resourceTypes.render(this.resourceTypesShown);
+    dom.resourceUnits.render(this.resourceUnitsShown);
+    setText(dom.resourceHint, '');
+    setText(dom.resourceFooter, requestTargetText(this.playerCall()));
+    dom.resourceRequest.disabled = dom.resourceTypes.selected === null;
+    dom.resourceEta.hidden = res.etaBoard === undefined;
+    dom.resourceEta.disabled = this.etaCallId() < 0 || this.etaBoardState.status === 'loading';
+    if (this.renderedBoardRev !== this.etaBoardState.revision) {
+      this.renderedBoardRev = this.etaBoardState.revision;
+      renderEtaBoard(dom.resourceBoard, this.etaBoardState);
+    }
+  }
+
+  private renderCommandTab(): void {
+    const cmd = this.deps.command;
+    const dom = this.dom;
+    if (!cmd) {
+      this.commandShown = null;
+      if (dom && this.renderedCommandRev !== -2) {
+        this.renderedCommandRev = -2;
+        clearChildren(dom.commandBody);
+        dom.commandBody.appendChild(el('p', { class: 'mdt-hint' }, 'No incident command in this session.'));
+      }
+      return;
+    }
+    const rev = cmd.revision();
+    if (this.commandShown !== null && rev === this.renderedCommandRev) return;
+    this.commandShown = commandTabModel(cmd.board());
+    this.renderedCommandRev = rev;
+    if (dom) renderCommandTab(dom.commandBody, this.commandShown, { establish: () => this.establishCommand(), requestNeeds: () => this.requestCommandNeeds() });
   }
 
   // --- Career and Community (design phase 5 §12.1) -------------------------------------------------
@@ -1201,7 +1365,7 @@ export class MdtOverlay implements Menu {
     dom.narrative.control.disabled = !call || call.status === 'closed';
     dom.callButtons.add.disabled = dom.narrative.control.disabled;
     dom.callButtons.report.disabled = !call;
-    const lines = call ? callDetailLines(call) : [];
+    const lines = call ? callDetailLines(call, this.etaFeed) : [];
     // Rebuilt only when what it shows changed (any CAD revision bumps the refresh; a rebuild drops focus).
     const key = call ? `${call.id}|${call.priority}|${lines.map(callLineKey).join('\n')}` : 'none';
     if (key === this.renderedCallKey) return;
@@ -1503,14 +1667,16 @@ export class MdtOverlay implements Menu {
     // Units
     const units = new ListView<UnitRow>('Unit roster', [
       { label: 'Unit', cls: 'mdt-c-num', text: (r) => r.callsign },
+      { label: 'Type', text: (r) => (r.kind === 'resource' ? 'RES' : r.kind === 'player' ? 'YOU' : 'PATROL') },
       { label: 'Officer', text: (r) => r.officer },
       { label: 'Status', text: (r) => `${r.statusLabel}${r.emergency ? ' EMERGENCY' : ''}` },
       { label: 'Call', text: (r) => r.call },
+      { label: 'ETA', cls: 'mdt-c-num', text: (r) => r.eta },
       { label: 'Location', text: (r) => r.location },
       { label: 'In status', cls: 'mdt-c-num', text: (r) => r.since },
     ], {
       key: (r) => r.callsign,
-      rowClass: (r) => `mdt-st-${r.status}${r.player ? ' mdt-mine' : ''}${r.emergency ? ' mdt-emergency' : ''}`,
+      rowClass: (r) => `mdt-st-${r.status}${r.player ? ' mdt-mine' : ''}${r.emergency ? ' mdt-emergency' : ''}${r.kind === 'resource' ? ' mdt-resource' : ''}`,
       onActivate: (r) => {
         const u = this.deps.cad.unit(r.callsign);
         if (u?.callId !== null && u?.callId !== undefined) {
@@ -1685,6 +1851,52 @@ export class MdtOverlay implements Menu {
       communityBody,
     );
 
+    // Resources and Command (design phase 6 §12.3)
+    const resourceTypes = new ListView<ResourceTypeRow>('Requestable units', [
+      { label: '#', cls: 'mdt-c-num', text: (r) => r.n },
+      { label: 'Request', text: (r) => r.label },
+      { label: 'Effect', text: (r) => r.resolves },
+    ], {
+      key: (r) => r.id,
+      onSelect: () => {
+        if (this.dom) this.dom.resourceRequest.disabled = false;
+      },
+      onActivate: (r) => {
+        this.requestResource(r.id);
+      },
+      empty: 'No unit types',
+    });
+    const resourceUnits = new ListView<ResourceUnitRow>('Resource units', [
+      { label: 'Unit', cls: 'mdt-c-num', text: (r) => r.callsign },
+      { label: 'Type', text: (r) => r.type },
+      { label: 'Status', text: (r) => r.statusLabel },
+      { label: 'Call', text: (r) => r.call },
+      { label: 'ETA', cls: 'mdt-c-num', text: (r) => r.eta },
+    ], {
+      key: (r) => r.callsign,
+      rowClass: (r) => `mdt-st-${r.status}`,
+      empty: 'No resource units',
+    });
+    const resourceRequest = button('Request', () => {
+      const row = resourceTypes.selected;
+      if (row) this.requestResource(row.id);
+    }, 'primary');
+    const resourceEta = button('ETA BOARD', () => {
+      this.fetchEtaBoard();
+    });
+    const resourceFooter = el('span', { class: 'mdt-res-footer', 'aria-live': 'polite' });
+    const resourceHint = el('p', { class: 'mdt-hint' });
+    const resourceBoard = el('div', { class: 'mdt-scroll mdt-eta-wrap', 'aria-live': 'polite' });
+    panels.resources.append(
+      resourceHint,
+      el('div', { class: 'mdt-split' },
+        el('div', { class: 'mdt-scroll mdt-split-list' }, resourceTypes.element),
+        el('div', { class: 'mdt-scroll mdt-split-main' }, resourceUnits.element, resourceBoard)),
+      el('div', { class: 'mdt-actions' }, resourceRequest, resourceEta, resourceFooter),
+    );
+    const commandBody = el('div', { class: 'mdt-scroll mdt-record mdt-command' });
+    panels.command.appendChild(commandBody);
+
     const unitInfo = el('span', { class: 'mdt-unit' });
     const clock = el('span', { class: 'mdt-clock' });
     const message = el('div', { class: 'mdt-message', role: 'status', 'aria-live': 'polite' });
@@ -1694,7 +1906,7 @@ export class MdtOverlay implements Menu {
       tablist,
       el('div', { class: 'mdt-body' }, ...MDT_TABS.map((t) => panels[t])),
       el('footer', { class: 'mdt-footer' }, message,
-        el('span', { class: 'mdt-keys' }, '1-9 0 tabs  ←/→ tabs  ↑/↓ lists  Enter open  Esc cancel/close')),
+        el('span', { class: 'mdt-keys' }, '1-9 0 tabs  ←/→ tabs  ↑/↓ lists  Enter open/request  Esc cancel/close')),
     );
     return {
       root, unitInfo, clock, message, tabs, panels,
@@ -1708,6 +1920,7 @@ export class MdtOverlay implements Menu {
       bolos, history,
       kindButtons, newDoc, docs, docPane,
       careerBody, communityBody,
+      resourceTypes, resourceUnits, resourceRequest, resourceEta, resourceFooter, resourceBoard, resourceHint, commandBody,
       stopBody, stopButtons,
     };
   }

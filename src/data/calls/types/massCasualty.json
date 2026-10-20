@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "family": "massCasualty",
+  "types": [
+    {
+      "id": "multiVehicleCrash",
+      "label": "Multi-vehicle crash",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.01,
+      "codeKey": "collision",
+      "location": "road",
+      "districts": {
+        "highway": 3,
+        "industrial": 0.5,
+        "rural": 0.5,
+        "water": 0
+      },
+      "narratives": [
+        "Multiple callers report a pileup with many injured on {street} near {cross}.",
+        "RP reports several vehicles involved in a crash with people trapped and injured near {near}."
+      ],
+      "branchWeights": {
+        "crash": 1,
+        "collapse": 0,
+        "hazmat": 0
+      }
+    },
+    {
+      "id": "buildingCollapse",
+      "label": "Building collapse",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.005,
+      "codeKey": null,
+      "location": "block",
+      "districts": {
+        "downtown": 1,
+        "industrial": 1.5,
+        "suburbs": 0.5,
+        "water": 0
+      },
+      "narratives": [
+        "Caller reports part of the building at {address} has collapsed with people inside.",
+        "Multiple callers report a structure collapse and injured people at {address}."
+      ],
+      "branchWeights": {
+        "crash": 0,
+        "collapse": 1,
+        "hazmat": 0
+      }
+    },
+    {
+      "id": "hazmatRelease",
+      "label": "Hazardous release with casualties",
+      "category": "traffic",
+      "generated": true,
+      "weight": 0.008,
+      "codeKey": "hazard",
+      "location": "road",
+      "districts": {
+        "industrial": 2,
+        "harbor": 2,
+        "highway": 1,
+        "water": 0
+      },
+      "narratives": [
+        "Caller reports a chemical release near {near} with people collapsing and a strong odor.",
+        "Multiple callers report a leaking tanker and many people sick near {street}."
+      ],
+      "branchWeights": {
+        "crash": 0,
+        "collapse": 0,
+        "hazmat": 1
+      }
+    }
+  ]
+}

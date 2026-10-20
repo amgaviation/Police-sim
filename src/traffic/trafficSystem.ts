@@ -129,6 +129,25 @@ export interface FleeState {
   edge: number;
 }
 
+/** A road obstruction (traffic control point, roadblock): ambient cars stop short of the circle (Phase 6 design §6.2). */
+export interface Blockade {
+  x: number;
+  z: number;
+  radius: number;
+}
+
+/** `TrafficSystem.fleeInfo` output: the flee pose plus the Phase 6 pursuit state. */
+export interface FleeInfo extends FleeState {
+  /** Deflated tyres, 0..4. */
+  deflated: number;
+  /** True during the PIT spin-out animation. */
+  spinning: boolean;
+  /** Effective speed cap (m/s): the explicit cap and the deflation cap, whichever is lower; Infinity = none. */
+  capMps: number;
+  /** True while the lose timer is suspended (air unit overhead). */
+  tracked: boolean;
+}
+
 /** Explicit look of a fleet car: `VehicleModel.index` and body colour 0xRRGGBB. */
 export interface FleetLook {
   readonly modelIndex: number;
@@ -234,6 +253,17 @@ export interface TrafficCarSave {
   fleeTimer?: number;
   /** Seconds continuously farther than `flee.loseDistanceM` from the focus. */
   fleeLost?: number;
+  // Phase 6, written only when not the default:
+  /** Deflated tyres (1..4). */
+  deflated?: number;
+  /** Seconds since the car reached `spikes.minTires` deflated tyres while fleeing. */
+  deflateT?: number;
+  /** PIT spin-out: seconds since it started, direction (+-1) and the yaw it started from. */
+  spin?: [number, number, number];
+  /** Flee speed cap (m/s); omitted when none. */
+  cap?: number;
+  /** 1 while the flee is tracked. */
+  tracked?: number;
 }
 
 export interface TrafficSnapshot {
@@ -245,6 +275,9 @@ export interface TrafficSnapshot {
   stopVehicleId?: number;
   stopCandidate?: number;
   stopTimer?: number;
+  // Phase 6, written only when set:
+  /** Blockades as [x, z, radius]. */
+  blockades?: [number, number, number][];
 }
 
 /** Debug/test view of one car (`TrafficSystem.inspect`). */
@@ -354,7 +387,7 @@ const MODEL_MAX_DECEL = Float64Array.from(VEHICLE_MODELS, (m) => m.traffic.maxDe
 const MAX_HALF_LEN = Math.max(...MODEL_HALF_LEN);
 const MIN_COMFORT_DECEL = Math.min(...MODEL_B);
 
-type SlotArray = Float64Array | Float32Array | Int32Array | Int16Array | Uint8Array;
+type SlotArray = Float64Array | Float32Array | Int32Array | Int16Array | Int8Array | Uint8Array;
 
 const CAR_SAVE_KEYS: readonly (keyof TrafficCarSave)[] = [
   'vehicleId', 'lane', 's', 'speed', 'accel', 'nextLane', 'state', 'behavior', 'desiredFactor', 'headway',
@@ -363,7 +396,7 @@ const CAR_SAVE_KEYS: readonly (keyof TrafficCarSave)[] = [
 /** Optional Phase 2 number fields of a car save. */
 const CAR_OPTIONAL_KEYS: readonly (keyof TrafficCarSave)[] = [
   'model', 'color', 'fleet', 'routePos', 'destX', 'destZ', 'destEdge', 'destS', 'urgency', 'arrived', 'pull',
-  'shoulder', 'pullTimer', 'pinned', 'flee', 'fleeTimer', 'fleeLost',
+  'shoulder', 'pullTimer', 'pinned', 'flee', 'fleeTimer', 'fleeLost', 'deflated', 'deflateT', 'cap', 'tracked',
 ];
 const SNAPSHOT_OPTIONAL_KEYS: readonly (keyof TrafficSnapshot)[] = ['stopVehicleId', 'stopCandidate', 'stopTimer'];
 
@@ -391,9 +424,28 @@ const EMERGENCY_CLEAR_S = 1.5;
 const FLEE_MERGE_BOOST = 2.5;
 /** A subject car may be placed this far from the requested point (m). */
 const SUBJECT_SNAP = 200;
+/** A car stuck behind a blockade only turns around (despawns) farther than this from the focus (m). */
+const BLOCKADE_UNSEEN = 30;
+/** Speed below which a car counts as waiting behind a blockade (m/s). */
+const BLOCKADE_WAIT_SPEED = 0.5;
+const DEG = Math.PI / 180;
 
 function isFiniteNumber(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isFiniteTriple(value: unknown): boolean {
+  return Array.isArray(value) && value.length === 3 && value.every(isFiniteNumber);
+}
+
+/** A `[x, z, radius]` blockade entry. */
+function isBlockadeSave(value: unknown): boolean {
+  return isFiniteTriple(value) && ((value as number[])[2] ?? 0) > 0;
+}
+
+/** A `[t, dir, yaw0]` spin entry. */
+function isSpinSave(value: unknown): boolean {
+  return isFiniteTriple(value) && Math.abs((value as number[])[1] ?? 0) === 1;
 }
 
 function isUint32(value: unknown): boolean {
@@ -410,11 +462,14 @@ export function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
   if (!rng.s.every(isUint32) || !Array.isArray(v.cars)) return false;
   const snap = value as Record<string, unknown>;
   if (!SNAPSHOT_OPTIONAL_KEYS.every((key) => snap[key] === undefined || isFiniteNumber(snap[key]))) return false;
+  const blockades = snap.blockades;
+  if (blockades !== undefined && !(Array.isArray(blockades) && blockades.every(isBlockadeSave))) return false;
   return v.cars.every((car: unknown) => {
     if (typeof car !== 'object' || car === null) return false;
     const c = car as Record<string, unknown>;
     if (!CAR_SAVE_KEYS.every((key) => isFiniteNumber(c[key]))) return false;
     if (!CAR_OPTIONAL_KEYS.every((key) => c[key] === undefined || isFiniteNumber(c[key]))) return false;
+    if (c.spin !== undefined && !isSpinSave(c.spin)) return false;
     const route = c.route;
     return route === undefined || (Array.isArray(route) && route.every((e) => typeof e === 'number' && Number.isInteger(e) && e >= 0));
   });
@@ -502,6 +557,17 @@ export class TrafficSystem {
   private readonly fleeing: Uint8Array;
   private readonly fleeTimer: Float64Array;
   private readonly fleeLost: Float64Array;
+  /** Phase 6: deflated tyres, seconds spent with `spikes.minTires` deflated while fleeing, and seconds waiting behind a blockade. */
+  private readonly deflated: Uint8Array;
+  private readonly deflateT: Float32Array;
+  private readonly blockWait: Float32Array;
+  /** PIT spin-out: seconds since it started (-1 none; kept at the final value once done), direction and start yaw. */
+  private readonly spinT: Float32Array;
+  private readonly spinDir: Int8Array;
+  private readonly spinYaw0: Float32Array;
+  /** Flee speed cap (m/s), Infinity = none, and 1 while the flee is tracked (lose timer suspended). */
+  private readonly capMps: Float32Array;
+  private readonly tracked: Uint8Array;
   /** Derived from shoulder/pull: 1 when the body is clear of its lane (cars behind pass it). */
   private readonly aside: Uint8Array;
   /** Per-step scratch: gap to the car/obstacle ahead (for the hard no-overlap clamp). */
@@ -541,6 +607,16 @@ export class TrafficSystem {
   private readonly routeBuf: Int32Array;
   private readonly routeLen: Int32Array;
   private readonly routePos: Int32Array;
+
+  // --- Blockades (sized `blockade.max`): centre, radius and the box within which a car looks at one ---------
+  private readonly blkX: Float64Array;
+  private readonly blkZ: Float64Array;
+  private readonly blkR: Float64Array;
+  private readonly blkMinX: Float64Array;
+  private readonly blkMaxX: Float64Array;
+  private readonly blkMinZ: Float64Array;
+  private readonly blkMaxZ: Float64Array;
+  private blkCount = 0;
 
   // --- Traffic stop ------------------------------------------------------------------------
   private stopId = -1;
@@ -624,6 +700,14 @@ export class TrafficSystem {
     this.fleeing = new Uint8Array(cap);
     this.fleeTimer = f64();
     this.fleeLost = f64();
+    this.deflated = new Uint8Array(cap);
+    this.deflateT = new Float32Array(cap);
+    this.blockWait = new Float32Array(cap);
+    this.spinT = new Float32Array(cap);
+    this.spinDir = new Int8Array(cap);
+    this.spinYaw0 = new Float32Array(cap);
+    this.capMps = new Float32Array(cap);
+    this.tracked = new Uint8Array(cap);
     this.aside = new Uint8Array(cap);
     this.hardGap = f64();
     this.pullHold = new Uint8Array(cap);
@@ -634,8 +718,17 @@ export class TrafficSystem {
       this.c2z, this.clen, this.behavior, this.desiredFactor, this.headway, this.weaveAmp, this.weavePeriod,
       this.weavePhase, this.lateral, this.stopPhase, this.stopTimer, this.holding, this.reported, this.flags,
       this.hx, this.hz, this.limitMph, this.shoulder, this.pull, this.pullTimer, this.pinned, this.fleetIndex,
-      this.aside, this.fleeing, this.fleeTimer, this.fleeLost,
+      this.aside, this.fleeing, this.fleeTimer, this.fleeLost, this.deflated, this.deflateT, this.blockWait, this.spinT,
+      this.spinDir, this.spinYaw0, this.capMps, this.tracked,
     ];
+    const blockades = PULLOVER.blockade.max;
+    this.blkX = new Float64Array(blockades);
+    this.blkZ = new Float64Array(blockades);
+    this.blkR = new Float64Array(blockades);
+    this.blkMinX = new Float64Array(blockades);
+    this.blkMaxX = new Float64Array(blockades);
+    this.blkMinZ = new Float64Array(blockades);
+    this.blkMaxZ = new Float64Array(blockades);
     this.fleetEid = new Int32Array(fleetCars);
     this.urgency = new Uint8Array(fleetCars);
     this.arrived = new Uint8Array(fleetCars);
@@ -725,6 +818,7 @@ export class TrafficSystem {
     this.updateStop(dt, focus);
     this.updateYield(dt, focus);
     this.updateFlee(dt, focus);
+    if (this.blkCount > 0) this.sweepBlocked(focus);
     const n = this.count;
     for (let k = 0; k < n; k++) this.computeAccel(this.order[k] ?? 0, k, dt, time, focus);
     for (let slot = 0; slot < n; slot++) this.integrate(slot, dt, focus);
@@ -1047,6 +1141,174 @@ export class TrafficSystem {
     return true;
   }
 
+  // --- Pursuit hooks (Phase 6 design §6.2) ---------------------------------------------------------
+
+  /**
+   * Deflates `tires` (0..4, cumulative max 4) tyres of an active non-fleet car; a fleeing car's speed cap is
+   * `flee.maxSpeed * spikes.speedFactor[deflated]`, and with at least `spikes.minTires` deflated its flee ends
+   * 'stopped' after `spikes.stopAfterS` (it pulls over). False when absent or a fleet car.
+   */
+  deflate(vehicleId: number, tires: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0 || !(tires >= 0)) return false;
+    this.deflated[slot] = Math.min(4, (this.deflated[slot] ?? 0) + Math.min(4, Math.trunc(tires)));
+    return true;
+  }
+
+  /**
+   * PIT result: the car yaws by `dir * spin.yawDeg` over `spin.durationS` while decelerating at `slideDecel`, then
+   * becomes `crashed` with hazards (a fleeing car's flee ends 'crashed' at that moment). False when absent, a
+   * fleet car, crashed or already spinning.
+   */
+  spinOut(vehicleId: number, dir: 1 | -1): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0 || this.state[slot] === TRAFFIC_STATE.crashed || (this.spinT[slot] ?? -1) >= 0) return false;
+    this.spinT[slot] = 0;
+    this.spinDir[slot] = dir < 0 ? -1 : 1;
+    this.spinYaw0[slot] = this.yaw[slot] ?? 0;
+    return true;
+  }
+
+  /** Ram: the car is crashed at once (a fleeing car's flee ends 'crashed'). False when absent, a fleet car or already crashed. */
+  crashCar(vehicleId: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || (this.fleetIndex[slot] ?? -1) >= 0 || this.state[slot] === TRAFFIC_STATE.crashed) return false;
+    this.wreck(slot);
+    if (this.fleeing[slot] === 1) this.endFlee(slot, 'crashed');
+    return true;
+  }
+
+  /** Caps a fleeing car's speed (m/s); Infinity clears. False when not fleeing. */
+  setFleeSpeedCap(vehicleId: number, capMps: number): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || this.fleeing[slot] !== 1 || !(capMps >= 0)) return false;
+    this.capMps[slot] = capMps;
+    return true;
+  }
+
+  /** While tracked the flee's lose timer does not run (air unit overhead). False when not fleeing. */
+  setFleeTracked(vehicleId: number, tracked: boolean): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || this.fleeing[slot] !== 1) return false;
+    this.tracked[slot] = tracked ? 1 : 0;
+    return true;
+  }
+
+  /** `fleeState` plus the Phase 6 fields; false when not fleeing. */
+  fleeInfo(vehicleId: number, out: FleeInfo): boolean {
+    const slot = this.slotOfVehicle(vehicleId);
+    if (slot < 0 || this.fleeing[slot] !== 1) return false;
+    out.x = this.x[slot] ?? 0;
+    out.z = this.z[slot] ?? 0;
+    out.yaw = this.yaw[slot] ?? 0;
+    out.speed = this.v[slot] ?? 0;
+    out.edge = laneEdge(this.lane[slot] ?? 0);
+    out.deflated = this.deflated[slot] ?? 0;
+    out.spinning = this.isSpinning(slot);
+    out.capMps = this.fleeCap(slot);
+    out.tracked = this.tracked[slot] === 1;
+    return true;
+  }
+
+  /**
+   * Replaces the blockade list (at most `blockade.max`; extra entries ignored; a non-positive radius is skipped).
+   * Ambient cars stop short of each circle, none spawns near one, and a car stuck behind one turns around.
+   */
+  setBlockades(list: readonly Blockade[]): void {
+    const look = PULLOVER.blockade.lookaheadM;
+    let n = 0;
+    for (const b of list) {
+      if (n >= this.blkX.length) break;
+      if (!(b.radius > 0) || !Number.isFinite(b.x) || !Number.isFinite(b.z)) continue;
+      const reach = b.radius + look;
+      this.blkX[n] = b.x;
+      this.blkZ[n] = b.z;
+      this.blkR[n] = b.radius;
+      this.blkMinX[n] = b.x - reach;
+      this.blkMaxX[n] = b.x + reach;
+      this.blkMinZ[n] = b.z - reach;
+      this.blkMaxZ[n] = b.z + reach;
+      n++;
+    }
+    this.blkCount = n;
+  }
+
+  /** Number of active blockades. */
+  get blockadeCount(): number {
+    return this.blkCount;
+  }
+
+  /** The explicit speed cap and the deflation cap of a fleeing car, whichever is lower (m/s). */
+  private fleeCap(slot: number): number {
+    const n = this.deflated[slot] ?? 0;
+    const cap = this.capMps[slot] ?? Infinity;
+    return n > 0 ? Math.min(cap, PULLOVER.flee.maxSpeed * (PULLOVER.spikes.speedFactor[n] ?? 1)) : cap;
+  }
+
+  private isSpinning(slot: number): boolean {
+    const t = this.spinT[slot] ?? -1;
+    return t >= 0 && t < PULLOVER.spin.durationS && this.state[slot] !== TRAFFIC_STATE.crashed;
+  }
+
+  /** Spin-out step: slide along the original heading at `slideDecel`, then wreck (and end a flee as crashed). */
+  private integrateSpin(slot: number, dt: number): void {
+    const sp = PULLOVER.spin;
+    const t = (this.spinT[slot] ?? 0) + dt;
+    this.spinT[slot] = t;
+    const v = Math.max(0, (this.v[slot] ?? 0) - sp.slideDecel * dt);
+    const end = this.graph.laneEnd(this.lane[slot] ?? 0);
+    const s0 = this.s[slot] ?? 0;
+    let s = s0 + v * dt;
+    // Stays in its lane: stops at the line unless already across it.
+    if (s0 <= end && s > end) s = end;
+    this.s[slot] = s;
+    this.v[slot] = v;
+    this.speedView[slot] = v;
+    if (t >= sp.durationS) {
+      this.wreck(slot);
+      if (this.fleeing[slot] === 1) this.endFlee(slot, 'crashed');
+    } else this.state[slot] = v < 0.3 ? TRAFFIC_STATE.waiting : TRAFFIC_STATE.driving;
+  }
+
+  /**
+   * Gap (m, bumper to the circle's edge) to the nearest blockade ahead of a car at (cx, cz) heading (hx, hz):
+   * ahead, within `radius` of the heading line and within `radius + lookaheadM`; Infinity when none.
+   */
+  private blockadeGap(cx: number, cz: number, hx: number, hz: number, halfLen: number): number {
+    let gap = Infinity;
+    for (let i = 0; i < this.blkCount; i++) {
+      if (cx < (this.blkMinX[i] ?? 0) || cx > (this.blkMaxX[i] ?? 0) || cz < (this.blkMinZ[i] ?? 0) || cz > (this.blkMaxZ[i] ?? 0)) continue;
+      const dx = (this.blkX[i] ?? 0) - cx, dz = (this.blkZ[i] ?? 0) - cz;
+      const along = dx * hx + dz * hz;
+      const r = this.blkR[i] ?? 0;
+      if (along <= 0 || along > r + PULLOVER.blockade.lookaheadM || Math.abs(-dx * hz + dz * hx) > r) continue;
+      const g = Math.max(0, along - r - halfLen);
+      if (g < gap) gap = g;
+    }
+    return gap;
+  }
+
+  /** True when (x, z) is within `radius + blockade.noSpawnM` of a blockade. */
+  private nearBlockade(x: number, z: number): boolean {
+    for (let i = 0; i < this.blkCount; i++) {
+      const reach = (this.blkR[i] ?? 0) + PULLOVER.blockade.noSpawnM;
+      const dx = x - (this.blkX[i] ?? 0), dz = z - (this.blkZ[i] ?? 0);
+      if (dx * dx + dz * dz < reach * reach) return true;
+    }
+    return false;
+  }
+
+  /** Cars that waited behind a blockade for `blockade.waitS` turn around (despawn) once farther than 30 m from the focus. */
+  private sweepBlocked(focus: TrafficFocus): void {
+    const waitS = PULLOVER.blockade.waitS;
+    const unseen2 = BLOCKADE_UNSEEN * BLOCKADE_UNSEEN;
+    for (let slot = this.count - 1; slot >= 0; slot--) {
+      if ((this.blockWait[slot] ?? 0) < waitS || this.pinned[slot] === 1) continue;
+      const dx = (this.x[slot] ?? 0) - focus.x, dz = (this.z[slot] ?? 0) - focus.z;
+      if (dx * dx + dz * dz > unseen2) this.despawnSlot(slot, true);
+    }
+  }
+
   /**
    * Pursuit upkeep: a crash ends it ('crashed', the wreck stays pinned for the scene), so does staying beyond
    * loseDistanceM of the focus for loseS ('escaped', the car despawns), and after minFleeS each whole
@@ -1054,6 +1316,7 @@ export class TrafficSystem {
    */
   private updateFlee(dt: number, focus: TrafficFocus): void {
     const fl = PULLOVER.flee;
+    const sp = PULLOVER.spikes;
     const lose2 = fl.loseDistanceM * fl.loseDistanceM;
     const giveUp = fl.giveUpPerMin / 60;
     for (let slot = this.count - 1; slot >= 0; slot--) {
@@ -1064,10 +1327,15 @@ export class TrafficSystem {
       }
       const t = (this.fleeTimer[slot] ?? 0) + dt;
       this.fleeTimer[slot] = t;
+      // A spin-out runs its course (it ends the flee as crashed).
+      if ((this.spinT[slot] ?? -1) >= 0) continue;
       const dx = (this.x[slot] ?? 0) - focus.x, dz = (this.z[slot] ?? 0) - focus.z;
-      const lost = dx * dx + dz * dz > lose2 ? (this.fleeLost[slot] ?? 0) + dt : 0;
+      // Tracked (air unit overhead): the lose timer does not run.
+      const lost = this.tracked[slot] !== 1 && dx * dx + dz * dz > lose2 ? (this.fleeLost[slot] ?? 0) + dt : 0;
       this.fleeLost[slot] = lost;
+      if ((this.deflated[slot] ?? 0) >= sp.minTires) this.deflateT[slot] = (this.deflateT[slot] ?? 0) + dt;
       if (lost >= fl.loseS) this.endFlee(slot, 'escaped');
+      else if ((this.deflated[slot] ?? 0) >= sp.minTires && (this.deflateT[slot] ?? 0) >= sp.stopAfterS) this.endFlee(slot, 'stopped');
       else if (t >= fl.minFleeS && Math.floor(t) !== Math.floor(t - dt) && this.rng.chance(giveUp)) this.endFlee(slot, 'gaveUp');
     }
   }
@@ -1078,6 +1346,9 @@ export class TrafficSystem {
     this.fleeing[slot] = 0;
     this.fleeTimer[slot] = 0;
     this.fleeLost[slot] = 0;
+    this.deflateT[slot] = 0;
+    this.tracked[slot] = 0;
+    this.capMps[slot] = Infinity;
     this.bus?.emit('traffic:fleeEnded', { eid, vehicleId, reason, x: this.x[slot] ?? 0, z: this.z[slot] ?? 0 });
     if (reason === 'escaped') this.despawnSlot(slot, true);
     else if (reason !== 'crashed') {
@@ -1166,6 +1437,11 @@ export class TrafficSystem {
         car.fleeTimer = this.fleeTimer[i] ?? 0;
         car.fleeLost = this.fleeLost[i] ?? 0;
       }
+      if ((this.deflated[i] ?? 0) !== 0) car.deflated = this.deflated[i] ?? 0;
+      if ((this.deflateT[i] ?? 0) !== 0) car.deflateT = this.deflateT[i] ?? 0;
+      if ((this.spinT[i] ?? -1) >= 0) car.spin = [this.spinT[i] ?? 0, this.spinDir[i] ?? 1, this.spinYaw0[i] ?? 0];
+      if (this.capMps[i] !== Infinity) car.cap = this.capMps[i] ?? 0;
+      if (this.tracked[i] === 1) car.tracked = 1;
       const f = this.fleetIndex[i] ?? -1;
       if (f >= 0) this.saveFleet(f, i, car);
     }
@@ -1175,6 +1451,10 @@ export class TrafficSystem {
     if (this.stopCandidate >= 0) {
       snap.stopCandidate = this.stopCandidate;
       snap.stopTimer = this.stopDelay;
+    }
+    if (this.blkCount > 0) {
+      snap.blockades = [];
+      for (let i = 0; i < this.blkCount; i++) snap.blockades.push([this.blkX[i] ?? 0, this.blkZ[i] ?? 0, this.blkR[i] ?? 0]);
     }
     return snap;
   }
@@ -1215,6 +1495,19 @@ export class TrafficSystem {
       this.fleeTimer[slot] = flee ? (c.fleeTimer ?? 0) : 0;
       this.fleeLost[slot] = flee ? (c.fleeLost ?? 0) : 0;
       this.pinned[slot] = (c.pinned ?? 0) !== 0 || flee || isFleetVehicleId(c.vehicleId) ? 1 : 0;
+      if (!isFleetVehicleId(c.vehicleId)) {
+        this.deflated[slot] = Math.max(0, Math.min(4, Math.trunc(c.deflated ?? 0)));
+        if (c.spin) {
+          this.spinT[slot] = c.spin[0];
+          this.spinDir[slot] = c.spin[1] < 0 ? -1 : 1;
+          this.spinYaw0[slot] = c.spin[2];
+        }
+        if (flee) {
+          this.deflateT[slot] = c.deflateT ?? 0;
+          this.capMps[slot] = c.cap ?? Infinity;
+          this.tracked[slot] = (c.tracked ?? 0) !== 0 ? 1 : 0;
+        }
+      }
       this.accel[slot] = c.accel;
       this.state[slot] = c.state;
       this.behavior[slot] = c.behavior;
@@ -1243,6 +1536,7 @@ export class TrafficSystem {
     }
     this.stopCandidate = snapshot.stopCandidate ?? -1;
     this.stopDelay = this.stopCandidate >= 0 ? (snapshot.stopTimer ?? 0) : 0;
+    this.setBlockades((snapshot.blockades ?? []).map(([x, z, radius]) => ({ x, z, radius })));
     this.stats.active = this.count;
   }
 
@@ -1356,6 +1650,7 @@ export class TrafficSystem {
     const p = this.graph.lanePoint(lane, s, this.lp);
     const d2 = (p.x - focus.x) * (p.x - focus.x) + (p.z - focus.z) * (p.z - focus.z);
     if (d2 < rMin * rMin || d2 > rMax * rMax || d2 < NEVER_WITHIN * NEVER_WITHIN) return false;
+    if (this.blkCount > 0 && this.nearBlockade(p.x, p.z)) return false;
     // Nearest car ahead on the lane: bumper gap and speed.
     let gapAhead = Infinity;
     let vAhead = 0;
@@ -1447,6 +1742,8 @@ export class TrafficSystem {
   private allocSlot(id: number, lane: number, s: number, speed: number, model: number, color: number, faults: number): number {
     const slot = this.count++;
     for (const a of this.slotArrays) a[slot] = 0;
+    this.spinT[slot] = -1;
+    this.capMps[slot] = Infinity;
     const eid = spawn(this.world, Transform, PrevTransform);
     EntityKind.kind[eid] = KIND.Vehicle;
     attachVehicleLook(this.world, eid, model, color, faults);
@@ -1941,6 +2238,13 @@ export class TrafficSystem {
       this.pullHold[slot] = 0;
       return;
     }
+    if ((this.spinT[slot] ?? -1) >= 0) {
+      // Spinning out: off IDM control (`integrateSpin`); the brake lights follow the slide.
+      this.accel[slot] = (this.v[slot] ?? 0) > 0 ? -PULLOVER.spin.slideDecel : 0;
+      this.hardGap[slot] = Infinity;
+      this.pullHold[slot] = 0;
+      return;
+    }
     const g = this.graph;
     const m = this.model[slot] ?? 0;
     const f = this.fleetIndex[slot] ?? -1;
@@ -1956,7 +2260,7 @@ export class TrafficSystem {
     this.limitMph[slot] = limitMph;
     let v0: number;
     if (f >= 0) v0 = this.fleetSpeed(f, limitMph);
-    else if (this.fleeing[slot] === 1) v0 = Math.min(limitMph * MPH * PULLOVER.flee.speedFactor, PULLOVER.flee.maxSpeed);
+    else if (this.fleeing[slot] === 1) v0 = Math.min(limitMph * MPH * PULLOVER.flee.speedFactor, PULLOVER.flee.maxSpeed, this.fleeCap(slot));
     else {
       v0 = limitMph * MPH * (this.desiredFactor[slot] ?? 1);
       if (bits & BEHAVIOR.dui) {
@@ -2044,6 +2348,17 @@ export class TrafficSystem {
         }
       }
     }
+    // Blockades (not for fleet cars, which drive through, nor fleeing cars): a stopped leader at the circle's edge.
+    let blocked = false;
+    if (this.blkCount > 0 && f < 0 && this.fleeing[slot] !== 1) {
+      const bg = this.blockadeGap(cx, cz, hx, hz, hl);
+      if (bg < gap) {
+        gap = bg;
+        vLead = 0;
+        blocked = true;
+      }
+    }
+    this.blockWait[slot] = blocked && v < BLOCKADE_WAIT_SPEED ? (this.blockWait[slot] ?? 0) + dt : 0;
     this.hardGap[slot] = gap;
     // Lane drop: yield to a sibling-lane car bound for the same lane unless clearly ahead of it (zipper merge).
     // IDM only: side by side the gap is negative, which brakes at maxDecel instead of the hard clamp's instant stop.
@@ -2122,6 +2437,10 @@ export class TrafficSystem {
   /** Pass 2: integrate speed and position; junction entry and lane transitions. */
   private integrate(slot: number, dt: number, focus: TrafficFocus): void {
     const st = this.state[slot] ?? 0;
+    if ((this.spinT[slot] ?? -1) >= 0 && st !== TRAFFIC_STATE.crashed) {
+      this.integrateSpin(slot, dt);
+      return;
+    }
     if (st === TRAFFIC_STATE.crashed || st === TRAFFIC_STATE.parked) {
       this.v[slot] = 0;
       this.speedView[slot] = 0;
@@ -2225,6 +2544,12 @@ export class TrafficSystem {
     this.hx[slot] = hx;
     this.hz[slot] = hz;
     this.yaw[slot] = Math.atan2(-hx, -hz);
+    // A spun car keeps its heading for movement but its body yaws round (and stays so as a wreck).
+    const spin = this.spinT[slot] ?? -1;
+    if (spin >= 0) {
+      const sp = PULLOVER.spin;
+      this.yaw[slot] = (this.spinYaw0[slot] ?? 0) + (this.spinDir[slot] ?? 1) * sp.yawDeg * DEG * Math.min(1, spin / sp.durationS);
+    }
   }
 
   /** Path point `s` metres along the car's lane, continuing over its connector onto the next lane. */
@@ -2958,15 +3283,23 @@ export class TrafficSystem {
     // (the traffic-stop target must still reach / leave the curb): the event still tells the dispatcher.
     const p = this.pull[slot];
     const curb = eid === this.stopEid || p === PULL.pulling || p === PULL.stopped || p === PULL.parked;
-    if ((this.fleetIndex[slot] ?? -1) < 0 && !curb) {
-      this.state[slot] = TRAFFIC_STATE.crashed;
-      this.v[slot] = 0;
-      this.speedView[slot] = 0;
-      this.accel[slot] = 0;
-      this.releaseHold(slot);
-      this.proxy[slot]?.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      VehicleLook.lights[eid] = (VehicleLook.lights[eid] ?? 0) | LIGHT.hazard;
-    }
-    this.bus?.emit('traffic:collision', { eid, vehicleId: this.vehicleId[slot] ?? 0, other, impactSpeed });
+    // A fleeing car survives contacts: the pursuit module decides (spinOut / crashCar / nothing).
+    const fleeing = this.fleeing[slot] === 1;
+    if ((this.fleetIndex[slot] ?? -1) < 0 && !curb && !fleeing) this.wreck(slot);
+    const vehicleId = this.vehicleId[slot] ?? 0;
+    if (fleeing) this.bus?.emit('traffic:collision', { eid, vehicleId, other, impactSpeed, fleeing: true });
+    else this.bus?.emit('traffic:collision', { eid, vehicleId, other, impactSpeed });
+  }
+
+  /** The car is a wreck: stopped, no junction hold, hazards on. */
+  private wreck(slot: number): void {
+    const eid = this.eid[slot] ?? 0;
+    this.state[slot] = TRAFFIC_STATE.crashed;
+    this.v[slot] = 0;
+    this.speedView[slot] = 0;
+    this.accel[slot] = 0;
+    this.releaseHold(slot);
+    this.proxy[slot]?.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    VehicleLook.lights[eid] = (VehicleLook.lights[eid] ?? 0) | LIGHT.hazard;
   }
 }

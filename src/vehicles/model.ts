@@ -12,7 +12,7 @@ import {
   type JsonObject,
 } from './json';
 
-export const VEHICLE_ROLES = ['police', 'civilian', 'commercial'] as const;
+export const VEHICLE_ROLES = ['police', 'civilian', 'commercial', 'service'] as const;
 export type VehicleRole = (typeof VEHICLE_ROLES)[number];
 export const BODY_STYLES = ['sedan', 'hatchback', 'suv', 'pickup', 'van', 'truck', 'bus'] as const;
 export type BodyStyle = (typeof BODY_STYLES)[number];
@@ -31,13 +31,15 @@ export interface VehicleColor {
  * litres. Body dimensions describe the body box; `height` excludes the ground clearance.
  */
 export interface VehicleModel {
-  /** Position in `VEHICLE_MODELS` (sorted by id); stored in `VehicleLook.model`. */
+  /** Position in `VEHICLE_MODELS` (sorted by `listOrder`, then id); stored in `VehicleLook.model`. */
   readonly index: number;
   readonly id: string;
   readonly name: string;
   readonly role: VehicleRole;
   /** Relative spawn weight in traffic; 0 = never. */
   readonly trafficWeight: number;
+  /** List group (integer >= 0, default 0): models sort by `(listOrder, id)`, so later groups never move earlier indices. */
+  readonly listOrder: number;
   readonly body: {
     readonly style: BodyStyle;
     readonly length: number;
@@ -152,6 +154,12 @@ function readNumbers<K extends string>(obj: JsonObject, ranges: Ranges<K>, sourc
 
 function section(root: JsonObject, key: string, source: string): JsonObject {
   return readObject(root[key], source, key);
+}
+
+function readListOrder(value: unknown, source: string): number {
+  const n = readNumber(value, source, 'listOrder', 0);
+  if (!Number.isInteger(n)) fail(source, 'listOrder', `must be an integer, got ${n}`);
+  return n;
 }
 
 /** Parses the optional `equipment` section; null when absent. */
@@ -282,6 +290,7 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
     name: readString(root.name, source, 'name'),
     role: readOneOf(root.role, VEHICLE_ROLES, source, 'role'),
     trafficWeight: readNumber(root.trafficWeight, source, 'trafficWeight', 0),
+    listOrder: root.listOrder === undefined ? 0 : readListOrder(root.listOrder, source),
     body,
     colors,
     lightbar: readBoolean(root.lightbar, source, 'lightbar'),
@@ -332,7 +341,7 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
   };
 }
 
-/** Parses a glob result (`path -> json`) into models sorted by id; `index` is the sorted position. */
+/** Parses a glob result (`path -> json`) into models sorted by `(listOrder, id)`; `index` is the sorted position. */
 export function loadVehicleModels(files: Record<string, unknown>): VehicleModel[] {
   const parsed = Object.entries(files).map(([path, json]) => {
     const source = path.slice(path.lastIndexOf('/') + 1);
@@ -340,12 +349,12 @@ export function loadVehicleModels(files: Record<string, unknown>): VehicleModel[
     if (`${model.id}.json` !== source) fail(source, 'id', `must match the file name, got ${JSON.stringify(model.id)}`);
     return model;
   });
-  parsed.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  parsed.sort((a, b) => a.listOrder - b.listOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   if (parsed.length > 255) throw new Error(`Too many vehicle models (${parsed.length}); VehicleLook.model is a Uint8`);
   return parsed.map((model, index) => ({ ...model, index }));
 }
 
-/** Every shipped model, sorted by id. Adding a JSON file adds a model; no code change needed. */
+/** Every shipped model, sorted by `(listOrder, id)`. Adding a JSON file adds a model; no code change needed. */
 export const VEHICLE_MODELS: readonly VehicleModel[] = loadVehicleModels(
   import.meta.glob<unknown>('../data/vehicles/*.json', { eager: true, import: 'default' }),
 );

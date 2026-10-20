@@ -63,7 +63,12 @@ export interface DispatchDeps {
   /** Overrides for tests; default the validated JSON. */
   readonly config?: DispatchConfig;
   readonly units?: UnitsData;
+  /** Phase 6: roster name of an AI unit's officer (null = keep the `units.json` name). */
+  readonly officerName?: (callsign: string) => string | null;
 }
+
+/** Phase 6 ETA ranker: lower is better, `Infinity` = unreachable (the unit is skipped). */
+export type UnitRanker = (callsign: string, x: number, z: number, urgency: FleetUrgency) => number;
 
 export interface DispatchStats {
   readonly generated: number;
@@ -95,6 +100,10 @@ const RESPAWN_S = 5;
 const SPAWN_OFFSETS: readonly (readonly [number, number])[] = [
   [0, 0], [150, 0], [0, 150], [-150, 0], [0, -150], [300, 300], [-300, 300], [300, -300], [-300, -300], [600, 0], [0, 600], [-600, 0], [0, -600],
 ];
+/** The ETA ranker only looks at this many nearest eligible units (by straight line). */
+export const ETA_RANK_K = 4;
+/** A release postponed by `setUnitHold` happens at the latest this long (sim s) after `releaseAt`. */
+export const HOLD_MAX_S = 30;
 const DEFAULT_ON_SCENE: readonly [number, number] = [120, 300];
 
 interface AiUnit {
@@ -126,6 +135,8 @@ interface AiUnit {
   arrived: boolean;
   lastAvlX: number;
   lastAvlZ: number;
+  /** Phase 6: sent to a point by `directUnit`; the backup retarget leaves it alone. */
+  directed: boolean;
   /** Runtime only: entity the PoliceLights were attached to (0 = re-attach). */
   eid: number;
   present: boolean;
@@ -156,6 +167,13 @@ export class Dispatcher {
   private readonly unitByIndex = new Map<number, AiUnit>();
   private readonly picked: Uint8Array;
   private readonly pickedOut: AiUnit[] = [];
+  /** Nearest-K candidates of one pick (ETA ranker): unit indices and straight-line distances. */
+  private readonly rankIdx = new Int32Array(ETA_RANK_K);
+  private readonly rankDist = new Float64Array(ETA_RANK_K);
+  private ranker: UnitRanker | null = null;
+  private holdFn: ((callsign: string) => boolean) | null = null;
+  /** Time of the last step (for the public helpers that change CAD status). */
+  private readonly lastT: { sim: number; game: number } = { sim: 0, game: 0 };
   private readonly unsubscribers: (() => void)[] = [];
   private events: QueuedEvent[] = [];
   private requests: QueuedRequest[] = [];
@@ -233,6 +251,7 @@ export class Dispatcher {
         arrived: false,
         lastAvlX: 0,
         lastAvlZ: 0,
+        directed: false,
         eid: 0,
         present: false,
         nextRespawn: 0,
@@ -271,7 +290,7 @@ export class Dispatcher {
     cad.addUnit({ callsign: p.callsign, kind: 'player', officer: p.officer, beat: p.beat, fleetIndex: -1 }, t);
     cad.setUnitPosition(p.callsign, player.x, player.z);
     for (const u of this.units) {
-      cad.addUnit({ callsign: u.callsign, kind: 'ai', officer: u.data.officer, beat: u.data.beat, fleetIndex: u.fleetIndex }, t);
+      cad.addUnit({ callsign: u.callsign, kind: 'ai', officer: this.officerOf(u), beat: u.data.beat, fleetIndex: u.fleetIndex }, t);
       u.color = pickModelColor(vehicleModel(u.data.model), this.unitsRng.next());
       const eid = this.spawnCar(u, u.beatX, u.beatZ);
       if (eid !== 0) {
@@ -298,6 +317,8 @@ export class Dispatcher {
   step(dt: number, t: CadTime, player: PlayerUnitState): void {
     if (!this.started) return;
     this.player = player;
+    this.lastT.sim = t.sim;
+    this.lastT.game = t.game;
     this.drainEvents(t);
     this.drainRequests(t);
     this.generate(dt, t);
@@ -330,6 +351,77 @@ export class Dispatcher {
    */
   setCrimeFactor(fn: ((district: string) => number) | null): void {
     this.generator.setCrimeFactor(fn);
+  }
+
+  /**
+   * Phase 6 ETA ranker: when set, `pickUnits` keeps the nearest `ETA_RANK_K` eligible units by straight line and
+   * picks the one with the lowest `fn(callsign, x, z, urgency)` (`Infinity` = unreachable, skipped; ties go to the
+   * nearer unit). `null` restores the plain nearest pick.
+   */
+  setUnitRanker(fn: UnitRanker | null): void {
+    this.ranker = fn;
+  }
+
+  /**
+   * Phase 6: sends AI unit `callsign` (assigned to a call) to (x, z) at `urgency`. It stops following the player
+   * (the backup retarget skips it) until `undirectUnit`; CAD status enRoute, arrival -> onScene as usual.
+   * False when the unit is unknown, has no call or has no car.
+   */
+  directUnit(callsign: string, x: number, z: number, urgency: FleetUrgency): boolean {
+    const u = this.units.find((v) => v.callsign === callsign);
+    if (!u || u.callId === null || u.mode === 'patrol' || u.mode === 'beat' || u.mode === 'break') return false;
+    if (!this.deps.traffic.setFleetDestination(u.fleetIndex, x, z, urgency)) return false;
+    const t = time(this.lastT);
+    this.deps.cad.setUnitStatus(u.callsign, 'enRoute', t, 'auto');
+    u.directed = true;
+    u.mode = 'enRoute';
+    u.hasDest = true;
+    u.destX = x;
+    u.destZ = z;
+    u.destEmergency = urgency === 'emergency';
+    u.enRouteSince = t.sim;
+    u.progressLeftM = -1;
+    u.stuckSince = -1;
+    u.onSceneUntil = -1;
+    u.replanned = false;
+    u.arrived = false;
+    return true;
+  }
+
+  /** Phase 6: the unit follows the player again (backup retarget). */
+  undirectUnit(callsign: string): void {
+    const u = this.units.find((v) => v.callsign === callsign);
+    if (u) u.directed = false;
+  }
+
+  /** Phase 6: while `fn(callsign)` is true a release (Code 4 / `releaseAt`) is postponed, at most `HOLD_MAX_S` past `releaseAt`. */
+  setUnitHold(fn: ((callsign: string) => boolean) | null): void {
+    this.holdFn = fn;
+  }
+
+  /** Phase 6: AI patrol callsigns assigned to `callId` (fills and returns `out`). */
+  aiUnitsOnCall(callId: number, out: string[]): string[] {
+    out.length = 0;
+    for (const u of this.units) if (u.callId === callId) out.push(u.callsign);
+    return out;
+  }
+
+  /**
+   * Phase 6: sends `n` more patrol units to the player's current call at `code` (the backup request without the
+   * radio acknowledgement). Returns their callsigns; none without an open call of the player.
+   */
+  sendBackup(code: 2 | 3, n: number): string[] {
+    const { cad } = this.deps;
+    const pu = cad.unit(this.playerCallsign);
+    const call = pu && pu.callId !== null ? cad.call(pu.callId) : null;
+    if (!call || call.status === 'closed' || n < 1) return [];
+    const p = this.player;
+    const urgency: FleetUrgency = code === 3 ? 'emergency' : 'respond';
+    const units = this.pickUnits(n, p.x, p.z, call.id, 'preemptLow', urgency);
+    const t = time(this.lastT);
+    for (const u of units) this.dispatchUnit(u, call.id, p.x, p.z, urgency, 'backup', 'backup', t);
+    if (units.length > 0) this.setBackupTarget(t);
+    return units.map((u) => u.callsign);
   }
 
   /** CAD location of the point (x, z). */
@@ -466,6 +558,7 @@ export class Dispatcher {
         replanned: u.replanned,
         arrived: u.arrived,
         lastAvl: [u.lastAvlX, u.lastAvlZ],
+        ...(u.directed ? { directed: true } : {}),
       })),
       offer: { callId: this.offerCallId, declined: [...this.declined] },
       plans: [...this.plans],
@@ -526,6 +619,7 @@ export class Dispatcher {
       u.arrived = s.arrived;
       u.lastAvlX = s.lastAvl[0];
       u.lastAvlZ = s.lastAvl[1];
+      u.directed = s.directed === true;
     }
     for (const u of this.units) {
       u.eid = 0;
@@ -562,7 +656,7 @@ export class Dispatcher {
     const { cad, traffic } = this.deps;
     for (const u of this.units) {
       if (cad.unit(u.callsign)) continue;
-      cad.addUnit({ callsign: u.callsign, kind: 'ai', officer: u.data.officer, beat: u.data.beat, fleetIndex: u.fleetIndex }, t);
+      cad.addUnit({ callsign: u.callsign, kind: 'ai', officer: this.officerOf(u), beat: u.data.beat, fleetIndex: u.fleetIndex }, t);
       const fs = traffic.fleetState(u.fleetIndex, u.fs);
       u.lastAvlX = fs ? fs.x : u.beatX;
       u.lastAvlZ = fs ? fs.z : u.beatZ;
@@ -571,6 +665,10 @@ export class Dispatcher {
     for (const cu of [...cad.units()]) {
       if (cu.kind === 'ai' && !this.units.some((u) => u.callsign === cu.callsign)) cad.removeUnit(cu.callsign);
     }
+  }
+
+  private officerOf(u: AiUnit): string {
+    return this.deps.officerName?.(u.callsign) ?? u.data.officer;
   }
 
   /** Dispatch is waiting for the player's answer to a status check (survives save/load; HUD and in-car screen). */
@@ -789,6 +887,9 @@ export class Dispatcher {
         break;
       case 'stopContact':
         this.reqStopContact(r.action, t, r.personId);
+        break;
+      case 'resource':
+        // Phase 6: the resources module handles it from the bus (no acknowledgement here).
         break;
       case 'repeat':
         break;
@@ -1061,7 +1162,7 @@ export class Dispatcher {
       cad.setUnitStatus(pc, 'onScene', t, 'auto');
     }
     const n = code === 3 ? this.cfg.backup.code3Units : this.cfg.backup.code2Units;
-    const units = this.pickUnits(n, p.x, p.z, call.id, 'preemptLow');
+    const units = this.pickUnits(n, p.x, p.z, call.id, 'preemptLow', code === 3 ? 'emergency' : 'respond');
     for (const u of units) this.dispatchUnit(u, call.id, p.x, p.z, code === 3 ? 'emergency' : 'respond', 'backup', 'backup', t);
     if (units.length > 0) this.setBackupTarget(t);
     const callsigns = units.map((u) => u.callsign);
@@ -1105,7 +1206,7 @@ export class Dispatcher {
     const location = this.generator.locate(p.x, p.z);
     const call = this.openOfficerCall('officerEmergency', 1, location, t);
     this.emergencyCallId = call.id;
-    const units = this.pickUnits(this.cfg.emergency.units, p.x, p.z, call.id, 'preemptAll');
+    const units = this.pickUnits(this.cfg.emergency.units, p.x, p.z, call.id, 'preemptAll', 'emergency');
     for (const u of units) this.dispatchUnit(u, call.id, p.x, p.z, 'emergency', 'dispatch', 'emergency', t);
     this.setBackupTarget(t);
     bus.emit('dispatch:emergency', { callsign: pc, active: true, units: units.map((u) => u.callsign), location: location.near });
@@ -1310,8 +1411,8 @@ export class Dispatcher {
     const wanted = this.plans.get(c.id) ?? (c.priority === 1 ? this.cfg.assign.p1Units : 1);
     const need = wanted - ai;
     if (need <= 0) return;
-    const units = this.pickUnits(need, c.location.x, c.location.z, c.id, 'available');
     const urgency: FleetUrgency = c.priority <= 2 ? 'emergency' : 'respond';
+    const units = this.pickUnits(need, c.location.x, c.location.z, c.id, 'available', urgency);
     for (const u of units) this.dispatchUnit(u, c.id, c.location.x, c.location.z, urgency, 'dispatch', 'call', t);
   }
 
@@ -1348,12 +1449,13 @@ export class Dispatcher {
    * already on `callId`: 'available' = patrolling units only; 'preemptLow' also takes units on P3/P4
    * calls; 'preemptAll' takes any unit that is not out of service.
    */
-  private pickUnits(n: number, x: number, z: number, callId: number, mode: 'available' | 'preemptLow' | 'preemptAll'): AiUnit[] {
+  private pickUnits(n: number, x: number, z: number, callId: number, mode: 'available' | 'preemptLow' | 'preemptAll', urgency: FleetUrgency = 'respond'): AiUnit[] {
     const { cad } = this.deps;
     const out = this.pickedOut;
     out.length = 0;
     this.picked.fill(0);
     const maxD = this.cfg.assign.maxDistanceM;
+    if (this.ranker) return this.pickRanked(n, x, z, callId, mode, urgency);
     for (let k = 0; k < n; k++) {
       let best: AiUnit | null = null;
       let bestD = maxD;
@@ -1367,6 +1469,59 @@ export class Dispatcher {
         if (d <= bestD && (best === null || d < bestD)) {
           best = u;
           bestD = d;
+        }
+      }
+      if (!best) break;
+      this.picked[best.fleetIndex] = 1;
+      out.push(best);
+    }
+    return out;
+  }
+
+  /**
+   * `pickUnits` with the ETA ranker: per pick the nearest `ETA_RANK_K` eligible units (straight line, ties in roster
+   * order) are ranked by `ranker`; the lowest finite value wins, ties go to the nearer unit.
+   */
+  private pickRanked(n: number, x: number, z: number, callId: number, mode: 'available' | 'preemptLow' | 'preemptAll', urgency: FleetUrgency): AiUnit[] {
+    const { cad } = this.deps;
+    const ranker = this.ranker;
+    const out = this.pickedOut;
+    const idx = this.rankIdx;
+    const dist = this.rankDist;
+    const maxD = this.cfg.assign.maxDistanceM;
+    for (let k = 0; k < n; k++) {
+      let count = 0;
+      for (let i = 0; i < this.units.length; i++) {
+        const u = this.units[i];
+        if (!u || this.picked[i] === 1 || !u.present || u.mode === 'break' || u.callId === callId) continue;
+        const cu = cad.unit(u.callsign);
+        if (!cu || cu.status === 'outOfService') continue;
+        if (!this.eligible(u, cu, mode)) continue;
+        const d = Math.hypot(cu.x - x, cu.z - z);
+        if (d > maxD) continue;
+        // Insert into the sorted nearest-K list (after equal distances: roster order breaks ties).
+        let pos = count;
+        while (pos > 0 && (dist[pos - 1] as number) > d) pos--;
+        if (pos >= ETA_RANK_K) continue;
+        const last = Math.min(count, ETA_RANK_K - 1);
+        for (let j = last; j > pos; j--) {
+          idx[j] = idx[j - 1] as number;
+          dist[j] = dist[j - 1] as number;
+        }
+        idx[pos] = i;
+        dist[pos] = d;
+        if (count < ETA_RANK_K) count++;
+      }
+      let best: AiUnit | null = null;
+      let bestV = Infinity;
+      for (let j = 0; j < count; j++) {
+        const u = this.units[idx[j] as number];
+        if (!u) continue;
+        const v = ranker ? ranker(u.callsign, x, z, urgency) : 0;
+        if (Number.isNaN(v) || v === Infinity) continue;
+        if (best === null || v < bestV) {
+          best = u;
+          bestV = v;
         }
       }
       if (!best) break;
@@ -1404,6 +1559,7 @@ export class Dispatcher {
     u.breakUntil = -1;
     u.replanned = false;
     u.arrived = false;
+    u.directed = false;
     traffic.setFleetDestination(u.fleetIndex, x, z, urgency);
   }
 
@@ -1434,8 +1590,10 @@ export class Dispatcher {
         continue;
       }
       if (u.releaseAt >= 0 && t.sim >= u.releaseAt && (u.mode === 'enRoute' || u.mode === 'onScene')) {
-        this.release(u, t);
-        continue;
+        if (!this.holdFn || t.sim >= u.releaseAt + HOLD_MAX_S || !this.holdFn(u.callsign)) {
+          this.release(u, t);
+          continue;
+        }
       }
       switch (u.mode) {
         case 'enRoute':
@@ -1561,6 +1719,7 @@ export class Dispatcher {
     u.releaseAt = -1;
     u.replanned = false;
     u.arrived = false;
+    u.directed = false;
     u.nextBeatCheck = t.sim + PATROL_CHECK_S;
     this.deps.traffic.setFleetPatrol(u.fleetIndex);
   }
@@ -1608,7 +1767,7 @@ export class Dispatcher {
     if (Math.hypot(p.x - this.backupTargetX, p.z - this.backupTargetZ) <= this.cfg.backup.retargetMoveM) return;
     let moved = false;
     for (const u of this.units) {
-      if ((u.role !== 'backup' && u.role !== 'emergency') || u.callId === null || u.releaseAt >= 0) continue;
+      if ((u.role !== 'backup' && u.role !== 'emergency') || u.callId === null || u.releaseAt >= 0 || u.directed) continue;
       const urgency: FleetUrgency = u.destEmergency ? 'emergency' : 'respond';
       if (u.mode === 'enRoute') {
         u.destX = p.x;
@@ -1697,7 +1856,7 @@ export class Dispatcher {
     const location = this.generator.locate(pu.x, pu.z);
     const call = this.openOfficerCall('officerWelfare', 1, location, t);
     this.welfareCallId = call.id;
-    const units = this.pickUnits(sc.escalateUnits, pu.x, pu.z, call.id, 'preemptLow');
+    const units = this.pickUnits(sc.escalateUnits, pu.x, pu.z, call.id, 'preemptLow', 'emergency');
     for (const u of units) this.dispatchUnit(u, call.id, location.x, location.z, 'emergency', 'dispatch', 'welfare', t);
     this.deps.bus.emit('dispatch:statusCheck', { callsign: pu.callsign, attempt: this.checkAttempt, escalated: true, location: location.near });
   }
@@ -1754,6 +1913,7 @@ export class Dispatcher {
     u.releaseAt = -1;
     u.replanned = false;
     u.arrived = false;
+    u.directed = false;
     u.nextBeatCheck = now;
     u.nextRespawn = 0;
   }

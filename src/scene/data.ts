@@ -51,6 +51,8 @@ export interface SceneConfig {
     /** Canvass knocks on a call that count as `canvassed`. */
     readonly canvassHits: number;
   };
+  /** Phase 6: flags the command module may set on a call (`commandFlag` requests); anything else is ignored. */
+  readonly commandFlags: readonly string[];
   readonly limits: { readonly closedCap: number; readonly propCap: number };
 }
 
@@ -81,13 +83,20 @@ function range(o: JsonObject, sec: string, key: string): readonly [number, numbe
 export function parseSceneConfig(json: unknown): SceneConfig {
   const root = readObject(json, FILE, '');
   readVersion(root, FILE);
-  for (const k of Object.keys(root)) if (!['version', 'distances', 'tactics', 'people', 'ambientFlee', 'indoor', 'limits'].includes(k)) fail(FILE, k, 'is not a known section');
+  for (const k of Object.keys(root)) if (!['version', 'distances', 'tactics', 'people', 'ambientFlee', 'indoor', 'commandFlags', 'limits'].includes(k)) fail(FILE, k, 'is not a known section');
   const d = section(root, 'distances', ['materializeM', 'arriveM', 'actionRangeM', 'nearM', 'propClearM', 'sceneAtM', 'hudM', 'lightsM', 'backupM', 'driveAwayM', 'vehicleGapM', 'forceNearM', 'shoutM']);
   const t = section(root, 'tactics', ['shoutConeDeg', 'taserConeDeg', 'disperseShare', 'ackDelayS', 'revealChance', 'foundEscapedChance', 'crashFootFleeChance', 'standoffResolveS']);
   const p = section(root, 'people', ['pickTries', 'riskMin', 'injuryValue']);
   const f = section(root, 'ambientFlee', ['base', 'wanted', 'stolen', 'intoxicated', 'contraband', 'bacThreshold']);
   const l = section(root, 'limits', ['closedCap', 'propCap']);
   const ind = root.indoor === undefined ? DEFAULT_INDOOR : section(root, 'indoor', ['bindRadiusM', 'knockAnswerS', 'noAnswerExigencyS', 'canvassHits']);
+  const commandFlags = readArray(root.commandFlags, FILE, 'commandFlags', 1).map((v, i) => {
+    if (typeof v !== 'string' || !/^[a-zA-Z][a-zA-Z0-9]*$/.test(v)) fail(FILE, `commandFlags[${i}]`, `must be a plain flag name, got ${JSON.stringify(v)}`);
+    return v;
+  });
+  commandFlags.forEach((f, i) => {
+    if (commandFlags.indexOf(f) !== i) fail(FILE, `commandFlags[${i}]`, `duplicates ${JSON.stringify(f)}`);
+  });
   const dist = (k: string): number => num(d, 'distances', k, 0.1, 100000);
   const prob = (o: JsonObject, sec: string, k: string): number => num(o, sec, k, 0, 1);
   const materializeM = dist('materializeM');
@@ -138,6 +147,7 @@ export function parseSceneConfig(json: unknown): SceneConfig {
       noAnswerExigencyS: num(ind, 'indoor', 'noAnswerExigencyS', 0, 3600),
       canvassHits: Math.floor(num(ind, 'indoor', 'canvassHits', 1, 100)),
     },
+    commandFlags,
     limits: { closedCap: Math.floor(num(l, 'limits', 'closedCap', 1, 100000)), propCap: Math.floor(num(l, 'limits', 'propCap', 1, 4096)) },
   };
 }

@@ -158,7 +158,8 @@ function isActionState(x: unknown): x is ActionState {
   return isObj(x) && isStr(x.id) && isOneOf(x.state, ['done', 'running', 'requested'] as const) && isNum(x.dueSim);
 }
 function isServiceState(x: unknown): x is SceneServiceSave {
-  return isObj(x) && isStr(x.kind) && isNum(x.dueSim) && isBool(x.arrived) && isNum(x.effectDueSim) && (x.ackDueSim === undefined || isNum(x.ackDueSim));
+  return isObj(x) && isStr(x.kind) && isNum(x.dueSim) && isBool(x.arrived) && isNum(x.effectDueSim) && (x.ackDueSim === undefined || isNum(x.ackDueSim)) &&
+    (x.external === undefined || isBool(x.external));
 }
 
 function isArrest(x: unknown): x is SceneArrest {
@@ -212,8 +213,16 @@ export function isSceneRequest(x: unknown): x is SceneRequest {
     case 'weapon':
     case 'tackle':
     case 'shout':
-    case 'terminatePursuit':
       return true;
+    case 'terminatePursuit':
+      return x.reason === undefined || x.reason === 'terminated' || x.reason === 'handoff';
+    case 'serviceRequest':
+    case 'serviceArrived':
+      return isInt(x.callId, 1) && isStr(x.service);
+    case 'custody':
+      return isInt(x.callId, 1) && isInt(x.personId, 0) && isStr(x.by);
+    case 'commandFlag':
+      return isInt(x.callId, 1) && isStr(x.flag);
     case 'fire':
       return isNum(x.dirX) && isNum(x.dirZ);
     case 'action':

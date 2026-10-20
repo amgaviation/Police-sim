@@ -114,6 +114,10 @@ export interface FellowOfficer {
   x: number;
   z: number;
   building: number;
+  /** Phase 6: callsign of a backup officer (absent for the Phase 5 partner). */
+  callsign?: string;
+  /** Phase 6: chance 0..1 that this officer starts a misconduct episode on a restrained, previously violent subject; absent = `fellow.chance`. */
+  misconductChance?: number;
 }
 
 /** Structural port to the NPC system (hooks adds `resistance`, `incapacitate`, `wound`, `taserCycle`). */

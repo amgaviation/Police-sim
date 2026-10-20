@@ -7,7 +7,7 @@ import { statusLabel } from '../../cad/codes';
 import { dispositionLabel, findStatute, statuteForPlateIssue, statuteForViolation, type PlateIssue, type Statute } from '../../cad/data';
 import { type CadDocument, type CitationViolation, type DocKind, type DocumentStore, citationTotal } from '../../cad/documents';
 import { addressAt } from '../../cad/address';
-import type { CadCall, Priority, TrafficStopInfo, UnitStatus } from '../../cad/types';
+import type { CadCall, Priority, TrafficStopInfo, UnitKind, UnitStatus } from '../../cad/types';
 import { ageOn, formatClockTime, formatDate, formatStamp } from '../../records/calendar';
 import type { PlateQueryResult, RecordsDb, VinQueryResult } from '../../records/db';
 import type { RecordHit } from '../../records/hits';
@@ -130,8 +130,13 @@ export interface CallDetailLine {
   readonly text: string;
 }
 
-/** Caller, location, units, times, then every narrative entry with its game clock and documents. */
-export function callDetailLines(call: CadCall): CallDetailLine[] {
+function unitWithEta(label: string, callsign: string, eta?: (callsign: string) => number): string {
+  const t = eta ? formatEta(eta(callsign)) : '';
+  return t === '' ? label : `${label} (ETA ${t})`;
+}
+
+/** Caller, location, units (with the live ETA of those still coming), times, then every narrative entry and document. */
+export function callDetailLines(call: CadCall, eta?: (callsign: string) => number): CallDetailLine[] {
   const c = call.caller;
   const loc = call.location;
   const out: CallDetailLine[] = [
@@ -145,7 +150,7 @@ export function callDetailLines(call: CadCall): CallDetailLine[] {
     {
       kind: 'field',
       label: 'Units',
-      text: call.units.length > 0 ? call.units.map((u) => (u === call.primary ? `${u}*` : u)).join(', ') : 'NONE',
+      text: call.units.length > 0 ? call.units.map((u) => unitWithEta(u === call.primary ? `${u}*` : u, u, eta)).join(', ') : 'NONE',
     },
     {
       kind: 'field',
@@ -166,6 +171,10 @@ export function callDetailLines(call: CadCall): CallDetailLine[] {
 
 export interface UnitRow {
   readonly callsign: string;
+  /** 'player', 'ai' (patrol) or 'resource' (kind badge of the Units tab). */
+  readonly kind: UnitKind;
+  /** Live ETA 'm:ss' of an en-route unit, '' when unknown (needs the `eta` feed). */
+  readonly eta: string;
   readonly officer: string;
   readonly player: boolean;
   readonly status: UnitStatus;
@@ -183,13 +192,25 @@ export interface UnitRow {
 /** Search radius for a unit's AVL address. */
 const UNIT_ADDRESS_RADIUS = 150;
 
-/** The roster in CAD order with status labels and the `near` text of each AVL position. */
-export function unitRows(cad: CadState, graph: RoadGraph, nowSim = Number.NaN): UnitRow[] {
-  return cad.units().map((u) => {
+/** 'm:ss' of a live ETA in seconds, '' when negative or not finite (unknown). */
+export function formatEta(etaS: number): string {
+  return Number.isFinite(etaS) && etaS >= 0 ? formatAge(etaS) : '';
+}
+
+/**
+ * The roster with status labels and the `near` text of each AVL position: patrol units in CAD order, then the resource
+ * units (Phase 6). `eta` is the live ETA feed (seconds, negative unknown).
+ */
+export function unitRows(cad: CadState, graph: RoadGraph, nowSim = Number.NaN, eta?: (callsign: string) => number): UnitRow[] {
+  const units = cad.units();
+  const ordered = [...units.filter((u) => u.kind !== 'resource'), ...units.filter((u) => u.kind === 'resource')];
+  return ordered.map((u) => {
     const call = u.callId !== null ? cad.call(u.callId) : null;
     const address = addressAt(graph, u.x, u.z, undefined, UNIT_ADDRESS_RADIUS);
     return {
       callsign: u.callsign,
+      kind: u.kind,
+      eta: eta ? formatEta(eta(u.callsign)) : '',
       officer: u.officer,
       player: u.kind === 'player',
       status: u.status,

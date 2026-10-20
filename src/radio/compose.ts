@@ -31,6 +31,7 @@ import { plateOf } from '../traffic/registry';
 import type { TrafficCarEvent } from '../traffic/events';
 import { channelDef, PHRASES, REQUEST_CHANNEL, type FragmentKey, type PhraseKind } from './data';
 import type { RadioNet } from './net';
+import { requestLabel } from './requestTypes';
 import { fillTemplate, joinUnits, type ModeText, type TemplateValue, type TemplateValues } from './template';
 import type { ChannelId, QueuedTransmission, SpeakerKind } from './types';
 
@@ -77,6 +78,8 @@ interface LineOptions {
   readonly waitClear?: boolean;
   readonly request?: UnitRequest | null;
   readonly via?: RequestVia | null;
+  /** Replaces the phrase template of the kind in both radio modes (Phase 6 lines that have no phrases.json entry). */
+  readonly template?: string;
 }
 
 /** Routine unit traffic that is dropped, not delayed, by an emergency hold. */
@@ -84,6 +87,9 @@ const ROUTINE_KINDS: ReadonlySet<string> = new Set(['enRoute', 'onScene', 'clear
 
 /** CAD call type of the player's emergency (dispatched units are named by the priority broadcast). */
 const EMERGENCY_CALL_TYPE = 'officerEmergency';
+
+/** The player's line for a resource request (same in plain and ten-code mode). */
+const RESOURCE_REQUEST_LINE = '{unit}, requesting {label} to {near}.';
 
 /** Gap between two of the player's own transmissions (s): one key-up after the other, never over it. */
 const OWN_KEY_GAP_S = 0.3;
@@ -177,8 +183,8 @@ export class Composer {
     const u = this.host.rng.next();
     const lists = PHRASES.kinds[kind];
     const at = (list: readonly string[]): string => list[Math.min(list.length - 1, Math.floor(u * list.length))] ?? '';
-    const text = fillTemplate(at(lists[mode]), values, mode);
-    const durationText = mode === 'tenCode' ? text : fillTemplate(at(lists.tenCode), values, 'tenCode');
+    const text = fillTemplate(o.template ?? at(lists[mode]), values, mode);
+    const durationText = mode === 'tenCode' ? text : fillTemplate(o.template ?? at(lists.tenCode), values, 'tenCode');
     return net.enqueue({
       channel: o.channel ?? REQUEST_CHANNEL,
       speaker: o.speaker,
@@ -238,6 +244,7 @@ export class Composer {
     const player = this.host.player;
     let kind: PhraseKind = 'generic';
     let values: TemplateValues = {};
+    let template: string | undefined;
     switch (request.kind) {
       case 'status':
         kind = 'status';
@@ -266,6 +273,11 @@ export class Composer {
       case 'backup':
         kind = 'backupRequest';
         values = { backupCode: this.fragment(request.code === 3 ? 'backupCode3' : 'backupCode2'), near: this.host.playerNear() };
+        break;
+      case 'resource':
+        kind = 'generic';
+        template = RESOURCE_REQUEST_LINE;
+        values = { label: requestLabel(request.typeId), near: this.host.playerNear() };
         break;
       case 'location':
         if (this.expectLocation) {
@@ -313,6 +325,7 @@ export class Composer {
       priority: request.kind === 'emergency',
       request: request.kind === 'repeat' || request.kind === 'emergency' ? null : request,
       via,
+      template,
     });
   }
 

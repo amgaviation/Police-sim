@@ -585,7 +585,7 @@ function isCall(x: unknown): x is CadCall {
 }
 
 function isUnit(x: unknown): x is CadUnit {
-  return isObj(x) && isStr(x.callsign) && x.callsign.length > 0 && isOneOf(x.kind, ['player', 'ai'] as const) &&
+  return isObj(x) && isStr(x.callsign) && x.callsign.length > 0 && isOneOf(x.kind, ['player', 'ai', 'resource'] as const) &&
     isStr(x.officer) && isStr(x.beat) && isInt(x.fleetIndex) && isOneOf(x.status, UNIT_STATUSES) &&
     isNullOr(x.callId, isCallId) && isCadTime(x.statusSince) && isNum(x.x) && isNum(x.z) && isBool(x.emergency);
 }

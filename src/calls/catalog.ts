@@ -802,7 +802,10 @@ function loadTypeFiles(modules: Readonly<Record<string, unknown>>): { file: stri
     .map((path) => ({ file: `types/${path.slice(path.lastIndexOf('/') + 1)}`, json: modules[path] }));
 }
 
-/** The validated catalog (type files processed sorted by path: generation must not depend on the file system). */
+/**
+ * The validated catalog (type files processed sorted by path: generation must not depend on the file system).
+ * Phase 6 adds the `massCasualty` family (`types/massCasualty.json`) and six external services.
+ */
 export const CALL_CATALOG: CallCatalog = validateCatalog(
   {
     families: familiesJson,

@@ -22,7 +22,7 @@ describe('formatAge', () => {
 
 describe('tabFromKey', () => {
   it('maps 1-9 to the tabs in tab-bar order', () => {
-    expect(MDT_TABS).toEqual(['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community']);
+    expect(MDT_TABS).toEqual(['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community', 'resources', 'command']);
     for (let i = 0; i < 9; i++) {
       expect(tabFromKey(String(i + 1))).toBe(MDT_TABS[i]);
       expect(tabFromKey(`Digit${i + 1}`)).toBe(MDT_TABS[i]);

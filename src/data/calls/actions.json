@@ -32,6 +32,13 @@
     { "id": "requestAnimalControl", "label": "Request animal control", "service": "animalControl", "once": true },
     { "id": "requestBombSquad", "label": "Request the bomb squad", "service": "bombSquad", "once": true },
     { "id": "requestTow", "label": "Request a tow truck", "service": "tow", "once": true },
-    { "id": "requestSupervisor", "label": "Request a supervisor", "service": "supervisor", "once": true }
+    { "id": "requestSupervisor", "label": "Request a supervisor", "service": "supervisor", "once": true },
+    { "id": "requestDetectives", "label": "Request detectives", "service": "detectives", "once": true },
+    { "id": "requestCsu", "label": "Request the crime scene unit", "service": "csu", "once": true },
+    { "id": "requestNegotiator", "label": "Request a negotiator", "service": "negotiator", "once": true },
+    { "id": "requestStatePatrol", "label": "Request state patrol", "service": "statePatrol", "once": true },
+    { "id": "requestFederal", "label": "Request federal agents", "service": "federal", "once": true },
+    { "id": "requestAirUnit", "label": "Request the air unit", "service": "airUnit", "once": true },
+    { "id": "establishCommand", "label": "Establish a command post", "requires": "arrived", "sets": ["commandPost"], "once": true }
   ]
 }

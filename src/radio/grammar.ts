@@ -5,6 +5,7 @@
 import type { UnitRequest, UnitStatus } from '../cad/types';
 import { UNIT_STATUSES } from '../cad/types';
 import { COMMAND_GROUPS, PHONETIC, VOICE_COMMANDS, type CommandGroup } from './data';
+import { radioRequestTypes, radioRequestTypesRevision } from './requestTypes';
 
 export interface VoiceContext {
   /** Plate of the targeted / stopped car, used when no plate is spoken. */
@@ -115,6 +116,49 @@ function synonymTable(): Synonym[] {
   return synonyms;
 }
 
+interface RequestPattern {
+  readonly tokens: readonly string[];
+  readonly request: UnitRequest;
+}
+
+const REQUEST_VERBS: readonly string[] = ['request', 'send'];
+/** Words allowed between the verb and the alias ("request a k9"). */
+const REQUEST_DETERMINERS: readonly string[] = ['a', 'an', 'the', 'some'];
+
+let requestPatterns: RequestPattern[] = [];
+let requestPatternsRevision = -1;
+
+/** Phase 6: "request <alias>", "send <alias>", "<alias> to my location" for every radio request type. */
+function requestTable(): RequestPattern[] {
+  const revision = radioRequestTypesRevision();
+  if (revision === requestPatternsRevision) return requestPatterns;
+  const list: RequestPattern[] = [];
+  for (const t of radioRequestTypes()) {
+    for (const alias of t.voice) {
+      const a = normalizeUtterance(alias);
+      if (a.length === 0) continue;
+      for (const verb of REQUEST_VERBS) {
+        list.push({ tokens: [verb, ...a], request: t.request });
+        for (const det of REQUEST_DETERMINERS) list.push({ tokens: [verb, det, ...a], request: t.request });
+      }
+      list.push({ tokens: [...a, 'to', 'my', 'location'], request: t.request });
+    }
+  }
+  requestPatterns = list;
+  requestPatternsRevision = revision;
+  return list;
+}
+
+/** The longest request pattern found in `tokens` (earlier list entries win ties), null none. */
+function matchRequestType(tokens: readonly string[]): RequestPattern | null {
+  let best: RequestPattern | null = null;
+  for (const p of requestTable()) {
+    if (best !== null && p.tokens.length <= best.tokens.length) continue;
+    if (findTokens(tokens, p.tokens) >= 0) best = p;
+  }
+  return best;
+}
+
 /** Index of the first occurrence of `needle` in `hay` as whole tokens, -1 when absent. */
 function findTokens(hay: readonly string[], needle: readonly string[]): number {
   outer: for (let i = 0; i + needle.length <= hay.length; i++) {
@@ -219,6 +263,9 @@ export function parseVoiceCommand(text: string, ctx: VoiceContext = {}): UnitReq
       bestAt = at;
     }
   }
+  // Phase 6 request types: a longer match than the Phase 2 command wins ("backup" alone stays code 2).
+  const typed = matchRequestType(tokens);
+  if (typed !== null && (best === null || typed.tokens.length > best.tokens.length)) return typed.request;
   if (best === null) return null;
   const offer = ctx.offerCallId ?? -1;
   switch (best.group) {

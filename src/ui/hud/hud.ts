@@ -56,6 +56,7 @@ import {
   tacticalChipsText,
   visibilityText,
 } from './tactical';
+import { BACKUP_HUD_LINES, PURSUIT_VERDICT_MS } from './phase6';
 import type { HudBodycam, HudLocation, HudTactical } from './types';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
@@ -120,6 +121,19 @@ export interface HudSnapshot {
   court?: string | null;
   /** Trust of the district the officer is in. */
   trust?: Readonly<HudTrust> | null;
+  // Phase 6 (design §12.4): optional as well; absent or null hides the element.
+  /** Up to 4 lines: '21 Alvarez · COVER', '23 Park · SECONDARY · chasing', posts 'TCP 2/4'. */
+  backup?: readonly string[] | null;
+  /** 'PURSUIT · 62 mph · risk 0.48 · SGT-1 monitoring · AIR on target'. */
+  pursuit6?: string | null;
+  /** Last pursuit tactic verdict ('PIT: within policy'); the HUD hides it `PURSUIT_VERDICT_MS` after it changed. */
+  pursuitVerdict?: string | null;
+  /** 'MEDIC-2 ETA 3:10'. */
+  resourceEta?: string | null;
+  /** Command chip ('ICS · DISASTER · RED 3 YEL 4 GRN 2 BLK 1 · EVAC 60%'). */
+  command?: string | null;
+  /** FLIR overlay on (the app swaps the camera). */
+  flir?: boolean;
 }
 
 export interface HudOptions {
@@ -226,6 +240,18 @@ export interface HudText {
   /** Trust chip ('Trust · Suburbs 62 %'); '' hides it. */
   trust: string;
   trustBand: TrustBand;
+  /** Backup roster lines (`BACKUP_HUD_LINES`, '' = unused). */
+  backup: string[];
+  /** Phase 6 pursuit line; '' hides it. */
+  pursuit6: string;
+  /** Last tactic verdict; '' hides it. */
+  pursuitVerdict: string;
+  /** Next resource ETA chip; '' hides it. */
+  resourceEta: string;
+  /** Command chip; '' hides it. */
+  command: string;
+  /** FLIR chip. */
+  flir: boolean;
 }
 
 export function createHudText(): HudText {
@@ -288,6 +314,12 @@ export function createHudText(): HudText {
     court: '',
     trust: '',
     trustBand: 'high',
+    backup: new Array<string>(BACKUP_HUD_LINES).fill(''),
+    pursuit6: '',
+    pursuitVerdict: '',
+    resourceEta: '',
+    command: '',
+    flir: false,
   };
 }
 
@@ -375,6 +407,13 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
   out.court = s.court ?? '';
   out.trust = trustChipText(s.trust);
   out.trustBand = s.trust ? trustBand(s.trust.value) : 'high';
+  const backup = s.backup ?? null;
+  for (let i = 0; i < BACKUP_HUD_LINES; i++) out.backup[i] = backup?.[i] ?? '';
+  out.pursuit6 = s.pursuit6 ?? '';
+  out.pursuitVerdict = s.pursuitVerdict ?? '';
+  out.resourceEta = s.resourceEta ?? '';
+  out.command = s.command ?? '';
+  out.flir = s.flir === true;
   return out;
 }
 
@@ -448,6 +487,10 @@ const STYLES = {
   courtLine: `${PANEL};position:relative;border-left:4px solid #6cc8ff;font-size:${px(13)};font-weight:600`,
   trust: `margin-top:4px;font-size:${px(12)};font-weight:700`,
   pursuit: `${PANEL};left:50%;top:16px;transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(15)};letter-spacing:0.05em;white-space:nowrap`,
+  pursuit6: `${PANEL};left:50%;top:${px(56)};transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(14)};letter-spacing:0.05em;white-space:nowrap`,
+  pursuitVerdict: `${PANEL};left:50%;top:${px(92)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-weight:700;font-size:${px(14)};white-space:nowrap`,
+  backupPanel: `${PANEL};position:relative;border-left:4px solid #6c9bff;font-size:${px(12)};font-weight:600`,
+  commandLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(12)};font-weight:700;letter-spacing:0.04em`,
 } as const;
 
 /** Corner bracket borders of the target reticle (top-left, top-right, bottom-left, bottom-right). */
@@ -522,6 +565,13 @@ interface HudView {
   duty: HTMLDivElement;
   court: HTMLDivElement;
   trust: HTMLDivElement;
+  backupPanel: HTMLDivElement;
+  backupRows: HTMLDivElement[];
+  pursuit6: HTMLDivElement;
+  pursuitVerdict: HTMLDivElement;
+  resourceEta: HTMLSpanElement;
+  command: HTMLDivElement;
+  flirChip: HTMLSpanElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -551,6 +601,8 @@ function buildView(parent: HTMLElement): HudView {
   const dash = chip('', '#6cc8ff', chipRow);
   const forceChip = chip('', '#ff9a3c', chipRow);
   const episode = chip('', '#ff4d4d', chipRow);
+  const resourceEta = chip('', '#9fd0ff', chipRow);
+  const flirChip = chip('FLIR', '#e8f4ea', chipRow);
   const tacticalRow = node('div', STYLES.tacticalRow, bottomRight);
   tacticalRow.style.display = 'none';
   const tactical = node('div', STYLES.tacticalChips, tacticalRow);
@@ -613,8 +665,22 @@ function buildView(parent: HTMLElement): HudView {
   duty.style.display = 'none';
   const court = node('div', STYLES.courtLine, topLeft);
   court.style.display = 'none';
+  const backupPanel = node('div', STYLES.backupPanel, topLeft);
+  backupPanel.style.display = 'none';
+  const backupRows: HTMLDivElement[] = [];
+  for (let i = 0; i < BACKUP_HUD_LINES; i++) {
+    const r = node('div', '', backupPanel);
+    r.style.display = 'none';
+    backupRows.push(r);
+  }
+  const command = node('div', STYLES.commandLine, topLeft);
+  command.style.display = 'none';
   const pursuit = node('div', STYLES.pursuit, root);
   pursuit.style.display = 'none';
+  const pursuit6 = node('div', STYLES.pursuit6, root);
+  pursuit6.style.display = 'none';
+  const pursuitVerdict = node('div', STYLES.pursuitVerdict, root);
+  pursuitVerdict.style.display = 'none';
 
   const reticle = node('div', STYLES.reticle, root);
   for (const corner of CORNERS) node('div', `${STYLES.corner};${corner}`, reticle);
@@ -655,6 +721,7 @@ function buildView(parent: HTMLElement): HudView {
     weapon, contact, scenePanel, sceneTitle, sceneRows, sceneMarks, sceneTexts, pursuit,
     tacticalRow, tactical, noise, visibility, bodycam, shift, caseLine, location,
     dash, forceChip, episode, legal, duty, court, trust,
+    backupPanel, backupRows, pursuit6, pursuitVerdict, resourceEta, command, flirChip,
   };
 }
 
@@ -682,6 +749,9 @@ export class Hud {
   private renderCount = 0;
   /** True until the first render, so every field is written once. */
   private dirty = true;
+  /** The tactic verdict last seen and when it first appeared (it hides `PURSUIT_VERDICT_MS` later). */
+  private verdictSeen = '';
+  private verdictAtMs = 0;
 
   constructor(parent: HTMLElement, options: HudOptions = {}) {
     this.intervalMs = 1000 / Math.max(0.1, options.updateHz ?? 10);
@@ -703,6 +773,7 @@ export class Hud {
     this.lastRender = nowMs;
     this.renderCount += 1;
     hudText(snapshot, this.next);
+    this.expireVerdict(nowMs);
     this.apply();
   }
 
@@ -714,6 +785,16 @@ export class Hud {
 
   dispose(): void {
     this.view?.root.remove();
+  }
+
+  /** Hides the pursuit verdict `PURSUIT_VERDICT_MS` after the text last changed. */
+  private expireVerdict(nowMs: number): void {
+    const v = this.next.pursuitVerdict;
+    if (v !== this.verdictSeen) {
+      this.verdictSeen = v;
+      this.verdictAtMs = nowMs;
+    }
+    if (v !== '' && nowMs - this.verdictAtMs >= PURSUIT_VERDICT_MS) this.next.pursuitVerdict = '';
   }
 
   /** Copies `next` into `shown`, writing the DOM only where a field changed. */
@@ -821,6 +902,7 @@ export class Hud {
     this.applyScene(all);
     this.applyTactical(all);
     this.applyLaw(all);
+    this.applyPhase6(all);
   }
 
   /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
@@ -1078,6 +1160,58 @@ export class Hud {
         v.trust.style.color = TRUST_COLORS[n.trustBand];
         show(v.trust, n.trust !== '');
       }
+    }
+  }
+  /** Phase 6 fields (backup lines, pursuit line and verdict, resource ETA chip, command line, FLIR chip). */
+  private applyPhase6(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    let anyBackup = false;
+    let backupChanged = all;
+    for (let i = 0; i < BACKUP_HUD_LINES; i++) {
+      const text = n.backup[i] ?? '';
+      if (text !== '') anyBackup = true;
+      if (!all && text === o.backup[i]) continue;
+      backupChanged = true;
+      o.backup[i] = text;
+      const row = v?.backupRows[i];
+      if (!row) continue;
+      row.textContent = text;
+      show(row, text !== '');
+    }
+    if (v && backupChanged) show(v.backupPanel, anyBackup);
+    if (all || n.pursuit6 !== o.pursuit6) {
+      o.pursuit6 = n.pursuit6;
+      if (v) {
+        v.pursuit6.textContent = n.pursuit6;
+        show(v.pursuit6, n.pursuit6 !== '');
+      }
+    }
+    if (all || n.pursuitVerdict !== o.pursuitVerdict) {
+      o.pursuitVerdict = n.pursuitVerdict;
+      if (v) {
+        v.pursuitVerdict.textContent = n.pursuitVerdict;
+        show(v.pursuitVerdict, n.pursuitVerdict !== '');
+      }
+    }
+    if (all || n.resourceEta !== o.resourceEta) {
+      o.resourceEta = n.resourceEta;
+      if (v) {
+        v.resourceEta.textContent = n.resourceEta;
+        show(v.resourceEta, n.resourceEta !== '', 'inline');
+      }
+    }
+    if (all || n.command !== o.command) {
+      o.command = n.command;
+      if (v) {
+        v.command.textContent = n.command;
+        show(v.command, n.command !== '');
+      }
+    }
+    if (all || n.flir !== o.flir) {
+      o.flir = n.flir;
+      if (v) show(v.flirChip, n.flir, 'inline');
     }
   }
 }

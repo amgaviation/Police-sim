@@ -1,0 +1,91 @@
+/* Air unit (FLIR) overlay: prefix air-, and the canvas filter classes flir-on / flir-black-hot (Phase 6 design §12.5). */
+.flir-on {
+  filter: grayscale(1) contrast(1.9) brightness(1.15);
+}
+
+.flir-on.flir-black-hot {
+  filter: grayscale(1) contrast(1.9) brightness(1.15) invert(1);
+}
+
+.air-flir {
+  position: absolute;
+  inset: 0;
+  z-index: 880;
+  pointer-events: none;
+  color: #e8f4ea;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: calc(13px * var(--text-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+}
+
+.air-flir[hidden] {
+  display: none;
+}
+
+.air-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(64px * var(--text-scale, 1));
+  height: calc(64px * var(--text-scale, 1));
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(232, 244, 234, 0.7);
+  border-radius: 50%;
+}
+
+.air-reticle::before,
+.air-reticle::after {
+  content: '';
+  position: absolute;
+  background: rgba(232, 244, 234, 0.7);
+}
+
+.air-reticle::before {
+  left: 50%;
+  top: -14px;
+  width: 1px;
+  height: calc(100% + 28px);
+}
+
+.air-reticle::after {
+  top: 50%;
+  left: -14px;
+  height: 1px;
+  width: calc(100% + 28px);
+}
+
+.air-mode {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+}
+
+.air-alt {
+  position: absolute;
+  right: 24px;
+  top: 24px;
+}
+
+.air-compass {
+  position: absolute;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+}
+
+.air-target {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(56px * var(--text-scale, 1));
+  height: calc(56px * var(--text-scale, 1));
+  margin: calc(-28px * var(--text-scale, 1)) 0 0 calc(-28px * var(--text-scale, 1));
+  border: 2px solid #ffd84a;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+}
+
+.air-target[hidden] {
+  display: none;
+}

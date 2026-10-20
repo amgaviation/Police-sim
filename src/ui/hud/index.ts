@@ -80,6 +80,17 @@ export {
 } from './tactical';
 export type { FloorPlan, HudBodycam, HudLocation, HudTactical } from './types';
 export {
+  BACKUP_HUD_LINES,
+  PURSUIT_VERDICT_MS,
+  backupHudLines,
+  backupLineText,
+  commandChipText,
+  postStaffingText,
+  pursuitHudLine,
+  pursuitHudVerdict,
+  resourceEtaText,
+} from './phase6';
+export {
   LEGAL_COLORS,
   TRUST_COLORS,
   TRUST_LOW,

@@ -136,7 +136,7 @@ const CONTACT_GLOBAL_FLAGS: ReadonlySet<string> = new Set(['bacOver', 'sfstFail'
 /** Global flags a scenario passes on to the scenarios it mirrors. */
 const MIRROR_GLOBAL: ReadonlySet<string> = new Set([
   'pursuit', 'pursuitLost', 'pursuitEnded', 'pursuitTerminated', 'vehicleStopped', 'forceUsed', 'shotsFired', 'attacked', 'bacOver', 'sfstFail',
-  'weaponFound', 'contrabandFound',
+  'weaponFound', 'contrabandFound', 'pursuitHandoff',
 ]);
 /** Profiles of participants EMS transports. */
 
@@ -221,6 +221,10 @@ export class SceneDirector implements IncidentResolver {
   private readonly indoor: IndoorConfig;
   private readonly shoutCone: number;
   private readonly taserCone: number;
+  /** Phase 6: flags the command module may set (`scene.json` commandFlags). */
+  private readonly commandFlags: ReadonlySet<string>;
+  /** Phase 6: dispatches real units for the scene's services (the resources module); null = the scene's own timers. */
+  private serviceProvider: ((callId: number, kind: string) => boolean) | null = null;
   private readonly seed: number;
   private readonly rng: Rng;
   private readonly pc: string;
@@ -268,6 +272,7 @@ export class SceneDirector implements IncidentResolver {
     this.deps = deps;
     this.cfg = deps.config ?? SCENE_CONFIG;
     this.indoor = deps.indoorConfig ?? INDOOR;
+    this.commandFlags = new Set(this.cfg.commandFlags);
     this.shoutCone = Math.cos((this.cfg.tactics.shoutConeDeg * Math.PI) / 180);
     this.taserCone = Math.cos((this.cfg.tactics.taserConeDeg * Math.PI) / 180);
     this.propSource = createPropSource(this.cfg.limits.propCap);
@@ -1412,6 +1417,59 @@ export class SceneDirector implements IncidentResolver {
     return this.byCall.get(callId)?.buildingId ?? -1;
   }
 
+  /** Phase 6: the building the call is bound to (Phase 4 `rt.buildingId`), -1 none. */
+  buildingOfCall(callId: number): number {
+    return this.buildingOf(callId);
+  }
+
+  /**
+   * Phase 6: real units. Called inside `requestService`; true = the provider dispatches a unit, so the service is
+   * `external` (`dueSim` Infinity, no scene acknowledgement or arrival line) until `serviceArrived`.
+   */
+  setServiceProvider(fn: ((callId: number, kind: string) => boolean) | null): void {
+    this.serviceProvider = fn;
+  }
+
+  /** Phase 6: true when service `kind` was requested (or arrived) on `callId`. */
+  serviceRequested(callId: number, kind: string): boolean {
+    const rt = this.byCall.get(callId);
+    return rt !== undefined && rt.services.some((s) => s.kind === kind);
+  }
+
+  /** Phase 6: true when the call has a scenario runtime. */
+  hasScenario(callId: number): boolean {
+    return this.byCall.has(callId);
+  }
+
+  /** Phase 6: participants of the call's scenario (role, person, actor id 0 = not spawned, injured, deceased). Allocates (UI / rare). */
+  participants(callId: number): { role: string; personId: number; actorId: number; injured: boolean; deceased: boolean }[] {
+    const rt = this.byCall.get(callId);
+    if (!rt) return [];
+    return rt.scenario.participants.map((p, i) => ({
+      role: p.role,
+      personId: p.personId,
+      actorId: rt.actorIds[i] ?? 0,
+      injured: this.isInjured(rt, p),
+      deceased: p.deceased,
+    }));
+  }
+
+  /** Phase 6: family id of the call's scenario, null without one. */
+  familyOf(callId: number): string | null {
+    return this.byCall.get(callId)?.scenario.family ?? null;
+  }
+
+  /** Phase 6: the call's live flag set (read-only view of the runtime's set), null without a scenario. */
+  flagsOf(callId: number): ReadonlySet<string> | null {
+    return this.byCall.get(callId)?.flags ?? null;
+  }
+
+  private isInjured(rt: ScenarioRuntime, p: ScenarioRuntime['scenario']['participants'][number]): boolean {
+    if (p.deceased || p.body !== 'human') return false;
+    const profile = this.effectiveProfile(rt, p.role, p.profile);
+    return p.injured || rt.flags.has(`injury:${p.role}`) || INJURED_PROFILES.has(profile) || rt.flags.has('medicalEmergency');
+  }
+
   /** Does participant `p` lie on the floor (the dead, the unconscious)? */
   private lies(rt: ScenarioRuntime, p: ScenarioRuntime['scenario']['participants'][number]): boolean {
     return p.deceased || /^subject(Deceased|Unconscious)$/.test(this.effectiveProfile(rt, p.role, p.profile));
@@ -2023,13 +2081,19 @@ export class SceneDirector implements IncidentResolver {
     const def = serviceDef(kind);
     const call = this.deps.cad.call(rt.scenario.callId);
     const vars = { unit: this.pc, address: call?.location.text ?? '', near: call?.location.near ?? '' };
-    rt.services.push({
-      kind,
-      dueSim: t.sim + this.rng.nextFloat(def.arriveS[0], Math.max(def.arriveS[0], def.arriveS[1])),
-      arrived: false,
-      effectDueSim: -1,
-      ackDueSim: t.sim + this.cfg.tactics.ackDelayS,
-    });
+    // Phase 6: a provider that dispatches a real unit replaces the scene's timers and its acknowledgement.
+    const external = this.serviceProvider?.(rt.scenario.callId, kind) === true;
+    rt.services.push(
+      external
+        ? { kind, dueSim: Infinity, arrived: false, effectDueSim: -1, ackDueSim: -1, external: true }
+        : {
+            kind,
+            dueSim: t.sim + this.rng.nextFloat(def.arriveS[0], Math.max(def.arriveS[0], def.arriveS[1])),
+            arrived: false,
+            effectDueSim: -1,
+            ackDueSim: t.sim + this.cfg.tactics.ackDelayS,
+          },
+    );
     this.setFlag(rt, `service:${kind}`);
     this.radio(fill(def.radio, vars), this.pc);
     this.deps.bus.emit('scene:service', { callId: rt.scenario.callId, kind, phase: 'requested' });
@@ -2043,21 +2107,61 @@ export class SceneDirector implements IncidentResolver {
       s.ackDueSim = -1;
       this.radio(fill(def.ack, vars), null);
     }
-    if (!s.arrived && t.sim >= s.dueSim) {
-      s.arrived = true;
-      this.setFlag(rt, `arrived:${s.kind}`);
-      for (const f of def.sets) this.setFlag(rt, f);
-      this.radio(def.arrivedText, null);
-      const st = this.actionState(rt, `request${s.kind.charAt(0).toUpperCase()}${s.kind.slice(1)}`);
-      if (st) st.state = 'done';
-      this.applyServiceEffect(rt, s, def.effect, t);
-      this.deps.bus.emit('scene:service', { callId: rt.scenario.callId, kind: s.kind, phase: 'arrived' });
-      this.rev++;
-    }
+    if (!s.arrived && t.sim >= s.dueSim) this.markServiceArrived(rt, s, t, true);
     if (s.effectDueSim >= 0 && t.sim >= s.effectDueSim) {
       s.effectDueSim = -1;
       this.resolveBarricade(rt);
     }
+  }
+
+  /** A service arrived: flags, the action row, the effect and `scene:service` (with the arrival line unless a real unit announced itself). */
+  private markServiceArrived(rt: ScenarioRuntime, s: ServiceState, t: CadTime, announce: boolean): void {
+    const def = serviceDef(s.kind as ServiceKind);
+    s.arrived = true;
+    this.setFlag(rt, `arrived:${s.kind}`);
+    for (const f of def.sets) this.setFlag(rt, f);
+    if (announce) this.radio(def.arrivedText, null);
+    const st = this.actionState(rt, `request${s.kind.charAt(0).toUpperCase()}${s.kind.slice(1)}`);
+    if (st) st.state = 'done';
+    this.applyServiceEffect(rt, s, def.effect, t);
+    this.deps.bus.emit('scene:service', { callId: rt.scenario.callId, kind: s.kind, phase: 'arrived' });
+    this.rev++;
+  }
+
+  /** `serviceRequest`: the same as pressing the action, for a service not yet requested on a call with a scenario. */
+  private onServiceRequest(callId: number, service: string, t: CadTime): void {
+    const rt = this.byCall.get(callId);
+    if (!rt || !isServiceKind(service) || rt.services.some((s) => s.kind === service)) return;
+    const actionId = `request${service.charAt(0).toUpperCase()}${service.slice(1)}`;
+    if (familyDef(rt.scenario.family)?.actions.includes(actionId) && !this.actionState(rt, actionId)) {
+      rt.actions.push({ id: actionId, state: 'requested', dueSim: -1 });
+    }
+    this.requestService(rt, service, t);
+    this.rev++;
+  }
+
+  /** `serviceArrived`: a real unit is on scene; a service nobody requested is added (external) first. */
+  private onServiceArrived(callId: number, service: string, t: CadTime): void {
+    const rt = this.byCall.get(callId);
+    if (!rt || !isServiceKind(service)) return;
+    let s = rt.services.find((x) => x.kind === service);
+    if (!s) {
+      s = { kind: service, dueSim: Infinity, arrived: false, effectDueSim: -1, ackDueSim: -1, external: true };
+      rt.services.push(s);
+      this.setFlag(rt, `service:${service}`);
+    }
+    if (s.arrived) return;
+    this.markServiceArrived(rt, s, t, false);
+  }
+
+  /** `custody`: a backup officer cuffed the person (no scene radio line). */
+  private onCustody(callId: number, personId: number): void {
+    const rt = this.byCall.get(callId);
+    const p = rt?.scenario.participants.find((x) => x.personId === personId && personId >= 0);
+    if (!rt || !p) return;
+    this.deps.people.setCustody(personId, 'arrested');
+    this.setFlag(rt, `custody:${p.role}`);
+    this.noteArrest(rt, p.role);
   }
 
   private applyServiceEffect(rt: ScenarioRuntime, s: ServiceState, effect: string, t: CadTime): void {
@@ -2066,6 +2170,8 @@ export class SceneDirector implements IncidentResolver {
         this.transportInjured(rt);
         return;
       case 'resolveBarricade':
+        // Phase 6: real tactical units (and the negotiation) resolve the standoff themselves.
+        if (s.external) return;
         s.effectDueSim = t.sim + this.rng.nextFloat(this.cfg.tactics.standoffResolveS[0], this.cfg.tactics.standoffResolveS[1]);
         return;
       case 'revealHidden':
@@ -2103,6 +2209,8 @@ export class SceneDirector implements IncidentResolver {
   private transportInjured(rt: ScenarioRuntime): void {
     const { npc, people } = this.deps;
     if (rt.flags.has('branch:refuses')) return;
+    // Phase 6: the command module transports (triage order) on a call with an incident command post.
+    if (rt.flags.has('icsTransport')) return;
     const ps = rt.scenario.participants;
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
@@ -2219,8 +2327,22 @@ export class SceneDirector implements IncidentResolver {
           this.shout();
           break;
         case 'terminatePursuit':
-          this.terminatePursuit(t);
+          this.terminatePursuit(t, r.reason ?? 'terminated');
           break;
+        case 'serviceRequest':
+          this.onServiceRequest(r.callId, r.service, t);
+          break;
+        case 'serviceArrived':
+          this.onServiceArrived(r.callId, r.service, t);
+          break;
+        case 'custody':
+          this.onCustody(r.callId, r.personId);
+          break;
+        case 'commandFlag': {
+          const rt = this.byCall.get(r.callId);
+          if (rt && this.commandFlags.has(r.flag)) this.setFlag(rt, r.flag);
+          break;
+        }
         case 'action': {
           const rt = this.byCall.get(r.callId);
           if (rt) this.doAction(rt, r.actionId, t);
@@ -2696,8 +2818,10 @@ export class SceneDirector implements IncidentResolver {
    * The officer calls off the active vehicle pursuit: it is removed, the call is flagged `pursuitEnded`,
    * `pursuitTerminated` and `escaped:driver`, and `scene:pursuit` ends with `endReason: 'terminated'`. The fleeing car
    * keeps running and despawns as escaped (`onFleeEnded` then finds no pursuit). Without a vehicle pursuit nothing happens.
+   * Phase 6: with `reason: 'handoff'` the end reason is `handoff`, the flag `pursuitHandoff` replaces `pursuitTerminated`
+   * and the radio line says state units have primary.
    */
-  private terminatePursuit(_t: CadTime): void {
+  private terminatePursuit(_t: CadTime, reason: 'terminated' | 'handoff' = 'terminated'): void {
     let idx = -1;
     for (let i = this.pursuits.length - 1; i >= 0; i--) {
       if (this.pursuits[i]?.kind === 'vehicle') {
@@ -2708,14 +2832,14 @@ export class SceneDirector implements IncidentResolver {
     const pur = this.pursuits[idx];
     if (!pur) return;
     this.pursuits.splice(idx, 1);
-    this.emitPursuitEnd(pur, 'terminated');
+    this.emitPursuitEnd(pur, reason);
     const rt = this.byCall.get(pur.callId);
     if (rt) {
       this.setFlag(rt, 'pursuitEnded');
-      this.setFlag(rt, 'pursuitTerminated');
+      this.setFlag(rt, reason === 'handoff' ? 'pursuitHandoff' : 'pursuitTerminated');
       this.setFlag(rt, 'escaped:driver');
     }
-    this.radio(`${this.pc}, terminating the pursuit.`, this.pc);
+    this.radio(reason === 'handoff' ? `${this.pc}, disengaging, state units have primary.` : `${this.pc}, terminating the pursuit.`, this.pc);
     this.rev++;
   }
 
@@ -3084,7 +3208,7 @@ export class SceneDirector implements IncidentResolver {
       timelineIdx: rt.timelineIdx,
       arrivedSim: rt.arrivedSim,
       actions: rt.actions.map((a) => ({ ...a })),
-      services: rt.services.map((s) => ({ ...s })),
+      services: rt.services.map((s) => (s.external ? { ...s, dueSim: -1 } : { ...s })),
       ambushArmed: rt.ambushArmed,
       forceUsed: [...rt.forceUsed],
       mirror: [...rt.mirror],
@@ -3131,7 +3255,7 @@ export class SceneDirector implements IncidentResolver {
         timelineIdx: s.timelineIdx,
         arrivedSim: s.arrivedSim,
         actions: s.actions.map((a) => ({ ...a })),
-        services: s.services.map((x) => ({ ...x, ackDueSim: x.ackDueSim ?? -1 })),
+        services: s.services.map((x) => ({ ...x, ackDueSim: x.ackDueSim ?? -1, ...(x.external ? { dueSim: Infinity } : {}) })),
         ambushArmed: s.ambushArmed,
         forceUsed: [...s.forceUsed],
         mirror: [...(s.mirror ?? [])],
@@ -3178,6 +3302,10 @@ function labelOf(id: string): string {
 /** The row text of an action that is done with an investigation tool. */
 function toolHint(tool: ToolKind): string {
   return tool === 'camera' ? 'Use the camera (O)' : 'Use the tools (I)';
+}
+
+function isServiceKind(x: string): x is ServiceKind {
+  return (SERVICE_KINDS as readonly string[]).includes(x);
 }
 
 function familyAnchorIsStreet(familyId: string): boolean {

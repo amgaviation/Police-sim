@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { RadioMenu, type MenuContext } from '../../src/radio/menu';
+import { setRadioRequestTypes, type RadioRequestType } from '../../src/radio/requestTypes';
 import { RADIO_LINE_CAP, RADIO_STATUS_MS, RadioPanel, radioLineClass } from '../../src/ui/panels/radioPanel';
 import { RadioMenuView } from '../../src/ui/panels/radioMenuView';
 import {
@@ -169,5 +171,35 @@ describe('RadioMenuView (headless)', () => {
     view.show(null);
     expect(view.renders).toBe(3);
     view.dispose();
+  });
+});
+
+describe('RadioMenuView with the paged Request menu (Phase 6)', () => {
+  const MENU_CTX: MenuContext = { mode: 'tenCode', hasTarget: false, hasStop: false, pendingOffer: false, onCall: false, emergency: false };
+
+  afterEach(() => setRadioRequestTypes([]));
+
+  it('shows the Request n/m title and all nine options of a full page', () => {
+    setRadioRequestTypes(
+      Array.from({ length: 18 }, (_, i): RadioRequestType => ({
+        id: `t${String(i)}`, menu: `Type ${String(i)}`, label: `type ${String(i)}`, voice: [], request: { kind: 'resource', typeId: `t${String(i)}` },
+      })),
+    );
+    const menu = new RadioMenu();
+    menu.open();
+    menu.press(4, MENU_CTX);
+    const view = new RadioMenuView(null);
+    view.show(menu.view(MENU_CTX));
+    expect(view.view?.title).toBe('Request 1/3');
+    expect(view.view?.options).toHaveLength(9);
+    expect(view.view?.options.map((o) => radioMenuOptionText(o))[8]).toBe('9 More ▸');
+    const first = view.renders;
+    view.show(menu.view(MENU_CTX));
+    expect(view.renders).toBe(first); // unchanged page: no write
+    menu.press(9, MENU_CTX);
+    view.show(menu.view(MENU_CTX));
+    expect(view.view?.title).toBe('Request 2/3');
+    expect(view.renders).toBe(first + 1);
+    expect(view.view?.options[0]).toMatchObject({ key: 1, label: 'Type 8', enabled: true });
   });
 });

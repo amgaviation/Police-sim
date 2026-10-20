@@ -1,9 +1,11 @@
 import type { CadState } from '../../cad/cadState';
 import type { CadTime, UnitRequest } from '../../cad/types';
 import type { CareerView } from '../../conduct/types';
+import type { CommandBoard, CommandRequest } from '../../command/types';
 import type { CourtCase } from '../../court/types';
 import type { PlateSummary, RecordsDb } from '../../records/db';
 import type { ObservedVehicle } from '../../records/vehicle';
+import type { ResourceUnitView } from '../../resources/types';
 import type { RoadGraph } from '../../world/roadGraph';
 import type { ChoiceInfo, ReportGradeView } from './statements';
 
@@ -33,6 +35,41 @@ export interface MdtCareerDeps {
 export interface MdtCommunityDeps {
   revision(): number;
   rows(): readonly { district: string; value: number; baseline: number; trend: number }[];
+}
+
+/** One requestable unit type of the Resources tab (menu order; `resolves` is the unit type's description). */
+export interface MdtResourceType {
+  readonly id: string;
+  readonly label: string;
+  readonly resolves: string;
+  readonly send: string;
+}
+
+/** One row of the worker's ETA board (presentation only, never fed back into the simulation). */
+export interface MdtEtaRow {
+  readonly callsign: string;
+  readonly label: string;
+  readonly etaS: number;
+}
+
+/** Resources tab feed (design phase 6 §12.3). */
+export interface MdtResourcesDeps {
+  /** Changes whenever the unit list changes (`ResourceSystem.revision`). */
+  revision(): number;
+  units(): readonly ResourceUnitView[];
+  /** Requestable types in menu order. */
+  types(): readonly MdtResourceType[];
+  /** Queues a request for the player's call (resource types via ResourceSystem, patrol types via the dispatcher). */
+  request(typeId: string): void;
+  /** Presentation-only ETA board from the worker: rows for `callId` (empty when the worker is unavailable). */
+  etaBoard?(callId: number): Promise<readonly MdtEtaRow[]>;
+}
+
+/** Command tab feed (design phase 6 §12.3). */
+export interface MdtCommandDeps {
+  revision(): number;
+  board(): CommandBoard;
+  request(r: CommandRequest): void;
 }
 
 /** What the MDT needs from the session (design §13.2). Everything is read on demand. */
@@ -76,10 +113,17 @@ export interface MdtDeps {
   submitReport?(docId: string, callId: number, assertionIds: readonly string[]): void;
   /** The graded report, null while ungraded. */
   reportGrade?(docId: string): ReportGradeView | null;
+  // Phase 6 (design §12.3): all optional too.
+  /** Live ETA (s) of an en-route unit, -1 unknown. Fills the ETA column of the Units tab and the Call tab's unit list. */
+  eta?(callsign: string): number;
+  /** Resources tab. Without it the tab explains that no resources exist. */
+  resources?: MdtResourcesDeps;
+  /** Command tab. Without it the tab explains that no incident command exists. */
+  command?: MdtCommandDeps;
 }
 
-/** Digits 1-9 reach the first nine tabs, 0 the Career tab, and the arrows all of them. */
-export const MDT_TABS = ['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community'] as const;
+/** Digits 1-9 reach the first nine tabs, 0 the Career tab, and the arrows all of them (Community, Resources, Command). */
+export const MDT_TABS = ['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community', 'resources', 'command'] as const;
 export type MdtTab = (typeof MDT_TABS)[number];
 
 export const MDT_TAB_LABELS: Readonly<Record<MdtTab, string>> = {
@@ -94,6 +138,8 @@ export const MDT_TAB_LABELS: Readonly<Record<MdtTab, string>> = {
   stop: 'Stop',
   career: 'Career',
   community: 'Community',
+  resources: 'Resources',
+  command: 'Command',
 };
 
 /** The key shown on a tab button: 1-9, then 0 for Career; '' for tabs reached with the arrows only. */

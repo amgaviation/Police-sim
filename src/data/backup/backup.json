@@ -1,0 +1,18 @@
+{ "version": 1,
+  "spawn": { "maxCarDistanceM": 120, "maxOfficers": 8, "exitS": 1.5 },
+  "move": { "walk": 1.6, "run": 4.8, "chase": 6.4, "arriveM": 0.4 },
+  "cover": { "distanceM": [4.5, 6.5], "angleDeg": [45, 60], "poorAngleDeg": 170, "poorDistanceM": 2.0, "repositionS": 4 },
+  "secondary": { "standoffM": 2.5, "commandEveryS": 10, "detectRangeM": 20 },
+  "chase": { "tackleRangeM": 1.6, "giveUpM": 150 },
+  "callout": { "delayS": [0.4, 1.0], "lateDelayS": [3, 6], "weaponRangeM": 15, "cooldownS": 8 },
+  "post": { "staffedM": 3 },
+  "stress": { "sampleS": 0.5 },
+  "callouts": {
+    "weapon": ["Gun! {side} hand!", "Weapon! He's got a {weapon}!"],
+    "secondSubject": ["I've got a second subject, {desc}, by the {spot}.", "Second party {spot}, I'm on him."],
+    "runner": ["Runner! {dir} on {street}!", "He's running, {dir}!"],
+    "handsClear": ["Hands are clear.", "His hands are empty."],
+    "fight": ["He's fighting! Get him down!"],
+    "covering": ["I've got cover.", "On cover."],
+    "inCustody": ["One in custody.", "He's cuffed."]
+  } }

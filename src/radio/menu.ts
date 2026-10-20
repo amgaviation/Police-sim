@@ -2,11 +2,21 @@
  * Number-key radio menu (design §9.5). A small model: the view is cached per level, mode and context
  * flags, so reading it every frame does not allocate.
  *
- * 1 Status ▸   2 Run plate   3 Location   4 Backup ▸   5 Code 4   6 Traffic stop   7 Accept   8 Decline   9 Say again
+ * 1 Status ▸   2 Run plate   3 Location   4 Request ▸   5 Code 4   6 Traffic stop   7 Accept   8 Decline   9 Say again
+ *
+ * Phase 6: the request submenu (level 'backup') lists `radioRequestTypes()` 8 per page (keys 1-8) and key 9 pages on.
  */
 import { codeText } from '../cad/codes';
 import type { RadioMode, UnitRequest, UnitStatus } from '../cad/types';
 import { PHRASES } from './data';
+import { radioRequestTypes, radioRequestTypesRevision } from './requestTypes';
+
+/** Request types per menu page (keys 1-8; key 9 pages on). */
+export const REQUEST_PAGE_SIZE = 8;
+
+function pageCount(): number {
+  return Math.max(1, Math.ceil(radioRequestTypes().length / REQUEST_PAGE_SIZE));
+}
 
 export interface MenuContext {
   readonly mode: RadioMode;
@@ -61,7 +71,7 @@ function flags(ctx: MenuContext): number {
   );
 }
 
-function buildView(level: MenuLevel, ctx: MenuContext): MenuView {
+function buildView(level: MenuLevel, ctx: MenuContext, page: number): MenuView {
   const mode = ctx.mode;
   if (level === 'status') {
     const enabled: Readonly<Record<UnitStatus, boolean>> = {
@@ -78,6 +88,17 @@ function buildView(level: MenuLevel, ctx: MenuContext): MenuView {
     };
   }
   if (level === 'backup') {
+    const types = radioRequestTypes();
+    if (types.length > 0) {
+      const pages = pageCount();
+      const options: MenuOption[] = [];
+      for (let i = 0; i < REQUEST_PAGE_SIZE; i++) {
+        const t = types[page * REQUEST_PAGE_SIZE + i];
+        if (t) options.push({ key: i + 1, label: t.menu, enabled: true });
+      }
+      if (pages > 1) options.push({ key: 9, label: page < pages - 1 ? 'More ▸' : 'First page ▸', enabled: true });
+      return { title: `Request ${page + 1}/${pages}`, options };
+    }
     return {
       title: 'Backup',
       options: [
@@ -92,7 +113,7 @@ function buildView(level: MenuLevel, ctx: MenuContext): MenuView {
       { key: 1, label: 'Status ▸', enabled: true },
       { key: 2, label: codeLabel('registration', mode, 'run plate'), enabled: ctx.hasTarget || ctx.hasStop },
       { key: 3, label: codeLabel('location', mode), enabled: true },
-      { key: 4, label: 'Backup ▸', enabled: true },
+      { key: 4, label: 'Request ▸', enabled: true },
       { key: 5, label: capitalise(codeText('allOk', mode)), enabled: true },
       { key: 6, label: codeLabel('trafficStop', mode), enabled: ctx.hasStop },
       { key: 7, label: 'Accept offered call', enabled: ctx.pendingOffer },
@@ -105,7 +126,9 @@ function buildView(level: MenuLevel, ctx: MenuContext): MenuView {
 export class RadioMenu {
   private openFlag = false;
   private levelValue: MenuLevel = 'root';
+  private pageValue = 0;
   private readonly cache = new Map<number, MenuView>();
+  private cacheRevision = -1;
 
   get isOpen(): boolean {
     return this.openFlag;
@@ -115,28 +138,50 @@ export class RadioMenu {
     return this.levelValue;
   }
 
+  /** Page of the request submenu (0-based). */
+  get page(): number {
+    this.sync();
+    return this.pageValue;
+  }
+
   open(): void {
     this.openFlag = true;
     this.levelValue = 'root';
+    this.pageValue = 0;
   }
 
   close(): void {
     this.openFlag = false;
     this.levelValue = 'root';
+    this.pageValue = 0;
   }
 
-  /** Submenu -> main menu; main menu -> closed. */
+  /** Submenu -> main menu (page 0); main menu -> closed. */
   back(): void {
-    if (this.levelValue !== 'root') this.levelValue = 'root';
-    else this.close();
+    if (this.levelValue !== 'root') {
+      this.levelValue = 'root';
+      this.pageValue = 0;
+    } else {
+      this.close();
+    }
   }
 
-  /** The current level's options (cached per level, mode and context flags). */
+  /** The request list changed: drop the cached views and a page that no longer exists. */
+  private sync(): void {
+    const revision = radioRequestTypesRevision();
+    if (revision === this.cacheRevision) return;
+    this.cache.clear();
+    this.cacheRevision = revision;
+    if (this.pageValue >= pageCount()) this.pageValue = 0;
+  }
+
+  /** The current level's options (cached per level, page, mode and context flags). */
   view(ctx: MenuContext): MenuView {
-    const key = MENU_LEVELS.indexOf(this.levelValue) * 64 + flags(ctx);
+    this.sync();
+    const key = (this.pageValue * MENU_LEVELS.length + MENU_LEVELS.indexOf(this.levelValue)) * 64 + flags(ctx);
     let v = this.cache.get(key);
     if (v === undefined) {
-      v = buildView(this.levelValue, ctx);
+      v = buildView(this.levelValue, ctx, this.pageValue);
       this.cache.set(key, v);
     }
     return v;
@@ -161,7 +206,15 @@ export class RadioMenu {
       const status = STATUS_ORDER[key - 1];
       return status === undefined ? null : { kind: 'status', status };
     }
-    if (this.levelValue === 'backup') return { kind: 'backup', code: key === 2 ? 3 : 2 };
+    if (this.levelValue === 'backup') {
+      const types = radioRequestTypes();
+      if (types.length === 0) return { kind: 'backup', code: key === 2 ? 3 : 2 };
+      if (key === 9) {
+        this.pageValue = (this.pageValue + 1) % pageCount();
+        return null;
+      }
+      return types[this.pageValue * REQUEST_PAGE_SIZE + key - 1]?.request ?? null;
+    }
     const offer = ctx.offerCallId ?? -1;
     switch (key) {
       case 1:
@@ -173,6 +226,7 @@ export class RadioMenu {
         return { kind: 'location' };
       case 4:
         this.levelValue = 'backup';
+        this.pageValue = 0;
         return null;
       case 5:
         return { kind: 'code4' };

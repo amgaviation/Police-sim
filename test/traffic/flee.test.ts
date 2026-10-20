@@ -4,7 +4,7 @@ import pulloverJson from '../../src/data/traffic/pullover.json';
 import type { CommandContext } from '../../src/debug/console';
 import { createTrafficCommands } from '../../src/traffic/commands';
 import { PULLOVER, validatePullover } from '../../src/traffic/data';
-import type { TrafficFleeEndedEvent, TrafficFleeingEvent, TrafficReleasedEvent } from '../../src/traffic/events';
+import type { TrafficCollisionEvent, TrafficFleeEndedEvent, TrafficFleeingEvent, TrafficReleasedEvent } from '../../src/traffic/events';
 import { MPH } from '../../src/world/constants';
 import {
   BEHAVIOR,
@@ -305,7 +305,7 @@ describe('flee mode', () => {
     expect(h.sys.slotOfVehicle(ID)).toBeGreaterThanOrEqual(0);
   });
 
-  it('ends a flee that crashes (physics contact) with reason crashed', async () => {
+  it('survives a physics contact (collision with fleeing: true); crashCar then ends it crashed', async () => {
     const city = generateCity(99);
     const h = await makeHarness(city.graph, 99, city);
     h.sys.densityScale = 0;
@@ -316,6 +316,8 @@ describe('flee mode', () => {
     expect(eid).toBeGreaterThan(0);
     expect(h.sys.flee(ID)).toBe(true);
     const ev = listen(h);
+    const hits: TrafficCollisionEvent[] = [];
+    h.bus.on('traffic:collision', (e) => hits.push(e));
     let t = 0;
     const stepOnce = (): void => {
       const slot = h.sys.slotOfVehicle(ID);
@@ -331,6 +333,14 @@ describe('flee mode', () => {
     const box = spawn(h.world);
     h.physics.addBox(box, { x: h.sys.view.x[slot] ?? 0, y: 1.2, z: h.sys.view.z[slot] ?? 0 }, { x: 0.8, y: 0.5, z: 0.8 }, { mass: 1500 });
     for (let i = 0; i < 90; i++) stepOnce();
+    // The contact is reported, but the pursuit module decides: the car is still fleeing.
+    expect(hits.length).toBeGreaterThanOrEqual(1);
+    expect(hits[0]?.fleeing).toBe(true);
+    expect(hits[0]?.vehicleId).toBe(ID);
+    expect(ev.ended).toHaveLength(0);
+    expect(h.sys.view.state[h.sys.slotOfVehicle(ID)]).not.toBe(TRAFFIC_STATE.crashed);
+    expect(h.sys.fleeingCount).toBe(1);
+    expect(h.sys.crashCar(ID)).toBe(true);
     expect(ev.ended).toHaveLength(1);
     expect(ev.ended[0]?.reason).toBe('crashed');
     expect(h.sys.view.state[h.sys.slotOfVehicle(ID)]).toBe(TRAFFIC_STATE.crashed);

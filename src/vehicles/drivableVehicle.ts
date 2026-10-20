@@ -557,6 +557,18 @@ export class DrivableVehicle {
     return out;
   }
 
+  /**
+   * Bursts tyre `wheel` (0 FL, 1 FR, 2 RL, 3 RR) as a Phase 1 impact burst does (`damage.tireFlat`, smaller radius,
+   * lower grip), emitting 'vehicle:tireBurst' on `bus`. False when the tyre is already flat or `wheel` is not 0..3.
+   */
+  burstTire(wheel: number, bus?: EventBus<EventMap>): boolean {
+    if (!Number.isInteger(wheel) || wheel < 0 || wheel >= WHEELS || this.damage.tireFlat[wheel] === 1) return false;
+    this.damage.tireFlat[wheel] = 1;
+    this.applyTyreRadii();
+    bus?.emit('vehicle:tireBurst', { eid: this.eid, wheel });
+    return true;
+  }
+
   /** Adds `liters` (default: fills the tank). */
   refuel(liters?: number): void {
     this.fuelL = clamp(this.fuelL + (liters ?? this.model.fuel.capacityL), 0, this.model.fuel.capacityL);

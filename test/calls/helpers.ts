@@ -24,7 +24,7 @@ export const CTX: CatalogContext = {
 
 const typeModules = import.meta.glob<unknown>('../../src/data/calls/types/*.json', { eager: true, import: 'default' });
 
-/** The catalog files as untyped, mutable JSON. */
+/** The catalog files as untyped, mutable JSON (every `types/*.json`, Phase 6 `massCasualty` included). */
 export interface Raw {
   families: Json;
   types: { file: string; json: Json }[];

@@ -78,6 +78,11 @@ export const ACTIONS = {
   // Phase 5: duty to intervene and the bodycam mute (design §12.5). `officer.weapon` is now the force tool cycle.
   'officer.intervene': { kind: 'button', label: 'Intervene' },
   'officer.bodycamMute': { kind: 'button', label: 'Bodycam mute' },
+  // Phase 6: backup, incident command, pursuit tactics and the air unit camera (design §12.1).
+  'backup.menu': { kind: 'button', label: 'Backup officers' },
+  'command.menu': { kind: 'button', label: 'Incident command / triage' },
+  'pursuit.menu': { kind: 'button', label: 'Pursuit tactics' },
+  'air.flir': { kind: 'button', label: 'Air unit camera (FLIR)' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

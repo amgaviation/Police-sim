@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "levels": {
+    "families": { "barricade": "major", "activeAssailant": "major", "massCasualty": "disaster", "hazard": "incident" },
+    "majorUnitsOnScene": 5
+  },
+  "post": { "standoffM": 60, "autoOnArrival": true },
+  "triage": { "roles": ["victim", "walkingWounded", "unconscious", "deceased", "hostage"], "assessS": 6, "rangeM": 2.2, "aiAssessS": 20, "aiErrorRate": 0.05 },
+  "transport": { "order": ["immediate", "delayed", "minor"], "loadS": 45, "perUnit": { "immediate": 1, "delayed": 2, "minor": 3 } },
+  "fire": { "extricateS": 90, "deconS": 60 },
+  "tcp": { "radiusM": 140, "max": 4, "blockadeRadiusM": 8 },
+  "evac": { "radiusM": { "hazmat": 220, "package": 160, "barricade": 70, "default": 120 }, "buildingS": 25, "fireFactor": 2, "segments": 12 },
+  "inner": { "offsetM": 8 },
+  "needs": { "emsPerImmediate": 1, "emsPerDelayed": 0.5, "firePerTrapped": 0.5, "fireHazmat": 1, "maxEms": 3, "maxFire": 2 },
+  "negotiation": {
+    "startTrust": 0.15, "startAgitation": 0.55, "surrenderTrust": 0.75, "surrenderAgitation": 0.35, "surrenderTurns": 2,
+    "breakdownAgitation": 0.95, "stallTurns": 25, "noiseSd": 0.03, "negotiatorBonus": 0.25
+  }
+}

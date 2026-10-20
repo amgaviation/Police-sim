@@ -5,7 +5,7 @@
   "release": { "lateralSpeed": 0.7, "autoReleaseM": 150 },
   "yield": { "range": 50, "lateral": 6, "passMargin": 10, "timeoutS": 20 },
   "fleet": {
-    "maxCars": 16,
+    "maxCars": 32,
     "patrolFactor": 0.9,
     "respondFactor": 1.05,
     "emergencyFactor": 1.35,
@@ -13,5 +13,9 @@
     "crossSpeed": 5,
     "arriveDistance": 25
   },
-  "flee": { "speedFactor": 1.45, "maxSpeed": 34, "crossSpeed": 7, "loseDistanceM": 450, "loseS": 20, "giveUpPerMin": 0.12, "minFleeS": 20, "awayBias": 0.75 }
+  "flee": { "speedFactor": 1.45, "maxSpeed": 34, "crossSpeed": 7, "loseDistanceM": 450, "loseS": 20, "giveUpPerMin": 0.12, "minFleeS": 20, "awayBias": 0.75 },
+  "spikes": { "speedFactor": [1, 0.75, 0.5, 0.35, 0.25], "stopAfterS": 12, "minTires": 2 },
+  "spin": { "durationS": 1.4, "yawDeg": 150, "slideDecel": 9 },
+  "blockade": { "lookaheadM": 40, "waitS": 20, "noSpawnM": 80, "max": 16 },
+  "pit": { "crashOnRamMps": 11 }
 }

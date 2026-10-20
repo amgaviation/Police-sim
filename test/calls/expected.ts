@@ -1,4 +1,4 @@
-/** The 163 Phase 3 call type ids by family (design §4.3). */
+/** The 163 Phase 3 call type ids by family (design §4.3) plus the 3 Phase 6 mass-casualty types. */
 export const EXPECTED_TYPES: Readonly<Record<string, readonly string[]>> = {
   contact: ['pedestrianStop', 'fieldInterview'],
   dui: ['impairedDriver', 'wrongWayDriver', 'recklessDriver', 'driverAsleepAtWheel', 'erraticDriverHighway', 'intoxicatedDriverParkingLot'],
@@ -26,6 +26,7 @@ export const EXPECTED_TYPES: Readonly<Record<string, readonly string[]>> = {
   parking: ['blockedDriveway', 'abandonedVehicle', 'fireLaneViolation', 'disabledParkingViolation', 'doubleParked', 'vehicleBlockingTraffic'],
   investigation: ['deathInvestigation', 'unattendedDeath', 'sexualAssaultScene', 'sexualAssaultReport', 'stalkingReport', 'harassmentReport', 'criminalThreats', 'schoolThreat', 'extortionReport'],
   service: ['civilStandby', 'propertyRetrieval', 'vehicleLockout', 'k9TrackRequest', 'motoristAssist', 'funeralEscort', 'bankEscort'],
+  massCasualty: ['multiVehicleCrash', 'buildingCollapse', 'hazmatRelease'],
 };
 
 /** Families of the design (§4.3), in order. */

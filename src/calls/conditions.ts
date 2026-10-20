@@ -4,7 +4,7 @@
  * by the catalog tests (every outcome must be reachable).
  */
 import { CALL_CATALOG } from './catalog';
-import { evalCond, toDnf, type Term } from './cond';
+import { COMMAND_FLAG_NAMES, evalCond, toDnf, type Term } from './cond';
 import { AMBUSHER, SWATTING_RESIDENT, applyVariantRoles, branchFlagsFor, effectiveRoles, effectiveVehicles, presentRoles } from './effective';
 import {
   CONTRABAND_ITEM_IDS,
@@ -125,6 +125,9 @@ export function producibleFlags(family: FamilyDef, branch: BranchDef, catalog: C
   if (family.id === 'trafficStop') flags.add('vehicleStopped');
   if (family.variants.escalation > 0) flags.add('escalated');
   if (family.variants.deescalation > 0) flags.add('deescalated');
+
+  // Phase 6: a family that establishes a command post gets the command module's flags.
+  if (family.actions.includes('establishCommand')) for (const f of COMMAND_FLAG_NAMES) flags.add(f);
 
   for (const id of family.actions) {
     const action = catalog.actions.find((a) => a.id === id);

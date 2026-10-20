@@ -84,7 +84,8 @@ export interface CadCall {
   links: number[];
 }
 
-export type UnitKind = 'player' | 'ai';
+/** `resource` (Phase 6): a unit owned by the resources module (K9, EMS, fire, ...), tracked in CAD only. */
+export type UnitKind = 'player' | 'ai' | 'resource';
 
 export interface CadUnit {
   readonly callsign: string;
@@ -118,6 +119,8 @@ export type UnitRequest =
   | { readonly kind: 'location' }
   | { readonly kind: 'code4' }
   | { readonly kind: 'emergency' }
+  /** Phase 6: request a resource unit type (K9, EMS, fire, ...); handled by the resources module, not the dispatcher. */
+  | { readonly kind: 'resource'; readonly typeId: string }
   /** Announce / confirm the current stop. */
   | { readonly kind: 'trafficStop' }
   /** `personId` = the identity the driver claimed (-1 / absent: none), handled by the dispatcher. */

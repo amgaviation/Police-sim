@@ -43,6 +43,8 @@ export interface UnitFsmSave {
   arrived: boolean;
   /** Last AVL position written to CAD. */
   lastAvl: [number, number];
+  /** Phase 6: sent to a point by `directUnit` (saved only when true). */
+  directed?: boolean;
 }
 
 export type QueuedEvent =
@@ -139,7 +141,8 @@ function isUnitFsm(x: unknown): x is UnitFsmSave {
   return isObj(x) && isStr(x.callsign) && x.callsign.length > 0 && isInt(x.fleetIndex, 0) && isInt(x.color, 0) &&
     isOneOf(x.mode, UNIT_MODES) && isOneOf(x.role, UNIT_ROLES) && (x.callId === null || isInt(x.callId, 1)) &&
     isDest(x.dest) && isTimers(x.timers) && isBool(x.replanned) && isBool(x.arrived) &&
-    Array.isArray(x.lastAvl) && x.lastAvl.length === 2 && isNum(x.lastAvl[0]) && isNum(x.lastAvl[1]);
+    Array.isArray(x.lastAvl) && x.lastAvl.length === 2 && isNum(x.lastAvl[0]) && isNum(x.lastAvl[1]) &&
+    (x.directed === undefined || isBool(x.directed));
 }
 
 /** Structural check of a `UnitRequest` (kind and its fields). */
@@ -162,6 +165,8 @@ export function isUnitRequest(x: unknown): x is UnitRequest {
       return isInt(x.personId);
     case 'backup':
       return x.code === 2 || x.code === 3;
+    case 'resource':
+      return isStr(x.typeId) && x.typeId.length > 0;
     case 'stopContact':
       return isOneOf(x.action, STOP_ACTIONS) && (x.personId === undefined || isInt(x.personId, -1));
     case 'location':

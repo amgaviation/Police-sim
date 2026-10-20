@@ -76,7 +76,7 @@ export function mergeCadRows(families: unknown, files: readonly { file: string; 
   return out;
 }
 
-/** Rows for `CALL_TYPES` (`cad/data.ts`): untyped; `validateCallTypes` checks them. */
+/** Rows for `CALL_TYPES` (`cad/data.ts`): untyped; `validateCallTypes` checks them (all `types/*.json`, Phase 6 `massCasualty` included). */
 export function catalogCadRows(): unknown[] {
   return mergeCadRows(familiesJson, sortedFiles(import.meta.glob<unknown>('../data/calls/types/*.json', { eager: true, import: 'default' })));
 }

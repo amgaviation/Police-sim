@@ -614,7 +614,7 @@
       "variants": {"escalation": 0.3, "deescalation": 0, "false": 0.2, "duplicate": 2, "swatting": 1, "ambush": 0},
       "escalation": {"narratives": ["Callers now report additional shots and more people running from the building."], "roleOverrides": {"assailant": {"profile": "suspectArmedHostile"}}},
       "deescalation": null,
-      "actions": ["perimeter", "evacuate", "searchArea", "requestEms", "requestSwat", "requestK9", "requestSupervisor", "writeReport"],
+      "actions": ["perimeter", "evacuate", "searchArea", "requestEms", "requestSwat", "requestK9", "requestAirUnit", "requestSupervisor", "writeReport"],
       "objectives": [
         {"text": "Set a perimeter", "done": "perimeter"},
         {"text": "Stop the assailant", "done": {"any": ["custody:assailant", "escaped:assailant"]}},
@@ -651,7 +651,7 @@
       "variants": {"escalation": 0.5, "deescalation": 0.5, "false": 0.3, "duplicate": 1, "swatting": 1.5, "ambush": 0},
       "escalation": {"narratives": ["Caller now reports the subject has threatened to shoot anyone who approaches."], "roleOverrides": {"subject": {"profile": "suspectArmedHostile"}}},
       "deescalation": {"narratives": ["Caller advises the subject has stopped shouting and the house is quiet."], "roleOverrides": {"subject": {"profile": "suspectNervous"}}},
-      "actions": ["contain", "perimeter", "evacuate", "requestSwat", "requestSupervisor", "requestEms", "requestK9", "writeReport"],
+      "actions": ["contain", "perimeter", "evacuate", "requestSwat", "requestNegotiator", "requestSupervisor", "requestEms", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contain the location", "done": "contained"},
         {"text": "Evacuate nearby residents", "done": "evacuated"},
@@ -762,7 +762,7 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0, "duplicate": 0, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["requestK9", "requestSupervisor", "requestTow", "writeReport"],
+      "actions": ["requestK9", "requestAirUnit", "requestSupervisor", "requestTow", "writeReport"],
       "objectives": [
         {"text": "Pursue the subject", "done": {"any": ["custody:driver", "escaped:driver", "pursuitLost"]}},
         {"text": "Take the subject into custody", "done": "custody:driver"}
@@ -1031,6 +1031,57 @@
         {"id": "k9NoDog", "when": {"all": ["k9Needed", "!service:k9"]}, "disposition": "reportTaken", "grade": "bad"},
         {"id": "assisted", "when": "contacted:requester", "disposition": "handled", "grade": "good"},
         {"id": "default", "when": "true", "disposition": "handled", "grade": "ok"}
+      ]
+    },
+    {
+      "id": "massCasualty",
+      "label": "Mass casualty incident",
+      "anchor": "roadside",
+      "defaults": {
+        "priority": {"1": 1},
+        "units": [3, 4],
+        "onSceneS": [1200, 2400],
+        "callers": {"citizen": 0.9, "anonymous": 0.1},
+        "dispositions": ["reportTaken", "handled"]
+      },
+      "roles": [
+        {"role": "victim", "count": [4, 8], "person": {}, "spot": "roadside", "profile": "victimInjured", "injured": 0.8},
+        {"role": "walkingWounded", "count": [2, 4], "person": {}, "spot": "curb", "profile": "victimDistraught", "injured": 0.3},
+        {"role": "unconscious", "count": [1, 2], "person": {}, "spot": "roadside", "profile": "subjectUnconscious", "injured": 1},
+        {"role": "deceased", "count": [0, 2], "person": {"minAge": 18}, "spot": "roadside", "profile": "subjectDeceased", "deceased": true},
+        {"role": "bystander", "count": [2, 5], "person": {}, "spot": "crowd", "profile": "bystander"}
+      ],
+      "vehicles": [
+        {"role": "vehicleA", "count": [1, 1], "mode": "crashed"},
+        {"role": "vehicleB", "count": [1, 1], "mode": "crashed"},
+        {"role": "vehicleC", "count": [1, 1], "mode": "crashed"},
+        {"role": "vehicleD", "count": [1, 1], "mode": "crashed"}
+      ],
+      "evidence": [],
+      "describe": null,
+      "branches": [
+        {"id": "crash", "weight": 1, "flags": ["mci", "roadway"]},
+        {"id": "collapse", "weight": 1, "flags": ["mci", "trapped"], "remove": ["vehicleA", "vehicleB", "vehicleC", "vehicleD"]},
+        {"id": "hazmat", "weight": 1, "flags": ["mci", "hazmat", "decon"], "remove": ["vehicleA", "vehicleB", "vehicleC", "vehicleD"]}
+      ],
+      "variants": {"escalation": 0.3, "deescalation": 0, "false": 0.1, "duplicate": 3, "swatting": 0, "ambush": 0},
+      "escalation": {
+        "narratives": ["Caller now reports many more injured people and more arriving on foot."],
+        "roleOverrides": {"victim": {"count": [6, 10]}}
+      },
+      "deescalation": null,
+      "actions": ["establishCommand", "trafficControl", "perimeter", "evacuate", "requestEms", "requestFire", "requestHazmat", "requestTow", "requestSupervisor", "requestCoroner", "requestAirUnit", "photograph", "writeReport"],
+      "objectives": [
+        {"text": "Establish command", "done": "commandPost"},
+        {"text": "Triage the victims", "done": "triaged"},
+        {"text": "Control traffic", "done": "trafficControl", "show": "roadway"},
+        {"text": "Evacuate the zone", "done": "evacuated", "show": "hazmat"},
+        {"text": "Transport the critical patients first", "done": "transportedRed"}
+      ],
+      "outcomes": [
+        {"id": "wellRun", "when": {"all": ["commandPost", "triaged", "transportedRed"]}, "disposition": "handled", "grade": "good"},
+        {"id": "noCommand", "when": "!commandPost", "disposition": "reportTaken", "grade": "bad"},
+        {"id": "default", "when": "true", "disposition": "reportTaken", "grade": "ok"}
       ]
     }
   ]

@@ -5,7 +5,7 @@ import { FORCE_CONFIG } from './data';
 import './events';
 import { firearmShot, isPregnant, lessLethalShot, meleeApply, riskFactors, taserShot, type ShotContext } from './models';
 import { defaultForceSave, type ForceSave } from './save';
-import { FORCE_TOOLS, type ForceConfig, type ForceDeps, type ForceHud, type ForceOfficer, type ForceRequest, type ForceToolId, type Resistance, type ToolDef } from './types';
+import { FORCE_TOOLS, type FellowOfficer, type ForceConfig, type ForceDeps, type ForceHud, type ForceOfficer, type ForceRequest, type ForceToolId, type Resistance, type ToolDef } from './types';
 
 /** Intoxication level (0..1) from which a target counts as impaired (OC spray works less well). */
 export const IMPAIRED_LEVEL = 0.25;
@@ -605,29 +605,35 @@ export class ForceSystem {
       const info = npc.actor(id, this.scan);
       if (!info || info.callId !== o.callId || !info.cuffed || info.hidden || info.personId < 0) continue;
       if (!this.violent.has(info.personId) || this.rolled.has(info.personId)) continue;
-      const name = this.nearestFellow(info.x, info.z, info.building ?? -1, FELLOW_NEAR_M);
-      if (name === null) continue;
+      const near = this.nearestFellowOf(info.x, info.z, info.building ?? -1, FELLOW_NEAR_M);
+      if (near === null) continue;
       this.rolled.add(info.personId);
       const f = this.cfg.fellow;
+      // Phase 6: a backup officer carries its own chance (stress, fatigue); other fellows use the configured one.
+      const chance = near.misconductChance ?? f.chance;
       const u = rng.next();
-      if (u < f.chance) {
+      if (u < chance) {
         // The conditional uniform u / chance also picks the delay: one draw per person.
-        this.startEpisode(info, id, name, t.sim + lerp(f.delayS, u / f.chance));
+        this.startEpisode(info, id, near.name, t.sim + lerp(f.delayS, u / chance));
         return;
       }
     }
   }
 
   private nearestFellow(x: number, z: number, building: number, maxD: number): string | null {
+    return this.nearestFellowOf(x, z, building, maxD)?.name ?? null;
+  }
+
+  private nearestFellowOf(x: number, z: number, building: number, maxD: number): FellowOfficer | null {
     const fellows = this.deps.fellows();
-    let best: string | null = null;
+    let best: FellowOfficer | null = null;
     let bestD = maxD;
     for (let i = 0; i < fellows.length; i++) {
       const f = fellows[i];
       if (!f || f.building !== building) continue;
       const d = Math.hypot(f.x - x, f.z - z);
       if (d <= bestD) {
-        best = f.name;
+        best = f;
         bestD = d;
       }
     }

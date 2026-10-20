@@ -1,0 +1,5 @@
+{ "version": 1, "operators": 4, "speed": { "walk": 1.3, "move": 2.4 }, "stackOffsetM": 0.7,
+  "roomS": { "deliberate": 5, "dynamic": 2 }, "breachS": 3, "stageDistanceM": 30,
+  "contact": { "surrenderBase": 0.55, "negotiationTrust": 0.35, "dynamicSurprise": 0.15, "lessLethal": 0.1, "hostagePenalty": 0.15, "armedPenalty": 0.15,
+               "hostageInjuryBase": 0.1, "hostageInjuryDynamic": 0.1, "subjectInjuryLessLethal": 0.3 },
+  "colors": { "top": 1316380, "bottom": 1316380 } }

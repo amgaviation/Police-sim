@@ -10,9 +10,9 @@ describe('catalog console command', () => {
 
   it('prints stats, families and one type', () => {
     expect(catalog?.name).toBe('catalog');
-    expect(run('stats')).toContain('163 Phase 3 call types');
-    expect(run('stats')).toContain('27 families');
-    expect(run('families').split('\n')).toHaveLength(27);
+    expect(run('stats')).toContain('166 Phase 3 call types');
+    expect(run('stats')).toContain('28 families');
+    expect(run('families').split('\n')).toHaveLength(28);
     expect(run('families')).toMatch(/domestic\s+7 types/);
     expect(run('type', 'domesticDisturbance')).toContain('family domestic');
     expect(run('type', 'domesticDisturbance')).toContain('Branches: verbal 4');

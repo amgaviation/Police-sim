@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "pit": {
+    "minMph": 20,
+    "maxMph": 45,
+    "maxRelMph": 12,
+    "rearZoneFrac": 0.3,
+    "lateralMinFrac": 0.25,
+    "maxHeadingDeg": 30,
+    "ramMph": 25,
+    "forbiddenModels": ["city_bus", "box_truck"],
+    "requiresAuthorization": true,
+    "allowedOffenses": ["violent", "felonyVehicle", "weapons", "warrant"]
+  },
+  "spikes": {
+    "lengthM": 6,
+    "aheadJunctions": 2,
+    "setbackM": 25,
+    "expireS": 120,
+    "playerDeployRangeM": 6,
+    "tiresOnHit": 2
+  },
+  "boxIn": { "maxSuspectMph": 10, "radiusM": 25, "minAiUnits": 2, "requirePlayer": true },
+  "roadblock": { "aheadM": 100, "lateralM": 12, "minUnits": 2, "decelMps2": 1.5, "stopMps": 2 },
+  "risk": {
+    "overLimitPer10Mph": 0.08,
+    "district": { "downtown": 0.2, "campus": 0.25, "hospital": 0.2, "suburbs": 0.12, "park": 0.15 },
+    "wet": 0.1,
+    "night": 0.05,
+    "density": 0.15,
+    "perMinute": 0.04,
+    "nonViolent": 0.15,
+    "lostSight": 0.25,
+    "airUnitRelief": -0.2
+  },
+  "supervisor": {
+    "monitorDelayS": 20,
+    "riskTerminate": 0.75,
+    "riskTerminateNonViolent": 0.5,
+    "lostSightS": 30,
+    "checkS": 1,
+    "repeatS": 30
+  },
+  "perimeter": {
+    "radiusM": 200,
+    "posts": 4,
+    "postNearM": 50,
+    "escapeM": 260,
+    "requestK9": true,
+    "requestAir": true,
+    "lostSightS": 10
+  },
+  "handoff": {
+    "cityLimits": { "minX": -2560, "maxX": 2560, "minZ": -2560, "maxZ": 2560 },
+    "requestAheadS": 60,
+    "takeoverM": 600,
+    "resolveS": [60, 180],
+    "catchChance": 0.7,
+    "removeAfterS": 60
+  },
+  "follow": { "replanS": 3 },
+  "air": { "trackM": 300 }
+}

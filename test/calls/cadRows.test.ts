@@ -56,7 +56,7 @@ describe('mergeCadRows', () => {
 
   it('produces rows that pass the CAD validator for the shipped catalog', () => {
     const rows = catalogCadRows();
-    expect(rows).toHaveLength(163);
+    expect(rows).toHaveLength(166);
     const ctx = { dispositions: CTX.dispositions, codeKeys: ['hazard', 'pursuit', 'shotsFired', 'ems', 'collision', 'trafficStop'] };
     expect(() => validateCallTypes({ version: 1, types: rows }, ctx, 'calls/types/*.json')).not.toThrow();
   });

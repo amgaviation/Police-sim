@@ -193,6 +193,7 @@ export class IncidentSystem implements IncidentSource {
       b.on('interior:transition', (e) => this.onTransition(e)),
       b.on('scene:service', (e) => this.onService(e)),
       b.on('scene:pursuit', (e) => this.onPursuit(e)),
+      b.on('pursuit:order', (e) => this.onPursuitOrder(e)),
       b.on('cad:documentSaved', (e) => this.onDocument(e)),
       b.on('scene:outcome', (e) => this.onOutcome(e)),
       b.on('cad:unitAssigned', (e) => {
@@ -1146,6 +1147,20 @@ export class IncidentSystem implements IncidentSource {
       this.add(rt, { kind: 'pursuitEnd', personId: pid, reason: e.endReason ?? 'ended' });
       if (e.kind === 'vehicle' && this.sampler?.key === rt.log.key) this.sampler = null;
     }
+  }
+
+  /**
+   * Phase 6: the supervisor ordered `terminate` on the pursuit being sampled: the order is the termination advisory
+   * (once per pursuit; no `incident:advisory`, the pursuit module radios it itself). Other orders are ignored.
+   */
+  private onPursuitOrder(e: EventMap['pursuit:order']): void {
+    const s = this.sampler;
+    if (e.order !== 'terminate' || s === null || s.callId !== e.callId || s.advised) return;
+    const rt = this.logs.get(s.key);
+    const start = rt?.pursuit;
+    if (!rt || !start) return;
+    s.advised = true;
+    this.add(rt, { kind: 'advisory', personId: start.personId, advisory: 'terminatePursuit', text: e.text });
   }
 
   private sampleStep(t: CadTime): void {

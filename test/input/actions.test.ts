@@ -90,7 +90,7 @@ describe('actions', () => {
       expect(actionKind(id)).toBe('button');
     }
     // Appended after the Phase 3 actions, in the design's order (the Phase 5 actions follow them).
-    const tail = ACTION_IDS.slice(-11, -2);
+    const tail = ACTION_IDS.slice(-15, -6);
     expect(tail).toEqual(Object.keys(expected));
   });
 
@@ -99,10 +99,26 @@ describe('actions', () => {
     expect(ACTIONS['officer.bodycamMute']).toEqual({ kind: 'button', label: 'Bodycam mute' });
     expect(actionKind('officer.intervene')).toBe('button');
     expect(actionKind('officer.bodycamMute')).toBe('button');
-    expect(ACTION_IDS.slice(-2)).toEqual(['officer.intervene', 'officer.bodycamMute']);
+    expect(ACTION_IDS.slice(-6, -4)).toEqual(['officer.intervene', 'officer.bodycamMute']);
     // Same id and binding as before; only the label changes.
     expect(ACTIONS['officer.weapon'].label).toBe('Cycle force tool');
     expect(isActionId('officer.weapon')).toBe(true);
+  });
+
+  it('appends the four Phase 6 button actions with the design labels', () => {
+    const expected: Record<string, string> = {
+      'backup.menu': 'Backup officers',
+      'command.menu': 'Incident command / triage',
+      'pursuit.menu': 'Pursuit tactics',
+      'air.flir': 'Air unit camera (FLIR)',
+    };
+    for (const [id, label] of Object.entries(expected)) {
+      expect(isActionId(id), id).toBe(true);
+      if (!isActionId(id)) continue;
+      expect(ACTIONS[id]).toEqual({ kind: 'button', label });
+      expect(actionKind(id)).toBe('button');
+    }
+    expect(ACTION_IDS.slice(-4)).toEqual(Object.keys(expected));
   });
 
   it('has a distinct non-empty label for every action', () => {

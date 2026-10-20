@@ -29,23 +29,23 @@ describe('call catalog', () => {
   it('loads and matches the design lists', () => {
     expect(ITEM_IDS).toHaveLength(26);
     expect(PROFILE_IDS).toHaveLength(32);
-    expect(SERVICE_KINDS).toHaveLength(11);
+    expect(SERVICE_KINDS).toHaveLength(17);
     expect(VARIANT_KINDS).toHaveLength(6);
     expect(SPOTS).toHaveLength(10);
     expect(ANCHORS).toHaveLength(7);
     expect(NPC_COMMAND_IDS).toHaveLength(17);
     expect(CALL_CATALOG.families.map((f) => f.id)).toEqual(EXPECTED_FAMILIES);
-    expect(CALL_CATALOG.families).toHaveLength(27);
+    expect(CALL_CATALOG.families).toHaveLength(28);
     expect(CALL_CATALOG.services.map((s) => s.id).sort()).toEqual([...SERVICE_KINDS].sort());
   });
 
-  it('ships exactly the 163 Phase 3 types of design 4.3, in family files', () => {
+  it('ships exactly the 163 Phase 3 types of design 4.3 plus the 3 Phase 6 types, in family files', () => {
     expect(CALL_CATALOG.types.length).toBeGreaterThanOrEqual(150);
-    expect(CALL_CATALOG.types).toHaveLength(163);
+    expect(CALL_CATALOG.types).toHaveLength(166);
     const byFamily: Record<string, string[]> = {};
     for (const t of CALL_CATALOG.types) (byFamily[t.family] ??= []).push(t.id);
     expect(byFamily).toEqual(EXPECTED_TYPES);
-    expect(new Set(CALL_CATALOG.types.map((t) => t.id)).size).toBe(163);
+    expect(new Set(CALL_CATALOG.types.map((t) => t.id)).size).toBe(166);
   });
 
   it('gives every family at least one type (legacy Phase 2 types count)', () => {
@@ -57,10 +57,10 @@ describe('call catalog', () => {
     expect(CALL_CATALOG.legacy.trafficStop).toBe('trafficStop');
   });
 
-  it('turns every catalog type into a valid CAD row, with no duplicate ids and all 175 present', () => {
+  it('turns every catalog type into a valid CAD row, with no duplicate ids and all 178 present', () => {
     const ids = CALL_TYPES.map((t) => t.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(175);
+    expect(ids).toHaveLength(178);
     for (const t of CALL_CATALOG.types) {
       const row = CALL_TYPES.find((c) => c.id === t.id);
       expect(row, t.id).toBeDefined();

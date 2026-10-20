@@ -263,3 +263,13 @@ html[data-reduced-flash="true"] .mdt-emergency td { animation: none; }
 }
 .mdt-checklist.mdt-statements { display: block; }
 .mdt-statements-body { display: flex; flex-direction: column; gap: 0.2em; }
+
+/* Phase 6: Resources and Command tabs. */
+.mdt-res-footer { margin-left: auto; color: var(--fg-dim); align-self: center; }
+.mdt-eta-wrap { margin-top: 0.6em; }
+.mdt-eta-board { width: 100%; }
+.mdt-resource td:first-child::after { content: ' ▪'; color: var(--fg-dim); }
+.mdt-command .mdt-section { margin-bottom: 0.6em; }
+.mdt-cmd-post { font-weight: 700; }
+.mdt-chips { display: flex; flex-wrap: wrap; gap: 0.4em; }
+.mdt-chip { padding: 0.1em 0.7em; border-radius: 0.3em; font-weight: 700; border: 1px solid var(--panel-border); }

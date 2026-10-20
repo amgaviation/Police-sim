@@ -237,8 +237,19 @@ export type SceneRequest =
   | { readonly kind: 'fire'; readonly dirX: number; readonly dirZ: number }
   | { readonly kind: 'tackle' }
   | { readonly kind: 'shout' }
-  /** Phase 5: the officer calls off the active vehicle pursuit (the car keeps running; it counts as escaped). */
-  | { readonly kind: 'terminatePursuit' }
+  /**
+   * Phase 5: the officer calls off the active vehicle pursuit (the car keeps running; it counts as escaped).
+   * Phase 6: `reason: 'handoff'` ends it as a jurisdiction handoff (end reason `handoff`, flag `pursuitHandoff`).
+   */
+  | { readonly kind: 'terminatePursuit'; readonly reason?: 'terminated' | 'handoff' }
+  /** Phase 6: a real unit was requested for `service` on the call (same as pressing the action); ignored without a scenario or when already requested. */
+  | { readonly kind: 'serviceRequest'; readonly callId: number; readonly service: string }
+  /** Phase 6: the real unit of `service` arrived (applies the service's flags and effect without the scene's arrival line). */
+  | { readonly kind: 'serviceArrived'; readonly callId: number; readonly service: string }
+  /** Phase 6: a backup officer cuffed `personId` (flag `custody:<role>`, custody arrested; no radio line). */
+  | { readonly kind: 'custody'; readonly callId: number; readonly personId: number; readonly by: string }
+  /** Phase 6: the command module sets a flag listed in `scene.json` `commandFlags`. */
+  | { readonly kind: 'commandFlag'; readonly callId: number; readonly flag: string }
   | { readonly kind: 'action'; readonly callId: number; readonly actionId: string }
   | { readonly kind: 'clear'; readonly callId: number; readonly disposition: string | null };
 
@@ -262,6 +273,8 @@ export interface ServiceState {
   effectDueSim: number;
   /** Sim second the dispatcher acknowledges the request on the radio, -1 none. */
   ackDueSim: number;
+  /** Phase 6: a real unit (resources module) serves the request: `dueSim` is Infinity, no scene acknowledgement or arrival line. */
+  external?: boolean;
 }
 
 /** Live state of one scenario (design §11.1). */

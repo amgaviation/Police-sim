@@ -7,7 +7,7 @@ export interface TrafficCarEvent {
   vehicleId: number;
 }
 
-/** A traffic proxy hit a non-traffic body (usually the player car); the car is now `crashed`. */
+/** A traffic proxy hit a non-traffic body (usually the player car); the car is now `crashed` unless `fleeing`. */
 export interface TrafficCollisionEvent {
   eid: number;
   vehicleId: number;
@@ -15,6 +15,8 @@ export interface TrafficCollisionEvent {
   other: number;
   /** Relative horizontal speed at contact (m/s). */
   impactSpeed: number;
+  /** True when the car is fleeing: it was NOT crashed (the pursuit module decides: spin-out, crash or nothing). */
+  fleeing?: boolean;
 }
 
 export type TrafficViolationKind = 'speeding' | 'redLight' | 'rollingStop' | 'tailgating' | 'weaving';

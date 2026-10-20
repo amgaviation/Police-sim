@@ -95,9 +95,13 @@ describe('MdtOverlay (headless)', () => {
     expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
     expect(mdt.tab).toBe('community');
     expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
+    expect(mdt.tab).toBe('resources'); // Phase 6 tabs follow Community (arrows only)
+    expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
+    expect(mdt.tab).toBe('command');
+    expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
     expect(mdt.tab).toBe('queue');
     expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);
-    expect(mdt.tab).toBe('community');
+    expect(mdt.tab).toBe('command');
     expect(mdt.onKeyDown(key('0'))).toBe(true);
     expect(mdt.tab).toBe('career');
     expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);

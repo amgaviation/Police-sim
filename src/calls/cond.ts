@@ -8,12 +8,25 @@ import type { Cond } from './types';
 export const BRANCH_FLAG_NAMES: readonly string[] = [
   'hitAndRun', 'medicalEmergency', 'fraudSuspected', 'suspectFled', 'misidentified', 'roadHazard', 'hazmat', 'package',
   'abandoned', 'fight', 'k9Needed', 'sceneEvidence',
+  // Phase 6 (mass casualty scenes)
+  'mci', 'roadway', 'trapped', 'decon',
+];
+
+/**
+ * Phase 6: flags the command module sets on a call (`commandFlag` scene requests; mirrors `scene.json` commandFlags).
+ * A family with the `establishCommand` action can produce all of them.
+ */
+export const COMMAND_FLAG_NAMES: readonly string[] = [
+  'commandPost', 'contained', 'perimeter', 'evacuated', 'trafficControl', 'triaged', 'transportedRed', 'icsTransport',
+  'negotiated', 'swatResolved', 'csuProcessed', 'federalNotified',
 ];
 
 /** Scene and contact flags without an argument (action and service `sets` come on top, per family). */
 export const SCENE_FLAG_NAMES: readonly string[] = [
   'arrived', 'escalated', 'deescalated', 'vehicleStopped', 'pursuit', 'pursuitLost', 'pursuitEnded', 'shotsFired', 'attacked',
   'forceUsed', 'report', 'cited', 'crowdDispersed', 'guardianNotified', 'bacOver', 'sfstFail', 'weaponFound', 'contrabandFound',
+  // Phase 6: set by the command module (see COMMAND_FLAG_NAMES) and by the pursuit handoff
+  'triaged', 'transportedRed', 'icsTransport', 'negotiated', 'swatResolved', 'pursuitHandoff',
 ];
 
 /** Flags with a person-role argument: `<prefix>:<role>`. */
