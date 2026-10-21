@@ -19,8 +19,15 @@ import type { ForceOfficer, ForceSystem } from '../force';
 import type { IncidentSystem, DashProbe, OfficerProbe, PursuitProbe } from '../incidents';
 import { RECORDING } from '../recording';
 import { characterFromLegacy, type CharacterProfile } from '../uniform';
+import { UNIFORM_CLASSES } from '../uniform/types';
+import type { CareerRank, CareerSave, CareerStage, DutyAssignment } from '../career';
+import { SPECIALTIES } from '../career';
+import { UNITS_DATA } from '../dispatch/data';
+import { pickCourseSegment, type DispatchScriptStep, type GameMode } from '../training';
 import type { LiveryDoc } from '../livery';
 import { Phase7, equipmentOptions, equipmentSpecFor } from './phase7';
+import { Phase8, type Phase8Host } from './phase8';
+import { straightSegments } from './courseSegments';
 import { Phase5 } from './phase5';
 import { Phase6, type Phase6Host, type Phase6Player } from './phase6';
 import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
@@ -188,6 +195,10 @@ export interface NewGameOptions {
   jurisdiction?: string;
   /** Phase 7: the officer made in the character creator (profile and loadout); the default officer without it. */
   character?: { profile: CharacterProfile; gear: OfficerLoadout };
+  /** Phase 8: the game mode (free patrol by default). */
+  mode?: GameMode;
+  /** Phase 8: the career to start with (a fresh academy career for the career mode, else a patrol officer). */
+  career?: CareerSave;
 }
 
 /** One ambient traffic car for the `traffic list` command. */
@@ -443,6 +454,8 @@ export class GameSession {
   readonly phase6: Phase6;
   /** Phase 7 (fleet, uniforms, customization): the officer's character and gear, the fleet system and the outfit table. */
   readonly phase7: Phase7;
+  /** Phase 8: career, persistent world, mode state and the hooks into the dispatcher, scene and force systems. */
+  readonly phase8: Phase8;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -488,6 +501,10 @@ export class GameSession {
   /** H toggle; null follows the automatic headlights until they switch. */
   private headlightOverride: boolean | null = null;
   private autoHeadlights: boolean;
+  private readonly trainingRng: Rng;
+  private readonly lagInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
+  private steerLagged = 0;
+  private steerLagReady = false;
   private readonly controls: DriverControls = { throttle: 0, brake: 0, steer: 0, handbrake: true, reverse: false };
   private readonly vehicleEnv: VehicleEnvironment;
   private readonly parked: TrafficParked[] = Array.from({ length: MAX_PARKED_OBSTACLES }, () => ({
@@ -534,6 +551,7 @@ export class GameSession {
     this.rng = rng;
     this.clock = clock;
     this.colors = rng.stream('colors');
+    this.trainingRng = rng.stream('training');
     this.officer = { ...DEFAULT_OFFICER };
     this.bus = ctx.bus ?? new EventBus<EventMap>();
     this.city = ctx.city?.seed === seed ? ctx.city : generateCity(seed);
@@ -700,6 +718,8 @@ export class GameSession {
     this.phase6 = new Phase6(this.phase6Host());
     // Phase 7: the officer's character and gear and the fleet (design §20).
     this.phase7 = new Phase7(this.phase7Host(), characterFromLegacy(DEFAULT_OFFICER.name, DEFAULT_OFFICER.badge), null, null);
+    // Phase 8: career, persistent world and mode over the same objects (design §20).
+    this.phase8 = new Phase8(this.phase8Host());
     this.stationRect = stationRectOf(city);
     this.vehicleEnv = {
       surfaceAt: (x, z) => city.surfaceAt(x, z),
@@ -766,6 +786,9 @@ export class GameSession {
       { order: -658, system: { name: 'conduct', run: (_world, dt) => this.phase5.stepConduct(dt, this.syncCadTime()) } },
       { order: -656, system: { name: 'court', run: (_world, dt) => this.phase5.stepCourt(dt, this.syncCadTime()) } },
       { order: -655, system: { name: 'fleet', run: (_world, dt) => this.phase7.step(dt, this.syncCadTime()) } },
+      { order: -654, system: { name: 'career', run: (_world, dt) => this.phase8.stepCareer(dt, this.syncCadTime()) } },
+      { order: -653, system: { name: 'worldstate', run: (_world, dt) => this.phase8.stepWorld(dt, this.syncCadTime()) } },
+      { order: -652, system: { name: 'training', run: () => this.stepTraining() } },
       { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
       // Phase 1-3 compatibility mode (`indoorScenes: false`, older tests) leaves the tactical awareness off: it draws on the npc streams.
       { order: -640, system: { name: 'tactical', run: (_world, dt) => { if (ctx.indoorScenes !== false) this.tactical.step(dt, this.syncCadTime()); } } },
@@ -1995,6 +2018,7 @@ export class GameSession {
       character: { version: 1, profile: structuredClone(this.phase7.profile) },
       gear: this.phase7.gear.serialize(),
       fleet: this.phase7.fleet.serialize((eid) => this.vehicleList.findIndex((v) => v.eid === eid)),
+      ...this.phase8.serialize(),
     };
   }
 
@@ -2003,6 +2027,7 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.phase8.dispose();
     this.phase7.dispose();
     this.phase6.dispose();
     this.phase5.dispose();
@@ -2101,6 +2126,76 @@ export class GameSession {
   }
 
   /** The reads and effects Phase 7 makes of this session. */
+  private phase8Host(): Phase8Host {
+    const callsign = this.dispatcher.playerCallsign;
+    return {
+      seed: this.seed,
+      rng: this.rng,
+      bus: this.bus,
+      cad: this.cad,
+      dispatcher: this.dispatcher,
+      scene: this.scene,
+      force: this.phase5.force,
+      conduct: this.phase5.conduct,
+      court: this.phase5.court,
+      people: this.people,
+      records: this.records,
+      investigation: this.investigation,
+      callsign,
+      officerNames: () => UNITS_DATA.units.map((u) => u.officer),
+      nowGame: () => this.env.time.totalSeconds,
+      nowSim: () => this.clock.simTime,
+      flash: (text, severity) => this.phase5.flash(text, severity),
+      applyRank: (rank, stage, assignment) => this.applyCareerLook(rank, stage, assignment),
+      districtAt: (x, z) => DISTRICT_NAMES[this.city.districtAt(x, z)] ?? '',
+      courseAnchor: () => {
+        const spawn = this.city.spawn;
+        return pickCourseSegment(straightSegments(this.city.graph), spawn.x, spawn.z);
+      },
+      resolveNear: (near) => this.resolveNear(near),
+    };
+  }
+
+  /** The officer's rank (and a specialty's uniform class) on the character profile after a promotion or assignment. */
+  private applyCareerLook(rank: CareerRank, _stage: CareerStage, assignment: DutyAssignment): void {
+    const p = this.phase7.profile;
+    const unit = assignment === 'patrol' || assignment === 'fto' ? undefined : SPECIALTIES[assignment];
+    const uniform = unit && (UNIFORM_CLASSES as readonly string[]).includes(unit.uniformClass) ? (unit.uniformClass as typeof p.outfit.uniform) : p.outfit.uniform;
+    if (p.rank === rank && p.outfit.uniform === uniform) return;
+    this.phase7.setProfile({ ...p, rank, outfit: { ...p.outfit, uniform } });
+  }
+
+  /** A dispatch script step location: the nearest POI of a kind to the station, a point in a district, or the point itself. */
+  private resolveNear(near: DispatchScriptStep['near']): { x: number; z: number } | null {
+    const city = this.city;
+    if ('x' in near) return { x: near.x, z: near.z };
+    if ('poi' in near) {
+      let best: { x: number; z: number } | null = null;
+      let bestD = Infinity;
+      for (const poi of city.pois) {
+        if (poi.kind !== near.poi) continue;
+        const d = Math.hypot(poi.x - city.spawn.x, poi.z - city.spawn.z);
+        if (d < bestD) {
+          bestD = d;
+          best = { x: poi.x, z: poi.z };
+        }
+      }
+      return best;
+    }
+    const rng = this.trainingRng;
+    const edges = city.graph.edges;
+    const candidates: number[] = [];
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      if (e && DISTRICT_NAMES[e.district] === near.district) candidates.push(i);
+    }
+    if (candidates.length === 0) return null;
+    const edge = edges[candidates[Math.floor(rng.next() * candidates.length)] as number];
+    if (!edge) return null;
+    const k = Math.floor((edge.points.length >> 1) / 2);
+    return { x: edge.points[2 * k] as number, z: edge.points[2 * k + 1] as number };
+  }
+
   private phase7Host(): import('./phase7').Phase7Host {
     const callsign = this.dispatcher.playerCallsign;
     return {
@@ -2135,6 +2230,7 @@ export class GameSession {
         const at = this.playerPosition(scratchPoint);
         return this.dispatcher.locate(at.x, at.z).near;
       },
+      officerWounded: () => this.phase8.officerWounded(),
     };
   }
 
@@ -2910,13 +3006,15 @@ export class GameSession {
     }
     const driven = this.modes.vehicle;
     const list = this.vehicleList;
+    let sawDriven = false;
     for (let i = 0; i < list.length; i++) {
       const vehicle = list[i] as DrivableVehicle;
       const isDriven = vehicle.eid === driven;
+      if (isDriven) sawDriven = true;
       if (isDriven && !this.remote) vehicle.headlights = this.headlightOverride ?? auto;
       // A parked car drops reverse (no reverse lamps or gear -1 for a car left in reverse).
       const t = vehicle.telemetry;
-      mapDriverInput(isDriven ? this.driverInput : PARKED, t.speed, t.groundSpeed, isDriven && vehicle.reversing, this.controls);
+      mapDriverInput(isDriven ? this.laggedInput(dt) : PARKED, t.speed, t.groundSpeed, isDriven && vehicle.reversing, this.controls);
       vehicle.setControls(this.controls);
       vehicle.preStep(dt, env);
       const eq = this.equipmentList[i];
@@ -2927,6 +3025,33 @@ export class GameSession {
         eq.writeLook(vehicle.eid, vehicle.lightbar);
       }
     }
+    if (!sawDriven) this.steerLagReady = false;
+  }
+
+  /** The driver's input with the steering passed through the first-order lag of fatigue and stress (Phase 8, design §15). */
+  private laggedInput(dt: number): DriverInput {
+    const raw = this.driverInput;
+    const lag = this.phase8.perf.steerLagS;
+    const out = this.lagInput;
+    out.accelerate = raw.accelerate;
+    out.brake = raw.brake;
+    out.handbrake = raw.handbrake;
+    if (raw.lift !== undefined) out.lift = raw.lift;
+    // The lag state is not saved: a loaded session (or the first drive) starts from the current input.
+    if (lag > 0 && this.steerLagReady) this.steerLagged += (raw.steer - this.steerLagged) * Math.min(1, dt / lag);
+    else this.steerLagged = raw.steer;
+    this.steerLagReady = true;
+    out.steer = this.steerLagged;
+    return out;
+  }
+
+  /** Fixed step -652: the driving course run follows the driven vehicle, the dispatch script emits its calls. */
+  private stepTraining(): void {
+    const m = this.phase8.mode;
+    if (m.course === null && m.script === null) return;
+    const at = this.playerPosition(scratchPoint);
+    const v = this.drivenVehicle;
+    this.phase8.stepTraining(at.x, at.z, v ? v.telemetry.groundSpeed : 0, this.syncCadTime());
   }
 
   private stepTraffic(dt: number): void {
@@ -3455,6 +3580,7 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
     else session.station.restore(migratedStationSave(session.officer.badge));
     session.phase7.syncStationVest(session.station);
     if (options.jurisdiction !== undefined) session.phase5.setJurisdiction(options.jurisdiction);
+    session.phase8.begin(options.mode ?? 'freePatrol', options.career ?? null);
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {
     session.dispose();
@@ -3543,6 +3669,8 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     session.phase6.restore(data, session.now());
     session.restoreTransients();
     session.radio.restore(data.radio);
+    // Phase 8 (design §16): career, world and mode last (the mode re-applies the dispatcher flags).
+    session.phase8.restore(data);
     // Every body was just created with its saved state, so reading them back gives exactly that state.
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {

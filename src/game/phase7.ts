@@ -113,6 +113,8 @@ export interface Phase7Host {
   attackerDistance(actorId: number): number;
   /** Where the officer is, in words ("Oak Street at 5th Street"). */
   officerNear(): string;
+  /** Phase 8: the officer was wounded by a round (injury and stress for the career). */
+  officerWounded?(): void;
   /** The player's callsign. */
   readonly callsign: string;
 }
@@ -325,6 +327,7 @@ export class Phase7 {
     const p = this.profileValue;
     const vars = { name: displayName(p), pronouns: pronounLabel(p.pronouns), callsign: this.host.callsign, near: this.host.officerNear() };
     if (outcome === 'wounded') {
+      this.host.officerWounded?.();
       this.host.say(applyPronouns(CHARACTER_LINES.officerDown ?? '', p.pronouns, vars));
       this.host.emergency();
       this.host.flash('Officer down: you were hit', 'bad');
