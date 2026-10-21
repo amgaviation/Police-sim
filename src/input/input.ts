@@ -2,6 +2,7 @@ import type { EventMap } from '../core/event-map';
 import { bus as defaultBus, type EventBus } from '../core/events';
 import { ACTION_IDS, actionKind, type ActionId } from './actions';
 import { DEFAULT_BINDINGS, cloneBindings, type Binding, type BindingMap } from './bindings';
+import { DEFAULT_INPUT_CONTEXT, isArbitrated, isEligible, isModal, rankOf, type InputContext } from './context';
 
 /** Gamepad stick magnitude below which an axis reads as 0. */
 export const GAMEPAD_DEADZONE = 0.15;
@@ -239,6 +240,18 @@ export class InputManager {
   private readonly pressed = new Set<ActionId>();
   private readonly released = new Set<ActionId>();
 
+  /** Keys / buttons bound to two or more actions, arbitrated by `context` every update (see `context.ts`). */
+  private shared: SharedKey[] = [];
+  private sharedDirty = true;
+  private readonly context: InputContext = { ...DEFAULT_INPUT_CONTEXT };
+  /** Shared keys are arbitrated only once the game has described the situation (`setContext`). */
+  private contextKnown = false;
+  /** Shared keys taken by the radio menu until they are released. */
+  private readonly claimed = new Set<string>();
+  private readonly justPressed = new Set<string>();
+  private readonly dropped: { id: ActionId; key: string }[] = [];
+  private droppedCount = 0;
+
   private capture: CaptureCallback | null = null;
   private pointerLockEnabled: boolean;
   private locked = false;
@@ -437,10 +450,13 @@ export class InputManager {
       gamepadButtons: this.gamepadButtons,
       gamepadAxes: this.gamepadAxes,
     };
+    this.justPressed.clear();
+    for (const code of this.tappedKeys) this.justPressed.add(`keyboard:${code}`);
     this.tappedKeys.clear();
     this.tappedMouseButtons.clear();
 
     const state = resolveActions(this.bindings, this.raw, this.deadzoneValue, this.nextState);
+    this.arbitrate(state);
     this.pressed.clear();
     this.released.clear();
     for (const id of ACTION_IDS) {
@@ -458,6 +474,107 @@ export class InputManager {
     }
     this.nextState = this.state;
     this.state = state;
+  }
+
+  /**
+   * Situation of the player for the actions that share keys (driving, aircraft, radio menu, session mode). Copied, so the
+   * caller may reuse its object every frame.
+   */
+  setContext(ctx: Readonly<InputContext>): void {
+    const c = this.context;
+    c.driving = ctx.driving;
+    c.aircraft = ctx.aircraft;
+    c.radioMenu = ctx.radioMenu;
+    c.mode = ctx.mode;
+    this.contextKnown = true;
+  }
+
+  private rebuildShared(): void {
+    this.sharedDirty = false;
+    this.claimed.clear();
+    const byKey = new Map<string, Set<ActionId>>();
+    for (const id of ACTION_IDS) {
+      for (const b of this.bindings[id]) {
+        if (!isArbitrated(b)) continue;
+        const key = `${b.device}:${b.code}`;
+        const set = byKey.get(key) ?? new Set<ActionId>();
+        set.add(id);
+        byKey.set(key, set);
+      }
+    }
+    this.shared = [];
+    for (const [key, set] of byKey) {
+      if (set.size < 2) continue;
+      const code = key.slice(key.indexOf(':') + 1);
+      const mouse = key.startsWith('mouse:') ? Number(code.slice('MouseButton'.length)) : -1;
+      this.shared.push({ key, code, mouse, ids: [...set] });
+    }
+  }
+
+  /**
+   * A key bound to several actions acts for the eligible ones only (`isEligible`), and a rare opener gives way to a
+   * non-rare action of the same key. While the radio menu is open a key pressed for it belongs to the menu until released.
+   * Rewrites the values of the silenced actions without the bindings they lost; nothing changes for unshared inputs.
+   */
+  private arbitrate(state: Record<ActionId, number>): void {
+    if (!this.contextKnown) return;
+    if (this.sharedDirty) this.rebuildShared();
+    if (this.shared.length === 0) return;
+    const ctx = this.context;
+    this.droppedCount = 0;
+    for (const entry of this.shared) {
+      const held = entry.mouse >= 0 ? this.raw.mouseButtons.has(entry.mouse) : this.raw.keys.has(entry.code);
+      if (!held) {
+        this.claimed.delete(entry.key);
+        continue;
+      }
+      let claimed = this.claimed.has(entry.key);
+      if (!claimed && ctx.radioMenu && this.justPressed.has(entry.key) && entry.ids.some((id) => isModal(id))) {
+        this.claimed.add(entry.key);
+        claimed = true;
+      }
+      let top = 0;
+      for (const id of entry.ids) if (this.acts(id, claimed, ctx)) top = Math.max(top, rankOf(id));
+      for (const id of entry.ids) {
+        if (this.acts(id, claimed, ctx) && rankOf(id) === top) continue;
+        let slot = this.dropped[this.droppedCount];
+        if (slot === undefined) {
+          slot = { id, key: entry.key };
+          this.dropped[this.droppedCount] = slot;
+        }
+        slot.id = id;
+        slot.key = entry.key;
+        this.droppedCount++;
+      }
+    }
+    for (let i = 0; i < this.droppedCount; i++) {
+      const id = (this.dropped[i] as { id: ActionId }).id;
+      let first = true;
+      for (let j = 0; j < i; j++) if ((this.dropped[j] as { id: ActionId }).id === id) first = false;
+      if (first) state[id] = this.valueWithout(id);
+    }
+  }
+
+  private acts(id: ActionId, claimed: boolean, ctx: Readonly<InputContext>): boolean {
+    return isEligible(id, ctx) && isModal(id) === claimed;
+  }
+
+  /** The resolved value of `id` without its dropped (shared, silenced) bindings. */
+  private valueWithout(id: ActionId): number {
+    let sum = 0;
+    for (const b of this.bindings[id]) {
+      if (isArbitrated(b) && this.isDropped(id, `${b.device}:${b.code}`)) continue;
+      sum += readBinding(b, this.raw, this.deadzoneValue);
+    }
+    return actionKind(id) === 'button' ? Math.max(0, Math.min(1, sum)) : clamp(sum);
+  }
+
+  private isDropped(id: ActionId, key: string): boolean {
+    for (let i = 0; i < this.droppedCount; i++) {
+      const d = this.dropped[i] as { id: ActionId; key: string };
+      if (d.id === id && d.key === key) return true;
+    }
+    return false;
   }
 
   private pollGamepads(): void {
@@ -565,6 +682,7 @@ export class InputManager {
 
   setBindings(bindings: Readonly<BindingMap>): void {
     this.bindings = cloneBindings(bindings);
+    this.sharedDirty = true;
   }
 
   resetBindings(): void {
@@ -576,10 +694,12 @@ export class InputManager {
     const list = this.bindings[action];
     if (index >= 0 && index < list.length) list[index] = { ...binding };
     else list.push({ ...binding });
+    this.sharedDirty = true;
   }
 
   unbind(action: ActionId, index: number): void {
     this.bindings[action].splice(index, 1);
+    this.sharedDirty = true;
   }
 
   /**
@@ -656,6 +776,15 @@ export class InputManager {
     this.mouseAccum.y = 0;
     this.mouseAccum.wheel = 0;
   }
+}
+
+interface SharedKey {
+  /** `keyboard:KeyW` / `mouse:MouseButton2`. */
+  readonly key: string;
+  readonly code: string;
+  /** Mouse button index, -1 for a keyboard key. */
+  readonly mouse: number;
+  readonly ids: ActionId[];
 }
 
 function clampDeadzone(value: number): number {

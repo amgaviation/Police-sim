@@ -217,9 +217,13 @@ const SELF_PURSUIT_OVER_S = 20;
 
 /**
  * Phase 8 persistent-world hook: a designated person for a risk / warrant role of call `callId` in `district`, or -1.
- * `fits` tests a candidate against the role's constraint; `draw` is the scenario stream's next draw.
+ * `fits` tests a candidate against the role's constraint; `draw` is the scenario stream's next draw. `fitsDesignated` is the
+ * same test without the `warrant` clause, for a person the world designated itself (a case suspect has no warrant on
+ * record, and the call's warrant is the legal basis, not a property of the subject).
  */
-export type PersonBias = (callId: number, district: string, fits: (personId: number) => boolean, draw: () => number) => number;
+export type PersonBias = (
+  callId: number, district: string, fits: (personId: number) => boolean, draw: () => number, fitsDesignated: (personId: number) => boolean,
+) => number;
 
 export class SceneDirector implements IncidentResolver {
   private readonly deps: SceneDeps;
@@ -232,6 +236,8 @@ export class SceneDirector implements IncidentResolver {
   /** Phase 6: dispatches real units for the scene's services (the resources module); null = the scene's own timers. */
   private serviceProvider: ((callId: number, kind: string) => boolean) | null = null;
   private personBias: PersonBias | null = null;
+  /** Ids the bias of the current pick checked with `fitsDesignated` and that passed. */
+  private readonly biasApproved = new Set<number>();
   private readonly seed: number;
   private readonly rng: Rng;
   private readonly pc: string;
@@ -959,8 +965,22 @@ export class SceneDirector implements IncidentResolver {
     const today = epochDayOfGameSeconds(this.time.game);
     // Phase 8: a persistent-world bias (recidivists, follow-up suspects) for risk / warrant roles.
     if (this.personBias !== null && (c.risk === true || c.warrant === true)) {
-      const id = this.personBias(callId, district, (pid) => this.fitsConstraint(pid, c, busy, today), () => rng.next());
-      if (id >= 0 && this.fitsConstraint(id, c, busy, today)) return id;
+      const relaxed: PersonConstraint = c.warrant === true ? { ...c, warrant: false } : c;
+      const approved = this.biasApproved;
+      approved.clear();
+      const id = this.personBias(
+        callId,
+        district,
+        (pid) => this.fitsConstraint(pid, c, busy, today),
+        () => rng.next(),
+        (pid) => {
+          const ok = this.fitsConstraint(pid, relaxed, busy, today);
+          if (ok) approved.add(pid);
+          return ok;
+        },
+      );
+      // An id that fits the role as it is, or one the bias checked with `fitsDesignated` (the world's own designated person).
+      if (id >= 0 && (this.fitsConstraint(id, c, busy, today) || approved.has(id))) return id;
     }
     let fallback = -1;
     for (let tries = 0; tries < this.cfg.people.pickTries; tries++) {

@@ -10,7 +10,8 @@ export function newNeighborhood(base: number): NeighborhoodState {
 
 /**
  * crime += (target - crime) * (1 - exp(-relax * days)) + noise * (2u - 1) * min(1, days), with
- * target = base * (1 + trustWeight * (0.5 - trust) * 2) + offenderWeight * atLarge - arrestWeight * arrests; the result is
+ * target = base * (1 + trustWeight * (0.5 - trust) * 2) + min(offenderMax, offenderWeight * atLarge) - arrestWeight * arrests
+ * (`atLarge` and `arrests` are fading weighted counts, see `evolveWorld`); the result is
  * clamped to [min, max]; the new value is pushed to `history` (last `historyDays`); `trend` = new - old. No change when
  * `days <= 0`.
  */
@@ -19,7 +20,7 @@ export function evolveNeighborhood(
   cfg: NeighborhoodsConfig = WORLD_CONFIG.neighborhoods,
 ): void {
   if (!(days > 0)) return;
-  const target = base * (1 + cfg.trustWeight * (0.5 - trust) * 2) + cfg.offenderWeight * atLarge - cfg.arrestWeight * arrests;
+  const target = base * (1 + cfg.trustWeight * (0.5 - trust) * 2) + Math.min(cfg.offenderMax, cfg.offenderWeight * atLarge) - cfg.arrestWeight * arrests;
   const old = n.crime;
   const next = old + (target - old) * (1 - Math.exp(-cfg.relax * days)) + cfg.noise * (2 * u - 1) * Math.min(1, days);
   n.crime = Math.min(cfg.max, Math.max(cfg.min, next));

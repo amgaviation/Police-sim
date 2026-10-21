@@ -50,6 +50,10 @@ export interface NeighborhoodsConfig {
   readonly trustWeight: number;
   readonly offenderWeight: number;
   readonly arrestWeight: number;
+  /** Cap of the at-large offender contribution to the target crime level. */
+  readonly offenderMax: number;
+  /** Time constant (days) of the fading weight of a released offender / an arrest. */
+  readonly memoryDays: number;
   readonly noise: number;
   readonly min: number;
   readonly max: number;
@@ -175,6 +179,8 @@ export function parseWorldConfig(json: unknown, file: string): WorldConfig {
     trustWeight: readNumber(n.trustWeight, file, 'neighborhoods.trustWeight', 0, 10),
     offenderWeight: readNumber(n.offenderWeight, file, 'neighborhoods.offenderWeight', 0, 10),
     arrestWeight: readNumber(n.arrestWeight, file, 'neighborhoods.arrestWeight', 0, 10),
+    offenderMax: readNumber(n.offenderMax, file, 'neighborhoods.offenderMax', 0, 1),
+    memoryDays: readNumber(n.memoryDays, file, 'neighborhoods.memoryDays', 0.1, 365),
     noise: readNumber(n.noise, file, 'neighborhoods.noise', 0, 1),
     min: readNumber(n.min, file, 'neighborhoods.min', 0, 1),
     max: readNumber(n.max, file, 'neighborhoods.max', 0, 1),

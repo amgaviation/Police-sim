@@ -211,12 +211,11 @@ describe('join and leave', () => {
   });
   it('host falls back to the oldest patrol on leave', () => {
     const room = new Room({ name: 'r', seed: 1 });
-    room.join('d', hello('dispatcher'), 0);
     room.join('p1', hello('patrol'), 0);
+    room.join('d', hello('dispatcher'), 0);
     room.join('p2', hello('patrol'), 0);
-    expect(room.host).toBe('DISPATCH');
-    const ev = room.leave('d');
-    expect(ev).toEqual([{ k: 'left', callsign: 'DISPATCH' }, { k: 'host', callsign: 'N1' }]);
+    expect(room.host).toBe('N1');
+    expect(room.leave('d')).toEqual([{ k: 'left', callsign: 'DISPATCH' }]);
     expect(room.host).toBe('N1');
     const ev2 = room.leave('p1');
     expect(ev2).toEqual([{ k: 'left', callsign: 'N1' }, { k: 'host', callsign: 'N2' }]);
@@ -226,6 +225,27 @@ describe('join and leave', () => {
     expect(room.leave('s')).toEqual([{ k: 'left', callsign: 'S1' }]);
     expect(room.host).toBe('');
     expect(room.size).toBe(0);
+  });
+  it('a patrol joining a room hosted by a supervisor takes the host (only a patrol host generates calls)', () => {
+    const room = new Room({ name: 'r', seed: 99 });
+    room.join('s', hello('supervisor', 'Sup'), 0);
+    expect(room.host).toBe('S1');
+    const joined = room.join('p1', hello('patrol', 'One'), 0);
+    expect(joined.callsign).toBe('N1');
+    expect(joined.events.map((e) => e.k)).toEqual(['joined', 'host']);
+    expect(room.host).toBe('N1');
+    expect(joined.direct[0]).toMatchObject({ t: 'welcome', snapshot: { host: 'N1' } });
+    expect(room.handle('p1', callCreate({ origin: 'generator' }), 5000).reject).toBeNull();
+    // A second patrol does not take it over, and neither does a dispatcher.
+    expect(room.join('p2', hello('patrol', 'Two'), 0).events.map((e) => e.k)).toEqual(['joined']);
+    expect(room.host).toBe('N1');
+  });
+  it('a dispatcher hosts only until the first patrol joins', () => {
+    const room = new Room({ name: 'r', seed: 99 });
+    room.join('d', hello('dispatcher', 'Disp'), 0);
+    expect(room.host).toBe('DISPATCH');
+    room.join('p1', hello('patrol', 'One'), 0);
+    expect(room.host).toBe('N1');
   });
   it('a non-host leaving emits only left', () => {
     const fx = fixture();
@@ -339,6 +359,25 @@ describe('presence', () => {
     unchanged(fx, () => fx.send('p1', presence(480, 0), 11300), 'invalidValue'); // 400 m in 100 ms
     allowed(fx.send('p1', presence(600, 0), 20000)); // 520 m, but after an 8.8 s gap
     expect(fx.room.presence()).toMatchObject({ units: [{ callsign: 'N1', x: 600, z: 0 }] });
+  });
+  it('rejects a sustained speed over the limit made of small steps (45 m every 100 ms is 450 m/s)', () => {
+    const fx = fixture();
+    allowed(fx.send('p1', presence(0, 0), 20000));
+    let rejected = 0;
+    for (let i = 1; i <= 20; i++) {
+      const r = fx.send('p1', presence(45 * i, 0), 20000 + 100 * i);
+      if (r.reject !== null) rejected++;
+    }
+    expect(rejected).toBeGreaterThan(15);
+    // The unit never got far from where it was last accepted.
+    const p = fx.room.presence();
+    expect(p.t === 'presence' && (p.units.find((u) => u.callsign === 'N1')?.x ?? 0)).toBeLessThan(120);
+  });
+  it('accepts a legal 80 m/s run and the jitter of a single step', () => {
+    const fx = fixture();
+    allowed(fx.send('p1', presence(0, 0), 30000));
+    for (let i = 1; i <= 20; i++) allowed(fx.send('p1', presence(8 * i, 0), 30000 + 100 * i)); // 80 m/s
+    allowed(fx.send('p1', presence(160 + 12, 0), 32100)); // 12 m in 100 ms: within the slack
   });
   it('rejects positions outside the world', () => {
     const fx = fixture();

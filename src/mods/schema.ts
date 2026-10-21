@@ -21,7 +21,7 @@ import { PHRASE_KINDS, validatePhrases } from '../radio/data';
 import { defaultScriptContext, parseDispatchScript } from '../training/script';
 import { parseUniformData } from '../uniform/data';
 import { UNIFORM_CLASSES } from '../uniform/types';
-import { VEHICLE_MODELS, parseVehicleModel } from '../vehicles/model';
+import { VEHICLE_MODELS, parseModVehicle } from '../vehicles/model';
 import { DISTRICT_NAMES } from '../world/ids';
 import { applyUniformPatches, canonicalJson, checkErrors, mergePhrases, mergeStatutes, type ModValidationContext } from './combine';
 import { modOverlay } from './registry';
@@ -500,7 +500,7 @@ export function defaultModContext(): ModValidationContext {
     },
     checkVehicle: (json, source) =>
       attempt(() => {
-        parseVehicleModel(json, source);
+        parseModVehicle(json, source);
       }),
     checkRuleset: (json, file) =>
       attempt(() => {

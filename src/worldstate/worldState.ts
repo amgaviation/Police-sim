@@ -60,7 +60,11 @@ export class WorldState {
     this.bus = deps.bus;
     this.rng = deps.rng;
     this.cfg = deps.config ?? WORLD_CONFIG;
-    this.base = { ...this.cfg.neighborhoods.baseCrime, ...deps.baseCrime };
+    // A district table mod can scale the base crime (crimeFactor up to 3): the level stays within the neighborhood range,
+    // which is also what the save validator accepts.
+    const base: Record<string, number> = { ...this.cfg.neighborhoods.baseCrime, ...deps.baseCrime };
+    for (const d of Object.keys(base)) base[d] = Math.min(this.cfg.neighborhoods.max, Math.max(0, base[d] ?? 0));
+    this.base = base;
     this.load(save ?? newWorldStateSave(deps.rng.state(), this.base));
     if (save !== undefined) this.rng.restore(save.rng);
   }
@@ -110,6 +114,11 @@ export class WorldState {
     return this.offenderMap.get(personId) ?? null;
   }
 
+  /** Every offender record, in personId order. */
+  offenders(): readonly OffenderRecord[] {
+    return this.offenderList;
+  }
+
   /** The district's state; a neutral frozen state for an unknown district. */
   neighborhood(district: string): Readonly<NeighborhoodState> {
     return this.neighborhoods[district] ?? NEUTRAL;
@@ -128,12 +137,16 @@ export class WorldState {
   // --- Simulation hooks -----------------------------------------------------------------------
 
   /**
-   * Scene hook: a designated person for `callId` (bias map; removed when used and it fits), else `pickRecidivist`; emits
+   * Scene hook: a designated person for `callId` (bias map; removed when used and it fits `fitsDesignated`, default
+   * `fits`), else `pickRecidivist` (which uses `fits`); emits
    * `world:recidivist` when an offender was picked. -1 = no pick. Draws only through `draw`, and only for a non-empty pool.
    */
-  pickPerson(callId: number, district: string, game: number, fits: (personId: number) => boolean, draw: () => number): number {
+  pickPerson(
+    callId: number, district: string, game: number, fits: (personId: number) => boolean, draw: () => number,
+    fitsDesignated: (personId: number) => boolean = fits,
+  ): number {
     const designated = this.biasMap.get(callId);
-    if (designated !== undefined && fits(designated)) {
+    if (designated !== undefined && fitsDesignated(designated)) {
       this.biasMap.delete(callId);
       this.rev++;
       return designated;
@@ -177,20 +190,26 @@ export class WorldState {
   }
 
   /**
-   * Rollover: evolves the world from `fromGame` to `toGame` (see `evolveWorld`). Uses only the 'worldstate' stream. The
-   * integrator applies the result (people custody, record addresses, trust, follow-up calls + `bindPerson`).
+   * Rollover: evolves the world from the last evolved time (`fromGame` the first time) to `toGame` (see `evolveWorld`),
+   * so the part of a day left over by one rollover is carried to the next instead of being lost. Uses only the
+   * 'worldstate' stream. The integrator applies the result (people custody, record addresses, trust, follow-up calls +
+   * `bindPerson`).
    */
   evolve(input: EvolveInput): EvolveResult {
+    const last = this.lastEvolveGame;
+    const from = last > 0 && last <= input.fromGame ? last : input.fromGame;
     const result = evolveWorld(
       { cases: this.caseList, offenders: this.offenderList, witnesses: this.witnessList, neighborhoods: this.neighborhoods },
-      input,
+      { ...input, fromGame: from },
       {
         rng: this.rng, cfg: this.cfg, baseCrime: this.base, offenderOf: (id) => this.offenderMap.get(id) ?? null,
         onCase: (c) => this.bus.emit('world:case', { caseId: c.id, callId: c.callId, status: c.status }),
       },
     );
     for (const text of result.news) this.addNews(input.toGame, text);
-    this.lastEvolveGame = input.toGame;
+    // Whole days are consumed, the remainder stays for the next rollover (a gap over the clamp is dropped).
+    const whole = Math.floor((input.toGame - from) / DAY_S);
+    this.lastEvolveGame = !Number.isFinite(whole) || whole < 0 ? input.toGame : whole > result.days ? input.toGame : from + whole * DAY_S;
     this.rev++;
     return result;
   }

@@ -36,6 +36,7 @@ import { createMdtDeps } from './game/mdtDeps';
 import { Phase6Presenter } from './game/phase6Presenter';
 import { Phase7Presenter } from './game/phase7Presenter';
 import { Phase8Presenter } from './game/phase8Presenter';
+import { scenarioBlockedReason } from './game/modes';
 import { createPhase8Commands } from './game/phase8Commands';
 import { beginRolledShift, prepareRollover, type PreparedRollover } from './game/rollover';
 import { setPaletteMode } from './a11y';
@@ -79,6 +80,7 @@ import {
 import { TargetTracker, type TargetInfo } from './game/target';
 import { WorldView } from './game/worldView';
 import { InputManager } from './input/input';
+import { DEFAULT_INPUT_CONTEXT, type InputContext } from './input/context';
 import { initRapier, type PhysicsWorld, type Vec3 } from './physics/physics';
 import { CAMERA_MODE, CAMERA_MODE_NAMES, CameraRig, type CameraRaycast, type FollowTarget, type LookInput } from './player/cameraRig';
 import { readDriverInput } from './player/driverInput';
@@ -249,6 +251,7 @@ export class App {
   /** People layer presentation: figures, props, dialogue and SFST panels, subtitles. */
   readonly presenter: PeoplePresenter;
   private readonly policeInput = createPoliceInput();
+  private readonly inputContext: InputContext = { ...DEFAULT_INPUT_CONTEXT };
   /** Interact key held at a door since this time (ms), -1 when not pending: a tap toggles, a hold opens the door panel. */
   private doorHoldMs = -1;
   private readonly markers = createMinimapMarkers(MARKER_CAPACITY);
@@ -537,6 +540,11 @@ export class App {
         this.pauseMenu.close();
         this.phase8.openEditor();
       },
+      // Scenarios change the clock, the weather and the world: free patrol and sandbox only, never career or co-op.
+      editorAvailable: () => {
+        const session = this.sessionValue;
+        return session === null || scenarioBlockedReason(session, this.phase8.coop !== null) === null;
+      },
     });
 
     this.systems.register(copyPrevTransform, -1000);
@@ -761,7 +769,7 @@ export class App {
       data: prepared.save,
     });
     this.beginSession(session, tag);
-    const calls = beginRolledShift(session, prepared.followUps);
+    const calls = beginRolledShift(session, prepared.followUps, prepared.dispatchRng);
     const news = prepared.news[0];
     this.flash(news !== undefined ? news : calls > 0 ? 'A follow-up warrant call is waiting' : 'Next shift');
     log.info(`Shift ${String(session.phase8.career.view.shift.shiftNo)} started (${String(calls)} follow-up calls)`);
@@ -897,6 +905,7 @@ export class App {
    * and panels, environment and city, cars (+ spotlight), cockpit and MDT screen, audio, HUD and radio panel.
    */
   private update(dt: number, alpha: number): void {
+    this.syncInputContext();
     this.input.update();
     this.handleToggles();
     this.menuChangedSinceUpdate = false;
@@ -951,6 +960,20 @@ export class App {
     s.entities = entityCount(this.world);
     this.perf.record(s);
     if (this.perf.visible) this.updatePerfExtras();
+  }
+
+  /** Tells the input which situation the player is in, so keys shared by several actions go to the one that applies. */
+  private syncInputContext(): void {
+    const ctx = this.inputContext;
+    const session = this.sessionValue;
+    ctx.driving = session !== null && (session.driving || session.remote);
+    const craft = session?.controlledVehicle?.model.control;
+    ctx.aircraft = ctx.driving && (craft === 'helicopter' || craft === 'drone');
+    ctx.radioMenu = session?.radio.menu.isOpen === true;
+    const coop = this.phase8.coop;
+    if (coop?.connected === true) ctx.mode = coop.role === 'patrol' ? 'coop' : 'dispatch';
+    else ctx.mode = session?.phase8.modeId === 'dispatchOnly' ? 'dispatch' : 'solo';
+    this.input.setContext(ctx);
   }
 
   private handleToggles(): void {

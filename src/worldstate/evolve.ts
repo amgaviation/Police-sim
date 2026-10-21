@@ -81,15 +81,25 @@ export function evolveWorld(d: EvolveData, input: Readonly<EvolveInput>, env: Ev
   // Neighborhoods and trust.
   const trustDeltas: EvolveResult['trustDeltas'] = [];
   if (days > 0) {
+    // Released offenders count while they are a fresh threat (risk-weighted, fading with the time since release); arrests
+    // lower crime by a fading count of the recent ones (the current shift's included) instead of this shift's alone.
+    const tau = cfg.neighborhoods.memoryDays * DAY_S;
     const atLarge: Record<string, number> = {};
-    for (const o of d.offenders) if (o.custody !== 'jailed') atLarge[o.district] = (atLarge[o.district] ?? 0) + 1;
+    const recent: Record<string, number> = {};
+    for (const o of d.offenders) {
+      if (o.custody !== 'jailed') {
+        atLarge[o.district] = (atLarge[o.district] ?? 0) + o.risk * Math.exp(-Math.max(0, input.toGame - o.releaseGame) / tau);
+      }
+      recent[o.district] = (recent[o.district] ?? 0) + Math.exp(-Math.max(0, input.toGame - o.lastArrestGame) / tau);
+    }
     for (const district of CRIME_DISTRICTS) {
       const n = d.neighborhoods[district];
       const base = env.baseCrime[district] ?? 0;
       const u = rng.next();
       if (n === undefined) continue;
       const before = n.crime;
-      evolveNeighborhood(n, base, input.trust[district] ?? 0.5, atLarge[district] ?? 0, input.arrestsByDistrict[district] ?? 0, days, u, cfg.neighborhoods);
+      evolveNeighborhood(n, base, input.trust[district] ?? 0.5, atLarge[district] ?? 0,
+        Math.max(input.arrestsByDistrict[district] ?? 0, recent[district] ?? 0), days, u, cfg.neighborhoods);
       if (!(base > 0)) continue;
       const delta = -cfg.neighborhoods.crimeToTrust * (n.crime - base);
       if (Math.abs(delta) > 1e-9) trustDeltas.push({ district, delta });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CAREER_CONFIG, LEGAL_QUIZ, REPORT_EXERCISES, drawQuiz } from '../../src/career';
 import { createRng } from '../../src/core/rng';
-import { LegalQuizScreen, QuizRun, examLevelFor } from '../../src/ui/career/legalQuiz';
+import { LegalQuizScreen, QuizRun, examAttempt, examLevelFor } from '../../src/ui/career/legalQuiz';
 import { ReportExerciseScreen, ReportRun, exerciseForAttempt } from '../../src/ui/career/reportExercise';
 import { key } from './helpers';
 
@@ -159,5 +159,25 @@ describe('report exercise', () => {
     expect(scores).toEqual([fb.score]);
     expect(screen.onKeyDown(key('Escape'))).toBe(true);
     expect(exits).toEqual([1]);
+  });
+});
+
+describe('examAttempt', () => {
+  it('is unique per run in the same game minute and per minute', () => {
+    const a = examAttempt(1000, 0);
+    const b = examAttempt(1000, 1);
+    const c = examAttempt(1000 + 60, 0);
+    expect(new Set([a, b, c]).size).toBe(3);
+  });
+
+  it('gives different question sets for consecutive retries', () => {
+    const ids = (attempt: number): string[] => {
+      return new QuizRun(42, `exam:sergeant:${String(attempt)}`, 'sergeant').ids;
+    };
+    expect(ids(examAttempt(5000, 0))).not.toEqual(ids(examAttempt(5000, 1)));
+  });
+
+  it('tolerates junk input', () => {
+    expect(examAttempt(Number.NaN, -3)).toBe(0);
   });
 });

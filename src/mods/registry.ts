@@ -26,8 +26,13 @@ export function activeModRefs(): readonly ModRef[] {
   return active.refs;
 }
 
-/** The overlay label of a district, or the district name itself. */
+/** The overlay label of a district (matched ignoring case: 'Harbor' finds 'harbor'), or the district name itself. */
 export function districtLabel(district: string): string {
-  const label = Object.hasOwn(active.districts, district) ? active.districts[district]?.label : undefined;
-  return label ?? district;
+  const exact = Object.hasOwn(active.districts, district) ? active.districts[district]?.label : undefined;
+  if (exact !== undefined) return exact;
+  const lower = district.toLowerCase();
+  for (const key in active.districts) {
+    if (key.toLowerCase() === lower) return active.districts[key]?.label ?? district;
+  }
+  return district;
 }

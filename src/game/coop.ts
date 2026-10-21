@@ -368,6 +368,10 @@ export class CoopSession {
         if (e.callId !== null) {
           net = this.mirror.netIdOf(e.callId);
           if (net < 0) return;
+          // Self-assignment: the CAD changes the status before it announces the assignment, and the room accepts a status
+          // on a call only for an assigned unit. The status follows the callAssign below.
+          const nc = this.calls.get(net);
+          if (nc !== undefined && !nc.units.includes(this.self)) return;
         }
         const mine = this.units.get(this.self);
         if (mine && mine.status === e.status && mine.callId === net) return;
@@ -378,6 +382,9 @@ export class CoopSession {
         const net = this.mirror.netIdOf(e.callId);
         if (net < 0 || this.calls.get(net)?.units.includes(this.self)) return;
         send({ t: 'callAssign', callId: net, unit: this.self });
+        // The room sets only the call link on an assignment: bring its unit status (en route ...) up to the local one.
+        const status = this.session.cad.unit(pc)?.status;
+        if (status !== undefined && status !== 'available') send({ t: 'unitStatus', status, callId: net });
       }),
       bus.on('cad:callClosed', (e) => {
         if (this.applying) return;

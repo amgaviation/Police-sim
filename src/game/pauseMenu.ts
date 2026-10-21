@@ -9,6 +9,8 @@ export interface PauseMenuCallbacks {
   openCareer?(): void;
   /** Phase 8: the scenario editor. */
   openEditor?(): void;
+  /** False hides the scenario editor button (a career or co-op session); default: shown. */
+  editorAvailable?(): boolean;
 }
 
 /** In-game pause screen. Escape is swallowed here; the app toggles it through the `menu.toggle` action. */
@@ -17,9 +19,13 @@ export class PauseMenu implements Menu {
   readonly element: HTMLElement;
   private readonly ui: UIRoot;
   private readonly status: HTMLElement;
+  private readonly editorButton: HTMLElement | null;
+  private readonly callbacks: PauseMenuCallbacks;
 
   constructor(ui: UIRoot, callbacks: PauseMenuCallbacks) {
     this.ui = ui;
+    this.callbacks = callbacks;
+    this.editorButton = callbacks.openEditor ? el('button', { onclick: () => callbacks.openEditor?.() }, 'Scenario editor') : null;
     this.status = el('p', { class: 'hint' });
     this.element = el(
       'div',
@@ -32,7 +38,7 @@ export class PauseMenu implements Menu {
         el('button', { onclick: () => callbacks.quickSave() }, 'Quick save'),
         el('button', { onclick: () => callbacks.openSettings() }, 'Settings'),
         ...(callbacks.openCareer ? [el('button', { onclick: () => callbacks.openCareer?.() }, 'Career / schedule')] : []),
-        ...(callbacks.openEditor ? [el('button', { onclick: () => callbacks.openEditor?.() }, 'Scenario editor')] : []),
+        ...(this.editorButton ? [this.editorButton] : []),
         el('button', { class: 'danger', onclick: () => callbacks.quitToTitle() }, 'Quit to title'),
       ),
       this.status,
@@ -51,6 +57,7 @@ export class PauseMenu implements Menu {
 
   open(): void {
     this.setStatus('');
+    if (this.editorButton) this.editorButton.hidden = this.callbacks.editorAvailable?.() === false;
     this.ui.push(this);
   }
 

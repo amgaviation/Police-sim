@@ -1,5 +1,6 @@
 import { CALL_TYPES, DISPOSITIONS } from '../cad/data';
 import type { CadCall, CadUnit } from '../cad/types';
+import { districtLabel as modDistrictLabel } from '../mods/registry';
 import { formatStamp } from '../records/calendar';
 import type { ConsoleCall, ConsolePriority, ConsoleUnit, DispatchConsolePort } from '../ui/dispatch/model';
 import type { GameSession } from './session';
@@ -53,7 +54,7 @@ export class LocalConsolePort implements DispatchConsolePort {
         priority: c.priority,
         status: callStatus(c),
         address: c.location.text,
-        district: c.location.district,
+        district: modDistrictLabel(c.location.district),
         ageS: Math.max(0, now.sim - c.created.sim),
         units: [...c.units],
         x: c.location.x,

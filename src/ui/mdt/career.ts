@@ -9,6 +9,7 @@ import type { CourtCase } from '../../court/types';
 import type { LedgerEntry } from '../../fleet/types';
 import { formatStamp } from '../../records/calendar';
 import { ruleLabel } from '../../conduct/ia';
+import { districtLabel as modDistrictLabel } from '../../mods/registry';
 import { clearChildren, el } from '../ui';
 import { formatMoney, formatPoints } from '../fleet/format';
 import { trustBand, type TrustBand } from '../hud/law';
@@ -361,7 +362,9 @@ export const TREND_EPS = 0.01;
 
 /** "industrialPark" -> "Industrial park". */
 export function districtLabel(district: string): string {
-  return district === '' ? 'Unknown' : humanize(district);
+  if (district === '') return 'Unknown';
+  const label = modDistrictLabel(district);
+  return label === district ? humanize(district) : label;
 }
 
 function pct(v: number): number {

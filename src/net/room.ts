@@ -72,7 +72,8 @@ export function canTransition(from: NetUnitStatus, to: NetUnitStatus): boolean {
 const PRESENCE_MIN_GAP_MS = 80;
 const OFFICER_CALL_RADIUS_M = 150;
 const GENERATOR_GAP_MS = 10000;
-const TELEPORT_MIN_DIST_M = 50;
+/** Position jitter a presence may exceed the speed limit by (m): the step must stay within `maxSpeedMps * dt + slack`. */
+const PRESENCE_SLACK_M = 10;
 const DEFAULT_MAX_MEMBERS = 6;
 
 interface Member {
@@ -197,6 +198,11 @@ export class Room {
     this.byCallsign.set(callsign, member);
     const events: RoomEvent[] = [];
     this.emit(events, { k: 'joined', unit: cloneUnit(unit) });
+    // Only a patrol unit can generate calls, so a patrol who joins a room hosted by a supervisor / dispatcher takes over.
+    if (hello.role === 'patrol' && this.members.size > 1 && this.byCallsign.get(this.hostCallsign)?.unit.role !== 'patrol') {
+      this.hostCallsign = callsign;
+      this.emit(events, { k: 'host', callsign });
+    }
     const welcome: ServerMsg = { t: 'welcome', v: PROTOCOL_VERSION, callsign, role: hello.role, snapshot: this.snapshot };
     return { ...ok(events, [welcome]), callsign };
   }
@@ -342,8 +348,8 @@ export class Room {
     if (m.lastPresenceMs !== null) {
       if (nowMs - m.lastPresenceMs < PRESENCE_MIN_GAP_MS) return rej('rate', 'presence too frequent');
       const dist = Math.hypot(msg.x - u.x, msg.z - u.z);
-      const dt = Math.max(0.05, (nowMs - m.lastPresenceMs) / 1000);
-      if (dist > TELEPORT_MIN_DIST_M && dist / dt > LIMITS.maxSpeedMps) {
+      const dt = (nowMs - m.lastPresenceMs) / 1000;
+      if (dist > LIMITS.maxSpeedMps * dt + PRESENCE_SLACK_M) {
         return rej('invalidValue', 'implausible movement');
       }
     }

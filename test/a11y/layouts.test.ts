@@ -6,12 +6,14 @@ import {
   ONE_HANDED_LAYOUTS,
   RIGHT_KEYS,
   RIGHT_MOUSE_CODES,
+  UNBOUND_BY_DESIGN,
   isOneHandedLayout,
   layoutBindings,
   parseLayouts,
 } from '../../src/a11y/layouts';
 import layoutsJson from '../../src/data/a11y/layouts.json';
 import { ACTION_IDS, type ActionId } from '../../src/input/actions';
+import { bindingCollisions, unreachableActions } from '../../src/input/context';
 import { DEFAULT_BINDINGS, isBinding, parseBindings, serializeBindings, type Binding } from '../../src/input/bindings';
 
 const left = layoutBindings('left');
@@ -40,13 +42,25 @@ describe.each([
   ['left', left],
   ['right', right],
 ] as const)('%s layout', (name, map) => {
-  it('binds every action to at least one binding', () => {
+  it('binds every action to at least one binding, except those the hand has no key for', () => {
     expect(Object.keys(map).sort()).toEqual([...ACTION_IDS].sort());
-    for (const id of ACTION_IDS) expect(map[id].length, `${name}: ${id}`).toBeGreaterThanOrEqual(1);
+    for (const id of ACTION_IDS) {
+      if (UNBOUND_BY_DESIGN[name].includes(id)) continue;
+      expect(map[id].length, `${name}: ${id}`).toBeGreaterThanOrEqual(1);
+    }
   });
 
   it('only holds structurally valid bindings', () => {
     for (const id of ACTION_IDS) for (const b of map[id]) expect(isBinding(b), `${name}: ${id} ${b.code}`).toBe(true);
+  });
+
+  it('keeps two actions of the same situation off one key (no press fires several actions)', () => {
+    const doubles = bindingCollisions(map, ACTION_IDS).filter((c) => !c.shadowed);
+    expect(doubles, doubles.map((c) => `${c.key}: ${c.actions.join(' + ')}`).join('; ')).toEqual([]);
+  });
+
+  it('leaves no bound action hidden behind a more important one on every key it has', () => {
+    expect(unreachableActions(map, ACTION_IDS)).toEqual([]);
   });
 
   it('keeps the gamepad bindings of the defaults', () => {
@@ -56,8 +70,10 @@ describe.each([
     }
   });
 
-  it('has a keyboard or mouse binding for every action', () => {
-    for (const id of ACTION_IDS) expect(map[id].some((b) => b.device !== 'gamepad'), `${name}: ${id}`).toBe(true);
+  it('has a keyboard or mouse binding for every action, except those the hand has no key for', () => {
+    for (const id of ACTION_IDS) {
+      expect(map[id].some((b) => b.device !== 'gamepad'), `${name}: ${id}`).toBe(!UNBOUND_BY_DESIGN[name].includes(id));
+    }
   });
 
   it('survives a serialize / parse round trip', () => {

@@ -111,9 +111,9 @@ export class ReportExerciseScreen implements MinigameScreen {
   private reported = false;
 
   private readonly ui: UIRoot | null;
-  private readonly opts: MinigameOptions;
+  private readonly opts: MinigameOptions & { readonly onNext?: () => void };
 
-  constructor(ui: UIRoot | null, opts: MinigameOptions) {
+  constructor(ui: UIRoot | null, opts: MinigameOptions & { readonly onNext?: () => void }) {
     this.ui = ui;
     this.opts = opts;
     this.run = new ReportRun(opts.seed, opts.attempt);
@@ -159,6 +159,12 @@ export class ReportExerciseScreen implements MinigameScreen {
       return true;
     }
     return false;
+  }
+
+  /** Leaves for the next exercise (the host opens it); needs `onNext`. */
+  next(): void {
+    this.close();
+    this.opts.onNext?.();
   }
 
   /** Ticks a statement (checkbox). */
@@ -210,7 +216,8 @@ export class ReportExerciseScreen implements MinigameScreen {
       el('div', { class: 'cr-result-detail' }, `Pass mark ${String(pass)} · ${feedback.score >= pass ? 'PASSED' : 'not passed'}`),
       feedback.missing.length > 0 ? el('div', { class: 'cr-missing' }, el('strong', null, 'Missing from your report'), el('ul', null, feedback.missing.map((t) => el('li', null, t)))) : null,
       feedback.falseSelected.length > 0 ? el('div', { class: 'cr-false' }, el('strong', null, 'Not supported by the facts'), el('ul', null, feedback.falseSelected.map((t) => el('li', null, t)))) : null,
-      el('button', { type: 'button', class: 'cr-btn cr-primary', onclick: () => { this.exit(); } }, 'Continue'),
+      this.opts.onNext === undefined ? null : el('button', { type: 'button', class: 'cr-btn cr-primary', onclick: () => { this.next(); } }, 'Next exercise'),
+      el('button', { type: 'button', class: this.opts.onNext === undefined ? 'cr-btn cr-primary' : 'cr-btn', onclick: () => { this.exit(); } }, 'Continue'),
     ));
     setText(dom.hint, 'Esc or Continue to leave');
   }

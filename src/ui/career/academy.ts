@@ -31,6 +31,10 @@ export interface AcademyHost {
   graduate(): void;
   close(): void;
   readonly standalone: boolean;
+  /** True for continuing training after graduation (the hub is titled Training and has no Graduate button). */
+  continuing?(): boolean;
+  /** The modules the hub offers (default: all). */
+  modules?(): readonly AcademyModule[];
 }
 
 export interface AcademyRow {
@@ -92,6 +96,38 @@ export function parseTrainingRecords(text: string | null): Record<AcademyModule,
     }
   }
   return out;
+}
+
+/** localStorage when it exists and is readable, else null. */
+export function trainingStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Stored records of the no-world drills; the empty records when the storage is missing or malformed. */
+export function loadTrainingRecords(storage: Pick<Storage, 'getItem'> | null): Record<AcademyModule, AcademyRecord> {
+  try {
+    return parseTrainingRecords(storage?.getItem(TRAINING_STORAGE_KEY) ?? null);
+  } catch {
+    return emptyRecords();
+  }
+}
+
+/** Adds one attempt to the stored records (best effort) and returns the new records. */
+export function recordTrainingScore(
+  storage: Pick<Storage, 'getItem' | 'setItem'> | null, module: AcademyModule, score: number,
+): Record<AcademyModule, AcademyRecord> {
+  const records = loadTrainingRecords(storage);
+  records[module] = recordAcademyScore(records[module], module, score);
+  try {
+    storage?.setItem(TRAINING_STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    // Storage full or blocked: the record lives for this session only.
+  }
+  return records;
 }
 
 /**
@@ -174,6 +210,10 @@ export class AcademyScreen implements Menu {
     return academyModel(this.host.records(), CAREER_CONFIG.academy.pass);
   }
 
+  private offered(module: AcademyModule): boolean {
+    return this.host.modules?.().includes(module) ?? true;
+  }
+
   open(): void {
     this.openFlag = true;
     this.message = '';
@@ -206,7 +246,7 @@ export class AcademyScreen implements Menu {
     const digit = /^(?:Digit|Numpad)?([1-5])$/.exec(event.key);
     if (digit) {
       const module = ACADEMY_MODULES[Number(digit[1]) - 1];
-      if (module !== undefined && !event.repeat) this.launch(module);
+      if (module !== undefined && this.offered(module) && !event.repeat) this.launch(module);
       return true;
     }
     return false;
@@ -258,12 +298,14 @@ export class AcademyScreen implements Menu {
     if (!dom) return;
     const model = this.model;
     clearChildren(dom.body);
-    setText(dom.title, this.host.standalone ? 'Training drills' : 'Academy');
+    const continuing = !this.host.standalone && this.host.continuing?.() === true;
+    setText(dom.title, this.host.standalone ? 'Training drills' : continuing ? 'Training' : 'Academy');
     const table = el('table', { class: 'cr-table', 'aria-label': 'Academy modules' },
       el('thead', null, el('tr', null, ['Module', 'Best', 'Attempts', 'Pass mark', 'Status', ''].map((h) => el('th', { scope: 'col' }, h)))),
     );
     const tbody = el('tbody');
     model.rows.forEach((row, i) => {
+      if (!this.offered(row.module)) return;
       const status = row.passed ? 'Passed' : row.attempts > 0 ? 'Not passed' : 'Not tried';
       const cls = row.passed ? 'cr-ok' : row.attempts > 0 ? 'cr-caution' : '';
       tbody.appendChild(el('tr', { class: cls },
@@ -279,13 +321,13 @@ export class AcademyScreen implements Menu {
     });
     table.appendChild(tbody);
     dom.body.appendChild(table);
-    if (!this.host.standalone) {
+    if (!this.host.standalone && this.offered('driving')) {
       const select = el('select', { id: 'cr-course', 'aria-label': 'Driving course', onchange: (e: Event) => { this.setCourse((e.target as HTMLSelectElement).value); } },
         COURSES.map((c) => el('option', { value: c.id, selected: c.id === this.courseId || null }, c.label)));
       dom.body.appendChild(el('div', { class: 'cr-row' }, el('label', { for: 'cr-course' }, 'Driving course '), select));
     }
     clearChildren(dom.footer);
-    if (!this.host.standalone) {
+    if (!this.host.standalone && !continuing) {
       dom.footer.appendChild(el('button', {
         type: 'button', class: 'cr-btn cr-primary', disabled: !model.canGraduate, onclick: () => { this.graduate(); },
       }, 'Graduate'));

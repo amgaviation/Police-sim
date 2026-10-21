@@ -64,6 +64,25 @@ describe('registry', () => {
   it('does not treat inherited names as districts', () => {
     expect(districtLabel('constructor')).toBe('constructor');
   });
+
+  it('finds a label whatever the case of the district name (the CAD writes "Harbor", the table "harbor")', () => {
+    const o = emptyOverlay();
+    o.districts.harbor = { label: 'Harbor Row' };
+    setActiveOverlay(o);
+    expect(districtLabel('Harbor')).toBe('Harbor Row');
+    expect(districtLabel('HARBOR')).toBe('Harbor Row');
+    expect(districtLabel('Downtown')).toBe('Downtown');
+    setActiveOverlay(null);
+  });
+
+  it('the HUD district name uses the mod label', async () => {
+    const { districtLabel: hudLabel } = await import('../../src/game/hudFeed');
+    const o = emptyOverlay();
+    o.districts.downtown = { label: 'old town' };
+    setActiveOverlay(o);
+    expect(hudLabel(0)).toBe('Old town');
+    setActiveOverlay(null);
+  });
 });
 
 describe('bootMods', () => {

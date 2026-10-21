@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { UNITS_DATA } from '../dispatch/data';
 import { SECONDS_PER_DAY } from '../environment/time';
-import { academyPassed } from '../career';
+import { ACADEMY_MODULES, academyPassed } from '../career';
 import type { AcademyModule, CareerRank, CareerRequest, ShiftSummary } from '../career';
 import { activeModRefs } from '../mods/registry';
 import { defaultModContext } from '../mods/schema';
@@ -17,7 +17,7 @@ import { ConeRenderer } from '../render/training/coneRenderer';
 import { defaultScenarioContext, conePositions, findCourse, type SandboxScenario } from '../training';
 import {
   AcademyScreen, ApartmentScreen, CareerScreen, LegalQuizScreen, ReportExerciseScreen, ShiftSummaryScreen, TraineeEvalPanel,
-  examLevelFor, standaloneAcademyHost, type AcademyHost, type CareerTab,
+  examAttempt, examLevelFor, loadTrainingRecords, recordTrainingScore, standaloneAcademyHost, trainingStorage, type AcademyHost, type CareerTab,
 } from '../ui/career';
 import { courseLine, coopChip, shiftLine } from '../ui/hud/phase8';
 import type { Hud } from '../ui/hud/hud';
@@ -30,7 +30,7 @@ import type { UIRoot } from '../ui/ui';
 import { NetClient, PROTOCOL_VERSION } from '../net';
 import { CoopSession, NetConsolePort } from './coop';
 import { LocalConsolePort } from './consolePorts';
-import { leaveDrivingCourse, runScenario, startDrivingCourse } from './modes';
+import { leaveDrivingCourse, runScenario, scenarioBlockedReason, startDrivingCourse } from './modes';
 import type { GameSession } from './session';
 
 /** What the presenter needs from the app. */
@@ -109,6 +109,10 @@ export class Phase8Presenter {
   private nextPanelMs = 0;
   private lastSummary: ShiftSummary | null = null;
   private lobbyStarted = false;
+  /** Exams started in this page (a failed exam leaves no saved trace; see `examAttempt`). */
+  private examRuns = 0;
+  /** The running driving course was started from the training hub: the hub reopens when the run ends. */
+  private hubCourse = false;
 
   constructor(ui: UIRoot, host: Phase8PresenterHost) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -187,7 +191,12 @@ export class Phase8Presenter {
       records: () => this.p8().career.view.academy,
       mods: () => this.p8().perf,
       submit: (module: AcademyModule, score: number) => this.request({ kind: 'academyScore', module, score }),
-      startDrivingCourse: (courseId: string) => this.beginCourse(courseId),
+      startDrivingCourse: (courseId: string) => {
+        this.hubCourse = true;
+        this.beginCourse(courseId);
+      },
+      continuing: () => this.p8().career.view.stage !== 'academy',
+      modules: () => (this.p8().modeId === 'drivingAcademy' ? ['driving'] : ACADEMY_MODULES),
       canGraduate: () => academyPassed(this.p8().career.view.academy),
       graduate: () => {
         this.request({ kind: 'graduate' });
@@ -210,12 +219,16 @@ export class Phase8Presenter {
           mode: 'exam',
           level: examLevelFor(rank),
           seed: s.seed,
-          attempt: s.phase8.career.view.history.length,
+          attempt: examAttempt(s.now().game, this.examRuns++),
           onScore: done,
           onExit: () => screen.close(),
         });
         this.quizScreen = screen;
         screen.open();
+      },
+      openTraining: () => {
+        this.careerScreen.close();
+        this.academy.open();
       },
       close: () => this.careerScreen.close(),
     };
@@ -347,7 +360,15 @@ export class Phase8Presenter {
   /** Training > Report writing from the title screen. */
   openStandaloneReport(): void {
     const seed = 20_240_601;
-    const screen = new ReportExerciseScreen(this.ui, { seed, attempt: 0, onScore: () => undefined, onExit: () => screen.close() });
+    const storage = trainingStorage();
+    const attempt = loadTrainingRecords(storage).report.attempts;
+    const screen = new ReportExerciseScreen(this.ui, {
+      seed,
+      attempt,
+      onScore: (score) => { recordTrainingScore(storage, 'report', score); },
+      onExit: () => screen.close(),
+      onNext: () => this.openStandaloneReport(),
+    });
     this.reportScreen = screen;
     screen.open();
   }
@@ -394,21 +415,22 @@ export class Phase8Presenter {
     const run = p8.mode.course;
     if (!run || (!run.done && !run.aborted)) return;
     const result = run.result();
-    const career = p8.career.view.academy.driving;
-    const inCareer = p8.mode.id === 'career' && career !== undefined;
+    // The training hub reopens for the career, the driving academy and any run started from the hub (retry / next course).
+    const reopen = p8.mode.id === 'career' || p8.mode.id === 'drivingAcademy' || this.hubCourse;
+    this.hubCourse = false;
     const text = run.aborted ? 'Course aborted' : `Course complete: score ${String(result.score)} (${String(result.cones)} cones, ${String(result.missed)} missed gates, ${result.timeS.toFixed(1)} s)`;
     this.host.flash(text);
     this.courseText = text;
     this.courseUntilMs = performance.now() + COURSE_RESULT_MS;
     if (!run.aborted) {
-      if (inCareer) this.request({ kind: 'academyScore', module: 'driving', score: result.score });
+      this.request({ kind: 'academyScore', module: 'driving', score: result.score });
       p8.takeCourseScore();
     }
     this.cones?.clear();
     this.coneKnocked = -1;
     p8.stopCourse();
     leaveDrivingCourse(session);
-    if (inCareer) this.academy.open();
+    if (reopen) this.academy.open();
   }
 
   // --- Dispatch console -----------------------------------------------------------------------------
@@ -448,6 +470,12 @@ export class Phase8Presenter {
   // --- Sandbox --------------------------------------------------------------------------------------
 
   openEditor(doc?: SandboxScenario): void {
+    const s = this.host.session();
+    const blocked = s ? scenarioBlockedReason(s, this.coop !== null) : null;
+    if (blocked !== null) {
+      this.host.flash(blocked);
+      return;
+    }
     this.editor?.open(doc);
   }
 
@@ -456,7 +484,7 @@ export class Phase8Presenter {
     const s = this.host.session();
     this.editor?.close();
     if (!s) return;
-    const err = runScenario(s, doc);
+    const err = runScenario(s, doc, this.coop !== null);
     this.host.flash(err ?? `Scenario ${doc.name} running`);
   }
 

@@ -626,11 +626,23 @@ export class Dispatcher {
     return this.units.map((u) => ({ callsign: u.callsign, fleetIndex: u.fleetIndex, mode: u.mode, role: u.role, callId: u.callId }));
   }
 
+  /** The three rng stream states (a shift rollover carries them into the fresh dispatcher of the next shift). */
+  rngState(): DispatchSave['rng'] {
+    return { main: this.deps.rng.state(), calls: this.callsRng.state(), units: this.unitsRng.state() };
+  }
+
+  /** Restores the stream states of `rngState()` without touching anything else. */
+  restoreRngState(rng: DispatchSave['rng']): void {
+    this.deps.rng.restore(rng.main);
+    this.callsRng.restore(rng.calls);
+    this.unitsRng.restore(rng.units);
+  }
+
   serialize(): DispatchSave {
     return {
       version: 1,
       started: this.started,
-      rng: { main: this.deps.rng.state(), calls: this.callsRng.state(), units: this.unitsRng.state() },
+      rng: this.rngState(),
       generator: {
         nextCallSim: this.nextCallSim,
         generated: this.generated,

@@ -270,7 +270,9 @@ describe('catalog validator failures (file and path named)', () => {
     fixtures((r) => { file(r, 'dui').json.types[0].narratives = ['only one']; }, /types\/dui\.json: types\[0\]\.narratives must have at least 2 items/);
     fixtures((r) => { file(r, 'dui').json.types[0].weight = 0; }, /types\/dui\.json: types\[0\]\.weight must be greater than 0 for a generated type/);
     fixtures((r) => { file(r, 'dui').json.types[0].branchWeights = { nope: 1 }; }, /types\[0\]\.branchWeights\.nope names an unknown branch "nope" of family dui/);
-    fixtures((r) => { file(r, 'dui').json.types[0].branchWeights = { drunk: -1 }; }, /types\[0\]\.branchWeights\.drunk must be in \[0, Infinity\]/);
+    fixtures((r) => { file(r, 'dui').json.types[0].branchWeights = { drunk: -1 }; }, /types\[0\]\.branchWeights\.drunk must be in \[0, 1000\]/);
+    fixtures((r) => { file(r, 'dui').json.types[0].branchWeights = { drunk: 1e9 }; }, /types\[0\]\.branchWeights\.drunk must be in \[0, 1000\]/);
+    fixtures((r) => { file(r, 'dui').json.types[0].weight = 1e308; }, /types\[0\]\.weight must be in \[0, 1000\]/);
     fixtures((r) => {
       file(r, 'dui').json.types[0].branchWeights = { drunk: 0, drugged: 0, medical: 0, tired: 0, asleepParked: 0 };
     }, /types\[0\]\.branchWeights leaves every branch at weight 0/);

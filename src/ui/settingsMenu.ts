@@ -1,6 +1,6 @@
 import { LAYOUT_NAMES, isOneHandedLayout, layoutBindings } from '../a11y/layouts';
 import { ACTIONS, ACTION_IDS, actionKind, type ActionId } from '../input/actions';
-import { DEFAULT_BINDINGS, bindingSign, cloneBindings, withBindingSign, type Binding, type BindingMap } from '../input/bindings';
+import { bindingSign, withBindingSign, type Binding, type BindingMap } from '../input/bindings';
 import type { InputManager } from '../input/input';
 import {
   fieldsOfSection,
@@ -384,11 +384,15 @@ export class SettingsMenu implements Menu {
     this.commitBindings(map);
   }
 
-  /** Puts back this action's default bindings (e.g. a removed mouse look), leaving the rest alone. */
+  /**
+   * Puts back this action's bindings of the active layout (the defaults without a one-handed layout), e.g. a removed
+   * mouse look, leaving the rest alone.
+   */
   private restoreDefault(action: ActionId): void {
     this.stopCapture();
     const map = this.store.get('controls.bindings');
-    map[action] = cloneBindings(DEFAULT_BINDINGS)[action];
+    const layout = this.store.get('accessibility.oneHanded');
+    map[action] = layoutBindings(isOneHandedLayout(layout) ? layout : 'off')[action];
     this.commitBindings(map, `${action}:default`);
   }
 

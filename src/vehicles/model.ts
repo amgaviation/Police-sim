@@ -410,6 +410,53 @@ export function wheelLayout(model: VehicleModel): 'four' | 'two' | 'none' {
   return model.body.style === 'motorcycle' || model.body.style === 'bicycle' ? 'two' : 'four';
 }
 
+/**
+ * Upper limits for a mod-supplied vehicle (the parser itself only requires positive finite numbers): roughly three times
+ * the largest shipped value, so every shipped model passes while absurd values (a 1e300 kg mass) cannot reach the physics.
+ */
+const MOD_VEHICLE_MAX: readonly (readonly [string, number])[] = [
+  ['trafficWeight', 100], ['mass', 60000], ['body.length', 25], ['body.width', 5], ['body.height', 6], ['body.cabin.height', 5],
+  ['engine.maxForce', 200000], ['engine.maxPowerKw', 2000], ['engine.maxSpeedKmh', 400], ['engine.reverseMaxSpeedKmh', 120],
+  ['engine.idleRpm', 3000], ['engine.redlineRpm', 20000], ['engine.finalDrive', 20], ['steering.rateDegPerS', 600],
+  ['suspension.restLength', 1.5], ['suspension.stiffness', 150], ['suspension.compression', 20], ['suspension.relaxation', 20],
+  ['suspension.maxTravel', 1.5], ['suspension.maxForce', 400000], ['tires.radius', 1.2], ['tires.width', 1.2], ['tires.frictionSlip', 3],
+  ['tires.sideStiffness', 10], ['brakes.maxForce', 500000], ['brakes.handbrakeForce', 400000], ['brakes.heatPerKJ', 5],
+  ['brakes.coolingPerS', 1], ['brakes.airflowCooling', 0.1], ['fuel.capacityL', 3000], ['fuel.idleLph', 300], ['fuel.litersPerKWh', 2],
+  ['damage.minImpactSpeed', 50], ['damage.zoneStrength', 400], ['damage.tireBurstSpeed', 300], ['damage.engineFrontShare', 5],
+  ['damage.stallChancePerS', 1], ['traffic.maxAccel', 15], ['traffic.comfortDecel', 15], ['traffic.maxDecel', 30],
+  ['wear.oilL', 50], ['wear.oilPerKWh', 0.1], ['wear.oilWearPerS', 0.1], ['wear.treadPerKm', 0.1], ['wear.treadSlipPerS', 1],
+  ['cargo.kg', 5000], ['cargo.slots', 300], ['cargo.rackSlots', 50],
+  ['craft.maxSpeedMps', 150], ['craft.reverseMps', 40], ['craft.accelMps2', 30], ['craft.brakeMps2', 40], ['craft.turnRateDegS', 360],
+  ['craft.climbMps', 50], ['craft.maxAltitudeM', 2000], ['craft.rangeM', 5000],
+  ['bike.uprightStiffness', 300], ['bike.uprightDamping', 100],
+];
+
+function numberAt(root: unknown, path: string): number | undefined {
+  let cur = root;
+  for (const key of path.split('.')) {
+    if (typeof cur !== 'object' || cur === null) return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return typeof cur === 'number' ? cur : undefined;
+}
+
+/**
+ * Parses a mod's vehicle model: `parseVehicleModel` plus the plausibility limits of `MOD_VEHICLE_MAX` (a vehicle with a
+ * `trafficWeight` joins ambient traffic on its own, so a value that breaks the physics would hit every player of the mod).
+ * Throws a readable error naming `source` and the field.
+ */
+export function parseModVehicle(json: unknown, source: string): VehicleModel {
+  const model = parseVehicleModel(json, source);
+  for (const [path, max] of MOD_VEHICLE_MAX) {
+    const v = numberAt(model, path);
+    if (v !== undefined && v > max) fail(source, path, `must be at most ${max} for a mod vehicle, got ${v}`);
+  }
+  model.engine.gearRatios.forEach((r, i) => {
+    if (r > 20) fail(source, `engine.gearRatios[${i}]`, `must be at most 20 for a mod vehicle, got ${r}`);
+  });
+  return model;
+}
+
 /** Validates one model file; throws a readable error naming `source` and the field. */
 export function parseVehicleModel(json: unknown, source: string, index = 0): VehicleModel {
   const root = readObject(json, source, '');

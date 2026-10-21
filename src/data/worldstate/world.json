@@ -7,7 +7,7 @@
                  "riskMax": 0.9, "riskMin": 0.05, "riskDecayPerDay": 0.01 },
   "recidivism": { "pickChanceScale": 0.6, "maxPickChance": 0.45, "sameDistrictWeight": 2 },
   "witnesses": { "max": 200, "movePerDay": 0.04, "unknownAddressShare": 0.3 },
-  "neighborhoods": { "relax": 0.15, "trustWeight": 0.6, "offenderWeight": 0.02, "arrestWeight": 0.01, "noise": 0.03,
+  "neighborhoods": { "relax": 0.15, "trustWeight": 0.6, "offenderWeight": 0.02, "arrestWeight": 0.01, "offenderMax": 0.15, "memoryDays": 7, "noise": 0.03,
                      "min": 0.05, "max": 0.95, "historyDays": 14, "crimeToTrust": 0.02, "factorRange": [0.7, 1.5],
                      "baseCrime": { "downtown": 0.6, "suburbs": 0.35, "industrial": 0.5, "highway": 0.4, "rural": 0.25, "campus": 0.35,
                                     "hospital": 0.3, "airport": 0.3, "harbor": 0.45, "park": 0.4, "water": 0 } },

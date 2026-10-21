@@ -103,6 +103,15 @@ interface QuizDom {
 }
 
 /**
+ * The stream attempt of a promotion exam: unique per game minute and per run in this page (a failed exam changes no saved
+ * state and pauses the clock, so a retry in the same minute must still draw other questions).
+ */
+export function examAttempt(gameSeconds: number, runsThisPage: number): number {
+  const minute = Number.isFinite(gameSeconds) ? Math.max(0, Math.floor(gameSeconds / 60)) : 0;
+  return minute * 1000 + (Math.max(0, Math.floor(runsThisPage)) % 1000);
+}
+
+/**
  * Legal quiz screen (pausing Menu, id 'legal-quiz'), modes `academy` and `exam`. Keys 1-4 answer, Enter continues,
  * Escape leaves without a score.
  */

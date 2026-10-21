@@ -2,7 +2,6 @@ import { restHeight, vehicleModel } from '../vehicles/model';
 import { PERSON_POPULATION } from '../records/ids';
 import { itemDef } from '../people/items';
 import { coursePoint, planScenario, type SandboxScenario } from '../training';
-import type { WeatherKind } from '../environment/weather';
 import type { GameSession } from './session';
 
 /** The unit the driving academy and the career driving module use. */
@@ -48,9 +47,27 @@ export function leaveDrivingCourse(session: GameSession): void {
   session.teleport(spawn.x, spawn.z, spawn.yaw);
 }
 
-/** Runs a sandbox scenario (design §20.3): the planned spawns in order, then the officer near the anchor. */
-export function runScenario(session: GameSession, scenario: SandboxScenario): string | null {
+/**
+ * Why the scenario editor / a scenario run is not available now (null when it is): scenarios spawn calls, people and
+ * vehicles and may set the clock and the weather, so they run only in free patrol and sandbox sessions (never in a career,
+ * the dispatch or driving training, or a co-op session where every client simulates its own world).
+ */
+export function scenarioBlockedReason(session: GameSession, coop = false): string | null {
+  if (coop) return 'Scenarios are not available in a co-op session';
+  const id = session.phase8.modeId;
+  return id === 'freePatrol' || id === 'sandbox' ? null : 'Scenarios run in free patrol or sandbox mode, not in a career or training mode';
+}
+
+/**
+ * Runs a sandbox scenario (design §20.3): the session switches to sandbox mode, the planned spawns run in order, then the
+ * officer stands near the anchor. The clock and the weather change only when the scenario sets them; the weather in force
+ * before comes back when the sandbox ends. Returns the reason when it cannot run.
+ */
+export function runScenario(session: GameSession, scenario: SandboxScenario, coop = false): string | null {
+  const blocked = scenarioBlockedReason(session, coop);
+  if (blocked !== null) return blocked;
   const p8 = session.phase8;
+  if (p8.modeId !== 'sandbox') p8.setMode('sandbox');
   p8.mode.scenario = structuredClone(scenario);
   const ops = planScenario(scenario, session.seed, (rng) => Math.floor(rng.next() * PERSON_POPULATION));
   let callId = 0;
@@ -58,7 +75,7 @@ export function runScenario(session: GameSession, scenario: SandboxScenario): st
     switch (op.op) {
       case 'environment': {
         if (op.hour !== null) session.env.setTimeOfDay(op.hour);
-        if (op.weather !== null) session.env.setWeatherOverride(op.weather as WeatherKind, 1);
+        if (op.weather !== null) p8.overrideWeather(op.weather, 1);
         break;
       }
       case 'call': {

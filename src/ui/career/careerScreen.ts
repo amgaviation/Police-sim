@@ -25,6 +25,8 @@ export interface CareerHost {
   request(r: CareerRequest): void;
   /** Opens `LegalQuizScreen` in exam mode and calls `done` with the score. */
   startExam(rank: CareerRank, done: (score: number) => void): void;
+  /** Opens the training hub (academy modules and driving courses) to raise the scores the unit requirements read. */
+  openTraining?(): void;
   close(): void;
 }
 
@@ -456,6 +458,11 @@ export class CareerScreen implements Menu {
 
   private renderUnits(body: HTMLElement, v: CareerView): void {
     const ctx = this.host.eligibility();
+    const host = this.host;
+    if (host.openTraining !== undefined) {
+      body.appendChild(el('p', { class: 'cr-dim' }, 'Unit entry needs academy scores. Practise a module in training: your best score counts.'));
+      body.appendChild(el('button', { type: 'button', class: 'cr-btn', 'data-focus': 'training', onclick: () => { host.openTraining?.(); } }, 'Training'));
+    }
     for (const row of unitsModel(v, ctx)) {
       const card = el('section', { class: `cr-card${row.current ? ' cr-current' : ''}` },
         el('h3', null, row.label, row.current ? el('span', { class: 'cr-badge' }, 'CURRENT') : null),

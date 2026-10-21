@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { createRng } from '../../src/core/rng';
 import {
-  ACADEMY_MODULES, CAREER_CONFIG, CareerState, aiBidders, isCareerSave, legacyCareerSave, newCareerSave, performanceMods,
+  ACADEMY_MODULES, CAREER_CONFIG, CareerState, aiBidders, isCareerSave, legacyCareerSave, newCareerSave, performanceMods, specialtyEligibility,
   type Bidder, type CareerRequest, type CareerSave, type PerformanceMods,
 } from '../../src/career';
 import { DAY, GOOD_CTX, harness, saveAt, stepAt, type Harness } from './helpers';
@@ -81,13 +81,13 @@ describe('requests', () => {
     expect(h.stages).toEqual([]);
   });
 
-  it('academy scores are recorded in the academy and only firearms / driving afterwards', () => {
+  it('academy scores are recorded in the academy and in continuing training afterwards (every module)', () => {
     const h = harness(saveAt('patrol'));
     h.career.request({ kind: 'academyScore', module: 'firearms', score: 90 });
     h.career.request({ kind: 'academyScore', module: 'legal', score: 90 });
     stepAt(h, NIGHT_START);
     expect(h.career.view.academy.firearms).toEqual({ best: 90, attempts: 1, passed: true });
-    expect(h.career.view.academy.legal.attempts).toBe(0);
+    expect(h.career.view.academy.legal).toEqual({ best: 90, attempts: 1, passed: true });
     const a = harness();
     a.career.request({ kind: 'academyScore', module: 'legal', score: 130 });
     stepAt(a, 0);
@@ -105,6 +105,30 @@ describe('requests', () => {
     stepAt(h, NIGHT_START + 60);
     expect(h.career.view.history).toHaveLength(100);
     expect(h.career.view.history[0]?.text).toBe('n0');
+  });
+});
+
+describe('continuing training', () => {
+  it('raises a grandfathered score and opens a specialty unit that needs it', () => {
+    const save = legacyCareerSave(createRng(7).stream('career').state(), NIGHT_START);
+    save.seniorityShifts = 15;
+    const h = harness(save);
+    const ctx = GOOD_CTX;
+    const input = () => { const v = h.career.view; return { stage: v.stage, rank: v.rank, assignment: v.assignment, seniorityShifts: v.seniorityShifts, academy: v.academy, wellbeing: v.wellbeing }; };
+    expect(specialtyEligibility('detective', input(), ctx).ok).toBe(false);
+    for (const module of ['report', 'legal'] as const) h.career.request({ kind: 'academyScore', module, score: 90 });
+    stepAt(h, NIGHT_START);
+    expect(h.career.view.academy.report.best).toBe(90);
+    expect(specialtyEligibility('detective', input(), ctx).reasons.join(' ')).not.toMatch(/report|legal/i);
+  });
+
+  it('is refused after separation', () => {
+    const s = saveAt('patrol');
+    s.stage = 'separated';
+    const h = harness(s);
+    h.career.request({ kind: 'academyScore', module: 'legal', score: 90 });
+    stepAt(h, NIGHT_START);
+    expect(h.career.view.academy.legal.attempts).toBe(s.academy.legal.attempts);
   });
 });
 
@@ -560,6 +584,31 @@ describe('bidding', () => {
     h.career.reportForDuty(2);
     expect(h.career.view.slot).toEqual({ slot: 'day', beat: 'suburbs' });
     expect(h.career.view.bid.nextBidShift).toBe(20);
+  });
+
+  it('an awarded slot gives the very next shift its hours (day = 06:00 start)', () => {
+    const h = offDutyHarness();
+    expect(h.career.view.slot.slot).toBe('night');
+    h.career.request({ kind: 'submitBid', prefs: [{ slot: 'day', beat: 'suburbs' }] });
+    h.career.request({ kind: 'resolveBids', bidders: [] });
+    h.career.reportForDuty(2);
+    const v = h.career.view;
+    expect(v.slot.slot).toBe('day');
+    expect((v.shift.startGame % DAY) / 3600).toBe(6);
+    expect(v.shift.endGame - v.shift.startGame).toBe(CAREER_CONFIG.shift.hours * 3600);
+  });
+
+  it('a bid awarded while off duty moves the planned window and keeps the hours left consistent', () => {
+    const h = offDutyHarness();
+    const before = h.career.view.offDuty;
+    expect(before).not.toBeNull();
+    h.career.request({ kind: 'submitBid', prefs: [{ slot: 'day', beat: 'suburbs' }] });
+    h.career.request({ kind: 'resolveBids', bidders: [] });
+    stepAt(h, h.career.view.shift.endGame);
+    const od = h.career.view.offDuty;
+    expect(od).not.toBeNull();
+    expect((((od?.nextStartGame ?? 0) % DAY) + DAY) % DAY / 3600).toBe(6);
+    expect(od?.hoursLeft).toBeGreaterThanOrEqual(0);
   });
 });
 

@@ -8,6 +8,7 @@ import { dispositionLabel, findStatute, statuteForPlateIssue, statuteForViolatio
 import { type CadDocument, type CitationViolation, type DocKind, type DocumentStore, citationTotal } from '../../cad/documents';
 import { addressAt } from '../../cad/address';
 import type { CadCall, Priority, TrafficStopInfo, UnitKind, UnitStatus } from '../../cad/types';
+import { districtLabel as modDistrictLabel } from '../../mods/registry';
 import { ageOn, formatClockTime, formatDate, formatStamp } from '../../records/calendar';
 import type { PlateQueryResult, RecordsDb, VinQueryResult } from '../../records/db';
 import type { RecordHit } from '../../records/hits';
@@ -146,7 +147,7 @@ export function callDetailLines(call: CadCall, eta?: (callsign: string) => numbe
     { kind: 'field', label: 'Address', text: loc.text },
     { kind: 'field', label: 'Cross street', text: loc.cross !== '' ? loc.cross : '-' },
     { kind: 'field', label: 'Near', text: loc.near },
-    { kind: 'field', label: 'District', text: loc.district },
+    { kind: 'field', label: 'District', text: modDistrictLabel(loc.district) },
     {
       kind: 'field',
       label: 'Units',

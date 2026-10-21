@@ -522,6 +522,9 @@ function readVariantChange(
   };
 }
 
+/** Largest relative weight of a call type or branch (the shipped ones are at most 6): keeps a mod from dominating or breaking the draws. */
+export const MAX_WEIGHT = 1000;
+
 function readBranch(v: unknown, roleIds: readonly string[], vehicleIds: readonly string[], derived: boolean, file: string, path: string): BranchDef {
   const o = readObject(v, file, path);
   rejectUnknown(o, ['id', 'weight', 'flags', 'remove', 'roleOverrides', 'vehicleOverrides'], file, path);
@@ -545,7 +548,7 @@ function readBranch(v: unknown, roleIds: readonly string[], vehicleIds: readonly
   }
   return {
     id: readId(o.id, file, `${path}.id`),
-    weight: derived && o.weight === undefined ? 1 : readNumber(o.weight, file, `${path}.weight`, 0),
+    weight: derived && o.weight === undefined ? 1 : readNumber(o.weight, file, `${path}.weight`, 0, MAX_WEIGHT),
     flags,
     remove: readRemove(o.remove, [...roleIds, ...vehicleIds], file, `${path}.remove`),
     roleOverrides: readRoleOverrides(o.roleOverrides, roleIds, file, `${path}.roleOverrides`),
@@ -738,7 +741,7 @@ function validateTypes(
       const category = readString(o.category, file, `${path}.category`);
       if (!ctx.crimeCategories.includes(category)) fail(file, `${path}.category`, `must be one of ${ctx.crimeCategories.join(', ')}, got ${show(category)}`);
       const generated = readBoolean(o.generated, file, `${path}.generated`);
-      const weight = readNumber(o.weight, file, `${path}.weight`, 0);
+      const weight = readNumber(o.weight, file, `${path}.weight`, 0, MAX_WEIGHT);
       if (generated && weight <= 0) fail(file, `${path}.weight`, 'must be greater than 0 for a generated type');
       if (readArray(o.narratives, file, `${path}.narratives`, 2).some((n) => typeof n !== 'string')) {
         fail(file, `${path}.narratives`, 'must be strings');
@@ -747,7 +750,7 @@ function validateTypes(
       if (o.branchWeights !== undefined) {
         for (const [b, w] of Object.entries(readObject(o.branchWeights, file, `${path}.branchWeights`))) {
           if (!family.branches.some((x) => x.id === b)) fail(file, `${path}.branchWeights.${b}`, `names an unknown branch ${show(b)} of family ${familyId}`);
-          branchWeights[b] = readNumber(w, file, `${path}.branchWeights.${b}`, 0);
+          branchWeights[b] = readNumber(w, file, `${path}.branchWeights.${b}`, 0, MAX_WEIGHT);
         }
       }
       if (!family.derived && !family.branches.some((b) => (branchWeights[b.id] ?? b.weight) > 0)) {

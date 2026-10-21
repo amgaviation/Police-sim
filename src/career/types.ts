@@ -262,6 +262,8 @@ export interface CareerConfig {
     ftoPerHour: number;
     overtimeMultiplier: number;
     courtMultiplier: number;
+    /** Court time credited to the shift for each hearing the officer attended (minutes). */
+    courtMinutesPerHearing: number;
     rentPerWeek: number;
     startingMoney: number;
   };

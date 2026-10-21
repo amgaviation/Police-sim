@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ACADEMY_MODULES, CAREER_CONFIG, type AcademyModule, type AcademyRecord } from '../../src/career';
-import { AcademyScreen, academyModel, parseTrainingRecords, standaloneAcademyHost, TRAINING_STORAGE_KEY, type AcademyHost } from '../../src/ui/career';
+import {
+  AcademyScreen, academyModel, loadTrainingRecords, parseTrainingRecords, recordTrainingScore, standaloneAcademyHost, TRAINING_STORAGE_KEY,
+  type AcademyHost,
+} from '../../src/ui/career';
 import { DefensiveDrillScreen } from '../../src/ui/career/defensive';
 import { LegalQuizScreen } from '../../src/ui/career/legalQuiz';
 import { RangeMinigame } from '../../src/ui/career/range';
-import { ReportExerciseScreen } from '../../src/ui/career/reportExercise';
+import { ReportExerciseScreen, exerciseForAttempt } from '../../src/ui/career/reportExercise';
 import { fakeStorage, key } from './helpers';
 
 function records(overrides: Partial<Record<AcademyModule, AcademyRecord>> = {}): Record<AcademyModule, AcademyRecord> {
@@ -147,5 +150,25 @@ describe('AcademyScreen (headless)', () => {
     expect(hub.graduate()).toBe(false);
     expect(hub.launch('driving')).toBeNull();
     expect(standalone.log).toEqual([]);
+  });
+});
+
+describe('report-writing-only records', () => {
+  it('each submitted score advances the attempt (a different exercise) and persists', () => {
+    const storage = fakeStorage();
+    expect(loadTrainingRecords(storage).report.attempts).toBe(0);
+    const first = exerciseForAttempt(loadTrainingRecords(storage).report.attempts);
+    recordTrainingScore(storage, 'report', 55);
+    recordTrainingScore(storage, 'report', 90);
+    const after = loadTrainingRecords(storage).report;
+    expect(after).toEqual({ best: 90, attempts: 2, passed: true });
+    expect(exerciseForAttempt(after.attempts)?.id).not.toBe(first?.id);
+  });
+
+  it('works without storage and with a failing one', () => {
+    expect(recordTrainingScore(null, 'report', 70).report.attempts).toBe(1);
+    const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+    expect(loadTrainingRecords(broken).report.attempts).toBe(0);
+    expect(() => recordTrainingScore(broken, 'report', 70)).not.toThrow();
   });
 });

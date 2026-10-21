@@ -34,6 +34,7 @@ import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTr
 import type { System, SystemRegistry } from '../ecs/systems';
 import { advanceTime, despawn, spawn, type GameWorld } from '../ecs/world';
 import { Environment } from '../environment/environment';
+import { isWeatherKind } from '../environment/weather';
 import {
   InteriorSystem,
   isOpenAt,
@@ -2154,6 +2155,11 @@ export class GameSession {
         return pickCourseSegment(straightSegments(this.city.graph), spawn.x, spawn.z);
       },
       resolveNear: (near) => this.resolveNear(near),
+      weatherOverride: () => this.env.serialize().override,
+      setWeatherOverride: (kind, intensity) => {
+        if (kind === null) this.env.setWeatherOverride(null);
+        else if (isWeatherKind(kind)) this.env.setWeatherOverride(kind, intensity);
+      },
     };
   }
 

@@ -5,7 +5,7 @@ import type { CadState } from '../cad/cadState';
 import { findCallType, statute } from '../cad/data';
 import type { CadCall } from '../cad/types';
 import {
-  CareerState, assignmentEffects, legacyCareerSave, newCareerSave,
+  CAREER_CONFIG, CareerState, assignmentEffects, legacyCareerSave, newCareerSave,
   type CareerRank, type CareerSave, type CareerStage, type DutyAssignment, type EligibilityContext, type PerformanceMods,
 } from '../career';
 import type { ConductState } from '../conduct';
@@ -61,6 +61,10 @@ export interface Phase8Host {
   resolveNear(near: DispatchScriptStep['near']): { x: number; z: number } | null;
   /** The player's callsign. */
   readonly callsign: string;
+  /** The fixed weather replacing the timeline (null = the timeline). */
+  weatherOverride(): { kind: string; intensity: number } | null;
+  /** Replaces the weather timeline with a fixed kind; null returns to the timeline. */
+  setWeatherOverride(kind: string | null, intensity: number): void;
 }
 
 /** Scratch step list for the script runner. */
@@ -109,6 +113,8 @@ export class Phase8 {
   private scriptGeneratorOff = false;
   private coopManual = false;
   private manualApplied = false;
+  /** The weather override before a sandbox scenario replaced it (undefined = not replaced). */
+  private weatherBefore: { kind: string; intensity: number } | null | undefined = undefined;
 
   constructor(host: Phase8Host, save?: { career: CareerSave; worldState: WorldStateSave; mode: ModeSave }) {
     this.host = host;
@@ -132,7 +138,7 @@ export class Phase8 {
 
   private installHooks(): void {
     const h = this.host;
-    h.scene.setPersonBias((callId, district, fits, draw) => this.world.pickPerson(callId, district, h.nowGame(), fits, draw));
+    h.scene.setPersonBias((callId, district, fits, draw, fitsDesignated) => this.world.pickPerson(callId, district, h.nowGame(), fits, draw, fitsDesignated));
     h.dispatcher.setLocationBias((draw) => this.world.pickRepeatLocation(draw));
     h.dispatcher.setCrimeFactor((d) => h.conduct.effects(d).crimeFactor * this.world.crimeFactor(d));
     h.force.setAccuracyFactor(() => this.perf.aimSpread);
@@ -180,6 +186,7 @@ export class Phase8 {
   /** Sets the mode id (new game, load, console). */
   setMode(id: GameMode): void {
     const m = this.mode;
+    if (m.id === 'sandbox' && id !== 'sandbox') this.restoreWeather();
     m.id = id;
     if (id !== 'drivingAcademy' && id !== 'career') this.stopCourse();
     if (id !== 'dispatchOnly') {
@@ -193,6 +200,19 @@ export class Phase8 {
 
   get modeId(): GameMode {
     return this.mode.id;
+  }
+
+  /** A sandbox scenario sets the weather: the override in force before it comes back when the sandbox ends. */
+  overrideWeather(kind: string, intensity: number): void {
+    if (this.weatherBefore === undefined) this.weatherBefore = this.host.weatherOverride();
+    this.host.setWeatherOverride(kind, intensity);
+  }
+
+  private restoreWeather(): void {
+    const before = this.weatherBefore;
+    if (before === undefined) return;
+    this.weatherBefore = undefined;
+    this.host.setWeatherOverride(before === null ? null : before.kind, before === null ? 1 : before.intensity);
   }
 
   /** Starts a driving course run on the arterial segment near the station; null with the reason when it cannot. */
@@ -313,7 +333,7 @@ export class Phase8 {
     const bus = this.host.bus;
     const h = this.host;
     const career = this.career;
-    const stat = (key: 'calls' | 'arrests' | 'reports' | 'reportSum' | 'forceEvents' | 'unjustifiedForce' | 'unlawfulDeterminations' | 'pursuits' | 'fleetPoints' | 'trustDelta', delta: number): void => {
+    const stat = (key: 'calls' | 'arrests' | 'reports' | 'reportSum' | 'forceEvents' | 'unjustifiedForce' | 'unlawfulDeterminations' | 'pursuits' | 'fleetPoints' | 'trustDelta' | 'courtMinutes', delta: number): void => {
       if (delta !== 0) career.request({ kind: 'stat', key, delta });
     };
     this.offs.push(
@@ -349,6 +369,8 @@ export class Phase8 {
           const verdict = e.verdict === 'acquitted' ? 'acquitted' : e.verdict === 'dismissed' ? 'dismissed' : 'convicted';
           this.world.request({ kind: 'verdict', personId: c.personId, verdict, game: h.nowGame() });
         }
+        // A hearing the officer testified at is court time on the shift's pay slip (not a plea, a dismissal or a missed date).
+        if (c !== undefined && c.testimony !== null) stat('courtMinutes', CAREER_CONFIG.pay.courtMinutesPerHearing);
         if ((e.verdict === 'acquitted' || e.verdict === 'dismissed') && (e.impeached || e.missed || e.credibilityDelta < 0)) {
           career.request({ kind: 'stress', event: 'courtLoss' });
         }
@@ -360,10 +382,14 @@ export class Phase8 {
         if (e.kind !== 'booking' || !e.final) return;
         const doc = h.cad.docs.get(e.id);
         if (doc?.kind !== 'booking' || doc.personId < 0) return;
-        this.onBooked(doc.personId, doc.charges, doc.arrestedGame);
+        this.onBooked(doc.personId, doc.charges, doc.arrestedGame, doc.callId);
       }),
       bus.on('cad:callClosed', (e) => this.onCallClosed(e.callId, e.disposition)),
-      bus.on('cad:callCreated', () => undefined),
+      // Dispatch training tracks every call (generated, scripted or typed in the console); duplicates are ignored.
+      bus.on('cad:callCreated', (e) => {
+        const c = h.cad.call(e.callId);
+        if (c) this.noteCreated(c, h.nowSim());
+      }),
       bus.on('cad:unitAssigned', (e) => {
         if (e.callsign !== h.callsign) return;
         // The player took a call: nothing to record; stats count on close.
@@ -404,7 +430,7 @@ export class Phase8 {
     if (id !== undefined && id !== null) this.woundedCalls.add(id);
   }
 
-  private onBooked(personId: number, charges: readonly string[], arrestedGame: number): void {
+  private onBooked(personId: number, charges: readonly string[], arrestedGame: number, callId: number | null): void {
     const h = this.host;
     this.career.request({ kind: 'stress', event: 'arrestMade' });
     this.career.request({ kind: 'stat', key: 'arrests', delta: 1 });
@@ -426,13 +452,16 @@ export class Phase8 {
     }
     const today = epochDayOfGameSeconds(h.nowGame());
     const juvenile = (today - p.dob) / 365.25 < 18;
-    const pos = h.cad.unit(h.callsign);
+    // Where the arrest happened: the booking is typed at the station, so the scene of its call is the position (the
+    // latest call that involved the person when the document names none, the officer's position as a last resort).
+    const call = (callId !== null ? h.cad.call(callId) : undefined) ?? lastCallOf(h.cad, personId);
+    const pos = call?.location ?? h.cad.unit(h.callsign);
     const x = pos?.x ?? 0;
     const z = pos?.z ?? 0;
     const district = h.districtAt(x, z);
     if (district !== '') this.arrestsByDistrict[district] = (this.arrestsByDistrict[district] ?? 0) + 1;
     this.world.request({
-      kind: 'arrest', personId, district, callNumber: lastCallNumber(h.cad, personId), x, z, game: arrestedGame > 0 ? arrestedGame : h.nowGame(),
+      kind: 'arrest', personId, district, callNumber: call?.number ?? '', x, z, game: arrestedGame > 0 ? arrestedGame : h.nowGame(),
       offenseClass: cls, juvenile, priors: p.priors.length,
     });
   }
@@ -595,8 +624,9 @@ function displayOf(records: RecordsDb, personId: number): string {
   return `${p.first} ${p.last}`.trim();
 }
 
-function lastCallNumber(cad: CadState, personId: number): string {
-  let best = '';
-  for (const c of cad.calls()) if (c.persons.includes(personId)) best = c.number;
+function lastCallOf(cad: CadState, personId: number): CadCall | undefined {
+  let best: CadCall | undefined;
+  for (const c of cad.calls()) if (c.persons.includes(personId)) best = c;
   return best;
 }
+

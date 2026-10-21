@@ -16,6 +16,7 @@
     "ftoPerHour": 3,
     "overtimeMultiplier": 1.5,
     "courtMultiplier": 1.5,
+    "courtMinutesPerHearing": 60,
     "rentPerWeek": 600,
     "startingMoney": 1500
   },

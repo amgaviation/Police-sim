@@ -1,13 +1,17 @@
 import layoutsJson from '../data/a11y/layouts.json';
-import { ACTION_IDS } from '../input/actions';
+import { ACTION_IDS, type ActionId } from '../input/actions';
 import { DEFAULT_BINDINGS, cloneBindings, isBinding, parseBindings, type Binding, type BindingMap } from '../input/bindings';
 import { fail, readArray, readObject, readVersion } from '../vehicles/json';
 
 /**
  * One-handed binding presets (design §9.2). Presentation of input only: picking a layout replaces the stored key
  * bindings (the settings menu does that), nothing here feeds the simulation. A one-handed keyboard has fewer keys
- * than the game has actions, so rarely used panel openers share a key with actions of another context (on foot vs
- * in a car, mode-exclusive screens, debug toggles); every key can still be rebound in the settings menu.
+ * than the game has actions, so actions share keys when they can never act together (`input/context.ts`: on foot vs
+ * in a car, ground vehicle vs aircraft, the screens of the different session modes, a radio option vs everything else
+ * while the radio menu is open); `InputManager` then gives the press to the one that applies. Two actions of the same
+ * situation never share a key. A rarely used opener may share a key with a more important action (it only acts in the
+ * situations where that one does not); the left hand has too few keys even for that for a few actions, which
+ * `UNBOUND_BY_DESIGN` lists: bind them in the settings menu. Every key can be rebound there.
  */
 
 export const ONE_HANDED_LAYOUTS = ['off', 'left', 'right'] as const;
@@ -18,6 +22,12 @@ export const LAYOUT_NAMES: Readonly<Record<OneHandedLayout, string>> = {
   off: 'default',
   left: 'left-hand',
   right: 'right-hand',
+};
+
+/** Actions a hand has no key for in its preset (see the header): the layout leaves them unbound. */
+export const UNBOUND_BY_DESIGN: Readonly<Record<'left' | 'right', readonly ActionId[]>> = {
+  left: ['perf.toggle', 'map.toggle', 'radio.channelPrev', 'radio.channelNext', 'radio.scan', 'fleet.menu'],
+  right: [],
 };
 
 const range = (prefix: string, from: number, to: number): string[] =>
@@ -51,7 +61,8 @@ export const RIGHT_MOUSE_CODES: ReadonlySet<string> = new Set(['MouseX', 'MouseY
 type HandLayout = 'left' | 'right';
 
 /**
- * Validates `layouts.json`: every `ACTION_IDS` entry needs at least one structurally valid binding in both hands.
+ * Validates `layouts.json`: every `ACTION_IDS` entry needs at least one structurally valid binding in both hands (except
+ * `UNBOUND_BY_DESIGN`, which may be empty).
  * Gamepad bindings are added from `DEFAULT_BINDINGS`. Throws an Error naming the file and the dotted path.
  */
 export function parseLayouts(json: unknown, file = 'layouts.json'): Readonly<Record<HandLayout, Readonly<BindingMap>>> {
@@ -63,7 +74,7 @@ export function parseLayouts(json: unknown, file = 'layouts.json'): Readonly<Rec
     const map = {} as BindingMap;
     for (const id of ACTION_IDS) {
       const path = `${hand}.${id}`;
-      const list = readArray(table[id], file, path, 1);
+      const list = readArray(table[id], file, path, UNBOUND_BY_DESIGN[hand].includes(id) ? 0 : 1);
       const bindings: Binding[] = [];
       list.forEach((value, index) => {
         if (!isBinding(value)) fail(file, `${path}[${String(index)}]`, `must be a valid binding, got ${JSON.stringify(value)}`);

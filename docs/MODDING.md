@@ -156,6 +156,9 @@ An array of vehicle model documents like `src/data/vehicles/*.json`. Copy the cl
 (`vehicles[0].body.length: must be in [...]`). Mod models are appended after the shipped ones and take the next model
 indexes, so saves that refer to a base model keep working. The game supports at most **255** vehicle models in total.
 Models are generic boxes with procedural bodies: use your own names and colours, not brands or real liveries.
+A mod vehicle also has upper limits (about three times the largest shipped value, for example `mass` 60000, `body.length` 25,
+`engine.maxSpeedKmh` 400, `tires.radius` 1.2, `trafficWeight` 100); a value beyond them is rejected with its path
+(`vehicles[0].mass: must be at most 60000 for a mod vehicle, got 1e+300`). Call type and branch `weight` values are limited to 1000.
 
 ### `uniforms`
 

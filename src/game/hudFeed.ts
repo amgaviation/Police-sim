@@ -1,4 +1,5 @@
 import { createGameTime } from '../environment/time';
+import { districtLabel as modDistrictLabel } from '../mods/registry';
 import { createWeatherState } from '../environment/weather';
 import type { Binding } from '../input/bindings';
 import { PLAYER_MODE_NAMES } from '../player/mode';
@@ -13,7 +14,7 @@ export const HUD_ROAD_RADIUS = 15;
 
 /** Display name of a district id: 'downtown' -> 'Downtown'. */
 export function districtLabel(district: number): string {
-  const name = DISTRICT_NAMES[district] ?? 'unknown';
+  const name = modDistrictLabel(DISTRICT_NAMES[district] ?? 'unknown');
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 

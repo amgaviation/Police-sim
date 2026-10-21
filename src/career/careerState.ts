@@ -270,7 +270,7 @@ export class CareerState {
         if (isStatKey(r.key) && Number.isFinite(r.delta)) s.stats[r.key] += r.delta;
         break;
       case 'academyScore':
-        if ((s.stage === 'academy' || r.module === 'firearms' || r.module === 'driving') && Number.isFinite(r.score)) {
+        if (s.stage !== 'separated' && Number.isFinite(r.score)) {
           s.academy[r.module] = recordAcademyScore(s.academy[r.module], r.module, Math.min(100, Math.max(0, r.score)), this.cfg);
         }
         break;
@@ -414,12 +414,21 @@ export class CareerState {
     const awards = resolveBids([...others.filter((b) => b.id !== player.id), player], uniformCapacity(this.cfg.bidding.capacity));
     s.bid.lastAwards = awards;
     const mine = awards.find((a) => a.id === player.id);
+    const oldSlot = s.slot.slot;
     if (mine !== undefined) {
       s.slot = { slot: mine.slot, beat: mine.beat };
       const how = mine.prefRank < 0 ? 'fallback position' : `choice ${mine.prefRank + 1}`;
       this.log(game, 'bidAwarded', `Bid awarded: ${mine.slot} shift, ${mine.beat} beat (${how})`);
     } else {
       this.log(game, 'bidAwarded', `No seat available: keeping the ${s.slot.slot} shift, ${s.slot.beat} beat`);
+    }
+    // The off-duty window was planned for the old slot: the awarded slot's hours apply to the very next shift.
+    const od = s.offDuty;
+    if (od !== null && s.slot.slot !== oldSlot) {
+      const next = nextShiftStart(s.shift.endGame, s.slot.slot, this.cfg.shift);
+      od.hoursLeft = Math.max(0, od.hoursLeft + (next.startGame - od.nextStartGame) / 3600);
+      od.nextStartGame = next.startGame;
+      od.nextEndGame = next.endGame;
     }
     s.bid.nextBidShift += this.cfg.bidding.everyShifts;
     while (s.bid.nextBidShift <= s.shift.shiftNo) s.bid.nextBidShift += this.cfg.bidding.everyShifts;

@@ -183,6 +183,7 @@ export function parseCareerConfig(json: unknown, file: string): CareerConfig {
       ftoPerHour: num(pay, 'ftoPerHour', file, 'pay', 0, 1000),
       overtimeMultiplier: num(pay, 'overtimeMultiplier', file, 'pay', 1, 10),
       courtMultiplier: num(pay, 'courtMultiplier', file, 'pay', 1, 10),
+      courtMinutesPerHearing: num(pay, 'courtMinutesPerHearing', file, 'pay', 0, 1440),
       rentPerWeek: num(pay, 'rentPerWeek', file, 'pay', 0, 1e6),
       startingMoney: num(pay, 'startingMoney', file, 'pay', -1e6, 1e9),
     },

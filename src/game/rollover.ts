@@ -13,6 +13,7 @@ import { newShiftStationSave } from '../station/stationState';
 import type { SaveGame } from '../save/schema';
 import { KIND } from '../ecs/components';
 import { UNITS_DATA } from '../dispatch/data';
+import type { DispatchSave } from '../dispatch/save';
 import type { FollowUpCall } from '../worldstate';
 import type { GameSession } from './session';
 
@@ -120,6 +121,11 @@ export interface PreparedRollover {
   plan: RolloverPlan;
   followUps: FollowUpCall[];
   news: string[];
+  /**
+   * The dispatcher's rng streams at the end of the shift. The rolled save drops the dispatcher block (a fresh roster), so
+   * `beginRolledShift` puts these back: the next shift draws new call locations instead of replaying the first shift's.
+   */
+  dispatchRng: DispatchSave['rng'];
 }
 
 export type RolloverAttempt = PreparedRollover | { ok: false; reason: string };
@@ -154,16 +160,26 @@ export function prepareRollover(session: GameSession): RolloverAttempt {
     addressAt: (u) => session.randomAddress(u),
   });
   for (const id of evo.released) session.people.setCustody(id, 'released');
+  // Freed by the court (acquitted, dismissed): out of the world's custody already, but still jailed in the people block.
+  for (const o of p8.world.offenders()) {
+    if (o.custody === 'released' && session.people.isTouched(o.personId) && session.people.state(o.personId).custody === 'jailed') {
+      session.people.setCustody(o.personId, 'released');
+    }
+  }
   for (const m of evo.moves) if (m.address !== null) session.records.setAddress(m.personId, m.address);
   for (const t of evo.trustDeltas) session.conduct.request({ kind: 'trust', district: t.district, delta: t.delta, reason: 'neighborhood change' });
   const spawn = session.city.spawn;
   const plan: RolloverPlan = { nowGame, startGame, spawn: { x: spawn.x, z: spawn.z, yaw: spawn.yaw }, callsign: session.dispatcher.playerCallsign };
   const save = rolloverSave(session.serialize(), plan);
-  return { ok: true, save, plan, followUps: evo.followUps, news: evo.news };
+  return { ok: true, save, plan, followUps: evo.followUps, news: evo.news, dispatchRng: session.dispatcher.rngState() };
 }
 
-/** After the rolled-over save is loaded: the shift starts in the locker room and follow-up warrant-service calls open. */
-export function beginRolledShift(session: GameSession, followUps: readonly FollowUpCall[]): number {
+/**
+ * After the rolled-over save is loaded: the dispatcher continues its rng streams (`PreparedRollover.dispatchRng`), the
+ * shift starts in the locker room and follow-up warrant-service calls open.
+ */
+export function beginRolledShift(session: GameSession, followUps: readonly FollowUpCall[], dispatchRng?: DispatchSave['rng']): number {
+  if (dispatchRng !== undefined) session.dispatcher.restoreRngState(dispatchRng);
   session.beginShiftInStation();
   let n = 0;
   for (const f of followUps) {
