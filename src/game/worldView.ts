@@ -62,9 +62,17 @@ export class WorldView {
     if (this.streamer) this.streamer.root.visible = !on;
   }
 
-  /** Per frame, after the camera and the environment renderer: streaming, signal lamps, streetlights. */
-  update(cameraX: number, cameraZ: number, viewDistance: number, simTime: number, lighting: Readonly<LightingState>): void {
+  /** Per frame, after the camera and the environment renderer: streaming, wet surfaces, signal lamps, streetlights. */
+  update(
+    cameraX: number,
+    cameraZ: number,
+    viewDistance: number,
+    simTime: number,
+    lighting: Readonly<LightingState>,
+    weather?: Readonly<{ wetness: number; snowCover: number }>,
+  ): void {
     if (this.disposed) return;
+    if (weather) this.streamer?.setWetness(weather.wetness, weather.snowCover);
     this.streamer?.setLighting(lighting.nightFactor, lighting.streetlightsOn);
     this.streamer?.update(cameraX, cameraZ, viewDistance);
     this.signals?.update(simTime, cameraX, cameraZ);

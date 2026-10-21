@@ -2,6 +2,9 @@
 
 export type ChipSeverity = 'clear' | 'caution' | 'alert';
 
+/** Shape cue in front of the wellbeing chip: caution is a triangle, alert an exclamation mark (never colour alone). */
+export const CHIP_MARKS: Readonly<Record<ChipSeverity, string>> = { clear: '', caution: '\u25B2 ', alert: '! ' };
+
 /** What the integrator feeds `Hud.setCareer` (all derived from the career view and `performance()`). */
 export interface HudCareer {
   /** 0..1. */

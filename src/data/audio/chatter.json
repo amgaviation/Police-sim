@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "formantsHz": [500, 1500, 2500],
+  "formantQ": 6,
+  "syllableHz": [3.5, 6.5],
+  "bandHz": [300, 3000],
+  "burstLevel": 0.12,
+  "bedLevel": 0.035,
+  "bedPerTransmission": 0.5,
+  "maxBursts": 3
+}

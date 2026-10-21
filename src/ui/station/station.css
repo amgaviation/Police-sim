@@ -2,24 +2,19 @@
    Sizes in em so --text-scale (applied to the body font) scales them. */
 
 .brf-screen {
-  --brf-paper: #f1ecdd;
-  --brf-ink: #23262b;
-  --brf-dim: #5d6168;
-  --brf-rule: #b9b29c;
-  --brf-accent: #1f3350;
   width: min(92vw, 40em);
   max-height: 92vh;
   display: flex;
   flex-direction: column;
   gap: 0.6em;
   padding: 1.4em 1.8em;
-  background: var(--brf-paper);
-  color: var(--brf-ink);
-  border: 1px solid var(--brf-rule);
-  border-radius: 2px;
-  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--paper-rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   overflow: hidden;
-  font-family: var(--font-ui, system-ui, sans-serif);
+  font-family: var(--font-ui);
 }
 .brf-screen [hidden] { display: none !important; }
 
@@ -27,12 +22,12 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  border-bottom: 2px solid var(--brf-accent);
+  border-bottom: 2px solid var(--paper-accent);
   padding-bottom: 0.3em;
 }
-.brf-title { font-size: 1.5em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brf-accent); }
-.brf-date { font-family: var(--font-mono, ui-monospace, monospace); color: var(--brf-dim); }
-.brf-assignment { font-weight: 700; color: var(--brf-dim); letter-spacing: 0.04em; }
+.brf-title { font-size: 1.5em; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--paper-accent); }
+.brf-date { font-family: var(--font-mono); color: var(--ink-dim); }
+.brf-assignment { font-weight: 700; color: var(--ink-dim); letter-spacing: 0.04em; }
 
 .brf-body { flex: 1 1 auto; overflow-y: auto; padding-right: 0.4em; }
 .brf-section { margin: 0 0 0.8em; }
@@ -41,8 +36,8 @@
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--brf-accent);
-  border-bottom: 1px solid var(--brf-rule);
+  color: var(--paper-accent);
+  border-bottom: 1px solid var(--paper-rule);
   margin-bottom: 0.25em;
 }
 .brf-line { padding: 0.12em 0; line-height: 1.35; }
@@ -52,19 +47,21 @@
   justify-content: space-between;
   align-items: center;
   gap: 1em;
-  border-top: 1px solid var(--brf-rule);
+  border-top: 1px solid var(--paper-rule);
   padding-top: 0.6em;
 }
-.brf-hint { color: var(--brf-dim); font-size: 0.85em; }
+.brf-hint { color: var(--ink-dim); font-size: 0.85em; }
 .brf-button {
   padding: 0.35em 1.1em;
   font: inherit;
   font-weight: 700;
-  color: #fff;
-  background: var(--brf-accent);
-  border: 1px solid #14223a;
-  border-radius: var(--radius, 4px);
+  color: var(--fg-strong);
+  background: var(--paper-accent);
+  border: 1px solid var(--paper-accent-border);
+  border-radius: var(--radius);
   cursor: pointer;
 }
 .brf-button:hover,
-.brf-button:focus-visible { background: #2c4a73; outline: 2px solid #8fb4e8; outline-offset: 2px; }
+.brf-button:focus-visible { background: var(--paper-accent-hover); }
+/* The focus ring sits on the paper: ink, not the yellow of the dark screens. */
+.brf-button:focus-visible { outline-color: var(--ink); outline-offset: 0.15em; }

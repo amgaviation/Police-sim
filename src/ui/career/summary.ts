@@ -77,7 +77,7 @@ export interface SummaryHost {
 
 /**
  * Shift summary (pausing Menu, id 'shift-summary'): pay breakdown, the daily observation report on probation, stats,
- * events and the wellbeing after the shift. Enter / Continue hands over to the host. Escape is not consumed.
+ * events and the wellbeing after the shift. Enter / Escape / Continue hand over to the host.
  */
 export class ShiftSummaryScreen implements Menu {
   readonly id = 'shift-summary' as const;
@@ -141,7 +141,7 @@ export class ShiftSummaryScreen implements Menu {
 
   onKeyDown(event: KeyboardEvent): boolean {
     if (!this.openFlag || event.ctrlKey || event.altKey || event.metaKey) return false;
-    if (event.key === 'Enter' && tagOf(event.target) !== 'BUTTON') {
+    if (event.key === 'Escape' || (event.key === 'Enter' && tagOf(event.target) !== 'BUTTON')) {
       if (!event.repeat) this.proceed();
       return true;
     }

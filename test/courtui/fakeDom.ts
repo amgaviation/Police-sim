@@ -123,6 +123,6 @@ export function installFakeDocument(): () => void {
   };
 }
 
-export function fakeKey(k: string, extra: { repeat?: boolean; ctrlKey?: boolean } = {}): KeyboardEvent {
+export function fakeKey(k: string, extra: { repeat?: boolean; ctrlKey?: boolean; target?: unknown } = {}): KeyboardEvent {
   return { key: k, repeat: false, ctrlKey: false, altKey: false, metaKey: false, ...extra } as KeyboardEvent;
 }

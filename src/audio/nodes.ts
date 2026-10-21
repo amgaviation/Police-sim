@@ -4,11 +4,15 @@
  * `positionX`-style AudioParams) and never throws for rejected promises.
  */
 
-/** Listener position shared by the engine (writer) and the siren bank (in-cabin voices). */
+/** Listener position and velocity shared by the engine (writer), the siren bank and the vehicle voices. */
 export interface ListenerState {
   x: number;
   y: number;
   z: number;
+  /** Listener velocity (m/s), written by `AudioEngine.setListenerVelocity`, used for Doppler. */
+  vx: number;
+  vy: number;
+  vz: number;
 }
 
 interface LegacyPositioned {

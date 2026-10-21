@@ -33,9 +33,18 @@ export interface LoopStats {
   frameMs: number;
   /** Time spent in fixedUpdate during the last frame in ms. */
   simMs: number;
+  /** Time spent in the `update` hook during the last frame in ms. */
+  updateMs: number;
+  /** Time spent in the `render` hook during the last frame in ms. */
+  renderMs: number;
   stepsLastFrame: number;
   /** Fraction of a fixed step left in the accumulator, in [0, 1). */
   alpha: number;
+}
+
+/** Receives each frame's phase times (a `SystemProfiler` fits). `sim` is reported only for frames that ran steps. */
+export interface FramePhaseSink {
+  frame(phase: 'sim' | 'update' | 'render', ms: number): void;
 }
 
 export interface AccumulatorResult {
@@ -55,6 +64,17 @@ export function stepAccumulator(
   fixedDt: number,
   maxSteps: number,
 ): AccumulatorResult {
+  return stepAccumulatorInto({ steps: 0, acc: 0 }, acc, frameDt, fixedDt, maxSteps);
+}
+
+/** `stepAccumulator` writing into `out` (returned), so the per-frame loop allocates no result object. */
+export function stepAccumulatorInto(
+  out: AccumulatorResult,
+  acc: number,
+  frameDt: number,
+  fixedDt: number,
+  maxSteps: number,
+): AccumulatorResult {
   if (!(fixedDt > 0)) throw new RangeError(`stepAccumulator: fixedDt must be > 0, got ${fixedDt}`);
   if (!(maxSteps >= 1)) throw new RangeError(`stepAccumulator: maxSteps must be >= 1, got ${maxSteps}`);
   let total = acc + Math.max(0, frameDt);
@@ -63,7 +83,9 @@ export function stepAccumulator(
   total -= steps * fixedDt;
   if (total >= fixedDt) total %= fixedDt;
   if (total < 0) total = 0;
-  return { steps, acc: total };
+  out.steps = steps;
+  out.acc = total;
+  return out;
 }
 
 /** Frame intervals longer than this (s) are left out of the stats. */
@@ -111,7 +133,7 @@ export class GameLoop {
   readonly fixedDt: number;
   readonly maxFrameTime: number;
   readonly maxSubSteps: number;
-  readonly stats: LoopStats = { fps: 0, frameMs: 0, simMs: 0, stepsLastFrame: 0, alpha: 0 };
+  readonly stats: LoopStats = { fps: 0, frameMs: 0, simMs: 0, updateMs: 0, renderMs: 0, stepsLastFrame: 0, alpha: 0 };
 
   private readonly hooks: LoopHooks;
   private readonly scheduler: FrameScheduler;
@@ -123,6 +145,8 @@ export class GameLoop {
   private scale = 1;
   private nextFrameDueMs: number | null = null;
   private lastError: string | null = null;
+  private readonly accResult: AccumulatorResult = { steps: 0, acc: 0 };
+  private phaseSink: FramePhaseSink | null = null;
 
   constructor(options: GameLoopOptions) {
     const simHz = options.simHz ?? 60;
@@ -160,6 +184,11 @@ export class GameLoop {
     this.scale = scale;
   }
 
+  /** Reports the sim, update and render time of every frame to `sink` (null stops). */
+  setPhaseSink(sink: FramePhaseSink | null): void {
+    this.phaseSink = sink;
+  }
+
   start(): void {
     if (this.running) return;
     this.running = true;
@@ -189,7 +218,7 @@ export class GameLoop {
     if (!this.paused) {
       const scaledCap = Math.ceil(this.maxSubSteps * Math.min(this.scale, MAX_TIME_SCALE));
       const maxSteps = Math.max(this.maxSubSteps, scaledCap);
-      const result = stepAccumulator(this.acc, frameDt * this.scale, this.fixedDt, maxSteps);
+      const result = stepAccumulatorInto(this.accResult, this.acc, frameDt * this.scale, this.fixedDt, maxSteps);
       steps = result.steps;
       this.acc = result.acc;
       const simStart = now();
@@ -201,11 +230,22 @@ export class GameLoop {
     }
 
     const alpha = this.acc / this.fixedDt;
+    const updateStart = now();
     this.hooks.update(frameDt, alpha);
+    const renderStart = now();
     this.hooks.render(alpha);
+    const renderEnd = now();
 
     const stats = this.stats;
     stats.simMs = simMs;
+    stats.updateMs = renderStart - updateStart;
+    stats.renderMs = renderEnd - renderStart;
+    const sink = this.phaseSink;
+    if (sink !== null) {
+      if (steps > 0) sink.frame('sim', simMs);
+      sink.frame('update', stats.updateMs);
+      sink.frame('render', stats.renderMs);
+    }
     stats.stepsLastFrame = steps;
     stats.alpha = alpha;
     // A gap this long is a background tab (no frames), not a slow frame.

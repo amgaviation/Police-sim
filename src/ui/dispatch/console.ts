@@ -185,6 +185,8 @@ export class DispatchConsole implements Menu {
       }
       return false;
     }
+    // Enter on a focused button is that button's click; elsewhere it assigns like A (arrows pick the call and unit).
+    if (event.key === 'Enter' && (event.target as { tagName?: unknown } | null)?.tagName === 'BUTTON') return false;
     if (event.key === '+' || event.key === '=') return this.zoom(MAP_ZOOM_STEP);
     if (event.key === '-' || event.key === '_') return this.zoom(1 / MAP_ZOOM_STEP);
     if (event.key === 'f' || event.key === 'F') {

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createAudioCommands } from '../../src/audio/commands';
 import { SIREN_DATA } from '../../src/audio/data';
+import { VEHICLE_AUDIO } from '../../src/audio/vehicleData';
+import { createAudioStats } from '../../src/audio/sirens';
+import type { AmbienceParams } from '../../src/audio/ambienceMath';
 import { AudioEngine } from '../../src/audio/engine';
+import type { DrivenAudioState } from '../../src/audio/vehicleAudio';
 import type { SirenEmitter } from '../../src/audio/math';
 import type { CommandContext } from '../../src/debug/console';
 import { SpeechOut } from '../../src/speech/synthesis';
@@ -15,7 +19,7 @@ import {
 } from './fakeAudio';
 
 function emitter(id: number, x: number, z: number, extra: Partial<SirenEmitter> = {}): SirenEmitter {
-  return { id, x, y: 1, z, tone: 'wail', horn: false, manual: false, inCabin: false, ...extra };
+  return { id, x, y: 1, z, vx: 0, vy: 0, vz: 0, tone: 'wail', horn: false, manual: false, inCabin: false, ...extra };
 }
 
 function unlocked(): { engine: AudioEngine; ctx: FakeContext } {
@@ -25,9 +29,9 @@ function unlocked(): { engine: AudioEngine; ctx: FakeContext } {
   return { engine, ctx };
 }
 
-/** Panner of each voice in build order. */
+/** Panner of each siren voice in build order (the sirens are built first; later panners are engine voices). */
 function panners(ctx: FakeContext): FakePanner[] {
-  return ctx.nodesOf<FakePanner>('panner');
+  return ctx.nodesOf<FakePanner>('panner').slice(0, SIREN_DATA.voices);
 }
 
 /** Voice output gain (the node feeding each panner). */
@@ -47,6 +51,12 @@ function voiceAt(ctx: FakeContext, x: number, z: number): number {
 
 const CMD_CTX = {} as CommandContext;
 
+const DRIVEN: DrivenAudioState = {
+  active: true, profile: 'car', rpm: 2000, throttle: 0.5, running: true, speed: 10, groundSpeed: 10, brake: 0, handbrake: false,
+  absActive: false, surface: 0, airborne: false, inCabin: false, x: 0, y: 0, z: 0,
+};
+const AMBIENCE: AmbienceParams = { district: 'downtown', hour: 12, weather: 'clear', rain: 0, wind: 0, indoor: false, inCabin: false };
+
 describe('AudioEngine headless', () => {
   it('is unavailable and every method is a no-op without AudioContext', () => {
     const engine = new AudioEngine();
@@ -55,6 +65,12 @@ describe('AudioEngine headless', () => {
     expect(() => {
       engine.unlock();
       engine.setVolumes({ master: 0.5, sfx: 0.5, radio: 0.5 });
+      engine.setListenerVelocity(1, 2, 3);
+      engine.vehicles.update(DRIVEN, [], 0);
+      engine.ambience.update(AMBIENCE, 0.016);
+      engine.ui.play('select');
+      engine.radio.chatter(1, 1);
+      engine.radio.setBed(1);
       engine.suspend();
       engine.resume();
       engine.setListener(1, 2, 3, 0, 0, -1, 0, 1, 0);
@@ -71,7 +87,7 @@ describe('AudioEngine headless', () => {
       engine.dispose();
     }).not.toThrow();
     expect(engine.unlocked).toBe(false);
-    expect(engine.stats).toEqual({ voices: 0, active: 0 });
+    expect(engine.stats).toEqual(createAudioStats());
   });
 
   it('treats an explicit null factory as unavailable', () => {
@@ -109,12 +125,12 @@ describe('AudioEngine with a fake context', () => {
     const created = { ...ctx.created };
     const voices = SIREN_DATA.voices;
     const hornCount = SIREN_DATA.horn.freqsHz.length;
-    expect(created['panner']).toBe(voices);
-    expect(created['oscillator']).toBe(voices * (2 + hornCount));
+    // The siren voices are built first; the driven vehicle and traffic voices add their own panners.
+    expect(created['panner']).toBe(voices + 1 + VEHICLE_AUDIO.engine.traffic.voices);
     expect(created['waveShaper']).toBe(voices);
-    expect(created['biquad']).toBe(voices);
-    expect(created['gain']).toBe(3 + voices * 4);
+    expect(created['oscillator']).toBeGreaterThanOrEqual(voices * (2 + hornCount));
     expect(created['buffer']).toBe(1);
+    expect(ctx.nodesOf<FakeGain>('gain').length).toBeGreaterThanOrEqual(5 + voices * 4);
     expect(engine.stats.voices).toBe(voices);
 
     engine.unlock();
@@ -177,13 +193,24 @@ describe('AudioEngine with a fake context', () => {
 
   it('suspends and resumes with the pause state', () => {
     const { engine, ctx } = unlocked();
+    const [master, sfx, radio, ambience, ui] = ctx.nodesOf<FakeGain>('gain');
+    engine.setVolumes({ master: 0.8, sfx: 0.9, radio: 0.7, ambience: 0.6, ui: 0.5 });
     expect(ctx.state).toBe('running');
     engine.suspend();
-    expect(ctx.state).toBe('suspended');
-    engine.unlock();
-    expect(ctx.state).toBe('suspended');
-    engine.resume();
+    // The context keeps running (UI sounds play in the pause menu); the world buses glide to 0.
     expect(ctx.state).toBe('running');
+    expect(ctx.suspendCalls).toBe(0);
+    expect([sfx?.gain.target, radio?.gain.target, ambience?.gain.target]).toEqual([0, 0, 0]);
+    expect(ui?.gain.target).toBe(0.5);
+    expect(master?.gain.target).toBe(0.8);
+    // A volume change while paused keeps the world buses muted.
+    engine.setVolumes({ master: 0.8, sfx: 1, radio: 1, ambience: 1, ui: 0.4 });
+    expect([sfx?.gain.target, radio?.gain.target, ambience?.gain.target, ui?.gain.target]).toEqual([0, 0, 0, 0.4]);
+    engine.unlock();
+    expect(ctx.state).toBe('running');
+    engine.resume();
+    expect(ctx.suspendCalls).toBe(0);
+    expect([sfx?.gain.target, radio?.gain.target, ambience?.gain.target, ui?.gain.target]).toEqual([1, 1, 1, 0.4]);
   });
 
   it('writes the listener pose', () => {
@@ -354,9 +381,9 @@ describe('AudioEngine with a fake context', () => {
       expect(s.onended).toBeTypeOf('function');
       s.onended?.();
     }
-    // onended disconnects every effect envelope from the radio bus.
+    // onended disconnects every effect envelope from the radio bus (the permanent babble bed gain stays).
     const envs = ctx.nodesOf<FakeGain>('gain').filter((g) => g.connections.includes(radioBus));
-    expect(envs.length).toBe(0);
+    expect(envs.length).toBe(1);
     const priority = ctx
       .nodesOf<FakeOscillator>('oscillator')
       .filter((o) => o.frequency.value === 1400 || o.frequency.value === 850)

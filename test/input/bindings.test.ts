@@ -89,6 +89,9 @@ describe('Phase 2 default bindings', () => {
     ]);
     const owners = new Map<string, string[]>();
     for (const id of ACTION_IDS) {
+      // Phase 9: the radio menu cursor is modal (it only acts while the radio menu is open and then takes PageUp / PageDown /
+      // Enter and the D-pad / A from every other action): see the dedicated test below.
+      if (id.startsWith('radio.cursor')) continue;
       for (const b of DEFAULT_BINDINGS[id]) {
         if (b.device === 'gamepad' && b.code.startsWith('GamepadAxis')) continue;
         const k = `${b.device}:${b.code}`;
@@ -112,6 +115,33 @@ describe('Phase 2 default bindings', () => {
       const vehicleIds = ids.filter((id) => id.startsWith('vehicle.'));
       if (code === 'Space') expect(vehicleIds.sort(), k).toEqual(['vehicle.handbrake', 'vehicle.lift']);
       else expect(vehicleIds.length, k).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('Phase 9 radio cursor bindings', () => {
+  it('are PageUp / PageDown / Enter and D-pad up / down / A, modal like the option keys', () => {
+    expect(DEFAULT_BINDINGS['radio.cursorPrev']).toEqual([
+      { device: 'keyboard', code: 'PageUp' },
+      { device: 'gamepad', code: 'GamepadButton12' },
+    ]);
+    expect(DEFAULT_BINDINGS['radio.cursorNext']).toEqual([
+      { device: 'keyboard', code: 'PageDown' },
+      { device: 'gamepad', code: 'GamepadButton13' },
+    ]);
+    expect(DEFAULT_BINDINGS['radio.cursorSelect']).toEqual([
+      { device: 'keyboard', code: 'Enter' },
+      { device: 'gamepad', code: 'GamepadButton0' },
+    ]);
+  });
+
+  it('share their keyboard keys with no other default action', () => {
+    for (const id of ['radio.cursorPrev', 'radio.cursorNext', 'radio.cursorSelect'] as const) {
+      for (const b of DEFAULT_BINDINGS[id]) {
+        if (b.device !== 'keyboard') continue;
+        const others = ACTION_IDS.filter((o) => o !== id && DEFAULT_BINDINGS[o].some((x) => x.device === 'keyboard' && x.code === b.code));
+        expect(others, b.code).toEqual([]);
+      }
     }
   });
 });

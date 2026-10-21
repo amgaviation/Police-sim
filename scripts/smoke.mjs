@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser smoke test (Phases 0-7).
+ * Browser smoke test (Phases 0-9).
  *
  * Starts the Vite dev server (unless SMOKE_URL points at a running one), drives
  * the game in headless Chromium with SwiftShader: a new shift in the city, chunk
@@ -32,18 +32,23 @@
  * loadout, the fleet panel (') checking out S-201 and customizing its livery (a text decal, a polygon shape, the siren) with an
  * export / import of the JSON, the motorcycle ridden, the helicopter climbed with Space, the camera drone (=), a crash with its
  * damage report, the station service, the inspection and End shift charging career points, a v9 save/load and the Phase 7
- * console commands.
+ * console commands. Phase 9: the guided first shift from the title button (the first five steps with the real keys, a mid-tutorial
+ * v11 save, the pause menu's Skip tutorial step, the console's tutorial skip), a night drive in rain with the light bar (glow,
+ * headlight cones, splashes, wet streets), TASER / firearm / crash particles, audio after a key press, gamepad navigation of the
+ * pause menu and the radio menu with a fake navigator.getGamepads, text scale 1.6 without horizontal overflow, every colour-vision
+ * palette and the profiler (SMOKE_ONLY=9).
  * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
  * in-car MDT), phase2-mdt.png (the MDT overlay), phase3.png (a call scene with people),
  * phase3-dialogue.png (the dialogue panel), phase4.png (an interior with the flashlight and markers),
  * phase4-station.png (the roll-call briefing), phase4-case.png (the case file), phase5-mdt.png (the Career tab),
  * phase5-court.png (the courtroom), phase5-review.png (the evidence review), phase6-backup.png (the Backup panel with a
  * backup officer), phase6-flir.png (the air unit camera), phase6-command.png (the command panel at a mass-casualty scene), phase7-character.png (the character creator),
- * phase7-livery.png (the livery editor on S-201) and phase7-heli.png (the patrol helicopter in the air).
+ * phase7-livery.png (the livery editor on S-201), phase7-heli.png (the patrol helicopter in the air), phase9-tutorial.png
+ * (the tutorial card on the Take a call step) and phase9-night-rain.png (a night drive in rain with the light bar).
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
-/* global window, document, getComputedStyle, MouseEvent, KeyboardEvent, requestAnimationFrame -- functions passed to page.evaluate run in the browser */
+/* global window, document, HTMLElement, getComputedStyle, MouseEvent, KeyboardEvent, requestAnimationFrame -- functions passed to page.evaluate run in the browser */
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -1003,7 +1008,7 @@ async function phase2(page, hasRenderer) {
   });
   const same = (k) => saveLoad.before[k] === saveLoad.after[k];
   console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
-  check(saveLoad.slot === 10, `saved as v10 (${saveLoad.slot})`);
+  check(saveLoad.slot === 11, `saved as v11 (${saveLoad.slot})`);
   check(same('calls') && same('docs') && same('units'), 'save/load v6 keeps the CAD (calls, units, documents)');
   check(same('records'), 'save/load v6 keeps the records (touched persons and vehicles, contacts, query log)');
   check(same('radio'), `save/load v6 keeps the radio (${saveLoad.after.radio})`);
@@ -1432,7 +1437,7 @@ async function phase3(page, hasRenderer) {
     return { before, after, version: list.find((x) => x.slot === 'smoke-phase3')?.version ?? -1 };
   });
   console.log('phase 3 save/load:', JSON.stringify({ version: v5.version, people: v5.after.people.length, scenarios: v5.after.scenarios, closed: v5.after.closed.length, contacts: v5.after.contacts, peds: v5.after.peds }));
-  check(v5.version === 10, `saved as v10 (${v5.version})`);
+  check(v5.version === 11, `saved as v11 (${v5.version})`);
   check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v6 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
   check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v6 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
   check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v6 keeps the open contacts and the pedestrians/actors');
@@ -1897,7 +1902,7 @@ async function phase4(page, hasRenderer) {
     };
   });
   console.log('phase 4 save/load:', JSON.stringify(save));
-  check(save.version === 10, `the save is written as version 10 (${save.version})`);
+  check(save.version === 11, `the save is written as version 11 (${save.version})`);
   check(save.after.building === save.before.building && save.after.building >= 0, 'the officer is back inside the station after the load');
   check(save.after.files === save.before.files && save.after.ledger === save.before.ledger, `case files and the custody ledger survive (${save.after.files} files, ${save.after.ledger} entries)`);
   check(save.after.holding === save.before.holding && save.after.flow === save.before.flow, 'holding cells and the shift flow survive');
@@ -2374,7 +2379,7 @@ async function phase5(page, hasRenderer) {
     };
   });
   console.log('phase 5 save/load:', JSON.stringify(save));
-  check(save.version === 10, `the save is written as version 10 (${save.version})`);
+  check(save.version === 11, `the save is written as version 11 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'incident logs, court cases, IA cases, report grades and trust survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------
@@ -2771,7 +2776,7 @@ async function phase6(page, hasRenderer) {
     };
   });
   console.log('phase 6 save/load:', JSON.stringify(save));
-  check(save.version === 10, `the save is written as version 10 (${save.version})`);
+  check(save.version === 11, `the save is written as version 11 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the roster, resource units, command post and victims survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------------------
@@ -3188,7 +3193,7 @@ async function phase7(page, hasRenderer) {
     return { version: list.find((x) => x.slot === 'p7')?.version ?? 0, before, after: snap(app.session) };
   });
   console.log('phase 7 save/load:', JSON.stringify(save));
-  check(save.version === 10, `the save is written as version 10 (${save.version})`);
+  check(save.version === 11, `the save is written as version 11 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the character, gear, saved liveries, checked-out units and ledger survive the load');
 
   // --- Console commands ---------------------------------------------------------------------------------------------------------
@@ -3665,7 +3670,7 @@ async function phase8(page, hasRenderer, browser, watch) {
     child.kill('SIGINT');
   }
 
-  // --- v10 save / load round trip and the Phase 8 console ---------------------------------------------------------------------------
+  // --- v11 save / load round trip and the Phase 8 console ---------------------------------------------------------------------------
   const save = await page.evaluate(async () => {
     const app = window.patrol;
     app.newGame(42, undefined, undefined, { mode: 'career' });
@@ -3681,8 +3686,8 @@ async function phase8(page, hasRenderer, browser, watch) {
     const data = app.serializeGame();
     return { version: (await app.saves.load('p8')).version, same: JSON.stringify(data.career) === before, stage: s.phase8.career.view.stage, mods: data.mods, mode: data.mode.id, world: !!data.worldState };
   });
-  console.log('v10 save:', JSON.stringify(save));
-  check(save.version === 10 && save.same && save.mode === 'career' && save.world && Array.isArray(save.mods), 'a v10 save round-trips the career, world, mode and mod list');
+  console.log('v11 save:', JSON.stringify(save));
+  check(save.version === 11 && save.same && save.mode === 'career' && save.world && Array.isArray(save.mods), 'a v11 save round-trips the career, world, mode and mod list');
   await page.evaluate(() => window.patrol.ui.closeAll());
   const cmds = await page.evaluate(async () => {
     const run = async (line) => {
@@ -3717,6 +3722,434 @@ async function phase8(page, hasRenderer, browser, watch) {
   console.log('perf phase 8:', JSON.stringify(perf));
   console.log('phase 8 sim costs:', JSON.stringify(extras));
   return { perf, frame, extras };
+}
+
+/** A fake gamepad on `navigator.getGamepads` (installed once): `setPad(buttons)` presses the listed standard-mapping buttons. */
+async function installFakePad(page) {
+  await page.evaluate(() => {
+    const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+    const pad = { id: 'smoke pad', index: 0, connected: true, mapping: 'standard', buttons, axes: [0, 0, 0, 0], timestamp: 0 };
+    window.__smokePad = pad;
+    navigator.getGamepads = () => [pad];
+  });
+}
+
+/** Presses the pad buttons `ids` for `frames` frames, then releases them for as many. */
+async function padTap(page, ids, frames = 3) {
+  const set = (down) =>
+    page.evaluate(
+      ([list, on]) => {
+        for (const i of list) window.__smokePad.buttons[i] = { pressed: on, value: on ? 1 : 0 };
+      },
+      [ids, down],
+    );
+  await set(true);
+  await waitFrames(page, frames);
+  await set(false);
+  await waitFrames(page, frames);
+}
+
+/**
+ * Phase 9 checks: the guided first shift from the title button (the first five steps with the real keys, the rest skipped,
+ * a mid-tutorial save and load), a night drive in rain with the light bar (glow, cones, splashes, wet streets), the TASER
+ * and firearm particles and crash sparks, audio after a gesture, gamepad navigation of the pause menu and the radio menu,
+ * text scale 1.6 without horizontal overflow, every colour-vision palette, the profiler and a v11 save.
+ */
+async function phase9(page, hasRenderer) {
+  await mkdir(SHOTS, { recursive: true });
+
+  // --- Title screen: the Guided first shift button --------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.quitToTitle();
+    app.settings.set('accessibility.colorblind', 'none');
+    app.settings.set('accessibility.textScale', 1);
+  });
+  await waitFrames(page, 3);
+  const title = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'Guided first shift');
+    return { found: !!b, primary: b?.classList.contains('primary') ?? false };
+  });
+  check(title.found, 'the title screen offers the Guided first shift');
+  await page.fill('#seed', String(SEED));
+  await page.getByRole('button', { name: 'Guided first shift' }).click();
+  await waitFor(page, () => window.patrol.session?.phase9.active === true && window.patrol.ui.top?.id === 'tutorial-dialog', null, 90000);
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  const welcome = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    return { top: app.ui.top?.id, step: s.phase9.runner.view.step.id, paused: app.loop.paused, title: app.phase9.dialog.content.title, text: app.phase9.dialog.content.text, flow: s.station.flow.step, driving: s.driving };
+  });
+  console.log('tutorial welcome:', JSON.stringify(welcome));
+  check(welcome.top === 'tutorial-dialog' && welcome.step === 'welcome' && welcome.paused, 'the tutorial opens with a pausing welcome dialog');
+  check(/Esc/i.test(welcome.text) || welcome.text.includes('pause menu'), 'the welcome text names the pause menu key');
+  check(welcome.flow !== 'locker' && !welcome.driving, 'the tutorial shift starts outside the station, on foot');
+
+  // Step 1 (welcome): Enter is Continue.
+  await press(page, 'Enter');
+  await waitFor(page, () => window.patrol.session.phase9.runner.view.step.id === 'enterCar', null, 20000);
+  const enterCar = await page.evaluate(() => {
+    const app = window.patrol;
+    return { top: app.ui.top?.id ?? null, paused: app.loop.paused, card: app.phase9.card.model, visible: app.phase9.card.visible };
+  });
+  console.log('tutorial enterCar card:', JSON.stringify(enterCar.card));
+  check(enterCar.top === null && !enterCar.paused, 'Continue closes the dialog and the game runs');
+  check(enterCar.visible && enterCar.card.title.length > 0 && enterCar.card.progress.startsWith('Step 2 of'), `the HUD card shows the step (${enterCar.card.progress})`);
+  check(/\bE\b/.test(enterCar.card.text) && !enterCar.card.text.includes('{'), 'the card text shows the current key labels');
+
+  // Step 2 (enterCar): beside the lead patrol car, E.
+  await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const car = s.vehicles[0];
+    const body = s.physics.getBody(car.eid).translation();
+    s.teleport(body.x + 2.4, body.z);
+  });
+  await waitFrames(page, 3);
+  await press(page, 'KeyE');
+  await waitFor(page, () => window.patrol.session.phase9.runner.view.step.id === 'drive', null, 20000);
+  const drive = await page.evaluate(() => ({ driving: window.patrol.session.driving, step: window.patrol.session.phase9.runner.view.step.id }));
+  check(drive.driving && drive.step === 'drive', 'E enters the patrol car and the tutorial moves to Drive');
+
+  // Step 3 (drive): hold W until 30 km/h.
+  await page.keyboard.down('KeyW');
+  await waitFrames(page, 2);
+  for (let i = 0; i < 12; i++) {
+    await page.evaluate(stepSim, 120);
+    const id = await page.evaluate(() => window.patrol.session.phase9.runner.view.step.id);
+    if (id !== 'drive') break;
+  }
+  await page.keyboard.up('KeyW');
+  const lights = await page.evaluate(() => ({ step: window.patrol.session.phase9.runner.view.step.id, kmh: window.patrol.session.drivenVehicle?.telemetry.speedKmh ?? 0 }));
+  check(lights.step === 'lights', `reaching 30 km/h completes Drive (${lights.kmh.toFixed(0)} km/h)`);
+
+  // Step 4 (lights): L switches the light bar on.
+  await press(page, 'KeyL');
+  await page.evaluate(stepSim, 40);
+  await waitFor(page, () => window.patrol.session.phase9.runner.view.step.id === 'radioStatus', null, 20000);
+  check(await page.evaluate(() => window.patrol.session.drivenVehicle?.lightbar === true), 'L switches the light bar on and completes Emergency lights');
+
+  // Step 5 (radioStatus): T, 1 (Status), 1 (In service).
+  await page.evaluate(() => {
+    window.patrol.session.driverInput.brake = 1;
+  });
+  await press(page, 'KeyT');
+  await press(page, 'Digit1');
+  await press(page, 'Digit1');
+  await page.evaluate(stepSim, 40);
+  await waitFor(page, () => window.patrol.session.phase9.runner.view.step.id === 'takeCall', null, 20000);
+  const takeCall = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const run = s.phase9.runner.serialize();
+    const call = s.cad.call(run.callId);
+    return { step: s.phase9.runner.view.step.id, callId: run.callId, type: call?.typeId ?? null, unit: s.cad.unit(s.dispatcher.playerCallsign)?.status, card: app.phase9.card.model };
+  });
+  console.log('tutorial takeCall:', JSON.stringify(takeCall));
+  check(takeCall.step === 'takeCall' && takeCall.callId > 0 && takeCall.type === 'abandonedVehicle', `going in service completes the radio step and dispatch creates the tutorial call (#${takeCall.callId})`);
+  check(takeCall.unit === 'available', 'the player unit is in service');
+  await waitFrames(page, 4);
+  await page.screenshot({ path: path.join(SHOTS, 'phase9-tutorial.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase9-tutorial.png')}`);
+
+  // A mid-tutorial save and load keeps the step and the call.
+  const mid = await page.evaluate(async () => {
+    const app = window.patrol;
+    const before = app.session.phase9.runner.serialize();
+    await app.saveGame('p9-mid');
+    await app.loadGame('p9-mid');
+    const after = app.session.phase9.runner.serialize();
+    return { before, after, version: (await app.saves.load('p9-mid')).version, step: app.session.phase9.runner.view.step.id };
+  });
+  check(mid.version === 11 && mid.step === 'takeCall' && mid.after.callId === mid.before.callId && mid.after.index === mid.before.index, 'a mid-tutorial v11 save loads on the same step and call');
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+
+  // The pause menu has Skip tutorial step / End tutorial; Skip works through its button.
+  await press(page, 'Escape');
+  await waitFor(page, () => window.patrol.ui.top?.id === 'pause', null, 5000);
+  const pauseButtons = await page.evaluate(() => [...document.querySelectorAll('.pause-menu button')].filter((b) => !b.hidden).map((b) => b.textContent.trim()));
+  console.log('pause menu buttons:', JSON.stringify(pauseButtons));
+  check(pauseButtons.includes('Skip tutorial step') && pauseButtons.includes('End tutorial'), 'the pause menu offers Skip tutorial step and End tutorial during the tutorial');
+  await page.getByRole('button', { name: 'Skip tutorial step' }).click();
+  await waitFor(page, () => window.patrol.session.phase9.runner.view.step.id === 'driveToCall', null, 20000);
+  check(await page.evaluate(() => window.patrol.ui.top === undefined || window.patrol.ui.top === null), 'Skip tutorial step closes the pause menu and moves on');
+
+  // The console command skips the rest, up to the closing dialog.
+  const consoleSkip = await page.evaluate(async () => {
+    const app = window.patrol;
+    const out = [];
+    const run = async (line) => {
+      const before = app.console.lines.length;
+      await app.console.execute(line);
+      return app.console.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    out.push(...(await run('tutorial status')));
+    for (let i = 0; i < 16; i++) {
+      const v = app.session.phase9.runner.view;
+      if (v.step?.ack || v.done) break;
+      await run('tutorial skip');
+      for (let k = 0; k < 8; k++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    }
+    return { out, step: app.session.phase9.runner.view.step?.id ?? null };
+  });
+  console.log('tutorial console:', JSON.stringify(consoleSkip));
+  check(consoleSkip.step === 'done' && consoleSkip.out.some((l) => l.includes('Step')), 'tutorial status and tutorial skip walk the script to its closing step');
+  await waitFor(page, () => window.patrol.ui.top?.id === 'tutorial-dialog', null, 20000);
+  await press(page, 'Enter');
+  await waitFor(page, () => window.patrol.session.phase9.runner.view.done, null, 20000);
+  const done = await page.evaluate(() => {
+    const app = window.patrol;
+    const save = app.serializeGame();
+    return { tutorial: save.tutorial, active: app.session.phase9.active, version: save.version, ui: app.ui.menuStack.length };
+  });
+  console.log('tutorial done:', JSON.stringify({ done: done.tutorial.done, completed: done.tutorial.completed, skipped: done.tutorial.skipped.length }));
+  check(done.tutorial.done && done.tutorial.completed && done.tutorial.skipped.length >= 5 && !done.active, 'the tutorial finishes: completed, skipped steps recorded, saved in the v11 block');
+
+  // --- Night, rain, light bar: glow, cones, splashes, wet streets -------------------------------------------------------------
+  const driveSetup = await page.evaluate(async () => {
+    const app = window.patrol;
+    app.ui.closeAll();
+    await app.console.execute('time 22:00');
+    await app.console.execute('weather rain');
+    const s = app.session;
+    if (!s.driving) app.enterVehicle(0);
+    s.driverInput.brake = 0;
+    if (!s.drivenVehicle.lightbar) s.toggleLightbar();
+    if (!s.drivenVehicle.headlights) s.toggleHeadlights();
+    return { driving: s.driving, bar: s.drivenVehicle.lightbar };
+  });
+  check(driveSetup.driving && driveSetup.bar, 'driving at night in rain with the light bar on');
+  await page.keyboard.down('KeyW');
+  await waitFrames(page, 2);
+  await page.evaluate(stepSim, 240);
+  await sleep(1500);
+  await page.evaluate(stepSim, 240);
+  await waitFrames(page, 4);
+  const fx = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const w = s.env.weather;
+    return {
+      stats: { ...app.phase9.vfx.stats },
+      quality: app.phase9.vfx.effectsQuality,
+      splashes: app.envRenderer?.splashPoints?.visible ?? false,
+      weather: w.kind,
+      wetness: w.wetness,
+      night: s.env.lighting.nightFactor,
+      draw: app.renderer?.stats.drawCalls ?? 0,
+    };
+  });
+  await page.keyboard.up('KeyW');
+  console.log('night rain effects:', JSON.stringify(fx));
+  if (hasRenderer) {
+    check(fx.stats.glows > 0, `the light bar and lamps glow at night (${fx.stats.glows} glow sprites)`);
+    check(fx.stats.cones > 0, `headlight cones are drawn at night (${fx.stats.cones})`);
+    check(fx.splashes, 'rain splashes are in the scene');
+  }
+  check(fx.wetness > 0, `the streets are wet in rain (${fx.wetness.toFixed(2)})`);
+  await page.screenshot({ path: path.join(SHOTS, 'phase9-night-rain.png') });
+  console.log(`screenshot: ${path.join(SHOTS, 'phase9-night-rain.png')}`);
+
+  // Effects quality off hides the effects; high shows them again.
+  const quality = await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.console.execute('settings set graphics.effects off');
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const off = { ...app.phase9.vfx.stats };
+    await app.console.execute('settings set graphics.effects high');
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return { off, on: { ...app.phase9.vfx.stats } };
+  });
+  if (hasRenderer) check(quality.off.glows === 0 && quality.off.cones === 0 && quality.on.glows > 0, 'the Effects setting turns glow and cones off and on');
+
+  // --- TASER, firearm, crash: particles ----------------------------------------------------------------------------------------
+  const bursts = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const base = app.phase9.vfx.stats.particles;
+    const send = (tool) =>
+      s.bus.emit('force:applied', {
+        seq: 900, tool, level: 'x', personId: -1, actorId: -1, callId: 0, resistance: 'active', hit: false, injury: 0, fatal: false,
+        cycle: 0, riskFactors: [], distance: 4, restrained: false, sim: s.clock.simTime,
+      });
+    send('taser');
+    await frame();
+    const taser = app.phase9.vfx.stats.particles;
+    send('firearm');
+    await frame();
+    const firearm = app.phase9.vfx.stats.particles;
+    const eid = s.drivenVehicle?.eid ?? s.vehicles[0].eid;
+    s.bus.emit('vehicle:damaged', { eid, zone: 'front', amount: 0.3, impactSpeed: 14 });
+    await frame();
+    const crash = app.phase9.vfx.stats.particles;
+    return { base, taser, firearm, crash };
+  });
+  console.log('particles:', JSON.stringify(bursts));
+  if (hasRenderer) {
+    check(bursts.taser > bursts.base, `a TASER shot throws particles (${bursts.base} -> ${bursts.taser})`);
+    check(bursts.firearm > 0, `a firearm shot flashes (${bursts.firearm} particles)`);
+    check(bursts.crash > 0, `a crash throws sparks and dust (${bursts.crash} particles)`);
+  }
+
+  // --- Audio: after a real key press the engine, sirens and ambience run -----------------------------------------------------
+  await press(page, 'KeyQ');
+  await page.evaluate(stepSim, 60);
+  await sleep(500);
+  const audio = await page.evaluate(() => {
+    const a = window.patrol.audio;
+    return { available: a.available, unlocked: a.unlocked, stats: { ...a.stats } };
+  });
+  console.log('audio:', JSON.stringify(audio));
+  if (audio.available) {
+    check(audio.unlocked, 'the audio engine unlocks after a key press');
+    check(audio.stats.voices > 0 && audio.stats.engine === 1, `the driven engine voice is active (${JSON.stringify(audio.stats)})`);
+    check(audio.stats.ambienceLayers > 0, `the ambience bed plays (${audio.stats.ambienceLayers} layers)`);
+  } else {
+    console.log('PASS  audio unavailable in this browser: skipped (the engine degrades to no-ops)');
+  }
+
+  // --- Gamepad navigation (a fake navigator.getGamepads) ---------------------------------------------------------------------
+  await installFakePad(page);
+  await page.evaluate(() => {
+    const s = window.patrol.session;
+    s.driverInput.accelerate = 0;
+    s.driverInput.brake = 1;
+    s.exitVehicle();
+  });
+  await waitFrames(page, 2);
+  // Start (button 9) opens the pause menu through the normal menu.toggle binding.
+  await padTap(page, [9]);
+  await waitFor(page, () => window.patrol.ui.top?.id === 'pause', null, 10000);
+  check(await page.evaluate(() => window.patrol.ui.top?.id === 'pause'), 'the pad Start button opens the pause menu');
+  await padTap(page, [13]); // down: Quick save
+  await padTap(page, [13]); // down: Settings
+  const focus = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');
+  console.log('pad focus after two downs:', focus);
+  check(focus === 'Settings', `D-pad down moves the focus (${focus})`);
+  await padTap(page, [0]); // A
+  await waitFor(page, () => window.patrol.ui.top?.id === 'settings', null, 10000);
+  check(await page.evaluate(() => window.patrol.ui.top?.id === 'settings'), 'A presses the focused button (Settings opens)');
+  await padTap(page, [1]); // B
+  await waitFor(page, () => window.patrol.ui.top?.id === 'pause', null, 10000);
+  check(await page.evaluate(() => window.patrol.ui.top?.id === 'pause'), 'B closes Settings back to the pause menu');
+  await padTap(page, [1]); // B
+  await waitFrames(page, 6);
+  const closed = await page.evaluate(() => ({ top: window.patrol.ui.top?.id ?? null, paused: window.patrol.loop.paused }));
+  check(closed.top === null && !closed.paused, `B closes the pause menu and it stays closed (${JSON.stringify(closed)})`);
+
+  // The radio menu cursor: T opens it, A enters Status, D-pad down moves on, A sends the status.
+  const requests = [];
+  await page.evaluate(() => {
+    window.__requests = [];
+    window.patrol.bus.on('unit:request', (e) => window.__requests.push(e.request.kind + (e.request.status ? `:${e.request.status}` : '')));
+  });
+  await press(page, 'KeyT');
+  const cursor0 = await page.evaluate(() => ({ open: window.patrol.session.radio.menu.isOpen, cursor: window.patrol.radioMenuView.cursor }));
+  await padTap(page, [0]); // A: Status
+  const level = await page.evaluate(() => window.patrol.session.radio.menu.level);
+  await padTap(page, [13]); // down
+  const cursor1 = await page.evaluate(() => window.patrol.radioMenuView.cursor);
+  await padTap(page, [0]); // A
+  await page.evaluate(stepSim, 30);
+  requests.push(...(await page.evaluate(() => window.__requests)));
+  console.log('radio cursor:', JSON.stringify({ cursor0, level, cursor1, requests }));
+  check(cursor0.open && cursor0.cursor === 0, 'the radio menu opens with the cursor on the first option');
+  check(level === 'status' && cursor1 > 0, 'A enters the Status list and D-pad down moves the cursor');
+  check(requests.some((r) => r.startsWith('status:')), `A on the cursor sends the status request (${requests.join(',')})`);
+  await page.evaluate(() => {
+    window.patrol.session.radio.menu.close();
+  });
+
+  // --- Text scale 1.6: no horizontal overflow ----------------------------------------------------------------------------------
+  const overflow = await page.evaluate(async () => {
+    const app = window.patrol;
+    app.settings.set('accessibility.textScale', 1.6);
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    await frame();
+    const out = {};
+    const wide = (el) => (el ? el.scrollWidth - el.clientWidth : 0);
+    const measure = async (name, open, getEl, close) => {
+      open();
+      await frame();
+      const el = getEl();
+      out[name] = { over: wide(el), width: el?.clientWidth ?? 0, page: document.documentElement.scrollWidth - window.innerWidth };
+      close();
+      await frame();
+    };
+    await measure('pause', () => app.pauseMenu.open(), () => app.pauseMenu.element, () => app.pauseMenu.close());
+    await measure('settings', () => app.settingsMenu.open(), () => app.settingsMenu.element, () => app.ui.closeAll());
+    const s = app.session;
+    await measure('mdt', () => {
+      s.enterVehicle(s.vehicles[0]);
+      app.mdt.open();
+    }, () => app.mdt.element, () => app.ui.closeAll());
+    // The HUD lines: every direct child of the HUD layer.
+    const hud = [...app.ui.hud.children].filter((c) => c instanceof HTMLElement && c.offsetWidth > 0);
+    out.hud = hud.map((c) => ({ cls: c.className || c.id || c.tagName, over: wide(c), right: Math.round(c.getBoundingClientRect().right), vw: window.innerWidth })).filter((r) => r.over > 1 || r.right > r.vw + 1);
+    s.exitVehicle();
+    app.quitToTitle();
+    await frame();
+    out.title = { over: wide(app.mainMenu.element), page: document.documentElement.scrollWidth - window.innerWidth, width: app.mainMenu.element.clientWidth };
+    return out;
+  });
+  console.log('text scale 1.6 overflow:', JSON.stringify(overflow));
+  check(overflow.title.over <= 1 && overflow.title.page <= 1, `title screen at text scale 1.6 does not overflow horizontally (${overflow.title.over})`);
+  check(overflow.settings.over <= 1 && overflow.settings.page <= 1, `settings at text scale 1.6 does not overflow horizontally (${overflow.settings.over})`);
+  check(overflow.pause.over <= 1 && overflow.pause.page <= 1, `pause menu at text scale 1.6 does not overflow horizontally (${overflow.pause.over})`);
+  check(overflow.mdt.over <= 1 && overflow.mdt.page <= 1, `MDT at text scale 1.6 does not overflow horizontally (${overflow.mdt.over})`);
+  check(overflow.hud.length === 0, `HUD lines at text scale 1.6 stay on screen and do not overflow (${JSON.stringify(overflow.hud)})`);
+  await page.evaluate(() => window.patrol.settings.set('accessibility.textScale', 1));
+
+  // --- Every colour-vision palette, with the HUD and menus open ---------------------------------------------------------------
+  const palettes = await page.evaluate(async () => {
+    const app = window.patrol;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    app.newGame(42, undefined, undefined, { inStation: false });
+    await frame();
+    const out = [];
+    for (const mode of ['none', 'protanopia', 'deuteranopia', 'tritanopia']) {
+      app.settings.set('accessibility.colorblind', mode);
+      await frame();
+      app.pauseMenu.open();
+      await frame();
+      app.pauseMenu.close();
+      const css = getComputedStyle(document.documentElement);
+      out.push({ mode, attr: document.documentElement.dataset.colorblind ?? '', busy: css.getPropertyValue('--c-busy').trim() });
+    }
+    app.settings.set('accessibility.colorblind', 'none');
+    return out;
+  });
+  console.log('palettes:', JSON.stringify(palettes));
+  check(palettes.length === 4 && palettes.slice(1).every((p) => p.attr === p.mode), 'every colour-vision palette applies');
+
+  // --- Profiler and the save version -------------------------------------------------------------------------------------------
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  await page.evaluate(stepSim, 120);
+  const prof = await page.evaluate(() => {
+    const app = window.patrol;
+    const r = app.profiler.report();
+    return { systems: r.systems.map((x) => x.name), phases: r.phases.map((x) => `${x.name}:${x.count}`), steps: r.steps, frames: r.frames };
+  });
+  console.log('profiler:', JSON.stringify({ systems: prof.systems.length, tutorial: prof.systems.includes('tutorial'), phases: prof.phases, steps: prof.steps }));
+  check(prof.systems.includes('tutorial') && prof.systems.includes('physics') && prof.steps > 0, 'the profiler records every system, including the tutorial step');
+  const v11 = await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.saveGame('p9');
+    return { version: (await app.saves.load('p9')).version, tutorial: app.serializeGame().tutorial };
+  });
+  check(v11.version === 11 && v11.tutorial === null, 'a normal game saves as v11 with no tutorial block');
+
+  // --- Perf --------------------------------------------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.ui.closeAll();
+    for (let i = 0; i < 60 * 10; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  const perf = await page.evaluate(perfSnapshot);
+  const frame = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+  console.log('perf phase 9:', JSON.stringify(perf));
+  return { perf, frame, fx, audio };
 }
 
 async function run() {
@@ -3754,6 +4187,18 @@ async function run() {
 
     const hasRenderer = await page.evaluate(() => window.patrol.renderer !== null);
     console.log(`renderer: ${hasRenderer ? 'WebGL available' : 'UNAVAILABLE (headless simulation only)'}`);
+
+    // SMOKE_ONLY=9 runs just the Phase 9 checks.
+    if (process.env.SMOKE_ONLY === '9') {
+      const only = await phase9(page, hasRenderer);
+      console.log('phase 9 frame:', JSON.stringify(only.frame));
+      check(only.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 9 within the cap (${only.perf.drawCalls})`);
+      check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+      check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
+      console.log('--- browser console ---');
+      for (const line of consoleLines) console.log(line);
+      return;
+    }
 
     // SMOKE_ONLY=8 runs just the Phase 8 checks.
     if (process.env.SMOKE_ONLY === '8') {
@@ -4031,7 +4476,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v10'), "slot 'smoke' listed as a v10 save");
+    check(saveLoad.slots.includes('smoke v11'), "slot 'smoke' listed as a v11 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);
@@ -4106,6 +4551,7 @@ async function run() {
     const phase6Perf = await guarded('phase 6', () => phase6(page, hasRenderer));
     const phase7Perf = await guarded('phase 7', () => phase7(page, hasRenderer));
     const phase8Perf = await guarded('phase 8', () => phase8(page, hasRenderer, browser, watch));
+    const phase9Perf = await guarded('phase 9', () => phase9(page, hasRenderer));
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -4157,6 +4603,11 @@ async function run() {
       console.log('perf phase 8:', JSON.stringify(phase8Perf.perf));
       console.log('phase 8 sim costs:', JSON.stringify(phase8Perf.extras));
       check(phase8Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 8 within the cap (${phase8Perf.perf.drawCalls})`);
+    }
+    if (phase9Perf) {
+      console.log(describe('Phase 9 patrol (effects, audio, tutorial):', phase9Perf.frame));
+      console.log('perf phase 9:', JSON.stringify(phase9Perf.perf));
+      check(phase9Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 9 within the cap (${phase9Perf.perf.drawCalls})`);
     }
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);

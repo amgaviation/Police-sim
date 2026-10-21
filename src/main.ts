@@ -4,7 +4,10 @@ import type { App } from './app';
 
 declare global {
   interface Window {
-    /** The running app, exposed in dev builds for the console and smoke tests. */
+    /**
+     * The running app, exposed in dev builds and in any build opened with the `e2e` query parameter (`/?e2e`),
+     * so the smoke, e2e and perf scripts can drive the production build.
+     */
     patrol?: App;
   }
 }
@@ -41,7 +44,7 @@ async function main(): Promise<void> {
     }
     throw error;
   }
-  if (import.meta.env.DEV) window.patrol = app;
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('e2e')) window.patrol = app;
   app.start();
 }
 

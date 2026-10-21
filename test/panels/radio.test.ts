@@ -203,3 +203,158 @@ describe('RadioMenuView with the paged Request menu (Phase 6)', () => {
     expect(view.view?.options[0]).toMatchObject({ key: 1, label: 'Type 8', enabled: true });
   });
 });
+
+// --- Phase 9: the radio menu cursor highlight (design §7.5) ------------------------------------------------------------------
+
+class CursorEl {
+  readonly children: CursorEl[] = [];
+  parentElement: CursorEl | null = null;
+  className = '';
+  hidden = false;
+  readonly attrs: Record<string, string> = {};
+  private text = '';
+  /** Times the element's text was written (a rebuild rewrites every row's text). */
+  textWrites = 0;
+  get textContent(): string {
+    return this.text;
+  }
+  set textContent(v: string) {
+    this.text = v;
+    this.textWrites++;
+  }
+  get firstChild(): CursorEl | null {
+    return this.children[0] ?? null;
+  }
+  get childElementCount(): number {
+    return this.children.length;
+  }
+  get classList(): { contains(c: string): boolean } {
+    return { contains: (c) => this.className.split(/\s+/).includes(c) };
+  }
+  setAttribute(n: string, v: string): void {
+    this.attrs[n] = v;
+  }
+  getAttribute(n: string): string | null {
+    return this.attrs[n] ?? null;
+  }
+  appendChild(c: CursorEl): CursorEl {
+    c.parentElement = this;
+    this.children.push(c);
+    return c;
+  }
+  insertBefore(c: CursorEl, ref: CursorEl | null): CursorEl {
+    c.parentElement = this;
+    const i = ref ? this.children.indexOf(ref) : -1;
+    if (i < 0) this.children.push(c);
+    else this.children.splice(i, 0, c);
+    return c;
+  }
+  remove(): void {
+    const p = this.parentElement;
+    if (p) p.children.splice(p.children.indexOf(this), 1);
+    this.parentElement = null;
+  }
+}
+
+describe('RadioMenuView cursor (fake DOM)', () => {
+  const g = globalThis as unknown as { document?: unknown; HTMLElement?: unknown };
+  const saved = { document: g.document, HTMLElement: g.HTMLElement };
+  afterEach(() => {
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.HTMLElement === undefined) delete g.HTMLElement;
+    else g.HTMLElement = saved.HTMLElement;
+  });
+
+  const model = (enabled2 = true) => ({
+    title: 'Radio',
+    options: [
+      { key: 1, label: 'Status ▸', enabled: true },
+      { key: 2, label: 'Run plate', enabled: enabled2 },
+      { key: 3, label: 'Location', enabled: true },
+    ],
+  });
+
+  function build(): { view: RadioMenuView; readonly rows: CursorEl[]; root: CursorEl } {
+    g.document = { createElement: (): CursorEl => new CursorEl() };
+    g.HTMLElement = CursorEl;
+    const parent = new CursorEl();
+    const view = new RadioMenuView(parent as unknown as HTMLElement);
+    const column = parent.children[0] as CursorEl;
+    const root = column.children[0] as CursorEl;
+    // The rows are created by the first show(): read them lazily.
+    return {
+      view,
+      get rows(): CursorEl[] {
+        return root.children.slice(1);
+      },
+      root,
+    };
+  }
+
+  it('marks the row at the cursor with is-selected and aria-selected, the others not', () => {
+    const ctx = build();
+    const { view } = ctx;
+    view.show(model(), 0);
+    const rows = ctx.rows;
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => r.className.split(' ').includes('is-selected'))).toEqual([true, false, false]);
+    expect(rows.map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false']);
+    expect(view.cursor).toBe(0);
+    view.show(model(), 2);
+    expect(rows.map((r) => r.className.split(' ').includes('is-selected'))).toEqual([false, false, true]);
+    expect(rows.map((r) => r.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true']);
+  });
+
+  it('a cursor-only change toggles classes without rebuilding the rows', () => {
+    const ctx = build();
+    const { view } = ctx;
+    view.show(model(), 0);
+    const rows = ctx.rows;
+    const writes = rows.map((r) => r.textWrites);
+    const renders = view.renders;
+    view.show(model(), 1);
+    view.show(model(), 2);
+    expect(rows.map((r) => r.textWrites)).toEqual(writes);
+    expect(view.renders).toBe(renders + 2);
+    view.show(model(), 2); // nothing changed: nothing written
+    expect(view.renders).toBe(renders + 2);
+  });
+
+  it('keeps the disabled look next to the selection, and a changed menu rebuilds the rows', () => {
+    const ctx = build();
+    const { view } = ctx;
+    view.show(model(false), 1);
+    const rows = ctx.rows;
+    expect(rows[1]?.className).toBe('radio-menu-option radio-menu-disabled is-selected');
+    expect(rows[0]?.className).toBe('radio-menu-option');
+    view.show({ title: 'Status', options: [{ key: 1, label: 'Available', enabled: true }] }, 0);
+    expect(rows[0]?.textContent).toBe('1 Available');
+    expect(rows[1]?.hidden).toBe(true);
+    expect(rows[0]?.className).toBe('radio-menu-option is-selected');
+  });
+
+  it('defaults to no cursor, hides with null and resets the cursor', () => {
+    const ctx = build();
+    const { view, root } = ctx;
+    view.show(model());
+    const rows = ctx.rows;
+    expect(rows.some((r) => r.className.includes('is-selected'))).toBe(false);
+    expect(view.cursor).toBe(-1);
+    view.show(model(), 1);
+    view.show(null, 1);
+    expect(root.hidden).toBe(true);
+    expect(view.view).toBeNull();
+    expect(view.cursor).toBe(-1);
+  });
+
+  it('is a headless no-op that still remembers the view and the cursor', () => {
+    delete g.document;
+    const view = new RadioMenuView(null);
+    view.show(model(), 2);
+    expect(view.view?.title).toBe('Radio');
+    expect(view.cursor).toBe(2);
+    view.show(model(), 0);
+    expect(view.cursor).toBe(0);
+  });
+});

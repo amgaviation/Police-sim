@@ -106,7 +106,7 @@ describe('Phase 8: shift rollover', () => {
     h.step(next, 60);
     const saved = roundTrip(serializeGame(next));
     expect(saved.career.shift.shiftNo).toBe(2);
-    expect(CURRENT_SAVE_VERSION).toBe(10);
+    expect(CURRENT_SAVE_VERSION).toBe(11);
   }, 120_000);
 
   it('does not roll over while off duty is not reached or the officer is unfit', () => {

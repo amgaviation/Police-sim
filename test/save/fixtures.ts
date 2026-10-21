@@ -30,7 +30,7 @@ import { migratedStationSave, newShiftStationSave } from '../../src/station/stat
 import { defaultTacticalSave } from '../../src/tactical/save';
 import { Population } from '../../src/people/population';
 import { emptySceneSave } from '../../src/scene/save';
-import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SaveGameV7, SaveGameV8, SaveGameV9, SavedVehicle } from '../../src/save/schema';
+import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SaveGameV7, SaveGameV8, SaveGameV9, SaveGameV10, SavedVehicle } from '../../src/save/schema';
 import type { TrafficSnapshot } from '../../src/traffic/trafficSystem';
 import { vehicleModel } from '../../src/vehicles/model';
 
@@ -312,8 +312,8 @@ export function makeSaveGameV9(overrides: Partial<SaveGameV9> = {}): SaveGameV9 
   };
 }
 
-/** A complete current-version (v10) payload: the v9 fixture plus the career, world, mode and mods blocks. */
-export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+/** A complete v10 payload: the v9 fixture plus the career, world, mode and mods blocks. */
+export function makeSaveGameV10(overrides: Partial<SaveGameV10> = {}): SaveGameV10 {
   const v9 = makeSaveGameV9();
   return {
     ...v9,
@@ -323,6 +323,11 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
     mods: [],
     ...overrides,
   };
+}
+
+/** A complete current-version (v11) payload: the v10 fixture plus the tutorial block (none). */
+export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  return { ...makeSaveGameV10(), tutorial: null, ...overrides };
 }
 
 /** The station block a migrated v5 save gets (on patrol, pistol and taser out to `badge`). */

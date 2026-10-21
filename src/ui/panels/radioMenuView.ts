@@ -39,11 +39,13 @@ function copyView(v: RadioMenuModel): RadioMenuModel {
  * Number-key radio menu display (left, above the radio log): the title and one line per
  * option ('1 Status ▸'), disabled options greyed; hidden for null. `show` may be called every
  * frame: it compares by value and touches the DOM only when the menu changed. Headless it
- * keeps the last view.
+ * keeps the last view. The row at `cursor` (D-pad / PageUp / PageDown driven, Phase 9) is highlighted with
+ * `is-selected` + `aria-selected="true"`; a cursor-only change toggles classes without rebuilding the rows.
  */
 export class RadioMenuView {
   private readonly dom: MenuDom | null;
   private shown: RadioMenuModel | null = null;
+  private shownCursor = -1;
   private writes = 0;
 
   constructor(parent: HTMLElement | null) {
@@ -60,23 +62,54 @@ export class RadioMenuView {
     return this.writes;
   }
 
-  show(view: RadioMenuModel | null): void {
-    if (sameView(this.shown, view)) return;
-    this.shown = view ? copyView(view) : null;
+  /** The highlighted option index (-1 none). */
+  get cursor(): number {
+    return this.shownCursor;
+  }
+
+  show(view: RadioMenuModel | null, cursor = -1): void {
+    const at = view === null ? -1 : cursor;
+    const sameRows = sameView(this.shown, view);
+    if (sameRows && at === this.shownCursor) return;
+    this.shownCursor = at;
     this.writes += 1;
     const dom = this.dom;
+    if (!sameRows) this.shown = view ? copyView(view) : null;
     if (!dom) return;
+    if (sameRows) {
+      this.markCursor(dom, at);
+      return;
+    }
     dom.root.hidden = view === null;
     if (!view) return;
     setText(dom.title, view.title);
-    while (dom.rows.length < view.options.length) dom.rows.push(div('radio-menu-option', dom.root));
+    while (dom.rows.length < view.options.length) {
+      const row = div('radio-menu-option', dom.root);
+      row.setAttribute('role', 'option');
+      dom.rows.push(row);
+    }
     for (let i = 0; i < dom.rows.length; i++) {
       const row = dom.rows[i] as HTMLDivElement;
       const o = view.options[i];
       row.hidden = o === undefined;
       if (!o) continue;
       setText(row, radioMenuOptionText(o));
-      setClass(row, o.enabled ? 'radio-menu-option' : 'radio-menu-option radio-menu-disabled');
+    }
+    this.markCursor(dom, at);
+  }
+
+  /** Class and `aria-selected` of every visible row (a row's classes only change when its state does). */
+  private markCursor(dom: MenuDom, cursor: number): void {
+    const view = this.shown;
+    if (!view) return;
+    for (let i = 0; i < view.options.length; i++) {
+      const row = dom.rows[i];
+      const o = view.options[i];
+      if (!row || !o) continue;
+      const selected = i === cursor;
+      setClass(row, `radio-menu-option${o.enabled ? '' : ' radio-menu-disabled'}${selected ? ' is-selected' : ''}`);
+      const aria = selected ? 'true' : 'false';
+      if (row.getAttribute('aria-selected') !== aria) row.setAttribute('aria-selected', aria);
     }
   }
 
@@ -91,6 +124,8 @@ function build(parent: HTMLElement): MenuDom {
   // The menu sits above the log whichever was created first.
   column.insertBefore(root, column.firstChild);
   root.hidden = true;
+  root.setAttribute('role', 'listbox');
+  root.setAttribute('aria-label', 'Radio menu');
   const title = div('radio-menu-title', root);
   return { root, title, rows: [] };
 }

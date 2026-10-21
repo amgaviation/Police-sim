@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "rateLimitMs": 60,
+  "sounds": {
+    "move": [{ "hz": 880, "toHz": 880, "durS": 0.03, "wave": "sine", "gain": 0.2 }],
+    "select": [{ "hz": 660, "toHz": 990, "durS": 0.06, "wave": "sine", "gain": 0.25 }],
+    "back": [{ "hz": 700, "toHz": 440, "durS": 0.06, "wave": "sine", "gain": 0.22 }],
+    "open": [
+      { "hz": 520, "toHz": 520, "durS": 0.04, "wave": "triangle", "gain": 0.2 },
+      { "hz": 780, "toHz": 780, "durS": 0.05, "wave": "triangle", "gain": 0.2 }
+    ],
+    "close": [
+      { "hz": 780, "toHz": 780, "durS": 0.04, "wave": "triangle", "gain": 0.2 },
+      { "hz": 520, "toHz": 520, "durS": 0.05, "wave": "triangle", "gain": 0.2 }
+    ],
+    "error": [
+      { "hz": 220, "toHz": 200, "durS": 0.1, "wave": "square", "gain": 0.15 },
+      { "hz": 220, "toHz": 200, "durS": 0.1, "wave": "square", "gain": 0.15 }
+    ],
+    "notify": [
+      { "hz": 1320, "toHz": 1320, "durS": 0.05, "wave": "sine", "gain": 0.18 },
+      { "hz": 1760, "toHz": 1760, "durS": 0.06, "wave": "sine", "gain": 0.18 }
+    ]
+  }
+}

@@ -208,7 +208,8 @@ export class SettingsMenu implements Menu {
   }
 
   onKeyDown(event: KeyboardEvent): boolean {
-    if (this.cancelCapture) return false; // let the InputManager capture it
+    // Let the InputManager capture it (propagation stays intact); consumed so the arrows do not move focus meanwhile.
+    if (this.cancelCapture) return true;
     if (event.key === 'Escape') {
       this.close();
       return true;

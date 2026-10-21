@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "indoorLowpassHz": 600,
+  "cabinLowpassHz": 900,
+  "cabinFactor": 0.5,
+  "layers": [
+    {
+      "id": "traffic", "source": "noise", "filter": { "type": "lowpass", "hz": 220, "q": 0.7 }, "gain": 0.45, "drive": "none",
+      "district": { "downtown": 1, "suburbs": 0.45, "industrial": 0.7, "highway": 1, "rural": 0.15, "campus": 0.4, "hospital": 0.6, "airport": 0.75, "harbor": 0.5, "park": 0.3, "water": 0.1 },
+      "hours": [0.35, 0.3, 0.25, 0.25, 0.3, 0.5, 0.8, 1, 1, 0.9, 0.85, 0.85, 0.9, 0.9, 0.9, 0.95, 1, 1, 0.9, 0.75, 0.6, 0.5, 0.45, 0.4],
+      "weather": { "clear": 1, "cloudy": 1, "rain": 1.1, "storm": 1.1, "fog": 0.9, "snow": 0.7, "heat": 1 },
+      "indoor": 0.25
+    },
+    {
+      "id": "hum", "source": "hum", "hz": 60, "gain": 0.06, "drive": "none",
+      "district": { "downtown": 1, "industrial": 1, "hospital": 0.8, "*": 0.3 },
+      "hours": "flat", "weather": {}, "indoor": 1.5
+    },
+    {
+      "id": "wind", "source": "noise", "filter": { "type": "bandpass", "hz": 500, "q": 0.6 }, "gain": 0.4, "drive": "wind", "lfoHz": 0.15,
+      "district": { "*": 1 }, "hours": "flat", "weather": {}, "indoor": 0.1
+    },
+    {
+      "id": "rain", "source": "noise", "filter": { "type": "highpass", "hz": 1800, "q": 0.5 }, "gain": 0.5, "drive": "rain",
+      "district": { "*": 1 }, "hours": "flat", "weather": {}, "indoor": 0.2
+    },
+    {
+      "id": "birds", "source": "chirps", "ratePerS": 0.6, "gain": 0.12, "drive": "none",
+      "district": { "suburbs": 1, "park": 1.4, "campus": 1, "rural": 1.2, "*": 0.3 },
+      "hours": [0, 0, 0, 0, 0, 0.4, 1, 1, 0.8, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.6, 0.7, 0.8, 0.5, 0.1, 0, 0, 0, 0],
+      "weather": { "rain": 0.2, "storm": 0, "snow": 0.2 }, "indoor": 0
+    },
+    {
+      "id": "crickets", "source": "crickets", "hz": 4600, "amHz": 28, "gain": 0.05, "drive": "none",
+      "district": { "suburbs": 1, "park": 1.4, "rural": 1.5, "*": 0.2 },
+      "hours": [1, 1, 1, 1, 0.6, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.3, 0.8, 1, 1, 1],
+      "weather": { "rain": 0.3, "storm": 0, "snow": 0, "fog": 0.7 }, "indoor": 0
+    },
+    {
+      "id": "water", "source": "noise", "filter": { "type": "lowpass", "hz": 400, "q": 0.8 }, "gain": 0.3, "drive": "none", "lfoHz": 0.2,
+      "district": { "harbor": 1, "water": 1, "park": 0.3, "*": 0 },
+      "hours": "flat", "weather": { "storm": 1.5 }, "indoor": 0
+    }
+  ]
+}

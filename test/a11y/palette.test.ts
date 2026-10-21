@@ -28,11 +28,11 @@ describe('palettes.json', () => {
 
   it('matches the design table for the none and protanopia modes', () => {
     const none = PALETTES.none.colors;
-    expect([none.unit, none.unitBusy, none.emergency, none.suspect, none.pursuit]).toEqual(['#4f8cff', '#2a4f8f', '#ff3b3b', '#ff3b3b', '#ff7a1a']);
+    expect([none.unit, none.unitBusy, none.emergency, none.suspect, none.pursuit]).toEqual(['#4f8cff', '#3d68b8', '#ff3b3b', '#ff3b3b', '#ff7a1a']);
     expect([none.person, none.ok, none.caution, none.alert, none.accent, none.accent2]).toEqual(['#ffffff', '#5fd35f', '#ffcc66', '#ff5a5a', '#3b9eff', '#ff3b5c']);
     expect([none.p1, none.p2, none.p3, none.p4]).toEqual(['#ff5a5a', '#ff9f40', '#ffcc66', '#8fa3b5']);
     const pro = PALETTES.protanopia.colors;
-    expect([pro.unit, pro.unitBusy, pro.emergency, pro.suspect, pro.pursuit]).toEqual(['#0072b2', '#004466', '#ffb000', '#e69f00', '#f0e442']);
+    expect([pro.unit, pro.unitBusy, pro.emergency, pro.suspect, pro.pursuit]).toEqual(['#0072b2', '#5b7fa6', '#ffb000', '#e69f00', '#f0e442']);
     expect([pro.ok, pro.caution, pro.alert, pro.accent2]).toEqual(['#56b4e9', '#f0e442', '#ffb000', '#ffb000']);
     expect([pro.p1, pro.p2, pro.p3, pro.p4]).toEqual(['#ffb000', '#f0e442', '#56b4e9', '#8fa3b5']);
   });

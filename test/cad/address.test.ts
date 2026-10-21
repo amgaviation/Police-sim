@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressAt, addressOnEdge, locationOf, locationText } from '../../src/cad/address';
+import { ADDRESS_MAX_DISTANCE, addressAt, addressOnEdge, locationOf, locationText } from '../../src/cad/address';
 import { createRng } from '../../src/core/rng';
 import {
   DISTRICT,
@@ -181,6 +181,18 @@ describe('addresses on a grid', () => {
     expect(locationOf(g, 100, -100)).toBeNull();
     expect(addressAt(g, 100, -100, undefined, 200)).not.toBeNull();
     expect(addressAt(g, 5000, 5000)).toBeNull();
+  });
+
+  it('snaps to a road within ADDRESS_MAX_DISTANCE by default and refuses anything farther', () => {
+    expect(ADDRESS_MAX_DISTANCE).toBe(60);
+    // Oak Street runs along x = 0; the nearest other street (Elm, x = -200) is far away.
+    expect(addressAt(g, ADDRESS_MAX_DISTANCE - 1, -300)?.street).toBe('Oak Street');
+    expect(locationOf(g, ADDRESS_MAX_DISTANCE - 1, -300)?.street).toBe('Oak Street');
+    expect(addressAt(g, ADDRESS_MAX_DISTANCE + 1, -300)).toBeNull();
+    expect(locationOf(g, ADDRESS_MAX_DISTANCE + 1, -300)).toBeNull();
+    expect(addressAt(g, ADDRESS_MAX_DISTANCE + 1, -300, undefined, ADDRESS_MAX_DISTANCE + 2)?.street).toBe('Oak Street');
+    expect(addressAt(g, ADDRESS_MAX_DISTANCE - 1, -300, undefined, 10)).toBeNull();
+    expect(addressAt(g, -(ADDRESS_MAX_DISTANCE - 1), -300)?.street).toBe('Oak Street');
   });
 
   it('builds CAD locations and edge addresses', () => {

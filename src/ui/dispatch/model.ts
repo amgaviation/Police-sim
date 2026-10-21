@@ -234,6 +234,7 @@ export function reduceConsoleKey(model: Readonly<ConsoleModel>, ui: Readonly<Con
       const i = step(model.units, at, key === 'ArrowRight' ? 1 : -1);
       return next({ sel: { callId: model.sel.callId, unit: model.units[i]?.callsign ?? null } });
     }
+    case 'Enter':
     case 'a':
     case 'A': {
       if (!call) return keep();

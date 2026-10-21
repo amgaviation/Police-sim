@@ -187,7 +187,7 @@ export class PeoplePresenter {
   }
 
   /** Per frame: the people (npc view and the officer) and the scene props. */
-  render(session: GameSession, alpha: number, camX: number, camZ: number, nightFactor: number, dt: number): void {
+  render(session: GameSession, alpha: number, camX: number, camZ: number, nightFactor: number, dt: number, renderTime = 0, windSpeed = 0): void {
     const r = this.renderer;
     this.fillOfficer(session, dt);
     this.sources[0] = session.npc.view;
@@ -205,6 +205,7 @@ export class PeoplePresenter {
     this.sources[5] = session.phase6.backup.view;
     this.sources[6] = session.phase6.resources.crews;
     r?.update(alpha, this.sources, camX, camZ, PEOPLE_DRAW_DISTANCE);
+    this.props?.setWind(renderTime, windSpeed);
     this.props?.update(this.mergeProps(session), nightFactor);
   }
 

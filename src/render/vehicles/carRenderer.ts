@@ -12,6 +12,7 @@ import { VEHICLE_MODELS, wheelLayout, type VehicleModel } from '../../vehicles/m
 import { interpolateTransform } from '../meshSync';
 import { spotlightMount, spotlightPose, type LocalPoint, type SpotlightPose } from '../police/spotlight';
 import { disposeObject } from '../renderer';
+import type { GlowSink } from '../vfx/types';
 import { buildCarParts, hiddenBarLens, LENS_KINDS, twoWheelPositions, wheelLocalPositions, type CarPart } from './carParts';
 import { damageTransform, type DamageTransform } from './damageVisual';
 
@@ -97,6 +98,9 @@ const beamDir = new THREE.Vector3();
 const scratchBeam: SpotlightPose = { x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: -1 };
 /** Light-bar segment colours of the car being drawn. */
 const barColors = new Uint8Array(LIGHTBAR_SEGMENTS);
+/** Glow sink scratch: a lens's world centre, and the two head lamp centres of the car being drawn. */
+const lensPos = new Float64Array(3);
+const headPos = new Float64Array(6);
 
 interface ModelSlot {
   readonly model: VehicleModel;
@@ -254,6 +258,25 @@ function putInstance(
   array[o + 15] = 1;
 }
 
+/**
+ * World centre of a lens at the vehicle-frame point (lx, ly, lz) (damage scale / offset already applied): `origin` +
+ * `rot` x l, with `rot` the column-major basis `putInstance` writes (columns = the vehicle axes in world space).
+ * Writes x, y, z to `out` and returns it. Allocation-free.
+ */
+export function lensWorld(
+  rot: ArrayLike<number>,
+  origin: ArrayLike<number>,
+  lx: number,
+  ly: number,
+  lz: number,
+  out: { [i: number]: number },
+): { [i: number]: number } {
+  out[0] = (origin[0] ?? 0) + (rot[0] ?? 0) * lx + (rot[3] ?? 0) * ly + (rot[6] ?? 0) * lz;
+  out[1] = (origin[1] ?? 0) + (rot[1] ?? 0) * lx + (rot[4] ?? 0) * ly + (rot[7] ?? 0) * lz;
+  out[2] = (origin[2] ?? 0) + (rot[2] ?? 0) * lx + (rot[5] ?? 0) * ly + (rot[8] ?? 0) * lz;
+  return out;
+}
+
 function frac(v: number): number {
   return v - Math.floor(v);
 }
@@ -317,6 +340,7 @@ export class CarRenderer {
   private readonly colorLinear = new Float32Array(MAX_ENTITIES * 3);
   private headlightTarget: EntityId = 0;
   private spotlightTarget: EntityId = 0;
+  private glowSink: GlowSink | null = null;
 
   constructor(scene: THREE.Scene, world: GameWorld, options: CarRendererOptions = {}) {
     this.world = world;
@@ -418,6 +442,14 @@ export class CarRenderer {
     else this.sources.delete(eid);
   }
 
+  /**
+   * Reports lit lamps (light-bar segments, head and tail lamps), light-bar ground pools and headlight beams of every
+   * drawn car to `sink` during `update` (design §6.2); null (the default) reports nothing.
+   */
+  setGlowSink(sink: GlowSink | null): void {
+    this.glowSink = sink;
+  }
+
   /** The car whose headlights get the two spot lights (0 = none). */
   setHeadlightTarget(eid: EntityId): void {
     this.headlightTarget = eid;
@@ -468,6 +500,8 @@ export class CarRenderer {
     const barLevel = reducedFlash ? REDUCED_FLASH.level : 1;
     const lensColors = this.lensMesh.instanceColor?.array;
     if (!lensColors) return;
+    const sink = this.glowSink;
+    sink?.begin();
 
     if (!this.carQuery || this.queryGeneration !== this.world.generation) {
       this.carQuery = registerQuery(this.world, CAR_TERMS);
@@ -596,6 +630,11 @@ export class CarRenderer {
       }
       const hiddenBar = (trimBits & TRIM.hiddenBar) !== 0;
       const noBar = (trimBits & TRIM.noBar) !== 0;
+      let litBars = 0;
+      let barR = 0;
+      let barG = 0;
+      let barB = 0;
+      let headLamps = 0;
       for (let i = 0; i < slot.lenses.length; i += LENS_STRIDE) {
         const segment = slot.lenses[i + 7] ?? -1;
         if (segment >= 0 && noBar) continue;
@@ -606,23 +645,75 @@ export class CarRenderer {
           lenses = slot.hidden;
           o = segment * LENS_STRIDE;
         }
+        const lx = (lenses[o + 1] ?? 0) * dmg.scaleX + dmg.offsetX;
+        const ly = lenses[o + 2] ?? 0;
+        const lz = (lenses[o + 3] ?? 0) * dmg.scaleZ + dmg.offsetZ;
         putInstance(
           this.lensMesh.instanceMatrix.array,
           lensCount,
           rot,
-          (lenses[o + 1] ?? 0) * dmg.scaleX + dmg.offsetX,
-          lenses[o + 2] ?? 0,
-          (lenses[o + 3] ?? 0) * dmg.scaleZ + dmg.offsetZ,
+          lx,
+          ly,
+          lz,
           (lenses[o + 4] ?? 0) * dmg.scaleX,
           lenses[o + 5] ?? 0,
           (lenses[o + 6] ?? 0) * dmg.scaleZ,
         );
+        const kind = slot.lenses[i] ?? 0;
+        const barColor = segment >= 0 && barOn ? (barColors[segment] ?? 0) : SEGMENT_COLOR.off;
         if (segment >= 0) {
-          barLensColor(segment, barOn ? (barColors[segment] ?? 0) : SEGMENT_COLOR.off, barLevel, lensColors, lensCount * 3);
+          barLensColor(segment, barColor, barLevel, lensColors, lensCount * 3);
         } else {
-          lensColor(slot.lenses[i] ?? 0, lights, faults, night, blink, lensColors, lensCount * 3);
+          lensColor(kind, lights, faults, night, blink, lensColors, lensCount * 3);
+        }
+        if (sink) {
+          const c = lensCount * 3;
+          const cr = lensColors[c] ?? 0;
+          const cg = lensColors[c + 1] ?? 0;
+          const cb = lensColors[c + 2] ?? 0;
+          if (segment >= 0) {
+            if (barColor > SEGMENT_COLOR.off) {
+              lensWorld(rot, origin, lx, ly, lz, lensPos);
+              sink.glow(lensPos[0] ?? 0, lensPos[1] ?? 0, lensPos[2] ?? 0, cr, cg, cb, 0);
+              litBars++;
+              barR += cr;
+              barG += cg;
+              barB += cb;
+            }
+          } else if (kind === LENS_HEAD_LEFT || kind === LENS_HEAD_RIGHT) {
+            const out = (faults & (kind === LENS_HEAD_LEFT ? FAULT.headLeftOut : FAULT.headRightOut)) !== 0;
+            if ((lights & LIGHT.head) !== 0) {
+              lensWorld(rot, origin, lx, ly, lz, lensPos);
+              if (!out) sink.glow(lensPos[0] ?? 0, lensPos[1] ?? 0, lensPos[2] ?? 0, cr, cg, cb, 1);
+              const h = kind === LENS_HEAD_LEFT ? 0 : 3;
+              headPos[h] = lensPos[0] ?? 0;
+              headPos[h + 1] = lensPos[1] ?? 0;
+              headPos[h + 2] = lensPos[2] ?? 0;
+              if (!out) headLamps++;
+            }
+          } else if (kind === LENS_TAIL_LEFT || kind === LENS_TAIL_RIGHT) {
+            const brake = (lights & LIGHT.brake) !== 0 && (faults & FAULT.brakeOut) === 0;
+            if ((faults & FAULT.tailOut) === 0 && (brake || ((lights & LIGHT.hazard) !== 0 && blink))) {
+              lensWorld(rot, origin, lx, ly, lz, lensPos);
+              sink.glow(lensPos[0] ?? 0, lensPos[1] ?? 0, lensPos[2] ?? 0, cr, cg, cb, 2);
+            }
+          }
         }
         lensCount++;
+      }
+      if (sink) {
+        if (litBars > 0) sink.pool(scratchPos.x, scratchPos.z, barR / litBars, barG / litBars, barB / litBars);
+        if (headLamps === 2) {
+          // Forward (-Z) in world space is minus the basis Z column.
+          sink.beam(
+            ((headPos[0] ?? 0) + (headPos[3] ?? 0)) / 2,
+            ((headPos[1] ?? 0) + (headPos[4] ?? 0)) / 2,
+            ((headPos[2] ?? 0) + (headPos[5] ?? 0)) / 2,
+            -(rot[6] ?? 0),
+            -(rot[7] ?? 0),
+            -(rot[8] ?? 0),
+          );
+        }
       }
 
       if (eid === this.headlightTarget && eid !== 0 && (lights & LIGHT.head) !== 0) {
@@ -653,6 +744,7 @@ export class CarRenderer {
     this.stats.drawCalls = drawCalls;
     this.updateSpots(target, targetFaults, night);
     this.updateSpotlight(beamSlot, night);
+    sink?.end();
   }
 
   /** Removes everything from the scene and frees geometries, materials and instance buffers. */

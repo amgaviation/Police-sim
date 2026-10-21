@@ -2,6 +2,7 @@
  * RadioPlayer (design §9.6): presentation only. Plays audible transmissions as radio FX + TTS; never
  * feeds back into the simulation. Without TTS everything still shows in the log / captions.
  */
+import { CHATTER_DATA } from '../audio/chatterData';
 import type { AlertToneKind } from '../audio/radioFx';
 import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
@@ -20,6 +21,10 @@ export interface RadioFxLike {
   heterodyne(durationS: number): void;
   priorityTone(): void;
   alertTone(kind: AlertToneKind): void;
+  /** Babble for a transmission that is not spoken (optional: older fakes lack it). */
+  chatter?(durationS: number, level: number): void;
+  /** Background babble bed level 0..1 (optional). */
+  setBed?(level: number): void;
 }
 
 /** The parts of `SpeechOut` the player uses. */
@@ -44,6 +49,8 @@ export interface RadioPlayerDeps {
   readonly schedule?: (fn: () => void, ms: number) => () => void;
 }
 
+/** Babble level of a scanned (not selected) channel relative to the selected one. */
+const SCANNED_CHATTER = 0.5;
 /** Priority warble length (6 x 125 ms) and the longest alert beep sequence (s): speech starts after them. */
 const PRIORITY_TONE_S = 0.75;
 const ALERT_TONE_S = 0.45;
@@ -71,6 +78,8 @@ export class RadioPlayer {
   private readonly offs: (() => void)[] = [];
   /** Audible transmissions on the air, by id. */
   private readonly playing = new Map<number, Transmission>();
+  /** Audible transmissions counted for the babble bed (a blocked one stops counting at once). */
+  private readonly onAir = new Set<number>();
   private trackedSelected: ChannelId = RADIO_CONFIG.defaultSelected;
   /** The transmission being spoken (-1 none) and whether it is from a scanned channel. */
   private speakingId = -1;
@@ -120,6 +129,8 @@ export class RadioPlayer {
    */
   reset(): void {
     this.playing.clear();
+    this.onAir.clear();
+    this.deps.audio.radio.setBed?.(0);
     this.clearPending();
     this.deps.speech.cancel();
     this.speakingId = -1;
@@ -145,7 +156,9 @@ export class RadioPlayer {
   private onStart(tx: Readonly<Transmission>): void {
     if (!tx.audible) return;
     this.playing.set(tx.id, tx);
+    this.onAir.add(tx.id);
     const fx = this.deps.audio.radio;
+    this.updateBed();
     const scanned = tx.channel !== this.selected();
     // Scanned channels play at the scan volume, effects included.
     fx.level = scanned ? this.scanVolume : 1;
@@ -161,17 +174,22 @@ export class RadioPlayer {
     fx.keyUp();
     fx.level = 1;
     if (tx.blocked) return;
+    const chatterLevel = scanned ? SCANNED_CHATTER : 1;
     if (this.speakingId >= 0) {
       // One utterance at a time: the selected channel pre-empts a scanned one; otherwise captions only.
       // An utterance this transmission just stepped on (the emergency button pre-empts the channel;
       // radio:blocked follows radio:start) gives way to it.
       const cur = this.playing.get(this.speakingId);
       const stale = cur === undefined && tx.start > this.speakingEnd + STALE_SPEECH_S;
-      if (!stale && !(cur?.blocked ?? false) && (!this.speakingScanned || scanned)) return;
+      if (!stale && !(cur?.blocked ?? false) && (!this.speakingScanned || scanned)) {
+        // Captions only: the transmission is heard as babble.
+        fx.chatter?.(tx.duration, chatterLevel);
+        return;
+      }
       this.stopSpeaking();
     }
     if (toneS === 0) {
-      this.speak(tx, scanned);
+      if (!this.speak(tx, scanned)) fx.chatter?.(tx.duration, chatterLevel);
       return;
     }
     // The tone comes first, then the voice.
@@ -180,11 +198,14 @@ export class RadioPlayer {
     this.speakingEnd = tx.start + tx.duration;
     this.cancelPending = (this.deps.schedule ?? defaultSchedule)(() => {
       this.cancelPending = null;
-      if (this.speakingId === tx.id) this.speak(tx, scanned);
+      if (this.speakingId !== tx.id) return;
+      // Speech failed after its tone: babble for what is left of the transmission.
+      if (!this.speak(tx, scanned) && this.playing.has(tx.id)) fx.chatter?.(Math.max(0.2, tx.duration - toneS), chatterLevel);
     }, toneS * 1000);
   }
 
-  private speak(tx: Readonly<Transmission>, scanned: boolean): void {
+  /** Starts the utterance; false when the speech engine refused it (disabled, unavailable). */
+  private speak(tx: Readonly<Transmission>, scanned: boolean): boolean {
     const speech = this.deps.speech;
     const base = speech.volume;
     if (scanned) speech.volume = base * this.scanVolume;
@@ -201,11 +222,17 @@ export class RadioPlayer {
     });
     if (scanned) speech.volume = base;
     if (!started && this.speakingId === id) this.speakingId = -1;
+    return started;
+  }
+
+  private updateBed(): void {
+    this.deps.audio.radio.setBed?.(Math.min(1, this.onAir.size * CHATTER_DATA.bedPerTransmission));
   }
 
   private onEnd(id: number): void {
     const tx = this.playing.get(id);
     if (!tx || !this.playing.delete(id)) return;
+    if (this.onAir.delete(id)) this.updateBed();
     const fx = this.deps.audio.radio;
     fx.level = tx.channel !== this.selected() ? this.scanVolume : 1;
     fx.squelchTail();
@@ -224,6 +251,9 @@ export class RadioPlayer {
       if (tx.start > latestStart) latestStart = tx.start;
     }
     if (!any) return;
+    let changed = false;
+    for (const id of ids) changed = this.onAir.delete(id) || changed;
+    if (changed) this.updateBed();
     // The overlap runs from the newest start until the first of them ends (estimated).
     let firstEnd = Infinity;
     for (const id of ids) {

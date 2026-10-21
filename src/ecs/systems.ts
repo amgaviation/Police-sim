@@ -8,6 +8,12 @@ export interface System {
   run(world: GameWorld, dt: number): void;
 }
 
+/** Receives each system's run time from `SystemRegistry.runAll` (see `SystemProfiler`). */
+export interface SystemProfilerSink {
+  record(name: string, ms: number): void;
+  endStep(): void;
+}
+
 interface Entry {
   system: System;
   order: number;
@@ -24,6 +30,7 @@ export class SystemRegistry {
   private sorted: Entry[] = [];
   private seq = 0;
   private readonly timingsMs = new Map<string, number>();
+  private profiler: SystemProfilerSink | null = null;
 
   /** Registers `system`; a system with the same name replaces the previous one. */
   register(system: System, order?: number): void {
@@ -81,14 +88,30 @@ export class SystemRegistry {
     return this.timingsMs;
   }
 
-  /** Runs every enabled system in order, recording each one's duration. */
+  /** Attaches (or with null detaches) a profiler that receives every run's duration and one `endStep` per `runAll`. */
+  setProfiler(profiler: SystemProfilerSink | null): void {
+    this.profiler = profiler;
+  }
+
+  /**
+   * Runs every enabled system in order, recording each one's duration. One clock read per boundary: a system's
+   * time is the interval since the previous boundary (the loop's own bookkeeping is a few nanoseconds).
+   */
   runAll(world: GameWorld, dt: number): void {
-    for (const entry of this.sorted) {
+    const profiler = this.profiler;
+    const sorted = this.sorted;
+    let t = performance.now();
+    for (let i = 0; i < sorted.length; i++) {
+      const entry = sorted[i] as Entry;
       if (!entry.enabled) continue;
-      const start = performance.now();
       entry.system.run(world, dt);
-      this.timingsMs.set(entry.system.name, performance.now() - start);
+      const end = performance.now();
+      const name = entry.system.name;
+      this.timingsMs.set(name, end - t);
+      if (profiler !== null) profiler.record(name, end - t);
+      t = end;
     }
+    profiler?.endStep();
   }
 
   private resort(): void {

@@ -215,3 +215,49 @@ describe('parseLayouts', () => {
     expect(() => parseLayouts(old)).toThrow(/version must be 1/);
   });
 });
+
+describe('Phase 9 radio menu cursor in the one-handed layouts', () => {
+  const CURSOR = ['radio.cursorPrev', 'radio.cursorNext', 'radio.cursorSelect'] as const;
+
+  it('the right hand binds PageUp / PageDown / Enter', () => {
+    expect(right['radio.cursorPrev']).toContainEqual({ device: 'keyboard', code: 'PageUp' });
+    expect(right['radio.cursorNext']).toContainEqual({ device: 'keyboard', code: 'PageDown' });
+    expect(right['radio.cursorSelect']).toContainEqual({ device: 'keyboard', code: 'Enter' });
+  });
+
+  it('the left hand lists the three in UNBOUND_BY_DESIGN (its digit keys choose the options)', () => {
+    for (const id of CURSOR) {
+      expect(UNBOUND_BY_DESIGN.left, id).toContain(id);
+      expect(left[id].some((b) => b.device !== 'gamepad'), id).toBe(false);
+    }
+    for (const id of CURSOR) expect(UNBOUND_BY_DESIGN.right).not.toContain(id);
+  });
+
+  it('both hands keep the gamepad D-pad and A for the cursor', () => {
+    for (const map of [left, right]) {
+      expect(map['radio.cursorPrev']).toContainEqual({ device: 'gamepad', code: 'GamepadButton12' });
+      expect(map['radio.cursorNext']).toContainEqual({ device: 'gamepad', code: 'GamepadButton13' });
+      expect(map['radio.cursorSelect']).toContainEqual({ device: 'gamepad', code: 'GamepadButton0' });
+    }
+  });
+
+  it('the right-hand keys are right-hand keys, shared only with actions that never act while the radio menu is open', () => {
+    for (const id of CURSOR) {
+      for (const b of right[id]) if (b.device === 'keyboard') expect(RIGHT_KEYS.has(b.code), `${id} ${b.code}`).toBe(true);
+    }
+    const sharing = (code: string): ActionId[] => ACTION_IDS.filter((id) => right[id].some((b) => b.device === 'keyboard' && b.code === code));
+    // Enter is also "interact" and PageUp / PageDown are other actions' keys: modal actions take them while the menu is open
+    expect(sharing('Enter')).toContain('interact');
+    expect(sharing('Enter')).toContain('radio.cursorSelect');
+    expect(bindingCollisions(right, ACTION_IDS).filter((c) => c.actions.some((a) => (CURSOR as readonly string[]).includes(a)))).toEqual([]);
+  });
+
+  it('the layout files validate with the new actions (every action has a table entry in both hands)', () => {
+    const json = layoutsJson as unknown as Record<'left' | 'right', Record<string, unknown>>;
+    for (const hand of ['left', 'right'] as const) for (const id of CURSOR) expect(Array.isArray(json[hand][id]), `${hand}.${id}`).toBe(true);
+    expect(() => parseLayouts(layoutsJson)).not.toThrow();
+    const missing = structuredClone(layoutsJson) as unknown as { right: Record<string, unknown> };
+    delete missing.right['radio.cursorSelect'];
+    expect(() => parseLayouts(missing)).toThrow(/radio\.cursorSelect/);
+  });
+});

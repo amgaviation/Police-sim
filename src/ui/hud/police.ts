@@ -132,17 +132,25 @@ export function targetText(t: Readonly<HudTarget> | null | undefined, out: Targe
   return out;
 }
 
-/** Colour per call priority P1..P4 (index priority - 1); shared by the call strip and the minimap. */
-export const PRIORITY_COLORS = ['#ff4d4d', '#ff9a3c', '#f2d23c', '#9a9a9a'] as const;
+/** Colour per call priority P1..P4 (index priority - 1): CSS tokens of src/ui/styles.css (the title also prints "P1".."P4"). */
+export const PRIORITY_COLORS = ['var(--c-p1)', 'var(--c-p2)', 'var(--c-p3)', 'var(--c-p4)'] as const;
 
 export function priorityColor(priority: number): string {
   return PRIORITY_COLORS[clampPriority(priority) - 1] ?? PRIORITY_COLORS[3];
 }
 
-/** Result-line colour per severity ('' for none). */
+/** Result-line colour per severity ('' for none): CSS tokens of src/ui/styles.css. */
 export const SEVERITY_COLORS: Readonly<Record<TargetSeverity, string>> = {
   none: '',
-  clear: '#5fd35f',
-  caution: '#f2c14e',
-  alert: '#ff5a5a',
+  clear: 'var(--c-ok)',
+  caution: 'var(--c-caution)',
+  alert: 'var(--c-alert)',
+};
+
+/** Shape cue in front of the result line: the severity never rests on its colour alone. */
+export const SEVERITY_MARKS: Readonly<Record<TargetSeverity, string>> = {
+  none: '',
+  clear: '\u2713 ',
+  caution: '\u25B2 ',
+  alert: '! ',
 };

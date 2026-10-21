@@ -12,12 +12,12 @@
   inset: 0;
   z-index: 880;
   pointer-events: none;
-  color: #e8f4ea;
+  color: var(--flir);
   font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: calc(13px * var(--text-scale, 1));
+  font-size: 0.93em;
   font-weight: 700;
   letter-spacing: 0.08em;
-  text-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 0 0.25em var(--text-shadow-ink);
 }
 
 .air-flir[hidden] {
@@ -28,10 +28,10 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(64px * var(--text-scale, 1));
-  height: calc(64px * var(--text-scale, 1));
+  width: 4.6em;
+  height: 4.6em;
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(232, 244, 234, 0.7);
+  border: 1px solid var(--flir-soft);
   border-radius: 50%;
 }
 
@@ -39,39 +39,39 @@
 .air-reticle::after {
   content: '';
   position: absolute;
-  background: rgba(232, 244, 234, 0.7);
+  background: var(--flir-soft);
 }
 
 .air-reticle::before {
   left: 50%;
-  top: -14px;
+  top: -1em;
   width: 1px;
-  height: calc(100% + 28px);
+  height: calc(100% + 2em);
 }
 
 .air-reticle::after {
   top: 50%;
-  left: -14px;
+  left: -1em;
   height: 1px;
-  width: calc(100% + 28px);
+  width: calc(100% + 2em);
 }
 
 .air-mode {
   position: absolute;
-  left: 24px;
-  top: 24px;
+  left: 1.7em;
+  top: 1.7em;
 }
 
 .air-alt {
   position: absolute;
-  right: 24px;
-  top: 24px;
+  right: 1.7em;
+  top: 1.7em;
 }
 
 .air-compass {
   position: absolute;
   left: 50%;
-  top: 24px;
+  top: 1.7em;
   transform: translateX(-50%);
 }
 
@@ -79,11 +79,11 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: calc(56px * var(--text-scale, 1));
-  height: calc(56px * var(--text-scale, 1));
-  margin: calc(-28px * var(--text-scale, 1)) 0 0 calc(-28px * var(--text-scale, 1));
-  border: 2px solid #ffd84a;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  width: 4em;
+  height: 4em;
+  margin: -2em 0 0 -2em;
+  border: 2px solid var(--marker);
+  box-shadow: 0 0 0.45em var(--text-shadow-ink);
 }
 
 .air-target[hidden] {

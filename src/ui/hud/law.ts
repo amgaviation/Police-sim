@@ -88,11 +88,18 @@ export function legalLineText(l: Readonly<HudLegal> | null | undefined): string 
   return l?.text ?? '';
 }
 
-/** Line accent per severity. */
+/** Line accent per severity (CSS tokens of src/ui/styles.css, so the colour-vision palettes apply). */
 export const LEGAL_COLORS: Readonly<Record<LegalSeverity, string>> = {
-  ok: '#5fd35f',
-  warn: '#f2c14e',
-  bad: '#ff5a5a',
+  ok: 'var(--c-ok)',
+  warn: 'var(--c-caution)',
+  bad: 'var(--c-alert)',
+};
+
+/** Shape cue in front of the legal line: the severity never rests on its colour alone. */
+export const LEGAL_MARKS: Readonly<Record<LegalSeverity, string>> = {
+  ok: '\u2713 ',
+  warn: '\u25B2 ',
+  bad: '! ',
 };
 
 /** Clamps a trust value to 0..1 (NaN -> 0). */
@@ -113,9 +120,16 @@ export function trustChipText(t: Readonly<HudTrust> | null | undefined): string 
   return t.district === '' ? `Trust · ${pct} %` : `Trust · ${t.district} ${pct} %`;
 }
 
-/** Colour per trust band. */
+/** Colour per trust band (CSS tokens of src/ui/styles.css). */
 export const TRUST_COLORS: Readonly<Record<TrustBand, string>> = {
-  low: '#ff5a5a',
-  mid: '#f2c14e',
-  high: '#5fd35f',
+  low: 'var(--c-alert)',
+  mid: 'var(--c-caution)',
+  high: 'var(--c-ok)',
+};
+
+/** Shape cue in front of the trust chip: down / level / up (the percentage is printed too). */
+export const TRUST_MARKS: Readonly<Record<TrustBand, string>> = {
+  low: '\u25BC ',
+  mid: '\u25C6 ',
+  high: '\u25B2 ',
 };

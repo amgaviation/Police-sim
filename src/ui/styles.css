@@ -1,19 +1,96 @@
+/* Patrol UI design tokens and shared controls (Phase 9 §7.1). This is the ONLY stylesheet that may hold colour literals:
+   they live in the :root and :root[data-colorblind=...] blocks below, every other stylesheet uses var(--...) (test/ui9/cssAudit.test.ts).
+   Sizes are em/rem/% (the html font-size follows --text-scale, so everything scales with the text size setting).
+   Contrast (test/ui9/contrast.test.ts): --fg >= 7 on --bg/--panel/--panel-2, --fg-dim >= 4.5 on --panel/--panel-2,
+   --accent, --focus, --danger and every --c-* >= 3 on --panel. */
 :root {
   --text-scale: 1;
+
+  /* Surfaces and text */
   --bg: #0b0f14;
   --panel: #121a23;
+  --panel-2: #182330;           /* nested surfaces: list rows, tab bars, buttons */
   --panel-border: #2a3a4a;
+  --border-strong: #3d5266;
   --fg: #dfe7ee;
   --fg-dim: #8fa3b5;
+  --fg-strong: #ffffff;
   --accent: #3b9eff;
   --accent-2: #ff3b5c;
   --danger: #ff5a5a;
+  --focus: #ffd24a;             /* focus ring; yellow stays distinguishable in every colour-vision mode */
+  --on-accent: #04101c;         /* text on an accent fill */
+  --black: #000000;
+
+  /* Typography, spacing, shape */
   --font-ui: system-ui, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
   --radius: 4px;
+  --fs-xs: 0.75em;
+  --fs-sm: 0.875em;
+  --fs-md: 1em;
+  --fs-lg: 1.25em;
+  --fs-xl: 1.6em;
+  --line: 1.4;
+  --sp-1: 0.25em;
+  --sp-2: 0.5em;
+  --sp-3: 0.75em;
+  --sp-4: 1em;
+  --sp-6: 1.5em;
+
+  /* Scrims, shadows and translucent fills */
+  --scrim: rgba(4, 8, 12, 0.6);
+  --scrim-live: rgba(4, 8, 12, 0.25);
+  --shadow-ink: rgba(0, 0, 0, 0.6);
+  --shadow: 0 0.75em 2.5em rgba(0, 0, 0, 0.6);
+  --text-shadow-ink: rgba(0, 0, 0, 0.85);
+  --hud-bg: rgba(0, 0, 0, 0.7);          /* caption and subtitle lines */
+  --hud-bg-soft: rgba(0, 0, 0, 0.45);    /* radio log */
+  --hud-bg-menu: rgba(10, 16, 24, 0.82); /* radio menu */
+  --console-bg: rgba(6, 10, 14, 0.92);
+  --tint-1: rgba(255, 255, 255, 0.04);
+  --tint-2: rgba(255, 255, 255, 0.06);
+  --track: rgba(255, 255, 255, 0.15);    /* empty part of a bar */
+  --accent-tint: rgba(59, 158, 255, 0.18);
+  --accent-tint-strong: rgba(59, 158, 255, 0.22);
+  --caution-tint: rgba(255, 204, 102, 0.1);
+  --viewfinder: rgba(255, 255, 255, 0.35);
+  --viewfinder-strong: rgba(255, 255, 255, 0.7);
+
+  /* Inset surfaces, rows, tracks */
+  --inset: #0e141b;             /* sunken fields, code, canvases */
+  --inset-deep: #04080c;        /* console prompt */
+  --row-hover: #172230;
+  --row-active: #1d3147;
+  --track-bg: #1c242d;
+  --map-bg: #0e151d;
+  --line-soft: #16202b;         /* table hairlines */
+  --muted: #5b6672;             /* off / inactive fills */
+  --info: #8fc7ff;
+  --sign-bg: #f4f4f4;            /* road sign face, speed limit */
+  --sign-warn: #f5d63d;          /* school-zone sign face */
+  --sign-ink: #111111;           /* ink on signs and on coloured HUD chips' dark text */
+  --cr-pulse: 1;                /* set by ApartmentScreen (pulse()); 1 with reduced flash */
+  --marker: #ffd84a;            /* evidence markers, camera captions, FLIR target */
+  --on-marker: #1a1a1a;
+  --dust: #d9dde0;              /* fingerprint powder */
+  --dust-over: #8d9398;
+  --cell-dark: #11161b;
+
+  /* FLIR overlay and printed paper (roll call) */
+  --flir: #e8f4ea;
+  --flir-soft: rgba(232, 244, 234, 0.7);
+  --paper: #f1ecdd;
+  --ink: #23262b;
+  --ink-dim: #5d6168;
+  --paper-rule: #b9b29c;
+  --paper-accent: #1f3350;
+  --paper-accent-hover: #2c4a73;
+  --paper-accent-border: #14223a;
+
   /* Semantic status colours (Phase 8): the values of src/data/a11y/palettes.json "none"; use these instead of literal reds/greens. */
   --c-unit: #4f8cff;
-  --c-unit-busy: #2a4f8f;
+  --c-unit-busy: #3d68b8;
   --c-emergency: #ff3b3b;
   --c-suspect: #ff3b3b;
   --c-pursuit: #ff7a1a;
@@ -24,12 +101,13 @@
   --c-p2: #ff9f40;
   --c-p3: #ffcc66;
   --c-p4: #8fa3b5;
+  --c-busy: #bf5af2;            /* a unit busy on a task (not in palettes.json: a single hue everywhere) */
 }
 
 /* Colour-vision palettes: set on <html> from accessibility.colorblind (ui.bindSettings); same values as palettes.json. */
 :root[data-colorblind="protanopia"], :root[data-colorblind="deuteranopia"] {
   --c-unit: #0072b2;
-  --c-unit-busy: #004466;
+  --c-unit-busy: #5b7fa6;
   --c-emergency: #ffb000;
   --c-suspect: #e69f00;
   --c-pursuit: #f0e442;
@@ -57,13 +135,29 @@
 
 * { box-sizing: border-box; }
 
+/* The root font size carries the text scale; everything else is em/rem of it. */
+html {
+  font-size: calc(0.875rem * var(--text-scale));
+}
 html, body {
   margin: 0;
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  font: calc(14px * var(--text-scale)) / 1.4 var(--font-ui);
+  font-family: var(--font-ui);
+  line-height: var(--line);
   overflow: hidden;
+}
+body { font-size: 1em; }
+
+/* Keyboard and gamepad focus: one ring everywhere (a component never removes it). */
+:focus-visible {
+  outline: 0.15em solid var(--focus);
+  outline-offset: 0.1em;
+}
+/* Selection: a bar on the leading edge (shape, not just colour). */
+[aria-selected="true"], .is-selected {
+  box-shadow: inset 0.2em 0 0 var(--accent);
 }
 
 canvas#game {
@@ -99,61 +193,61 @@ canvas#game {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: rgba(4, 8, 12, 0.6);
+  padding: var(--sp-4);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
   pointer-events: auto;
 }
 .menu-layer:not(:last-child) { display: none; }
 /* Non-pausing overlays (MDT, action panels: Menu.pausesGame === false): the world keeps running behind them, so it stays
    visible: a light dim and no backdrop blur (which would also re-filter the live canvas every frame). */
-.menu-layer-live { background: rgba(4, 8, 12, 0.25); backdrop-filter: none; }
+.menu-layer-live { background: var(--scrim-live); backdrop-filter: none; }
 
 .panel {
   background: var(--panel);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-  padding: 20px 24px;
-  width: min(92vw, 640px);
+  box-shadow: var(--shadow);
+  padding: var(--sp-4) var(--sp-6);
+  width: min(92vw, 46em);
   max-height: 92vh;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-3);
+  overflow-wrap: anywhere;
 }
-.panel h1 { margin: 0 0 4px; font-size: 1.6em; letter-spacing: 0.08em; text-transform: uppercase; }
-.panel h2 { margin: 8px 0 0; font-size: 1em; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.1em; }
-.panel .hint { color: var(--fg-dim); font-size: 0.85em; }
+.panel h1 { margin: 0 0 var(--sp-1); font-size: var(--fs-xl); letter-spacing: 0.08em; text-transform: uppercase; }
+.panel h2 { margin: var(--sp-2) 0 0; font-size: var(--fs-md); color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.1em; }
+.panel .hint { color: var(--fg-dim); font-size: var(--fs-sm); }
 
-.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
-.stack { display: flex; flex-direction: column; gap: 6px; }
+.stack { display: flex; flex-direction: column; gap: var(--sp-1); }
 
 button, .btn {
   font: inherit;
   color: var(--fg);
-  background: #1b2633;
-  border: 1px solid var(--panel-border);
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  padding: 6px 14px;
+  padding: var(--sp-2) var(--sp-3);
   cursor: pointer;
 }
 button:hover:not(:disabled) { border-color: var(--accent); }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 button:disabled { opacity: 0.45; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #04101c; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 button.danger { border-color: var(--danger); color: var(--danger); }
-button.small { padding: 2px 8px; font-size: 0.85em; }
+button.small { padding: 0.15em 0.55em; font-size: var(--fs-sm); }
 button.wide { width: 100%; text-align: left; }
 
 input[type="text"], input[type="number"], select {
   font: inherit;
   color: var(--fg);
-  background: #0e141b;
-  border: 1px solid var(--panel-border);
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  padding: 5px 8px;
+  padding: var(--sp-2) var(--sp-3);
   min-width: 0;
 }
 input[type="range"] { accent-color: var(--accent); width: 100%; }
@@ -162,45 +256,45 @@ input[type="checkbox"] { accent-color: var(--accent); width: 1.1em; height: 1.1e
 /* Settings fields: label | control | value readout */
 .field {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(140px, 2fr) 4.5em;
-  gap: 10px;
+  grid-template-columns: minmax(8em, 1fr) minmax(10em, 2fr) 4.5em;
+  gap: var(--sp-3);
   align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--tint-2);
 }
-.field .value { text-align: right; font-family: var(--font-mono); color: var(--fg-dim); font-size: 0.9em; }
+.field .value { text-align: right; font-family: var(--font-mono); color: var(--fg-dim); font-size: var(--fs-sm); }
 
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--panel-border); }
-.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 12px; }
-.tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: #fff; }
+.tabs { display: flex; gap: var(--sp-1); border-bottom: 1px solid var(--panel-border); }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: var(--sp-2) var(--sp-3); }
+.tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--fg-strong); }
 
 .binding-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) 2fr;
-  gap: 8px;
+  grid-template-columns: minmax(9em, 1fr) 2fr;
+  gap: var(--sp-2);
   align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--tint-2);
 }
-.binding-row .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.binding-row .chips { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
 .chip {
   font-family: var(--font-mono);
-  font-size: 0.85em;
-  padding: 2px 6px;
-  background: #0e141b;
+  font-size: var(--fs-sm);
+  padding: 0.15em 0.45em;
+  background: var(--inset);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   display: inline-flex;
-  gap: 4px;
+  gap: var(--sp-1);
   align-items: center;
 }
 .chip.capturing { border-color: var(--accent); color: var(--accent); animation: blink 1s step-end infinite; }
-.chip .x { font: inherit; color: var(--fg-dim); background: none; border: none; cursor: pointer; padding: 0 2px; }
+.chip .x { font: inherit; color: var(--fg-dim); background: none; border: none; cursor: pointer; padding: 0 0.2em; }
 .chip .x:hover { color: var(--danger); }
 @keyframes blink { 50% { opacity: 0.4; } }
 
 /* Colour-vision preview in the settings menu: six swatches that follow the variables above. */
-.swatches { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
+.swatches { display: flex; gap: var(--sp-2); align-items: center; padding: var(--sp-1) 0; }
 .swatches .swatch { width: 2.2em; height: 1.2em; border-radius: var(--radius); border: 1px solid var(--panel-border); }
 .swatch[data-tone="unit"] { background: var(--c-unit); }
 .swatch[data-tone="emergency"] { background: var(--c-emergency); }
@@ -209,26 +303,26 @@ input[type="checkbox"] { accent-color: var(--accent); width: 1.1em; height: 1.1e
 .swatch[data-tone="caution"] { background: var(--c-caution); }
 .swatch[data-tone="alert"] { background: var(--c-alert); }
 
-.save-list { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
+.save-list { display: flex; flex-direction: column; gap: var(--sp-1); max-height: 40vh; overflow: auto; }
 .save-list .empty { color: var(--fg-dim); font-style: italic; }
-.save-item { display: flex; justify-content: space-between; gap: 8px; }
-.save-item .meta { color: var(--fg-dim); font-size: 0.85em; font-family: var(--font-mono); }
+.save-item { display: flex; justify-content: space-between; gap: var(--sp-2); }
+.save-item .meta { color: var(--fg-dim); font-size: var(--fs-sm); font-family: var(--font-mono); }
 
 /* Debug console / monospace surfaces */
 .console, .mono {
   font-family: var(--font-mono);
-  font-size: 0.9em;
-  background: rgba(6, 10, 14, 0.92);
-  color: #c9d7e3;
+  font-size: var(--fs-sm);
+  background: var(--console-bg);
+  color: var(--fg);
   border: 1px solid var(--panel-border);
 }
 .console { position: absolute; left: 0; right: 0; top: 0; max-height: 45vh; display: flex; flex-direction: column; pointer-events: auto; }
-.console .log { flex: 1; overflow: auto; padding: 6px 8px; white-space: pre-wrap; }
-.console .log .warn { color: #ffcc66; }
+.console .log { flex: 1; overflow: auto; padding: var(--sp-2); white-space: pre-wrap; }
+.console .log .warn { color: var(--c-caution); }
 .console .log .error { color: var(--danger); }
-.console input { font: inherit; color: inherit; background: #04080c; border: none; border-top: 1px solid var(--panel-border); padding: 6px 8px; width: 100%; }
+.console input { font: inherit; color: inherit; background: var(--inset-deep); border: none; border-top: 1px solid var(--panel-border); padding: var(--sp-2); width: 100%; }
 
-.perf { position: absolute; top: 8px; right: 8px; padding: 6px 8px; white-space: pre; pointer-events: none; }
+.perf { position: absolute; top: var(--sp-2); right: var(--sp-2); padding: var(--sp-2); white-space: pre; pointer-events: none; }
 
 :root[data-reduced-flash="true"] *, :root[data-reduced-flash="true"] *::before, :root[data-reduced-flash="true"] *::after {
   animation: none !important;

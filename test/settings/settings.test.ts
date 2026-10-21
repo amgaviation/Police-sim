@@ -276,6 +276,8 @@ describe('audio and radio settings', () => {
       master: 0.8,
       sfx: 1,
       radio: 1,
+      ambience: 0.7,
+      ui: 0.6,
       music: 0.6,
       ttsVoice: null,
       tts: true,
@@ -314,6 +316,8 @@ describe('audio and radio settings', () => {
       master: 0.5,
       sfx: 0.7,
       radio: 0.9,
+      ambience: 0.7,
+      ui: 0.6,
       music: 0.2,
       ttsVoice: 'Daniel',
       tts: true,
@@ -331,6 +335,67 @@ describe('audio and radio settings', () => {
     expect(again.audio.tts).toBe(false);
     expect(again.audio.radioMode).toBe('plain');
     expect(again.audio.voiceCommands).toBe(true);
+  });
+});
+
+describe('Phase 9 settings (ambience, interface sounds, effects)', () => {
+  // A version-2 blob (current format, written before Phase 9) has none of the three: they take their defaults, the
+  // version stays 2 and nothing is logged.
+  const v2Blob = {
+    version: 2,
+    graphics: { renderScale: 1.5, shadows: 'high', fov: 80, frameCap: 60, drawDistance: 900 },
+    audio: { master: 0.5, sfx: 0.7, radio: 0.9, music: 0.2, ttsVoice: null, tts: true, radioMode: 'plain', voiceCommands: false },
+    controls: { mouseSensitivity: 1, invertY: false, gamepadDeadzone: 0.15 },
+    accessibility: { textScale: 1, colorblind: 'none', reducedFlash: false, subtitles: true, oneHanded: 'off' },
+  };
+
+  it('keeps SETTINGS_VERSION at 2 and gives a v2 blob without them the defaults', () => {
+    expect(SETTINGS_VERSION).toBe(2);
+    const parsed = parseSettings(v2Blob);
+    expect(parsed.audio.ambience).toBe(0.7);
+    expect(parsed.audio.ui).toBe(0.6);
+    expect(parsed.graphics.effects).toBe('high');
+    expect(parsed.audio.master).toBe(0.5);
+    expect(parsed.graphics.renderScale).toBe(1.5);
+    expect(log.entries().filter((e) => e.level === 'warn')).toHaveLength(0);
+  });
+
+  it('describes the three fields as the design says', () => {
+    expect(SETTINGS_FIELDS['audio.ambience']).toEqual({ kind: 'number', label: 'Ambience volume', min: 0, max: 1, step: 0.01 });
+    expect(SETTINGS_FIELDS['audio.ui']).toEqual({ kind: 'number', label: 'Interface sounds volume', min: 0, max: 1, step: 0.01 });
+    const effects = SETTINGS_FIELDS['graphics.effects'];
+    expect(effects.label).toBe('Effects (glow, light cones, particles)');
+    expect(effects.options).toEqual([
+      { value: 'off', label: 'Off' },
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' },
+    ]);
+    for (const path of ['audio.ambience', 'audio.ui', 'graphics.effects'] as const) expect(isImplemented(path), path).toBe(true);
+  });
+
+  it('clamps the volumes and accepts only the three effect levels', () => {
+    expect(coerceSetting('audio.ambience', 3)).toBe(1);
+    expect(coerceSetting('audio.ui', -1)).toBe(0);
+    expect(coerceSetting('audio.ui', '0.5')).toBeUndefined();
+    for (const level of ['off', 'low', 'high']) expect(coerceSetting('graphics.effects', level)).toBe(level);
+    for (const bad of ['medium', 'High', 1, null, true]) expect(coerceSetting('graphics.effects', bad)).toBeUndefined();
+    expect(parseSettings({ graphics: { effects: 'ultra' } }).graphics.effects).toBe('high');
+  });
+
+  it('round-trips through serialize / parse and appears in the default settings', () => {
+    expect(DEFAULT_SETTINGS.audio.ambience).toBe(0.7);
+    expect(DEFAULT_SETTINGS.audio.ui).toBe(0.6);
+    expect(DEFAULT_SETTINGS.graphics.effects).toBe('high');
+    const settings = parseSettings({ audio: { ambience: 0.25, ui: 0.1 }, graphics: { effects: 'off' } });
+    const again = parseSettings(JSON.parse(JSON.stringify(serializeSettings(settings))) as unknown);
+    expect(again.audio.ambience).toBe(0.25);
+    expect(again.audio.ui).toBe(0.1);
+    expect(again.graphics.effects).toBe('off');
+  });
+
+  it('sit with their section siblings in the menu order', () => {
+    expect(fieldsOfSection('audio').slice(0, 5)).toEqual(['audio.master', 'audio.sfx', 'audio.radio', 'audio.ambience', 'audio.ui']);
+    expect(fieldsOfSection('graphics')).toContain('graphics.effects');
   });
 });
 

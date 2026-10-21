@@ -278,3 +278,30 @@ export function fakeFactory(): { ctx: FakeContext; factory: () => AudioContext }
   const ctx = new FakeContext();
   return { ctx, factory: () => ctx as unknown as AudioContext };
 }
+
+/** The gain nodes (in creation order) whose output is connected to `target`. */
+export function gainsInto(ctx: FakeContext, target: unknown): FakeGain[] {
+  return ctx.nodesOf<FakeGain>('gain').filter((g) => g.connections.includes(target));
+}
+
+/** The first node of `kind` whose output is connected to `target`. */
+export function nodeInto<T extends FakeNode>(ctx: FakeContext, kind: string, target: unknown): T | undefined {
+  return ctx.nodesOf<T>(kind).find((n) => n.connections.includes(target));
+}
+
+/** Last recorded value of an automation event kind on a param, if any. */
+export function lastEvent(param: FakeParam, kind: ParamEvent['kind']): ParamEvent | undefined {
+  for (let i = param.events.length - 1; i >= 0; i--) {
+    const ev = param.events[i];
+    if (ev?.kind === kind) return ev;
+  }
+  return undefined;
+}
+
+/** Context plus a noise buffer, typed as the real Web Audio interfaces the modules take. */
+export function fakeGraph(): { ctx: FakeContext; ac: BaseAudioContext; out: FakeGain; noise: AudioBuffer } {
+  const ctx = new FakeContext();
+  const out = ctx.createGain();
+  const noise = ctx.createBuffer(1, 8000, 8000);
+  return { ctx, ac: ctx as unknown as BaseAudioContext, out, noise: noise as unknown as AudioBuffer };
+}

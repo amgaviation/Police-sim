@@ -5,7 +5,7 @@ import { fillNoise, softClipCurve } from '../../src/audio/nodes';
 import sirensJson from '../../src/data/audio/sirens.json';
 
 function emitter(id: number, x: number, z: number, extra: Partial<SirenEmitter> = {}): SirenEmitter {
-  return { id, x, y: 1, z, tone: 'wail', horn: false, manual: false, inCabin: false, ...extra };
+  return { id, x, y: 1, z, vx: 0, vy: 0, vz: 0, tone: 'wail', horn: false, manual: false, inCabin: false, ...extra };
 }
 
 describe('sirens.json', () => {

@@ -67,6 +67,12 @@ export class MeshRegistry {
   private readonly slotScale: Float32Array;
   private readonly poolSize: number;
   private boxCountValue = 0;
+  /** Interpolation factor of the `syncFromEcs` call in progress (read by `syncObject`). */
+  private syncAlpha = 0;
+  /** Map `forEach` callback made once: no entry arrays or closures per frame. */
+  private readonly syncObject = (object: THREE.Object3D, eid: EntityId): void => {
+    interpolateTransform(eid, this.syncAlpha, object.position, object.quaternion);
+  };
 
   constructor(scene: THREE.Scene, options: MeshRegistryOptions = {}) {
     this.scene = scene;
@@ -211,9 +217,8 @@ export class MeshRegistry {
     }
     if (n > 0) this.boxes.instanceMatrix.needsUpdate = true;
 
-    for (const [eid, object] of this.objects) {
-      interpolateTransform(eid, alpha, object.position, object.quaternion);
-    }
+    this.syncAlpha = alpha;
+    this.objects.forEach(this.syncObject);
   }
 
   /** Removes all entries and frees the box pool's GPU resources. */

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { disposeObject } from '../renderer';
+import { VFX_DATA } from '../vfx/data';
+import { tapeWind, VFX_TIME_WRAP } from '../vfx/math';
 import { PROP, type PropSource } from './pose';
 
 /** Flare glow: emissive intensity by day and the extra added at full night. */
@@ -26,6 +28,12 @@ function merged(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return geometry;
 }
 
+/** The tape ribbon: length (m) along local -Z and its segments (the flutter bends it). */
+const TAPE_LENGTH = 3;
+const TAPE_SEGMENTS = 12;
+/** Ribbon vertices above this height flutter (the post top is at 1 m, the ribbon at 0.86..0.94 m). */
+const TAPE_FLUTTER_Y = 0.85;
+
 /** Simple geometry per kind, origin on the ground; yaw rotates about Y (tape runs along local -Z). */
 const KINDS: readonly PropKind[] = [
   { name: 'cone', kind: PROP.cone, color: 0xff6a00, geometry: () => new THREE.ConeGeometry(0.17, 0.7, 8).translate(0, 0.35, 0) },
@@ -34,7 +42,11 @@ const KINDS: readonly PropKind[] = [
     name: 'tape',
     kind: PROP.tape,
     color: 0xf2d023,
-    geometry: () => merged([box(0.05, 1, 0.05, 0, 0.5, 0), box(0.02, 0.08, 3, 0, 0.9, -1.5)]),
+    geometry: () =>
+      merged([
+        box(0.05, 1, 0.05, 0, 0.5, 0),
+        new THREE.BoxGeometry(0.02, 0.08, TAPE_LENGTH, 1, 1, TAPE_SEGMENTS).translate(0, 0.9, -TAPE_LENGTH / 2),
+      ]),
   },
   { name: 'marker', kind: PROP.marker, color: 0xffd400, geometry: () => new THREE.ConeGeometry(0.12, 0.2, 4).translate(0, 0.1, 0) },
   { name: 'bottle', kind: PROP.bottle, color: 0x3b7a3b, geometry: () => new THREE.CylinderGeometry(0.035, 0.035, 0.22, 8).rotateZ(Math.PI / 2).translate(0, 0.035, 0) },
@@ -64,12 +76,16 @@ export class PropRenderer {
   /** Indexed by prop kind (index 0 unused). */
   private readonly slots: (Slot | undefined)[] = [];
   private readonly capacity: number;
+  /** Tape flutter uniforms (shared by the tape material's shader): render clock (wrapped) and the wind factor. */
+  private readonly tapeTime: THREE.IUniform<number> = { value: 0 };
+  private readonly tapeWindFactor: THREE.IUniform<number> = { value: 0.15 };
 
   constructor(scene: THREE.Scene, capacity = 256) {
     this.capacity = Math.max(1, Math.floor(capacity));
     this.group.name = 'props';
     for (const def of KINDS) {
       const material = new THREE.MeshLambertMaterial({ color: def.color });
+      if (def.kind === PROP.tape) this.installFlutter(material);
       if (def.emissive !== undefined) {
         material.emissive.setHex(def.emissive);
         material.emissiveIntensity = FLARE_DAY;
@@ -84,6 +100,15 @@ export class PropRenderer {
       this.slots[def.kind] = { mesh, material, flare: def.emissive !== undefined };
     }
     scene.add(this.group);
+  }
+
+  /**
+   * Tape flutter clock: `timeS` is the render time (wrapped at 600 s) and `windSpeed` the wind speed in m/s
+   * (the ribbon waves by `clamp(wind / windFull, 0.15, 1)`). Two uniform writes; call once per frame.
+   */
+  setWind(timeS: number, windSpeed: number): void {
+    this.tapeTime.value = ((timeS % VFX_TIME_WRAP) + VFX_TIME_WRAP) % VFX_TIME_WRAP;
+    this.tapeWindFactor.value = tapeWind(windSpeed);
   }
 
   /** Redraws all props of `source` (null clears); `nightFactor` (0..1) brightens the flares. */
@@ -145,5 +170,32 @@ export class PropRenderer {
   dispose(): void {
     this.group.removeFromParent();
     disposeObject(this.group);
+  }
+
+  /**
+   * Vertex wave for the tape ribbon (design §6.6): vertices above `TAPE_FLUTTER_Y` along the ribbon (z < -0.03, so
+   * the post top stays put) move sideways by `tapeOffset` (src/render/vfx/math.ts mirrors the formula).
+   */
+  private installFlutter(material: THREE.MeshLambertMaterial): void {
+    const t = VFX_DATA.tape;
+    const num = (v: number): string => v.toFixed(6);
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms['uTime'] = this.tapeTime;
+      shader.uniforms['uWind'] = this.tapeWindFactor;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nuniform float uTime;\nuniform float uWind;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+#ifdef USE_INSTANCING
+  if (position.y > ${num(TAPE_FLUTTER_Y)} && position.z < -0.03) {
+    float instancePhase = instanceMatrix[3].x * 0.37 + instanceMatrix[3].z * 0.61;
+    transformed.x += ${num(t.amplitudeM)} * uWind
+      * sin(2.0 * PI * ${num(t.freqHz)} * uTime + position.z * ${num(t.waveK)} + instancePhase)
+      * sin(PI * (-position.z / ${num(TAPE_LENGTH)}));
+  }
+#endif`,
+        );
+    };
   }
 }

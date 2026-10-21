@@ -1,0 +1,16 @@
+{ "version": 1,
+  "glow": { "capacity": 512, "barSize": 0.9, "headSize": 0.7, "tailSize": 0.45, "dayFactor": 0.35, "lowSizeFactor": 0.6,
+            "pool": { "capacity": 16, "radiusM": 6, "intensity": 0.55 } },
+  "cones": { "capacity": 32, "lengthM": 18, "radiusM": 3.2, "maxDistanceM": 140, "intensity": 0.12, "fogBoost": 1.8, "rainBoost": 1.5 },
+  "particles": { "capacity": 2048,
+    "kinds": {
+      "spark":  { "count": [12, 28], "speed": [3, 9],     "lifeS": [0.25, 0.6],  "gravity": -9.8, "size": 0.06, "color": [1.0, 0.75, 0.35], "additive": true },
+      "dust":   { "count": [6, 14],  "speed": [0.5, 2],   "lifeS": [0.8, 1.6],   "gravity": 0.3,  "size": 0.9,  "color": [0.55, 0.5, 0.42], "additive": false },
+      "muzzle": { "count": [6, 10],  "speed": [1, 4],     "lifeS": [0.04, 0.09], "gravity": 0,    "size": 0.25, "color": [1.0, 0.85, 0.5], "additive": true },
+      "taser":  { "count": [4, 8],   "speed": [0.5, 2],   "lifeS": [0.05, 0.15], "gravity": 0,    "size": 0.05, "color": [0.75, 0.85, 1.0], "additive": true },
+      "splash": { "count": [3, 6],   "speed": [0.6, 1.4], "lifeS": [0.2, 0.35],  "gravity": -9.8, "size": 0.04, "color": [0.8, 0.85, 0.9], "additive": false } } },
+  "splashes": { "count": 1500, "radiusM": 18, "rateHz": 2.2, "ringM": 0.25 },
+  "wet": { "dryRoughness": 0.95, "wetRoughness": 0.32, "darken": 0.25, "markingsWetRoughness": 0.4 },
+  "tape": { "amplitudeM": 0.05, "freqHz": 1.6, "waveK": 2.3, "windFull": 10 },
+  "arc": { "segments": 8, "jitterM": 0.06, "rateHz": 12 },
+  "muzzleLight": { "intensity": 40, "distance": 12, "durationS": 0.05 } }

@@ -22,6 +22,12 @@ export interface RadioControllerState {
   readonly hintSeq: number;
   /** Emergency button charge 0..1 while held. */
   readonly emergencyCharge: number;
+  /**
+   * Highlighted option of the open menu (index into `menu.options`), -1 while the menu is closed. 0 (the first enabled
+   * option) when the menu opens or its level / page changes; moved by `radio.cursorPrev` / `radio.cursorNext`, a digit
+   * key sets it to the pressed option, `radio.cursorSelect` presses it.
+   */
+  readonly cursor: number;
 }
 
 /** What the controller reads from the input manager. */
@@ -78,13 +84,17 @@ interface MutableState {
   hint: string | null;
   hintSeq: number;
   emergencyCharge: number;
+  cursor: number;
 }
 
 export class RadioController {
   private readonly deps: RadioControllerDeps;
-  private readonly state: MutableState = { menu: null, voice: 'unavailable', hint: null, hintSeq: 0, emergencyCharge: 0 };
+  private readonly state: MutableState = { menu: null, voice: 'unavailable', hint: null, hintSeq: 0, emergencyCharge: 0, cursor: -1 };
   private readonly offs: (() => void)[] = [];
   private hintTimer = 0;
+  /** Level and page the cursor was last reset for (a change resets it). */
+  private cursorLevel = '';
+  private cursorPage = -1;
   private emergencyHeld = 0;
   private emergencyFired = false;
   /** Recognition results waiting for the next update (they arrive asynchronously). */
@@ -128,6 +138,8 @@ export class RadioController {
     }
     this.voiceResults(ctx);
     s.menu = radio.menu.isOpen ? radio.menu.view(ctx) : null;
+    if (s.menu === null) s.cursor = -1;
+    else if (s.cursor < 0) this.syncCursor(ctx);
     s.voice = this.voiceState();
     return s;
   }
@@ -147,11 +159,60 @@ export class RadioController {
       else menu.close();
     }
     if (!menu.isOpen) return;
+    this.syncCursor(ctx);
+    let pressed = false;
     for (let i = 0; i < OPTION_ACTIONS.length; i++) {
       if (!input.wasPressed(OPTION_ACTIONS[i] as ActionId)) continue;
-      const req = menu.press(i + 1, ctx);
-      if (req !== null) this.send(req, 'radio', ctx);
+      pressed = true;
+      this.press(i + 1, ctx, true);
       break;
+    }
+    if (!pressed && menu.isOpen) {
+      if (input.wasPressed('radio.cursorNext')) this.moveCursor(1, ctx);
+      else if (input.wasPressed('radio.cursorPrev')) this.moveCursor(-1, ctx);
+      else if (input.wasPressed('radio.cursorSelect')) {
+        const option = menu.view(ctx).options[this.state.cursor];
+        if (option !== undefined) this.press(option.key, ctx, false);
+      }
+    }
+    if (menu.isOpen) this.syncCursor(ctx);
+  }
+
+  /** Presses option `key` like the digit key; a digit also moves the cursor onto the option. */
+  private press(key: number, ctx: RadioControllerContext, byDigit: boolean): void {
+    const menu = this.deps.radio.menu;
+    if (byDigit) {
+      const options = menu.view(ctx).options;
+      const index = options.findIndex((o) => o.key === key);
+      if (index >= 0 && options[index]?.enabled === true) this.state.cursor = index;
+    }
+    const req = menu.press(key, ctx);
+    if (req !== null) this.send(req, 'radio', ctx);
+  }
+
+  /** Resets the cursor to the first enabled option when the menu just opened or its level / page changed. */
+  private syncCursor(ctx: RadioControllerContext): void {
+    const menu = this.deps.radio.menu;
+    const s = this.state;
+    if (s.cursor >= 0 && menu.level === this.cursorLevel && menu.page === this.cursorPage) return;
+    this.cursorLevel = menu.level;
+    this.cursorPage = menu.page;
+    const options = menu.view(ctx).options;
+    const first = options.findIndex((o) => o.enabled);
+    s.cursor = first < 0 ? 0 : first;
+  }
+
+  /** Moves the cursor to the next / previous enabled option of the current view, wrapping. */
+  private moveCursor(dir: 1 | -1, ctx: RadioControllerContext): void {
+    const options = this.deps.radio.menu.view(ctx).options;
+    const n = options.length;
+    const s = this.state;
+    for (let step = 1; step <= n; step++) {
+      const i = (((s.cursor + dir * step) % n) + n) % n;
+      if (options[i]?.enabled === true) {
+        s.cursor = i;
+        return;
+      }
     }
   }
 

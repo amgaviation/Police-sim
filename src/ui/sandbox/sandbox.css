@@ -6,8 +6,8 @@
 .scenario-editor .sb-left, .scenario-editor .sb-side { display: flex; flex-direction: column; gap: 0.4em; min-width: 0; }
 .scenario-editor .sb-side { overflow: auto; max-height: 70vh; }
 .scenario-editor .sb-side h2 { margin: 0.4em 0 0; }
-.scenario-editor .sb-canvas { width: 100%; max-width: 38em; height: auto; aspect-ratio: 1; border: 1px solid var(--panel-border); border-radius: var(--radius); background: #0e151d; touch-action: none; cursor: crosshair; }
-.scenario-editor .sb-tools button[aria-pressed="true"] { border-color: var(--accent); background: #22344a; }
+.scenario-editor .sb-canvas { width: 100%; max-width: 38em; height: auto; aspect-ratio: 1; border: 1px solid var(--panel-border); border-radius: var(--radius); background: var(--map-bg); touch-action: none; cursor: crosshair; }
+.scenario-editor .sb-tools button[aria-pressed="true"] { border-color: var(--accent); background: var(--row-active); }
 .scenario-editor .sb-options, .scenario-editor .sb-details { display: flex; flex-direction: column; gap: 0.3em; }
 .scenario-editor .sb-field { display: grid; grid-template-columns: 6em 1fr; gap: 0.5em; align-items: center; }
 .scenario-editor .sb-field span { color: var(--fg-dim); font-size: 0.9em; }

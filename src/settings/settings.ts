@@ -16,6 +16,8 @@ import { SettingsBlobStore } from '../save/saveManager';
 export const SETTINGS_VERSION = 2;
 
 export type ShadowQuality = 'off' | 'low' | 'high';
+/** Glow sprites, light cones and particles (`graphics.effects`); same literals as the VFX module's `EffectsQuality`. */
+export type EffectsSetting = 'off' | 'low' | 'high';
 export type FrameCap = 0 | 30 | 60 | 120;
 export type ColorblindMode = 'none' | 'protanopia' | 'deuteranopia' | 'tritanopia';
 /** Radio phrasing: APCO-style ten-codes or plain language. */
@@ -28,12 +30,18 @@ export interface GraphicsSettings {
   /** Frames per second; 0 means uncapped (display refresh). */
   frameCap: FrameCap;
   drawDistance: number;
+  /** Glow, headlight cones and particles quality (Phase 9). */
+  effects: EffectsSetting;
 }
 
 export interface AudioSettings {
   master: number;
   sfx: number;
   radio: number;
+  /** Ambient city beds (Phase 9). */
+  ambience: number;
+  /** Menu and notification sounds (Phase 9). */
+  ui: number;
   music: number;
   /** Web Speech voice name for the dispatcher; null picks from the English voice pool. */
   ttsVoice: string | null;
@@ -153,9 +161,20 @@ export const SETTINGS_FIELDS = {
     ],
   },
   'graphics.drawDistance': { kind: 'number', label: 'Draw distance', min: 200, max: 2000, step: 50, unit: 'm' },
+  'graphics.effects': {
+    kind: 'enum',
+    label: 'Effects (glow, light cones, particles)',
+    options: [
+      { value: 'off', label: 'Off' },
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' },
+    ],
+  },
   'audio.master': { kind: 'number', label: 'Master volume', min: 0, max: 1, step: 0.01 },
   'audio.sfx': { kind: 'number', label: 'Effects volume', min: 0, max: 1, step: 0.01 },
   'audio.radio': { kind: 'number', label: 'Radio volume', min: 0, max: 1, step: 0.01 },
+  'audio.ambience': { kind: 'number', label: 'Ambience volume', min: 0, max: 1, step: 0.01 },
+  'audio.ui': { kind: 'number', label: 'Interface sounds volume', min: 0, max: 1, step: 0.01 },
   // No music yet; the value persists but the menu hides it.
   'audio.music': { kind: 'number', label: 'Music volume', min: 0, max: 1, step: 0.01, implemented: false },
   'audio.ttsVoice': {
@@ -230,11 +249,13 @@ export function visibleSections(): SettingsSection[] {
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   version: SETTINGS_VERSION,
-  graphics: { renderScale: 1, shadows: 'low', fov: 75, frameCap: 0, drawDistance: 800 },
+  graphics: { renderScale: 1, shadows: 'low', fov: 75, frameCap: 0, drawDistance: 800, effects: 'high' },
   audio: {
     master: 0.8,
     sfx: 1,
     radio: 1,
+    ambience: 0.7,
+    ui: 0.6,
     music: 0.6,
     ttsVoice: null,
     tts: true,

@@ -27,6 +27,7 @@ import { isPeopleSave, type PeopleSave } from '../people';
 import { CAMERA_MODE } from '../player/cameraRig';
 import type { PlayerModeName } from '../player/events';
 import { isCharacterSave, type CharacterSave } from '../uniform';
+import { isTutorialSave, type TutorialSave } from '../tutorial';
 import { isEquipmentSave, type EquipmentSave } from '../police/equipment';
 import { isOfficerKitSave, type OfficerKitSave } from '../police/inventory';
 import { isRadioSave, type RadioSave } from '../radio/save';
@@ -42,7 +43,7 @@ import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 10;
+export const CURRENT_SAVE_VERSION = 11;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -236,8 +237,16 @@ export interface SaveGameV10 extends SaveGameV9 {
   mods: ModRef[];
 }
 
+/**
+ * v11 (Phase 9): the guided tutorial. `tutorial` is the runner's save block (script id, step, flags, event queue) or null
+ * when the game has no tutorial.
+ */
+export interface SaveGameV11 extends SaveGameV10 {
+  tutorial: TutorialSave | null;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV10;
+export type SaveGame = SaveGameV11;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -518,8 +527,15 @@ export function isSaveGameV10(x: unknown): x is SaveGameV10 {
   );
 }
 
+/** Structural check for the v11 payload: v10 plus the tutorial block (null or valid). */
+export function isSaveGameV11(x: unknown): x is SaveGameV11 {
+  if (!isSaveGameV10(x)) return false;
+  const tutorial = (x as unknown as Record<string, unknown>)['tutorial'];
+  return tutorial === null || isTutorialSave(tutorial);
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV10;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV11;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

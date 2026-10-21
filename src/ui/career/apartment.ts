@@ -200,8 +200,11 @@ export class ApartmentScreen implements Menu {
     this.openFlag = this.openFlag && (this.ui?.isOpen(this) ?? false);
   }
 
-  onKeyDown(): boolean {
-    return false;
+  /** Escape leaves the apartment (the career key or the shift flow opens it again); everything else is a real button. */
+  onKeyDown(event: KeyboardEvent): boolean {
+    if (!this.openFlag || event.key !== 'Escape') return false;
+    this.close();
+    return true;
   }
 
   /** Moves an activity stepper by `delta` hours within what is left. */

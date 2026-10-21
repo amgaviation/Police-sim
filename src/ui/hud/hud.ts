@@ -4,7 +4,9 @@ import type { VehicleTelemetry } from '../../vehicles/drivableVehicle';
 import { formatFuel, formatGear, formatSpeedMph, limitSignText } from './format';
 import {
   LEGAL_COLORS,
+  LEGAL_MARKS,
   TRUST_COLORS,
+  TRUST_MARKS,
   camChipState,
   camChipText,
   dashChipText,
@@ -23,6 +25,7 @@ import {
 } from './law';
 import {
   SEVERITY_COLORS,
+  SEVERITY_MARKS,
   callStripText,
   clampPriority,
   createCallStripText,
@@ -58,7 +61,7 @@ import {
 } from './tactical';
 import { BACKUP_HUD_LINES, PURSUIT_VERDICT_MS } from './phase6';
 import { altitudeText, batteryText, fleetChipText, gearWarningText, oilLowFlag, tyresWornFlag, type HudWear } from './phase7';
-import { vignetteOpacity, wellbeingChip, type ChipSeverity, type HudCareer } from './phase8';
+import { CHIP_MARKS, vignetteOpacity, wellbeingChip, type ChipSeverity, type HudCareer } from './phase8';
 import type { HudBodycam, HudLocation, HudTactical } from './types';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
@@ -480,83 +483,91 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
 
 // --- DOM ---------------------------------------------------------------------------
 
-// Sizes scale with the accessibility text size (--text-scale on <html>).
-const px = (n: number): string => `calc(${String(n)}px * var(--text-scale, 1))`;
+// Sizes are rem of the root font, which carries the accessibility text size (--text-scale on <html>, styles.css): 1 rem = 14 px
+// at text size 1, so `px(13)` is 13 px at 1x and scales with the setting. Colours are the tokens of styles.css (the
+// colour-vision palettes apply to the HUD too); every line may wrap (`overflow-wrap:anywhere`) and is capped in vw / rem so
+// text at scale 1.6 never leaves the screen.
+const px = (n: number): string => `${String(Math.round((n / 14) * 1000) / 1000)}rem`;
 
 const ROOT_STYLE = [
   'position:absolute',
   'inset:0',
   'z-index:900',
   'pointer-events:none',
-  'color:#f2f2f2',
-  'font-family:ui-sans-serif, system-ui, sans-serif',
-  'text-shadow:0 1px 2px rgba(0,0,0,0.8)',
+  'color:var(--fg-strong)',
+  'font-family:var(--font-ui)',
+  'text-shadow:0 1px 2px var(--text-shadow-ink)',
   'user-select:none',
+  'overflow-wrap:anywhere',
 ].join(';');
 
-const PANEL = 'position:absolute;background:rgba(0,0,0,0.5);border-radius:6px;padding:6px 10px';
+const PANEL = `position:absolute;background:var(--hud-bg-soft);border-radius:var(--radius);padding:${px(6)} ${px(10)}`;
+/** A centred single line: as wide as its text, at most 90 vw, wrapping instead of leaving the screen. */
+const LINE = `width:max-content;max-width:min(90vw, 46rem);overflow-wrap:anywhere`;
+/** The dark label colour on a coloured chip. */
+const ON_CHIP = 'var(--bg)';
 
 const STYLES = {
-  bottomRight: 'position:absolute;right:16px;bottom:16px;display:flex;flex-direction:column;align-items:flex-end;gap:6px',
-  speedPanel: `${PANEL};position:relative;min-width:${px(150)};text-align:right`,
-  speed: `font:700 ${px(44)}/1 ui-monospace, Menlo, Consolas, monospace`,
-  unit: `font-size:${px(13)};opacity:0.8;margin-left:4px`,
-  row: `display:flex;justify-content:flex-end;gap:8px;align-items:center;margin-top:4px;font-size:${px(13)}`,
-  gear: `font:700 ${px(18)}/1 ui-monospace, Menlo, Consolas, monospace`,
-  chip: `padding:1px 5px;border-radius:3px;font-weight:700;font-size:${px(11)}`,
-  fuelTrack: `width:${px(90)};height:${px(6)};background:rgba(255,255,255,0.2);border-radius:3px;overflow:hidden`,
-  fuelBar: 'height:100%;width:0;background:#7ed37e',
+  bottomRight: `position:absolute;right:${px(16)};bottom:${px(16)};display:flex;flex-direction:column;align-items:flex-end;gap:${px(6)};max-width:min(92vw, 30rem)`,
+  speedPanel: `${PANEL};position:relative;min-width:${px(150)};max-width:100%;text-align:right`,
+  speed: `font:700 ${px(44)}/1 var(--font-mono)`,
+  unit: `font-size:${px(13)};opacity:0.8;margin-left:${px(4)}`,
+  row: `display:flex;justify-content:flex-end;gap:${px(8)};align-items:center;margin-top:${px(4)};font-size:${px(13)}`,
+  gear: `font:700 ${px(18)}/1 var(--font-mono)`,
+  chip: `padding:${px(1)} ${px(5)};border-radius:var(--radius);font-weight:700;font-size:${px(11)}`,
+  fuelTrack: `width:${px(90)};height:${px(6)};background:var(--track);border-radius:${px(3)};overflow:hidden`,
+  fuelBar: 'height:100%;width:0;background:var(--c-ok)',
   fuelText: `font-size:${px(12)};min-width:${px(34)}`,
-  warnings: 'display:flex;justify-content:flex-end;gap:4px;margin-top:4px',
-  status: `font-size:${px(11)};opacity:0.75;margin-top:4px;letter-spacing:0.05em`,
-  topRight: `${PANEL};right:16px;top:16px;text-align:right;font-size:${px(14)}`,
-  clock: `font:700 ${px(18)}/1.2 ui-monospace, Menlo, Consolas, monospace`,
-  bottomCentre: `${PANEL};left:50%;bottom:16px;transform:translateX(-50%);display:flex;align-items:center;gap:10px`,
-  road: `font-size:${px(16)};font-weight:600;white-space:nowrap`,
-  sign: `display:flex;flex-direction:column;align-items:center;min-width:${px(40)};padding:2px 4px;border:2px solid #111;border-radius:4px;color:#111;text-shadow:none;line-height:1`,
+  warnings: `display:flex;flex-wrap:wrap;justify-content:flex-end;gap:${px(4)};margin-top:${px(4)}`,
+  status: `font-size:${px(11)};opacity:0.75;margin-top:${px(4)};letter-spacing:0.05em`,
+  topRight: `${PANEL};right:${px(16)};top:${px(16)};max-width:45vw;text-align:right;font-size:${px(14)}`,
+  clock: `font:700 ${px(18)}/1.2 var(--font-mono)`,
+  bottomCentre: `${PANEL};left:50%;bottom:${px(16)};transform:translateX(-50%);display:flex;align-items:center;gap:${px(10)};width:max-content;max-width:min(60vw, 40rem)`,
+  road: `font-size:${px(16)};font-weight:600`,
+  sign: `display:flex;flex-direction:column;align-items:center;min-width:${px(40)};padding:${px(2)} ${px(4)};border:${px(2)} solid var(--sign-ink);border-radius:var(--radius);color:var(--sign-ink);text-shadow:none;line-height:1`,
   signCaption: `font-size:${px(8)};font-weight:700`,
-  signValue: `font:700 ${px(20)}/1 ui-sans-serif, system-ui, sans-serif`,
-  workTag: `padding:2px 6px;border-radius:3px;background:#f08a24;color:#111;text-shadow:none;font-weight:700;font-size:${px(11)}`,
-  prompt: `position:absolute;left:50%;bottom:${px(84)};transform:translateX(-50%);padding:4px 10px;border-radius:4px;background:rgba(0,0,0,0.55);font-size:${px(15)}`,
-  police: `font-size:${px(12)};font-weight:700;color:#9fd0ff;margin-top:3px;letter-spacing:0.05em`,
-  unitRow: `${PANEL};position:relative;display:flex;gap:6px;align-items:center;padding:4px 8px;font-size:${px(13)};font-weight:700`,
-  carried: `${PANEL};position:relative;padding:3px 8px;font-size:${px(12)};opacity:0.9`,
-  topLeft: `position:absolute;left:16px;top:16px;display:flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:${px(380)}`,
-  callPanel: `${PANEL};position:relative;border-left:4px solid #9a9a9a;font-size:${px(13)}`,
-  callTitle: `font-weight:700;font-size:${px(15)};white-space:nowrap`,
+  signValue: `font:700 ${px(20)}/1 var(--font-ui)`,
+  workTag: `padding:${px(2)} ${px(6)};border-radius:var(--radius);background:var(--c-p2);color:${ON_CHIP};text-shadow:none;font-weight:700;font-size:${px(11)}`,
+  prompt: `position:absolute;left:50%;bottom:${px(84)};transform:translateX(-50%);padding:${px(4)} ${px(10)};border-radius:var(--radius);background:var(--hud-bg);font-size:${px(15)};text-align:center;${LINE}`,
+  police: `font-size:${px(12)};font-weight:700;color:var(--info);margin-top:${px(3)};letter-spacing:0.05em`,
+  unitRow: `${PANEL};position:relative;display:flex;flex-wrap:wrap;gap:${px(6)};align-items:center;padding:${px(4)} ${px(8)};font-size:${px(13)};font-weight:700;max-width:100%`,
+  carried: `${PANEL};position:relative;padding:${px(3)} ${px(8)};font-size:${px(12)};opacity:0.9;max-width:100%`,
+  topLeft: `position:absolute;left:${px(16)};top:${px(16)};display:flex;flex-direction:column;align-items:flex-start;gap:${px(6)};max-width:min(92vw, 27rem)`,
+  callPanel: `${PANEL};position:relative;border-left:${px(4)} solid var(--fg-dim);font-size:${px(13)};max-width:100%`,
+  callTitle: `font-weight:700;font-size:${px(15)}`,
   callStatus: `font-size:${px(12)};opacity:0.85;letter-spacing:0.05em`,
-  offer: `${PANEL};position:relative;background:rgba(80,56,0,0.7);color:#ffd27a;font-weight:700;font-size:${px(13)}`,
+  offer: `${PANEL};position:relative;background:var(--hud-bg);color:var(--c-caution);border-left:${px(4)} solid var(--c-caution);font-weight:700;font-size:${px(13)};max-width:100%`,
   reticle: `position:absolute;left:50%;top:50%;width:${px(90)};height:${px(56)};transform:translate(-50%,-50%)`,
-  corner: `position:absolute;width:${px(14)};height:${px(14)};border:0 solid rgba(255,255,255,0.9)`,
-  targetInfo: `position:absolute;left:50%;top:calc(50% + ${px(36)});transform:translateX(-50%);text-align:center;white-space:nowrap`,
-  targetLabel: `${PANEL};position:relative;display:inline-block;padding:2px 8px;font:700 ${px(14)}/1.3 ui-monospace, Menlo, Consolas, monospace`,
-  targetResult: `margin-top:4px;font-weight:700;font-size:${px(13)}`,
-  chipRow: 'display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap',
-  contact: `${PANEL};position:relative;padding:3px 8px;font-size:${px(13)};font-weight:600`,
-  scenePanel: `${PANEL};position:relative;border-left:4px solid #3b9eff;font-size:${px(13)}`,
-  sceneTitle: `font-weight:700;font-size:${px(14)};white-space:nowrap`,
-  sceneLine: 'display:flex;gap:6px;align-items:baseline',
+  corner: `position:absolute;width:${px(14)};height:${px(14)};border:0 solid var(--fg-strong)`,
+  targetInfo: `position:absolute;left:50%;top:calc(50% + ${px(36)});transform:translateX(-50%);text-align:center;${LINE}`,
+  targetLabel: `${PANEL};position:relative;display:inline-block;padding:${px(2)} ${px(8)};font:700 ${px(14)}/1.3 var(--font-mono)`,
+  targetResult: `margin-top:${px(4)};font-weight:700;font-size:${px(13)}`,
+  chipRow: `display:flex;gap:${px(6)};align-items:center;justify-content:flex-end;flex-wrap:wrap`,
+  contact: `${PANEL};position:relative;padding:${px(3)} ${px(8)};font-size:${px(13)};font-weight:600;max-width:100%`,
+  scenePanel: `${PANEL};position:relative;border-left:${px(4)} solid var(--accent);font-size:${px(13)};max-width:100%`,
+  sceneTitle: `font-weight:700;font-size:${px(14)}`,
+  sceneLine: `display:flex;gap:${px(6)};align-items:baseline`,
   sceneMark: `font-weight:700;min-width:${px(12)}`,
-  tacticalRow: 'display:flex;gap:6px;align-items:center;justify-content:flex-end;flex-wrap:wrap',
-  tacticalChips: `${PANEL};position:relative;padding:2px 8px;font-size:${px(12)};font-weight:700;letter-spacing:0.05em`,
-  meter: `${PANEL};position:relative;padding:2px 8px;font:700 ${px(12)}/1.3 ui-monospace, Menlo, Consolas, monospace;letter-spacing:0.05em`,
-  shiftLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(13)};font-weight:600`,
-  caseLine: `${PANEL};position:relative;border-left:4px solid #9fd0ff;font-size:${px(12)}`,
-  location: `margin-top:4px;font-size:${px(12)};font-weight:700;opacity:0.9`,
-  legalLine: `${PANEL};left:50%;bottom:${px(122)};transform:translateX(-50%);border-left:4px solid #5fd35f;font-size:${px(14)};font-weight:700;white-space:nowrap`,
-  dutyLine: `${PANEL};position:relative;border-left:4px solid #ff5a5a;background:rgba(80,10,10,0.7);font-size:${px(13)};font-weight:700;letter-spacing:0.04em`,
-  courtLine: `${PANEL};position:relative;border-left:4px solid #6cc8ff;font-size:${px(13)};font-weight:600`,
-  trust: `margin-top:4px;font-size:${px(12)};font-weight:700`,
-  pursuit: `${PANEL};left:50%;top:16px;transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(15)};letter-spacing:0.05em;white-space:nowrap`,
-  pursuit6: `${PANEL};left:50%;top:${px(56)};transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(14)};letter-spacing:0.05em;white-space:nowrap`,
-  pursuitVerdict: `${PANEL};left:50%;top:${px(92)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-weight:700;font-size:${px(14)};white-space:nowrap`,
-  backupPanel: `${PANEL};position:relative;border-left:4px solid #6c9bff;font-size:${px(12)};font-weight:600`,
-  gearLine: `${PANEL};left:50%;bottom:${px(160)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-size:${px(14)};font-weight:700;white-space:nowrap`,
-  careerShift: `${PANEL};position:relative;border-left:4px solid var(--c-unit, #4f8cff);font-size:${px(13)};font-weight:600`,
-  courseLine: `${PANEL};left:50%;top:${px(128)};transform:translateX(-50%);border-left:4px solid var(--c-ok, #5fd35f);font:700 ${px(15)}/1.3 ui-monospace, Menlo, Consolas, monospace;white-space:nowrap`,
-  orderLine: `${PANEL};left:50%;top:${px(164)};transform:translateX(-50%);border-left:4px solid var(--c-caution, #ffcc66);font-weight:700;font-size:${px(14)};white-space:nowrap`,
-  vignette: 'position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.92) 100%)',
-  commandLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(12)};font-weight:700;letter-spacing:0.04em`,
+  tacticalRow: `display:flex;gap:${px(6)};align-items:center;justify-content:flex-end;flex-wrap:wrap`,
+  tacticalChips: `${PANEL};position:relative;padding:${px(2)} ${px(8)};font-size:${px(12)};font-weight:700;letter-spacing:0.05em`,
+  meter: `${PANEL};position:relative;padding:${px(2)} ${px(8)};font:700 ${px(12)}/1.3 var(--font-mono);letter-spacing:0.05em`,
+  shiftLine: `${PANEL};position:relative;border-left:${px(4)} solid var(--c-caution);font-size:${px(13)};font-weight:600;max-width:100%`,
+  caseLine: `${PANEL};position:relative;border-left:${px(4)} solid var(--info);font-size:${px(12)};max-width:100%`,
+  location: `margin-top:${px(4)};font-size:${px(12)};font-weight:700;opacity:0.9`,
+  legalLine: `${PANEL};left:50%;bottom:${px(122)};transform:translateX(-50%);border-left:${px(4)} solid var(--c-ok);font-size:${px(14)};font-weight:700;${LINE}`,
+  dutyLine: `${PANEL};position:relative;border-left:${px(4)} solid var(--c-alert);font-size:${px(13)};font-weight:700;letter-spacing:0.04em;max-width:100%`,
+  courtLine: `${PANEL};position:relative;border-left:${px(4)} solid var(--info);font-size:${px(13)};font-weight:600;max-width:100%`,
+  trust: `margin-top:${px(4)};font-size:${px(12)};font-weight:700`,
+  pursuit: `${PANEL};left:50%;top:${px(16)};transform:translateX(-50%);background:var(--hud-bg);border:${px(2)} solid var(--c-alert);color:var(--fg-strong);font-weight:700;font-size:${px(15)};letter-spacing:0.05em;${LINE}`,
+  pursuit6: `${PANEL};left:50%;top:${px(56)};transform:translateX(-50%);background:var(--hud-bg);border:${px(2)} solid var(--c-alert);color:var(--fg-strong);font-weight:700;font-size:${px(14)};letter-spacing:0.05em;${LINE}`,
+  pursuitVerdict: `${PANEL};left:50%;top:${px(92)};transform:translateX(-50%);border-left:${px(4)} solid var(--c-caution);font-weight:700;font-size:${px(14)};${LINE}`,
+  backupPanel: `${PANEL};position:relative;border-left:${px(4)} solid var(--c-unit);font-size:${px(12)};font-weight:600;max-width:100%`,
+  gearLine: `${PANEL};left:50%;bottom:${px(160)};transform:translateX(-50%);border-left:${px(4)} solid var(--c-caution);font-size:${px(14)};font-weight:700;${LINE}`,
+  careerShift: `${PANEL};position:relative;border-left:${px(4)} solid var(--c-unit);font-size:${px(13)};font-weight:600;max-width:100%`,
+  courseLine: `${PANEL};left:50%;top:${px(128)};transform:translateX(-50%);border-left:${px(4)} solid var(--c-ok);font:700 ${px(15)}/1.3 var(--font-mono);${LINE}`,
+  orderLine: `${PANEL};left:50%;top:${px(164)};transform:translateX(-50%);border-left:${px(4)} solid var(--c-caution);font-weight:700;font-size:${px(14)};${LINE}`,
+  vignette: 'position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, transparent 40%, var(--black) 100%)',
+  commandLine: `${PANEL};position:relative;border-left:${px(4)} solid var(--c-caution);font-size:${px(12)};font-weight:700;letter-spacing:0.04em;max-width:100%`,
 } as const;
 
 /** Corner bracket borders of the target reticle (top-left, top-right, bottom-left, bottom-right). */
@@ -567,8 +578,8 @@ const CORNERS = [
   'right:0;bottom:0;border-right-width:2px;border-bottom-width:2px',
 ] as const;
 
-const SIGN_WHITE = '#f4f4f4';
-const SIGN_YELLOW = '#f5d63d';
+const SIGN_WHITE = 'var(--sign-bg)';
+const SIGN_YELLOW = 'var(--sign-warn)';
 
 interface HudView {
   root: HTMLDivElement;
@@ -660,7 +671,7 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, pare
 }
 
 function chip(text: string, background: string, parent: HTMLElement): HTMLSpanElement {
-  const e = node('span', `${STYLES.chip};background:${background};color:#111;text-shadow:none`, parent, text);
+  const e = node('span', `${STYLES.chip};background:${background};color:${ON_CHIP};text-shadow:none`, parent, text);
   e.style.display = 'none';
   return e;
 }
@@ -673,16 +684,16 @@ function buildView(parent: HTMLElement): HudView {
   const chipRow = node('div', STYLES.chipRow, bottomRight);
   const contact = node('div', STYLES.contact, chipRow);
   contact.style.display = 'none';
-  const weapon = chip('', '#ff9a3c', chipRow);
-  const bodycam = chip('', '#9a9a9a', chipRow);
-  const dash = chip('', '#6cc8ff', chipRow);
-  const forceChip = chip('', '#ff9a3c', chipRow);
-  const episode = chip('', '#ff4d4d', chipRow);
-  const resourceEta = chip('', '#9fd0ff', chipRow);
-  const flirChip = chip('FLIR', '#e8f4ea', chipRow);
-  const fleetChip = chip('', '#f2c14e', chipRow);
-  const careerChip = chip('', 'var(--c-caution, #ffcc66)', chipRow);
-  const coopChip = chip('', 'var(--c-unit, #4f8cff)', chipRow);
+  const weapon = chip('', 'var(--c-p2)', chipRow);
+  const bodycam = chip('', 'var(--fg-dim)', chipRow);
+  const dash = chip('', 'var(--info)', chipRow);
+  const forceChip = chip('', 'var(--c-p2)', chipRow);
+  const episode = chip('', 'var(--c-emergency)', chipRow);
+  const resourceEta = chip('', 'var(--info)', chipRow);
+  const flirChip = chip('FLIR', 'var(--flir)', chipRow);
+  const fleetChip = chip('', 'var(--c-caution)', chipRow);
+  const careerChip = chip('', 'var(--c-caution)', chipRow);
+  const coopChip = chip('', 'var(--c-unit)', chipRow);
   const tacticalRow = node('div', STYLES.tacticalRow, bottomRight);
   tacticalRow.style.display = 'none';
   const tactical = node('div', STYLES.tacticalChips, tacticalRow);
@@ -694,27 +705,27 @@ function buildView(parent: HTMLElement): HudView {
   const unitRow = node('div', STYLES.unitRow, bottomRight);
   unitRow.style.display = 'none';
   const unit = node('span', '', unitRow);
-  const unitEmergency = chip('EMERGENCY', '#ff4d4d', unitRow);
-  const unitStatusCheck = chip('STATUS CHECK', '#f2c14e', unitRow);
+  const unitEmergency = chip('! EMERGENCY', 'var(--c-emergency)', unitRow);
+  const unitStatusCheck = chip('? STATUS CHECK', 'var(--c-caution)', unitRow);
   const speedPanel = node('div', STYLES.speedPanel, bottomRight);
   const speedLine = node('div', '', speedPanel);
   const speed = node('span', STYLES.speed, speedLine, '0');
   node('span', STYLES.unit, speedLine, 'mph');
   const row = node('div', STYLES.row, speedPanel);
-  const abs = chip('ABS', '#f5c542', row);
+  const abs = chip('ABS', 'var(--c-caution)', row);
   const fuelTrack = node('div', STYLES.fuelTrack, row);
   const fuelBar = node('div', STYLES.fuelBar, fuelTrack);
   const fuel = node('span', STYLES.fuelText, row);
   const gear = node('span', STYLES.gear, row, 'N');
   const warnings = node('div', STYLES.warnings, speedPanel);
-  const engine = chip('ENGINE', '#ff6b4a', warnings);
-  const tyre = chip('TYRE', '#ff6b4a', warnings);
-  const brakes = chip('BRAKES HOT', '#ffa34a', warnings);
-  const fuelLow = chip('FUEL LOW', '#ffa34a', warnings);
-  const oilChip = chip('OIL LOW', '#ffa34a', warnings);
-  const wornChip = chip('TYRES WORN', '#ffa34a', warnings);
-  const altChip = chip('', '#9fd0ff', warnings);
-  const damage = chip('', '#d9d9d9', warnings);
+  const engine = chip('! ENGINE', 'var(--c-alert)', warnings);
+  const tyre = chip('! TYRE', 'var(--c-alert)', warnings);
+  const brakes = chip('BRAKES HOT', 'var(--c-p2)', warnings);
+  const fuelLow = chip('FUEL LOW', 'var(--c-p2)', warnings);
+  const oilChip = chip('OIL LOW', 'var(--c-p2)', warnings);
+  const wornChip = chip('TYRES WORN', 'var(--c-p2)', warnings);
+  const altChip = chip('', 'var(--info)', warnings);
+  const damage = chip('', 'var(--fg)', warnings);
   const status = node('div', STYLES.status, speedPanel);
   const police = node('div', STYLES.police, speedPanel);
   police.style.display = 'none';
@@ -965,7 +976,7 @@ export class Hud {
       o.fuelLow = n.fuelLow;
       if (v) {
         show(v.fuelLow, n.fuelLow, 'inline');
-        v.fuelBar.style.background = n.fuelLow ? '#ffa34a' : '#7ed37e';
+        v.fuelBar.style.background = n.fuelLow ? 'var(--c-p2)' : 'var(--c-ok)';
       }
     }
     if (all || n.abs !== o.abs) {
@@ -1109,16 +1120,14 @@ export class Hud {
       o.targetLabel = n.targetLabel;
       if (v) v.targetLabel.textContent = n.targetLabel;
     }
-    if (all || n.targetResult !== o.targetResult) {
+    if (all || n.targetResult !== o.targetResult || n.targetSeverity !== o.targetSeverity) {
       o.targetResult = n.targetResult;
+      o.targetSeverity = n.targetSeverity;
       if (v) {
-        v.targetResult.textContent = n.targetResult;
+        v.targetResult.textContent = n.targetResult === '' ? '' : `${SEVERITY_MARKS[n.targetSeverity]}${n.targetResult}`;
+        v.targetResult.style.color = SEVERITY_COLORS[n.targetSeverity];
         show(v.targetResult, n.targetResult !== '');
       }
-    }
-    if (all || n.targetSeverity !== o.targetSeverity) {
-      o.targetSeverity = n.targetSeverity;
-      if (v) v.targetResult.style.color = SEVERITY_COLORS[n.targetSeverity];
     }
     if (all || n.carried !== o.carried) {
       o.carried = n.carried;
@@ -1198,7 +1207,7 @@ export class Hud {
       if (v) {
         v.noise.textContent = `NOISE ${n.noiseMeter}`;
         // Loud (4+ of 5 steps) turns amber.
-        v.noise.style.color = n.noise >= NOISE_STEPS - 1 ? '#ffa34a' : '#f2f2f2';
+        v.noise.style.color = n.noise >= NOISE_STEPS - 1 ? 'var(--c-p2)' : 'var(--fg-strong)';
         show(v.noise, n.noiseMeter !== '');
       }
     }
@@ -1216,7 +1225,7 @@ export class Hud {
       o.bodycamMuted = n.bodycamMuted;
       if (v) {
         v.bodycam.textContent = n.bodycam;
-        v.bodycam.style.background = n.bodycamRecording ? '#ff4d4d' : n.bodycamMuted ? '#f0a030' : '#9a9a9a';
+        v.bodycam.style.background = n.bodycamRecording ? 'var(--c-emergency)' : n.bodycamMuted ? 'var(--c-p2)' : 'var(--fg-dim)';
         show(v.bodycam, n.bodycam !== '', 'inline');
       }
     }
@@ -1265,7 +1274,7 @@ export class Hud {
     if (all || n.episode !== o.episode) {
       o.episode = n.episode;
       if (v) {
-        v.episode.textContent = n.episode;
+        v.episode.textContent = n.episode === '' ? '' : `! ${n.episode}`;
         show(v.episode, n.episode !== '', 'inline');
       }
     }
@@ -1273,7 +1282,7 @@ export class Hud {
       o.legal = n.legal;
       o.legalSeverity = n.legalSeverity;
       if (v) {
-        v.legal.textContent = n.legal;
+        v.legal.textContent = n.legal === '' ? '' : `${LEGAL_MARKS[n.legalSeverity]}${n.legal}`;
         v.legal.style.borderLeftColor = LEGAL_COLORS[n.legalSeverity];
         show(v.legal, n.legal !== '');
       }
@@ -1296,7 +1305,7 @@ export class Hud {
       o.trust = n.trust;
       o.trustBand = n.trustBand;
       if (v) {
-        v.trust.textContent = n.trust;
+        v.trust.textContent = n.trust === '' ? '' : `${TRUST_MARKS[n.trustBand]}${n.trust}`;
         v.trust.style.color = TRUST_COLORS[n.trustBand];
         show(v.trust, n.trust !== '');
       }
@@ -1400,8 +1409,8 @@ export class Hud {
       o.careerChip = n.careerChip;
       o.careerSeverity = n.careerSeverity;
       if (v) {
-        v.careerChip.textContent = n.careerChip;
-        v.careerChip.style.background = n.careerSeverity === 'alert' ? 'var(--c-alert, #ff5a5a)' : 'var(--c-caution, #ffcc66)';
+        v.careerChip.textContent = n.careerChip === '' ? '' : `${CHIP_MARKS[n.careerSeverity]}${n.careerChip}`;
+        v.careerChip.style.background = n.careerSeverity === 'alert' ? 'var(--c-alert)' : 'var(--c-caution)';
         show(v.careerChip, n.careerChip !== '', 'inline');
       }
     }

@@ -41,6 +41,7 @@ import {
   isSaveGameV7,
   isSaveGameV8,
   isSaveGameV9,
+  isSaveGameV10,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
@@ -52,6 +53,7 @@ import {
   type SaveGameV8,
   type SaveGameV9,
   type SaveGameV10,
+  type SaveGameV11,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -246,6 +248,13 @@ export function migrateV9ToV10(data: unknown): unknown {
   return v10;
 }
 
+/** v10 -> v11: no tutorial in an older game. */
+export function migrateV10ToV11(data: unknown): unknown {
+  if (!isSaveGameV10(data)) return data;
+  const v11: SaveGameV11 = { ...data, tutorial: null };
+  return v11;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
 export const migrations: MigrationTable = {
   1: migrateV1ToV2,
@@ -257,6 +266,7 @@ export const migrations: MigrationTable = {
   7: migrateV7ToV8,
   8: migrateV8ToV9,
   9: migrateV9ToV10,
+  10: migrateV10ToV11,
 };
 
 export const MIGRATION_FAILURES = {

@@ -37,6 +37,11 @@
  * emitted by game/coop.ts). The session bridges the stress, stat, world and premise requests of design §14 in game/phase8.ts,
  * `career:points` to the conduct points request, `career:stage` to the officer's rank and the dispatcher's call mix, and
  * every `*:flash` to the HUD line; the presenter opens the career summary on `career:shiftSummary` and the apartment after it.
+ * Phase 9: `tutorial:*` in tutorial/events.ts (step, done, flash). The session forwards the ten `TUTORIAL_TOPICS` (player:mode,
+ * unit:request, cad:unitAssigned / unitStatus / callClosed / documentSaved, traffic:pulledOver / released, dispatch:plateResult /
+ * backup) to the tutorial runner in game/phase9.ts; the presenter (game/phase9Presenter.ts) bridges `tutorial:flash` and
+ * `tutorial:done` to the HUD flash line and force:applied, npc:attack, vehicle:damaged and traffic:collision to the effects.
+ * Audio, effects and the UI add no topics.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;

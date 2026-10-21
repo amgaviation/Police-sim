@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { createRng } from '../../core/rng';
+import { VFX_DATA } from '../../render/vfx/data';
+import { wetParams, type WetParams } from '../../render/vfx/math';
 import { WINDOW_CELLS, WINDOW_TEXTURE_SIZE, type ChunkGroupName } from './chunkMesher';
 
 /** Window emissive intensity at full night. */
@@ -8,6 +10,10 @@ const WINDOW_GLOW = 1.1;
 const LAMP_GLOW = 3;
 /** Fraction of windows lit at night. */
 const LIT_FRACTION = 0.42;
+/** Dry roughness of the lane markings (the ground's comes from vfx.json). */
+const MARKINGS_DRY_ROUGHNESS = 0.8;
+/** Wetness steps smaller than this are not written to the materials. */
+const WET_EPSILON = 0.01;
 /** Fixed render-only seed of the window pattern. */
 const WINDOW_SEED = 0x51ad0;
 
@@ -70,13 +76,16 @@ export class CityMaterials {
   readonly props: THREE.MeshStandardMaterial;
   readonly lamps: THREE.MeshStandardMaterial;
   private readonly windows: WindowTextures | null;
+  /** Effective wetness last written to the ground and markings. */
+  private wet = 0;
+  private readonly wetScratch: WetParams = { w: 0, groundRoughness: 0, markingsRoughness: 0, groundTint: 1 };
 
   constructor() {
     this.windows = createWindowTextures();
-    this.ground = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 });
+    this.ground = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: VFX_DATA.wet.dryRoughness });
     this.markings = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.8,
+      roughness: MARKINGS_DRY_ROUGHNESS,
       polygonOffset: true,
       polygonOffsetFactor: -2,
       polygonOffsetUnits: -2,
@@ -107,6 +116,20 @@ export class CityMaterials {
     const n = Math.min(1, Math.max(0, nightFactor));
     this.buildings.emissiveIntensity = this.windows ? n * WINDOW_GLOW : 0;
     this.lamps.emissiveIntensity = streetlightsOn ? LAMP_GLOW : 0;
+  }
+
+  /**
+   * Wet sheen: with `w = wetness * (1 - snowCover)` the ground and the markings lerp from dry to wet roughness and the
+   * ground darkens by `1 - darken * w` (a colour scalar). Writes only when `w` moved by more than 0.01 (or reached 0 / 1).
+   */
+  setWetness(wetness: number, snowCover: number): void {
+    const p = wetParams(wetness, snowCover, MARKINGS_DRY_ROUGHNESS, this.wetScratch);
+    const moved = Math.abs(p.w - this.wet);
+    if (moved <= WET_EPSILON && !((p.w === 0 || p.w === 1) && p.w !== this.wet)) return;
+    this.wet = p.w;
+    this.ground.roughness = p.groundRoughness;
+    this.markings.roughness = p.markingsRoughness;
+    this.ground.color.setScalar(p.groundTint);
   }
 
   dispose(): void {

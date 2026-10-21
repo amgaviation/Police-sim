@@ -47,6 +47,11 @@ export interface MainMenuCallbacks {
   scripts?(): readonly ScriptOption[];
   /** Phase 8: the line under the Mods button ('2 mods active'). */
   modSummary?(): string;
+  /**
+   * Phase 9: "Guided first shift". Same arguments as `newGame`: the seed box, the picked jurisdiction and the created
+   * officer when there is one. Absent: the Tutorial section is hidden.
+   */
+  tutorial?(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter): void;
 }
 
 /** The Training buttons (`MainMenuCallbacks.training`). */
@@ -68,14 +73,21 @@ export interface ScriptOption {
 }
 
 /** The title-screen sections, in display order, that a given set of callbacks shows. */
-export type MainMenuSection = 'setup' | 'career' | 'freePatrol' | 'training' | 'multiplayer' | 'mods' | 'continue' | 'settings';
+export type MainMenuSection = 'setup' | 'tutorial' | 'career' | 'freePatrol' | 'training' | 'multiplayer' | 'mods' | 'continue' | 'settings';
 
 /** Label of the "no script" entry of the dispatch-only picker. */
 export const NO_SCRIPT_LABEL = 'No script (random calls)';
 
-/** The sections `callbacks` shows: Career, Training, Multiplayer and Mods only when their callbacks exist. */
+/** Label of the Tutorial section's button. */
+export const TUTORIAL_BUTTON_LABEL = 'Guided first shift';
+/** The line under the Tutorial button while there is no saved shift. */
+export const TUTORIAL_RECOMMENDED = 'Recommended for your first shift';
+const TUTORIAL_HINT = 'A short walkthrough: the car, the radio, a call, a report and a traffic stop.';
+
+/** The sections `callbacks` shows: Tutorial, Career, Training, Multiplayer and Mods only when their callbacks exist. */
 export function visibleSections(callbacks: Readonly<MainMenuCallbacks>): MainMenuSection[] {
   const out: MainMenuSection[] = ['setup'];
+  if (callbacks.tutorial) out.push('tutorial');
   if (callbacks.newCareer) out.push('career');
   out.push('freePatrol');
   if (callbacks.training) out.push('training');
@@ -135,6 +147,8 @@ export class MainMenu implements Menu {
   private readonly officerLine: HTMLElement | null;
   private readonly scriptSelect: HTMLSelectElement | null;
   private readonly modLine: HTMLElement | null;
+  private readonly tutorialButton: HTMLElement | null;
+  private readonly tutorialHint: HTMLElement | null;
   private seedText = '';
   private scriptId = '';
   private chosen: MainMenuCharacter | null = null;
@@ -154,6 +168,8 @@ export class MainMenu implements Menu {
       this.officerLine = null;
       this.scriptSelect = null;
       this.modLine = null;
+      this.tutorialButton = null;
+      this.tutorialHint = null;
       this.element = HEADLESS_ELEMENT;
       return;
     }
@@ -182,6 +198,8 @@ export class MainMenu implements Menu {
       ? el('select', { id: 'dispatch-script', 'aria-label': 'Dispatch script', onchange: () => this.pickScript(this.scriptSelect?.value ?? '') })
       : null;
     this.modLine = callbacks.openMods ? el('p', { class: 'hint', role: 'status' }) : null;
+    this.tutorialButton = callbacks.tutorial ? el('button', { onclick: () => this.startTutorial() }, TUTORIAL_BUTTON_LABEL) : null;
+    this.tutorialHint = callbacks.tutorial ? el('p', { class: 'hint' }) : null;
     this.refreshExtras();
     this.element = el(
       'div',
@@ -200,6 +218,7 @@ export class MainMenu implements Menu {
       el('p', { class: 'hint' }, 'Same seed, same shift. Leave blank for a random one.'),
       el('div', { class: 'row' }, el('label', { for: 'jurisdiction' }, 'Jurisdiction'), this.jurisdictionSelect),
       this.jurisdictionHint,
+      callbacks.tutorial ? [el('h2', null, 'Tutorial'), el('div', { class: 'row' }, this.tutorialButton), this.tutorialHint] : null,
       callbacks.newCareer
         ? [
             el('h2', null, 'Career'),
@@ -226,12 +245,14 @@ export class MainMenu implements Menu {
       el('div', { class: 'row end' }, el('button', { onclick: () => this.callbacks.openSettings() }, 'Settings')),
     );
     this.renderSaves();
+    this.refreshTutorial();
   }
 
   /** Replaces the save slot list (sorted as provided). */
   setSaves(saves: readonly SaveSummary[]): void {
     this.saves = saves;
     this.renderSaves();
+    this.refreshTutorial();
   }
 
   /** Short status line under the save list (e.g. why a save could not be loaded). */
@@ -350,6 +371,21 @@ export class MainMenu implements Menu {
     return this.callbacks.modSummary?.() ?? '';
   }
 
+  /** True while the save list is empty: the Guided first shift button is then the recommended (primary) one. */
+  get tutorialRecommended(): boolean {
+    return this.callbacks.tutorial !== undefined && this.saves.length === 0;
+  }
+
+  /** Starts the guided first shift with the seed box, the picked jurisdiction and the created officer; false when the callback is absent. */
+  startTutorial(): boolean {
+    const cb = this.callbacks;
+    if (!cb.tutorial) return false;
+    const seed = parseSeedInput(this.seed);
+    if (this.chosen) cb.tutorial(seed, this.jurisdictionId, this.chosen);
+    else cb.tutorial(seed, this.jurisdictionId);
+    return true;
+  }
+
   /** Starts a new career with the seed box, the picked jurisdiction and the created officer; false when the callback is absent. */
   startNewCareer(): boolean {
     const cb = this.callbacks;
@@ -380,6 +416,13 @@ export class MainMenu implements Menu {
     if (!this.callbacks.openMods) return false;
     this.callbacks.openMods();
     return true;
+  }
+
+  /** Primary style and the recommendation line while the save list is empty, else a plain button. */
+  private refreshTutorial(): void {
+    const recommended = this.tutorialRecommended;
+    if (this.tutorialButton) this.tutorialButton.className = recommended ? 'primary' : '';
+    if (this.tutorialHint) this.tutorialHint.textContent = recommended ? TUTORIAL_RECOMMENDED : TUTORIAL_HINT;
   }
 
   private pickScript(id: string): void {

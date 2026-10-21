@@ -36,6 +36,7 @@ export interface CourtroomKeyResult {
 export const ANSWER_LABELS: Readonly<Record<Answer, string>> = { yes: 'Yes', no: 'No', dontRecall: "Don't recall" };
 
 const ANSWER_KEYS: Readonly<Record<string, Answer>> = { '1': 'yes', '2': 'no', '3': 'dontRecall' };
+const ANSWER_KEY_OF: Readonly<Record<Answer, string>> = { yes: '1', no: '2', dontRecall: '3' };
 
 /** The view of a case about to be heard: the judge's rulings and the question texts only (no truth, report line or camera flag). */
 export function courtroomViewOf(c: Pick<CourtCase, 'id' | 'personLabel' | 'motions' | 'questions'>): CourtroomView {
@@ -67,8 +68,9 @@ export function firstUnanswered(answers: readonly (Answer | null)[]): number {
  * Pure key reducer of the courtroom. Rulings: Enter starts the testimony, Escape leaves (the only place it does).
  * Questions: 1 yes, 2 no, 3 don't recall (then the next question; after the last one the review), Enter keeps an
  * answer already given, Backspace goes to the previous question. Review: Enter submits (or returns to an unanswered
- * question), Backspace goes back. Once the testimony has begun Escape is consumed and does nothing: it must be
- * finished. Keys it does not use are not consumed.
+ * question), Backspace goes back. Once the testimony has begun Escape (the gamepad's B) is Backspace: it steps back
+ * one question, and does nothing on the first one: the testimony cannot be abandoned, it must be finished. Keys it
+ * does not use are not consumed.
  */
 export function reduceCourtKey(s: CourtroomState, view: CourtroomView, key: string): CourtroomKeyResult {
   const k = plainKey(key);
@@ -87,8 +89,8 @@ export function reduceCourtKey(s: CourtroomState, view: CourtroomView, key: stri
         if (answer !== undefined) answers[s.index] = answer;
         return go(s.index + 1 >= n ? { phase: 'review', index: Math.max(0, n - 1), answers } : { phase: 'questions', index: s.index + 1, answers });
       }
-      if (k === 'Backspace') return s.index > 0 ? go({ ...s, index: s.index - 1 }) : idle(true);
-      return idle(k === 'Escape' || k === 'Enter');
+      if (k === 'Backspace' || k === 'Escape') return s.index > 0 ? go({ ...s, index: s.index - 1 }) : idle(true);
+      return idle(k === 'Enter');
     }
     case 'review': {
       if (k === 'Enter') {
@@ -96,8 +98,8 @@ export function reduceCourtKey(s: CourtroomState, view: CourtroomView, key: stri
         if (open >= 0) return go({ ...s, phase: 'questions', index: open });
         return { state: s, emit: { kind: 'submit', answers: s.answers.filter((a): a is Answer => a !== null) }, consumed: true };
       }
-      if (k === 'Backspace') return n > 0 ? go({ ...s, phase: 'questions', index: n - 1 }) : idle(true);
-      return idle(k === 'Escape');
+      if (k === 'Backspace' || k === 'Escape') return n > 0 ? go({ ...s, phase: 'questions', index: n - 1 }) : idle(true);
+      return idle(false);
     }
   }
 }
@@ -113,10 +115,14 @@ interface CourtDom {
 
 const HEADLESS_ELEMENT = {} as HTMLElement;
 
+function isButton(target: EventTarget | null): boolean {
+  return (target as { tagName?: unknown } | null)?.tagName === 'BUTTON';
+}
+
 const HINTS: Readonly<Record<CourtroomPhase, string>> = {
   motions: 'Enter begin testimony · Esc leave the courtroom',
-  questions: '1 Yes · 2 No · 3 Don\'t recall · Backspace previous question',
-  review: 'Enter submit testimony · Backspace go back',
+  questions: '1 Yes · 2 No · 3 Don\'t recall · arrows + Enter · Esc / Backspace previous question',
+  review: 'Enter submit testimony · Esc / Backspace go back',
 };
 
 /**
@@ -185,6 +191,8 @@ export class CourtroomPanel implements Menu {
 
   onKeyDown(event: KeyboardEvent): boolean {
     if (!this.openFlag || event.ctrlKey || event.altKey || event.metaKey) return false;
+    // Enter on a focused button is that button's click (arrows / the pad's D-pad move focus over the buttons, UIRoot).
+    if (event.key === 'Enter' && isButton(event.target)) return false;
     return this.press(event.key, event.repeat);
   }
 
@@ -243,6 +251,16 @@ export class CourtroomPanel implements Menu {
         break;
     }
     this.renderProgress(dom.progress, view, st);
+    this.focusChoice(dom, st);
+  }
+
+  /** Puts keyboard / pad focus on the answer given (else the first choice) of the page just built. */
+  private focusChoice(dom: CourtDom, st: CourtroomState): void {
+    if (this.ui?.top !== this) return;
+    const buttons = Array.from(dom.body.querySelectorAll<HTMLButtonElement>('button'));
+    const given = st.phase === 'questions' ? st.answers[st.index] : null;
+    const target = (given ? buttons.find((b) => b.dataset['key'] === ANSWER_KEY_OF[given]) : undefined) ?? buttons[0];
+    target?.focus();
   }
 
   private renderMotions(body: HTMLElement, view: CourtroomView): void {
@@ -300,6 +318,7 @@ export class CourtroomPanel implements Menu {
     b.type = 'button';
     setClass(b, primary ? 'crt-btn crt-primary' : 'crt-btn');
     b.textContent = label;
+    b.dataset['key'] = key;
     b.addEventListener('click', () => this.press(key));
     parent.appendChild(b);
     return b;

@@ -70,7 +70,7 @@ function stepFocus(options: readonly DialogueOptionView[] | null, length: number
 /**
  * Pure key reducer of the dialogue panel. Digits 1-9, 0 and then letters (not M) pick a topic and then an option (Talk) or an action
  * (Actions); Enter acts on the highlighted row like its digit; Up/Down move the highlight (skipping disabled
- * options); Left/Right change the tone (wrapping); Tab goes to the next tab; M cycles the communication mode;
+ * options); Left/Right change the tone (wrapping); Tab goes to the next tab (Shift+Tab, the pad's LB, the previous one); M cycles the communication mode;
  * Backspace goes back from an option list to the topics; Escape does the same, else closes. Disabled options
  * are never emitted, and nothing is said or done while an answer is pending (`view.busy`). After a line is
  * said the topic stays open for follow-ups. Keys it does not use are not consumed.
@@ -96,8 +96,10 @@ export function reduceDialogueKey(state: DialoguePanelState, view: DialogueView,
       const next = TONES[(i + (key === 'ArrowRight' ? 1 : TONES.length - 1) + TONES.length) % TONES.length] ?? state.tone;
       return { state: { ...state, tone: next }, emit: null, consumed: true };
     }
-    case 'Tab': {
-      const tab = DIALOGUE_TABS[(DIALOGUE_TABS.indexOf(state.tab) + 1) % DIALOGUE_TABS.length] ?? 'talk';
+    case 'Tab':
+    case 'Shift+Tab': {
+      const step = key === 'Tab' ? 1 : DIALOGUE_TABS.length - 1;
+      const tab = DIALOGUE_TABS[(DIALOGUE_TABS.indexOf(state.tab) + step) % DIALOGUE_TABS.length] ?? 'talk';
       const next: DialoguePanelState = { ...state, tab, topic: -1, focus: 0 };
       const options = currentOptions(next, view);
       return { state: options ? { ...next, focus: firstEnabled(options) } : next, emit: null, consumed: true };
@@ -249,7 +251,7 @@ export class DialoguePanel implements Menu {
     const view = this.view;
     if (!this.openFlag || !view || event.ctrlKey || event.altKey || event.metaKey) return false;
     if (this.st.tab === 'notes' && this.scrollNotes(event.key)) return true;
-    const result = reduceDialogueKey(this.st, view, event.key);
+    const result = reduceDialogueKey(this.st, view, event.key === 'Tab' && event.shiftKey ? 'Shift+Tab' : event.key);
     // Holding a key repeats navigation but never repeats a line or an action.
     if (event.repeat && result.emit) return true;
     return this.apply(result);

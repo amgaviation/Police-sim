@@ -1,0 +1,40 @@
+/* Guided first shift (src/ui/tutorial). Prefix tut-; only the shared variables of src/ui/styles.css, sizes in em so
+   --text-scale scales them. Nothing animates. The card never takes input. */
+
+.ui-hud > .tut-card {
+  position: absolute;
+  left: 50%;
+  bottom: 5em;
+  transform: translateX(-50%);
+  width: calc(100% - 2em);
+  max-width: 36em;
+  padding: 0.7em 1em;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--fg);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+.tut-card[hidden], .tut-dialog [hidden] { display: none; }
+.tut-title { font-weight: 700; color: var(--accent); }
+.tut-text { line-height: 1.4; }
+.tut-hint { color: var(--fg-dim); font-size: 0.85em; }
+.tut-step { color: var(--fg-dim); font-size: 0.8em; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.tut-dialog {
+  width: min(94vw, 30em);
+  display: flex;
+  flex-direction: column;
+  gap: 0.7em;
+  padding: 1em 1.2em;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  pointer-events: auto;
+}
+.tut-dialog .tut-title { font-size: 1.2em; margin: 0; }
+.tut-dialog .tut-actions { display: flex; gap: 0.6em; justify-content: flex-end; flex-wrap: wrap; }

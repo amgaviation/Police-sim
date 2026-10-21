@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "id": "firstShift",
+  "title": "Guided first shift",
+  "steps": [
+    {
+      "id": "welcome",
+      "title": "Your first shift",
+      "text": "Prompts like this one guide you through a first patrol: the car, the radio, a call, a report and a traffic stop. Press {menu.toggle} to open the pause menu; it has Skip tutorial step and End tutorial.",
+      "until": { "ack": true }
+    },
+    {
+      "id": "enterCar",
+      "title": "Get in the patrol car",
+      "text": "Walk to the patrol car in the lot and press {interact} to get in.",
+      "hint": "Move with {move.forward}, {move.left}, {move.back} and {move.right}.",
+      "until": { "any": [{ "topic": "player:mode", "where": { "mode": "driving" } }] },
+      "skippable": true
+    },
+    {
+      "id": "drive",
+      "title": "Drive",
+      "text": "Accelerate {vehicle.accelerate}, brake {vehicle.brake}, steer {vehicle.steer}. Reach 30 km/h.",
+      "hint": "The handbrake is {vehicle.handbrake}. The camera changes with {camera.toggle}.",
+      "until": { "probe": "speedKmh", "gte": 30 },
+      "skippable": true
+    },
+    {
+      "id": "lights",
+      "title": "Emergency lights",
+      "text": "Emergency lights {vehicle.lights}, siren {vehicle.siren}. Switch the light bar on.",
+      "hint": "Traffic pulls over for lights and siren; the light bar also starts a traffic stop later.",
+      "until": { "probe": "lightbar", "gte": 1 },
+      "skippable": true
+    },
+    {
+      "id": "radioStatus",
+      "title": "Go in service",
+      "text": "Open the radio {radio.menu}, choose 1 Status, then In service. With a gamepad use the D-pad ({radio.cursorNext}) and {radio.cursorSelect} to select.",
+      "hint": "Dispatch only offers calls to units that are in service.",
+      "until": {
+        "any": [
+          {
+            "topic": "unit:request",
+            "where": { "callsign": "$player", "request.kind": "status", "request.status": "available" }
+          }
+        ]
+      },
+      "skippable": true
+    },
+    {
+      "id": "takeCall",
+      "title": "Take a call",
+      "text": "Dispatch offers you a call: accept it with the radio ({radio.menu}, then 7) or in the MDT ({mdt.toggle}).",
+      "hint": "The call is an abandoned vehicle a few hundred metres away.",
+      "enter": [{ "do": "createCall", "typeId": "abandonedVehicle", "minM": 250, "maxM": 600 }],
+      "until": { "any": [{ "topic": "cad:unitAssigned", "where": { "callsign": "$player", "callId": "$call" } }] },
+      "skippable": true
+    },
+    {
+      "id": "driveToCall",
+      "title": "Drive to the call",
+      "text": "Follow the route on the minimap; you arrive on scene automatically.",
+      "hint": "Obey the traffic laws unless you run with lights and siren.",
+      "until": { "any": [{ "topic": "cad:unitStatus", "where": { "callsign": "$player", "status": "onScene" } }] },
+      "skippable": true
+    },
+    {
+      "id": "scene",
+      "title": "Handle the scene",
+      "text": "Look around, talk to people ({interact}), open the scene panel {scene.menu} and clear the call.",
+      "until": { "any": [{ "topic": "cad:callClosed", "where": { "callId": "$call" } }] },
+      "skippable": true
+    },
+    {
+      "id": "report",
+      "title": "Write the report",
+      "text": "Write the incident report: MDT {mdt.toggle} > Reports > New report; tick the statements you can support and submit.",
+      "hint": "Only write what you observed or were told.",
+      "until": { "any": [{ "topic": "cad:documentSaved", "where": { "kind": "report" } }] },
+      "skippable": true
+    },
+    {
+      "id": "trafficStop",
+      "title": "Make a traffic stop",
+      "text": "Find a car, get behind it and switch on the light bar to pull it over.",
+      "until": { "any": [{ "topic": "traffic:pulledOver" }] },
+      "skippable": true
+    },
+    {
+      "id": "runPlate",
+      "title": "Run the plate",
+      "text": "Run its plate with {target.runPlate}.",
+      "hint": "Look at the car, then press the key; dispatch reads the result back.",
+      "until": { "any": [{ "topic": "dispatch:plateResult", "where": { "callsign": "$player" } }] },
+      "skippable": true
+    },
+    {
+      "id": "contact",
+      "title": "Contact the driver",
+      "text": "Walk to the driver window, press {interact}, ask for the licence, then warn, cite or release.",
+      "until": {
+        "any": [
+          { "topic": "cad:documentSaved", "where": { "kind": "citation" } },
+          { "topic": "traffic:released" }
+        ]
+      },
+      "skippable": true
+    },
+    {
+      "id": "backup",
+      "title": "Call for backup",
+      "text": "Need help? Radio {radio.menu} > 4 Request > backup. Try it now (or skip).",
+      "until": { "any": [{ "topic": "dispatch:backup", "where": { "requester": "$player" } }] },
+      "skippable": true
+    },
+    {
+      "id": "done",
+      "title": "That is the job",
+      "text": "Citations and arrests go to court: hearings show in the MDT Career tab. Free patrol is next; the radio and MDT keys are in Settings.",
+      "until": { "ack": true }
+    }
+  ]
+}

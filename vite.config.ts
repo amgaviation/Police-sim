@@ -12,6 +12,8 @@ export default defineConfig({
     // app growth cannot push a chunk past the limit unnoticed.
     chunkSizeWarningLimit: 5000,
     rolldownOptions: {
+      // The [PLUGIN_TIMINGS] note is informational; it only makes a clean production build look noisy.
+      checks: { bundlerTimings: false },
       output: {
         codeSplitting: {
           groups: [

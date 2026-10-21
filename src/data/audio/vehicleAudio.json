@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "speedOfSound": 343,
+  "dopplerClamp": [0.5, 2],
+  "dopplerTau": 0.06,
+  "engine": {
+    "profiles": {
+      "car": { "cylinders": 6, "wave": "sawtooth", "lowpassBaseHz": 260, "lowpassPerRpm": 0.55, "subGain": 0.5, "noiseGain": 0.12, "am": 0, "gain": 0.3 },
+      "v8": { "cylinders": 8, "wave": "sawtooth", "lowpassBaseHz": 220, "lowpassPerRpm": 0.5, "subGain": 0.7, "noiseGain": 0.1, "am": 0, "gain": 0.32 },
+      "diesel": { "cylinders": 6, "wave": "square", "lowpassBaseHz": 180, "lowpassPerRpm": 0.6, "subGain": 0.8, "noiseGain": 0.25, "am": 0, "gain": 0.34 },
+      "twin": { "cylinders": 2, "wave": "sawtooth", "lowpassBaseHz": 300, "lowpassPerRpm": 0.35, "subGain": 0.6, "noiseGain": 0.15, "am": 0, "gain": 0.3 },
+      "single": { "cylinders": 1, "wave": "square", "lowpassBaseHz": 350, "lowpassPerRpm": 0.3, "subGain": 0.3, "noiseGain": 0.18, "am": 0, "gain": 0.26 },
+      "outboard": { "cylinders": 4, "wave": "sawtooth", "lowpassBaseHz": 400, "lowpassPerRpm": 0.4, "subGain": 0.4, "noiseGain": 0.3, "am": 0, "gain": 0.3 },
+      "rotor": { "cylinders": 4, "wave": "triangle", "lowpassBaseHz": 160, "lowpassPerRpm": 0.1, "subGain": 0.9, "noiseGain": 0.45, "am": 0.85, "gain": 0.4 },
+      "drone": { "cylinders": 8, "wave": "sawtooth", "lowpassBaseHz": 1800, "lowpassPerRpm": 2.0, "subGain": 0, "noiseGain": 0.2, "am": 0, "gain": 0.12 }
+    },
+    "idleGain": 0.35,
+    "cabin": { "gain": 0.65, "lowpassHz": 1600 },
+    "traffic": {
+      "voices": 3,
+      "maxDistanceM": 60,
+      "profile": "car",
+      "idleRpm": 750,
+      "redlineRpm": 5500,
+      "gearRatios": [3.5, 2.1, 1.4, 1.0, 0.8],
+      "finalDrive": 3.7,
+      "wheelRadiusM": 0.33,
+      "shiftRpm": 3000
+    }
+  },
+  "tires": {
+    "slipStartMs": 1.5,
+    "slipFullMs": 6,
+    "lockSpeedMs": 3,
+    "squealHzMin": 650,
+    "squealHzMax": 1100,
+    "noiseHz": 1200,
+    "noiseQ": 1.5,
+    "gain": 0.35,
+    "gravelGain": 0.3,
+    "surfaceSqueal": [1, 1, 0, 0, 0, 0],
+    "surfaceCrunch": [0, 0, 1, 0.8, 0.4, 0.6]
+  }
+}

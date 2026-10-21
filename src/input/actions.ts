@@ -54,6 +54,10 @@ export const ACTIONS = {
   'radio.option7': { kind: 'button', label: 'Radio option 7' },
   'radio.option8': { kind: 'button', label: 'Radio option 8' },
   'radio.option9': { kind: 'button', label: 'Radio option 9' },
+  // Phase 9: radio menu cursor (D-pad / PageUp / PageDown move, A / Enter selects; modal like the option keys).
+  'radio.cursorPrev': { kind: 'button', label: 'Radio menu: previous' },
+  'radio.cursorNext': { kind: 'button', label: 'Radio menu: next' },
+  'radio.cursorSelect': { kind: 'button', label: 'Radio menu: select' },
   'radio.ptt': { kind: 'button', label: 'Push to talk' },
   'radio.emergency': { kind: 'button', label: 'Emergency button' },
   'radio.channelPrev': { kind: 'button', label: 'Previous channel' },

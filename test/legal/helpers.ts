@@ -185,6 +185,22 @@ export class LogBuilder {
     return this.add(pid, { kind: 'advisory', advisory, text: advisory });
   }
 
+  command(pid: number, command: string, outcome = 'complied'): this {
+    return this.add(pid, { kind: 'command', command, outcome });
+  }
+
+  charges(pid: number, statutes: string[], docId = 'B-0001'): this {
+    return this.add(pid, { kind: 'charges', statutes, docId });
+  }
+
+  service(service: string, phase: 'requested' | 'arrived' = 'requested', pid = -1): this {
+    return this.add(pid, { kind: 'service', service, phase });
+  }
+
+  close(disposition = 'report', outcomeId = 'done'): this {
+    return this.add(-1, { kind: 'close', disposition, outcomeId });
+  }
+
   /** Sets the camera bits for later events and records a camera event. */
   cam(body: boolean, muted = false, dash = false): this {
     this.bits = (body ? CAM.body : 0) | (muted ? CAM.muted : 0) | (dash ? CAM.dash : 0);

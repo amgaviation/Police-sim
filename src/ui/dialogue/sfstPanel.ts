@@ -51,8 +51,8 @@ function barWidth(fraction: number): string {
 /**
  * Field sobriety test panel (design §12.3): a centred, non-pausing `Menu` with the test's instruction, a large
  * key prompt with the time left in its window, the test progress, and (when finished) the result summary.
- * Keys go to `handlers.key` as `sfstKeyName` values; Escape closes (`handlers.close`, also when the test is
- * finished). `close()` called by the app does not call `handlers.close`. Headless it keeps the state only.
+ * Keys go to `handlers.key` as `sfstKeyName` values (the arrows are the test's own A / D / W keys, Enter is
+ * Space); Escape closes (`handlers.close`, also when the test is finished, where Enter closes too). `close()` called by the app does not call `handlers.close`. Headless it keeps the state only.
  */
 export class SfstPanel implements Menu {
   readonly id = 'sfst' as const;
@@ -112,6 +112,13 @@ export class SfstPanel implements Menu {
       this.finish();
       return true;
     }
+    // Enter (the gamepad's A) is the Space key of the test, and leaves once the test is finished.
+    if (event.key === 'Enter') {
+      if (event.repeat) return true;
+      if (this.current?.finished) this.finish();
+      else this.handlers?.key('space');
+      return true;
+    }
     const key = sfstKeyName(event);
     if (key === null) return false;
     if (!event.repeat && !this.current?.finished) this.handlers?.key(key);
@@ -147,7 +154,7 @@ export class SfstPanel implements Menu {
     if (dom.progressBar.style.width !== progress) dom.progressBar.style.width = progress;
     setText(dom.summary, view.finished ? view.summary.slice(0, SUMMARY_LINES).join('\n') : '');
     dom.summary.hidden = !view.finished;
-    setText(dom.footer, view.finished ? 'Esc  finish' : 'Press the key shown · Esc  stop the test');
+    setText(dom.footer, view.finished ? 'Enter / Esc  finish' : 'Press the key shown (Enter = Space) · Esc  stop the test');
   }
 }
 

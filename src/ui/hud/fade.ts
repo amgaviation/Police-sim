@@ -12,7 +12,7 @@ export class FadeOverlay {
     e.id = 'fade-overlay';
     e.setAttribute('aria-hidden', 'true');
     // Above the HUD (900), below the menus (950).
-    e.setAttribute('style', 'position:absolute;inset:0;z-index:920;background:#000;pointer-events:none;opacity:0;display:none');
+    e.setAttribute('style', 'position:absolute;inset:0;z-index:920;background:var(--black);pointer-events:none;opacity:0;display:none');
     parent.appendChild(e);
     this.element = e;
   }

@@ -228,7 +228,8 @@ describe('Hud DOM writes (fake document)', () => {
       if (!e) throw new Error(`no element with text ${text}`);
       return e;
     };
-    const chips = ['TASER 2/2', '● REC', 'DASH', 'within policy', 'SUSPENDED', 'COURT 14:00', 'Trust · Suburbs 62 %'].map(find);
+    // Phase 9: the severity-coded legal line and the trust chip carry a shape cue in front (never colour alone).
+    const chips = ['TASER 2/2', '● REC', 'DASH', '\u2713 within policy', 'SUSPENDED', 'COURT 14:00', '\u25B2 Trust · Suburbs 62 %'].map(find);
     const written = chips.map((c) => c.writes);
     expect(written.every((w) => w === 1)).toBe(true);
 

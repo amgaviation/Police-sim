@@ -27,6 +27,7 @@ import { pickCourseSegment, type DispatchScriptStep, type GameMode } from '../tr
 import type { LiveryDoc } from '../livery';
 import { Phase7, equipmentOptions, equipmentSpecFor } from './phase7';
 import { Phase8, type Phase8Host } from './phase8';
+import { Phase9 } from './phase9';
 import { straightSegments } from './courseSegments';
 import { Phase5 } from './phase5';
 import { Phase6, type Phase6Host, type Phase6Player } from './phase6';
@@ -200,6 +201,8 @@ export interface NewGameOptions {
   mode?: GameMode;
   /** Phase 8: the career to start with (a fresh academy career for the career mode, else a patrol officer). */
   career?: CareerSave;
+  /** Phase 9: the guided tutorial script id (`firstShift`); the shift then starts outdoors at the station door unless `inStation` says otherwise. */
+  tutorial?: string;
 }
 
 /** One ambient traffic car for the `traffic list` command. */
@@ -457,6 +460,8 @@ export class GameSession {
   readonly phase7: Phase7;
   /** Phase 8: career, persistent world, mode state and the hooks into the dispatcher, scene and force systems. */
   readonly phase8: Phase8;
+  /** Phase 9: the guided tutorial (null runner without one). */
+  readonly phase9: Phase9;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -722,6 +727,17 @@ export class GameSession {
     this.phase7 = new Phase7(this.phase7Host(), characterFromLegacy(DEFAULT_OFFICER.name, DEFAULT_OFFICER.badge), null, null);
     // Phase 8: career, persistent world and mode over the same objects (design §20).
     this.phase8 = new Phase8(this.phase8Host());
+    // Phase 9: the guided tutorial (the runner exists only in a tutorial game).
+    this.phase9 = new Phase9({
+      bus: this.bus,
+      cad: this.cad,
+      dispatcher: this.dispatcher,
+      city,
+      now: () => this.now(),
+      playerPosition: (out) => this.playerPosition(out),
+      drivenVehicle: () => this.drivenVehicle,
+      drivenEquipment: () => this.drivenEquipment,
+    });
     this.stationRect = stationRectOf(city);
     this.vehicleEnv = {
       surfaceAt: (x, z) => city.surfaceAt(x, z),
@@ -791,6 +807,7 @@ export class GameSession {
       { order: -654, system: { name: 'career', run: (_world, dt) => this.phase8.stepCareer(dt, this.syncCadTime()) } },
       { order: -653, system: { name: 'worldstate', run: (_world, dt) => this.phase8.stepWorld(dt, this.syncCadTime()) } },
       { order: -652, system: { name: 'training', run: () => this.stepTraining() } },
+      { order: -651, system: { name: 'tutorial', run: () => this.phase9.step() } },
       { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
       // Phase 1-3 compatibility mode (`indoorScenes: false`, older tests) leaves the tactical awareness off: it draws on the npc streams.
       { order: -640, system: { name: 'tactical', run: (_world, dt) => { if (ctx.indoorScenes !== false) this.tactical.step(dt, this.syncCadTime()); } } },
@@ -2021,6 +2038,7 @@ export class GameSession {
       gear: this.phase7.gear.serialize(),
       fleet: this.phase7.fleet.serialize((eid) => this.vehicleList.findIndex((v) => v.eid === eid)),
       ...this.phase8.serialize(),
+      ...this.phase9.serialize(),
     };
   }
 
@@ -2029,6 +2047,7 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.phase9.dispose();
     this.phase8.dispose();
     this.phase7.dispose();
     this.phase6.dispose();
@@ -3594,11 +3613,12 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
     session.startPhase6();
     session.populateTraffic();
     // Phase 4 (design §20): the shift starts in the station's locker room (the station's interior is resident at once).
-    if (options.inStation !== false) session.beginShiftInStation();
+    if (options.inStation ?? options.tutorial === undefined) session.beginShiftInStation();
     else session.station.restore(migratedStationSave(session.officer.badge));
     session.phase7.syncStationVest(session.station);
     if (options.jurisdiction !== undefined) session.phase5.setJurisdiction(options.jurisdiction);
     session.phase8.begin(options.mode ?? 'freePatrol', options.career ?? null);
+    if (options.tutorial !== undefined && !session.phase9.start(options.tutorial)) throw new Error(`Unknown tutorial '${options.tutorial}'`);
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {
     session.dispose();
@@ -3689,6 +3709,8 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     session.radio.restore(data.radio);
     // Phase 8 (design §16): career, world and mode last (the mode re-applies the dispatcher flags).
     session.phase8.restore(data);
+    // Phase 9 (design §15): the tutorial block (a runner exists when the block is not null).
+    session.phase9.restore(data.tutorial);
     // Every body was just created with its saved state, so reading them back gives exactly that state.
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {

@@ -17,6 +17,10 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
     "smoke": "node scripts/smoke.mjs",
+    "e2e": "node scripts/e2e.mjs",
+    "perf": "node scripts/perf.mjs",
+    "perf:node": "PATROL_LONG=1 vitest run test/perf/longShift.test.ts test/perf/memory.test.ts",
+    "test:long": "PATROL_LONG=1 vitest run test/perf",
     "server": "node server/main.ts"
   },
   "dependencies": {

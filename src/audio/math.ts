@@ -8,6 +8,10 @@ export interface SirenEmitter {
   x: number;
   y: number;
   z: number;
+  /** Velocity (m/s), used for Doppler. */
+  vx: number;
+  vy: number;
+  vz: number;
   /** Running siren tone, or null. */
   tone: SirenToneName | null;
   /** Air horn held. */
@@ -115,4 +119,49 @@ export function chooseNearest(
     out[j] = i;
   }
   return filled;
+}
+
+/**
+ * Doppler frequency ratio f'/f for a source and a listener (world m, m/s). Classic formula with `c` = speed of sound:
+ * ratio = (c + vL) / (c - vS), vL = listener velocity component toward the source, vS = source velocity component
+ * toward the listener; clamped to [min, max]; 1 when the distance < 0.01 m. A source at or beyond Mach 1 toward
+ * the listener gives `max`.
+ */
+export function dopplerRatio(
+  sx: number,
+  sy: number,
+  sz: number,
+  svx: number,
+  svy: number,
+  svz: number,
+  lx: number,
+  ly: number,
+  lz: number,
+  lvx: number,
+  lvy: number,
+  lvz: number,
+  c = 343,
+  min = 0.5,
+  max = 2,
+): number {
+  const dx = lx - sx;
+  const dy = ly - sy;
+  const dz = lz - sz;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (!(dist >= 0.01)) return 1;
+  const inv = 1 / dist;
+  // Unit vector from the source to the listener.
+  const ux = dx * inv;
+  const uy = dy * inv;
+  const uz = dz * inv;
+  const vS = svx * ux + svy * uy + svz * uz;
+  const vL = -(lvx * ux + lvy * uy + lvz * uz);
+  const denom = c - vS;
+  const ratio = denom > 0 ? (c + vL) / denom : max;
+  return ratio < min ? min : ratio > max ? max : ratio;
+}
+
+/** Pitch shift in cents of a frequency ratio: 1200 * log2(ratio). */
+export function ratioToCents(ratio: number): number {
+  return 1200 * Math.log2(ratio);
 }

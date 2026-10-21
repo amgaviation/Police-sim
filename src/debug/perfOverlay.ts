@@ -1,3 +1,4 @@
+import type { SystemProfiler } from './profiler';
 import { RollingStats, formatBytes, topEntries } from './stats';
 
 /** Per-frame numbers fed to the overlay; the caller may reuse one object. */
@@ -33,6 +34,8 @@ interface MemoryInfo {
 }
 
 const TOP_SYSTEMS = 5;
+/** The profiler lines are rebuilt this often (2 Hz): `report()` allocates. */
+const PROFILER_REFRESH_MS = 500;
 
 const PANEL_STYLE = [
   'position:fixed',
@@ -80,6 +83,9 @@ export class PerfOverlay {
   };
   private lastRender = -Infinity;
   private shown: boolean;
+  private profiler: SystemProfiler | null = null;
+  private profilerLines: string[] = [];
+  private profilerAt = -Infinity;
 
   constructor(options: PerfOverlayOptions = {}) {
     const windowSize = options.windowSize ?? 60;
@@ -114,6 +120,13 @@ export class PerfOverlay {
     if (visible) this.lastRender = -Infinity;
   }
 
+  /** Attaches the profiler whose top systems by mean (mean / p95 ms) replace the last-run list; null detaches. */
+  setProfiler(profiler: SystemProfiler | null): void {
+    this.profiler = profiler;
+    this.profilerLines = [];
+    this.profilerAt = -Infinity;
+  }
+
   /** Adds or replaces an extra line (e.g. `setExtra('worker ping', '1.2 ms')`). */
   setExtra(key: string, value: string | number | undefined): void {
     if (value === undefined) this.extras.delete(key);
@@ -142,7 +155,11 @@ export class PerfOverlay {
       `draw calls ${String(s.drawCalls).padStart(6)}  tris ${String(s.triangles)}`,
       `entities   ${String(s.entities).padStart(6)}`,
     ];
-    if (s.systemTimings && s.systemTimings.size > 0) {
+    const profiled = this.profiler ? this.profilerSection() : null;
+    if (profiled && profiled.length > 0) {
+      lines.push('systems  mean / p95 ms');
+      for (const line of profiled) lines.push(line);
+    } else if (s.systemTimings && s.systemTimings.size > 0) {
       lines.push('systems');
       for (const entry of topEntries(s.systemTimings, TOP_SYSTEMS)) {
         lines.push(`  ${entry.name.padEnd(18).slice(0, 18)} ${entry.ms.toFixed(3).padStart(7)}`);
@@ -152,6 +169,20 @@ export class PerfOverlay {
     if (heap) lines.push(`js heap    ${formatBytes(heap.usedJSHeapSize)}`);
     for (const [key, value] of this.extras) lines.push(`${key.padEnd(10).slice(0, 10)} ${value}`);
     return lines.join('\n');
+  }
+
+  /** Top systems by mean from the profiler, rebuilt at most every `PROFILER_REFRESH_MS`. */
+  private profilerSection(): string[] {
+    const profiler = this.profiler;
+    if (!profiler) return this.profilerLines;
+    const t = this.now();
+    if (t - this.profilerAt < PROFILER_REFRESH_MS) return this.profilerLines;
+    this.profilerAt = t;
+    const rows = profiler.report().systems.slice().sort((a, b) => b.meanMs - a.meanMs || a.name.localeCompare(b.name));
+    this.profilerLines = rows
+      .slice(0, TOP_SYSTEMS)
+      .map((r) => `  ${r.name.padEnd(18).slice(0, 18)} ${r.meanMs.toFixed(3).padStart(7)} / ${r.p95Ms.toFixed(3)}`);
+    return this.profilerLines;
   }
 
   dispose(): void {

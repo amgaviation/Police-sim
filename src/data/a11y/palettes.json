@@ -3,7 +3,7 @@
   "modes": {
     "none": {
       "unit": "#4f8cff",
-      "unitBusy": "#2a4f8f",
+      "unitBusy": "#3d68b8",
       "emergency": "#ff3b3b",
       "suspect": "#ff3b3b",
       "pursuit": "#ff7a1a",
@@ -21,7 +21,7 @@
     },
     "protanopia": {
       "unit": "#0072b2",
-      "unitBusy": "#004466",
+      "unitBusy": "#5b7fa6",
       "emergency": "#ffb000",
       "suspect": "#e69f00",
       "pursuit": "#f0e442",
@@ -39,7 +39,7 @@
     },
     "deuteranopia": {
       "unit": "#0072b2",
-      "unitBusy": "#004466",
+      "unitBusy": "#5b7fa6",
       "emergency": "#ffb000",
       "suspect": "#e69f00",
       "pursuit": "#f0e442",
@@ -57,7 +57,7 @@
     },
     "tritanopia": {
       "unit": "#4f8cff",
-      "unitBusy": "#2a4f8f",
+      "unitBusy": "#3d68b8",
       "emergency": "#ff3b3b",
       "suspect": "#ff3b8a",
       "pursuit": "#ff7a1a",

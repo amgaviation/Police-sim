@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CAREER_CONFIG, type CareerView, type OffDutyActivity } from '../../src/career';
 import { ApartmentScreen, activityHint, apartmentModel, clampActivityHours, type ApartmentHost } from '../../src/ui/career/apartment';
-import { offDutyHarness, viewOf } from './helpers';
+import { key, offDutyHarness, viewOf } from './helpers';
 
 describe('apartmentModel', () => {
   it('shows the hours left, the next shift, the bars and enabled activities when off duty', () => {
@@ -132,7 +132,7 @@ describe('ApartmentScreen (headless)', () => {
     expect(calls).toEqual([]);
   });
 
-  it('Report for duty goes to the host; a refusal stays on screen and Escape is not consumed', () => {
+  it('Report for duty goes to the host; a refusal stays on screen; Escape leaves the apartment', () => {
     const { screen, calls, setReport } = make();
     screen.open();
     screen.reportForDuty();
@@ -140,8 +140,11 @@ describe('ApartmentScreen (headless)', () => {
     screen.reportForDuty();
     expect(calls).toEqual(['report', 'report']);
     expect(screen.isOpen).toBe(true);
-    expect(screen.onKeyDown()).toBe(false);
+    expect(screen.onKeyDown(key('Enter'))).toBe(false);
     expect(screen.model.canReport).toBe(true);
+    expect(screen.onKeyDown(key('Escape'))).toBe(true);
+    expect(screen.isOpen).toBe(false);
+    expect(screen.onKeyDown(key('Escape'))).toBe(false);
   });
 
   it('update() is a no-op without a DOM', () => {

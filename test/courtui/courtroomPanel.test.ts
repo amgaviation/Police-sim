@@ -105,6 +105,13 @@ describe('reduceCourtKey', () => {
     expect(redo.state.index).toBe(1);
   });
 
+  it('questions: Escape steps back like Backspace, and does nothing on the first question (the testimony must be finished)', () => {
+    const v = view();
+    const back = run(v, ['Enter', '1', '2', 'Escape']);
+    expect(back.state).toEqual({ phase: 'questions', index: 1, answers: ['yes', 'no', null] });
+    expect(back.emits).toEqual([]);
+  });
+
   it('questions: Backspace on the first question and Escape do nothing but are consumed (the testimony must be finished)', () => {
     const v = view();
     const r = run(v, ['Enter', 'Backspace', 'Escape']);
@@ -140,10 +147,10 @@ describe('reduceCourtKey', () => {
     expect(redo.state).toEqual({ phase: 'review', index: 2, answers: ['yes', 'no', 'yes'] });
   });
 
-  it('review: Escape is consumed and does nothing; a state with an unanswered question returns to it instead of submitting', () => {
+  it('review: Escape (the pad\'s B) goes back like Backspace and never submits; a state with an unanswered question returns to it instead of submitting', () => {
     const v = view();
     const r = run(v, ['Enter', '1', '2', '3', 'Escape']);
-    expect(r.state.phase).toBe('review');
+    expect(r.state).toEqual({ phase: 'questions', index: 2, answers: ['yes', 'no', 'dontRecall'] });
     expect(r.consumed[4]).toBe(true);
     expect(r.emits).toEqual([]);
     const odd: CourtroomState = { phase: 'review', index: 2, answers: ['yes', null, 'no'] };
@@ -215,6 +222,15 @@ describe('CourtroomPanel (headless)', () => {
     expect(b.panel.onKeyDown(fakeKey('Escape'))).toBe(true);
     expect(b.panel.isOpen).toBe(true);
     expect(b.submits).toEqual([]);
+  });
+
+  it('Enter on a focused button is left to the button (its click answers), Enter elsewhere keeps its meaning', () => {
+    const { panel: p } = panel();
+    p.open(view());
+    expect(p.onKeyDown(fakeKey('Enter', { target: { tagName: 'BUTTON' } }))).toBe(false);
+    expect(p.state.phase).toBe('motions');
+    expect(p.onKeyDown(fakeKey('Enter', { target: { tagName: 'DIV' } }))).toBe(true);
+    expect(p.state.phase).toBe('questions');
   });
 
   it('a held key does not answer several questions and modifier chords pass through', () => {

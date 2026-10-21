@@ -41,6 +41,7 @@ export {
 export {
   PRIORITY_COLORS,
   SEVERITY_COLORS,
+  SEVERITY_MARKS,
   callStripText,
   clampPriority,
   createCallStripText,
@@ -92,7 +93,9 @@ export {
 } from './phase6';
 export {
   LEGAL_COLORS,
+  LEGAL_MARKS,
   TRUST_COLORS,
+  TRUST_MARKS,
   TRUST_LOW,
   TRUST_MID,
   camChipState,
@@ -130,6 +133,7 @@ export {
   shiftLine,
   vignetteOpacity,
   wellbeingChip,
+  CHIP_MARKS,
   type ChipSeverity,
   type HudCareer,
 } from './phase8';

@@ -26,7 +26,7 @@ export const LAYOUT_NAMES: Readonly<Record<OneHandedLayout, string>> = {
 
 /** Actions a hand has no key for in its preset (see the header): the layout leaves them unbound. */
 export const UNBOUND_BY_DESIGN: Readonly<Record<'left' | 'right', readonly ActionId[]>> = {
-  left: ['perf.toggle', 'map.toggle', 'radio.channelPrev', 'radio.channelNext', 'radio.scan', 'fleet.menu'],
+  left: ['perf.toggle', 'map.toggle', 'radio.cursorPrev', 'radio.cursorNext', 'radio.cursorSelect', 'radio.channelPrev', 'radio.channelNext', 'radio.scan', 'fleet.menu'],
   right: [],
 };
 

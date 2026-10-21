@@ -1,6 +1,7 @@
 import { SIREN_DATA, type SirenData, type SirenToneName } from './data';
-import { chooseNearest, type SirenEmitter } from './math';
+import { chooseNearest, dopplerRatio, ratioToCents, type SirenEmitter } from './math';
 import { glide, setNodePosition, softClipCurve, type ListenerState } from './nodes';
+import { VEHICLE_AUDIO } from './vehicleData';
 
 /**
  * Positional synthesized siren voices (design §10.2). The whole node graph is built once
@@ -20,6 +21,8 @@ const RETUNE_TAU = 0.02;
 const RELEASE_TAU = 0.08;
 /** Air horn gate level (two oscillators summed). */
 const HORN_LEVEL = 0.5;
+/** A Doppler detune is rewritten only when it moved by more than this (cents). */
+const DETUNE_EPSILON_CENTS = 0.5;
 
 interface Voice {
   readonly osc: OscillatorNode;
@@ -37,6 +40,8 @@ interface Voice {
   manual: boolean;
   horn: boolean;
   inCabin: boolean;
+  /** Doppler detune last written to the oscillators (cents). */
+  cents: number;
 }
 
 export interface AudioStats {
@@ -44,6 +49,21 @@ export interface AudioStats {
   voices: number;
   /** Voices currently assigned to an emitter. */
   active: number;
+  /** 1 while the driven vehicle's engine voice is audible. */
+  engine: 0 | 1;
+  /** Traffic engine voices currently assigned to a car. */
+  traffic: number;
+  /** Ambience layers with a non-zero target gain. */
+  ambienceLayers: number;
+  /** UI tones scheduled and not yet ended. */
+  uiPlaying: number;
+  /** Radio chatter bursts currently on the air. */
+  chatter: number;
+}
+
+/** Fresh zeroed stats (shared by the engine and every audio sub-module). */
+export function createAudioStats(): AudioStats {
+  return { voices: 0, active: 0, engine: 0, traffic: 0, ambienceLayers: 0, uiPlaying: 0, chatter: 0 };
 }
 
 export type SirenTestKind = SirenToneName | 'horn';
@@ -52,7 +72,7 @@ export class SirenBank {
   private readonly data: SirenData;
   private readonly stats: AudioStats;
   private ctx: BaseAudioContext | null = null;
-  private listener: ListenerState = { x: 0, y: 0, z: 0 };
+  private listener: ListenerState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
   private readonly voices: Voice[] = [];
   private selected = new Int32Array(0);
   private claimed = new Uint8Array(0);
@@ -62,6 +82,9 @@ export class SirenBank {
     x: 0,
     y: 0,
     z: 0,
+    vx: 0,
+    vy: 0,
+    vz: 0,
     tone: null,
     horn: false,
     manual: false,
@@ -69,7 +92,7 @@ export class SirenBank {
   };
   private testUntil = 0;
 
-  constructor(stats: AudioStats = { voices: 0, active: 0 }, data: SirenData = SIREN_DATA) {
+  constructor(stats: AudioStats = createAudioStats(), data: SirenData = SIREN_DATA) {
     this.stats = stats;
     this.data = data;
   }
@@ -144,6 +167,7 @@ export class SirenBank {
         manual: false,
         horn: false,
         inCabin: false,
+        cents: 0,
       });
     }
     const n = this.voices.length;
@@ -302,11 +326,26 @@ export class SirenBank {
       glide(voice.hornGate.gain, e.horn ? HORN_LEVEL : 0, now, (e.horn ? d.horn.attackS : d.horn.releaseS) / 3);
     }
 
+    const l = this.listener;
+    let cents = 0;
     if (e.inCabin) {
-      const l = this.listener;
       setNodePosition(voice.panner, l.x, l.y, l.z);
     } else {
       setNodePosition(voice.panner, e.x, e.y, e.z);
+      const va = VEHICLE_AUDIO;
+      cents = ratioToCents(
+        dopplerRatio(e.x, e.y, e.z, e.vx, e.vy, e.vz, l.x, l.y, l.z, l.vx, l.vy, l.vz, va.speedOfSound, va.dopplerClamp[0], va.dopplerClamp[1]),
+      );
+    }
+    if (fresh || Math.abs(cents - voice.cents) > DETUNE_EPSILON_CENTS) {
+      voice.cents = cents;
+      const tau = VEHICLE_AUDIO.dopplerTau;
+      glide(voice.osc.detune, cents, now, tau);
+      const horns = voice.horns;
+      for (let i = 0; i < horns.length; i++) {
+        const h = horns[i];
+        if (h) glide(h.detune, cents, now, tau);
+      }
     }
   }
 
@@ -325,5 +364,6 @@ export class SirenBank {
     voice.manual = false;
     voice.horn = false;
     voice.inCabin = false;
+    voice.cents = 0;
   }
 }

@@ -166,6 +166,11 @@ export class ChunkStreamer {
     this.materials.setLighting(nightFactor, streetlightsOn);
   }
 
+  /** Forwards the wet sheen (`weather.wetness`, `weather.snowCover`) to the shared ground and marking materials. */
+  setWetness(wetness: number, snowCover: number): void {
+    this.materials.setWetness(wetness, snowCover);
+  }
+
   /** Toggles shadow casting of LOD0 buildings and props. */
   setShadows(enabled: boolean): void {
     this.shadows = enabled;

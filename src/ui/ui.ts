@@ -50,6 +50,80 @@ export function clearChildren(node: Node): void {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
+/**
+ * Interface sound kinds (design §4.1; the audio module's `UI_SOUND_KINDS` lists the same literals, the two modules do
+ * not import each other).
+ */
+export type UiSoundKind = 'move' | 'select' | 'back' | 'open' | 'close' | 'error' | 'notify';
+
+export type UiSoundListener = (kind: UiSoundKind) => void;
+
+/** Fan-out of UI sound requests to listeners (the audio engine). Pure: no DOM. */
+export class UiSoundEmitter {
+  private readonly listeners = new Set<UiSoundListener>();
+
+  /** Subscribes `listener`; returns the unsubscribe. */
+  on(listener: UiSoundListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  emit(kind: UiSoundKind): void {
+    for (const listener of this.listeners) listener(kind);
+  }
+
+  clear(): void {
+    this.listeners.clear();
+  }
+}
+
+/**
+ * Index of the next (dir 1) or previous (-1) focusable out of `count`, wrapping. `current` is the index of the element
+ * that has focus, or -1 / out of range when none of them does (then 1 gives the first and -1 the last). -1 for an
+ * empty list.
+ */
+export function nextFocusIndex(count: number, current: number, dir: 1 | -1): number {
+  if (count <= 0) return -1;
+  if (!Number.isInteger(current) || current < 0 || current >= count) return dir === 1 ? 0 : count - 1;
+  return (current + dir + count) % count;
+}
+
+/** The keys UIRoot turns into focus moves when the top menu does not handle them. */
+export function arrowDirection(key: string): 1 | -1 | 0 {
+  if (key === 'ArrowDown' || key === 'ArrowRight') return 1;
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return -1;
+  return 0;
+}
+
+const FOCUSABLE = 'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'button', 'submit', 'reset', 'image', 'file', 'color']);
+
+/** True for targets that use the arrow keys themselves: text-like inputs, textareas, selects, range sliders, editable text. */
+export function usesArrowKeys(target: unknown): boolean {
+  if (typeof target !== 'object' || target === null) return false;
+  const t = target as { tagName?: unknown; type?: unknown; isContentEditable?: unknown };
+  const tag = typeof t.tagName === 'string' ? t.tagName.toUpperCase() : '';
+  if (tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true) return true;
+  if (tag !== 'INPUT') return false;
+  const type = typeof t.type === 'string' ? t.type.toLowerCase() : 'text';
+  return type === 'range' || !NON_TEXT_INPUTS.has(type);
+}
+
+/** Visible, enabled focusable descendants of `root` in document order. */
+export function focusableElements(root: ParentNode): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const node of root.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    if ((node as HTMLButtonElement).disabled === true || node.hidden) continue;
+    if ((node as HTMLInputElement).type === 'hidden') continue;
+    if (node.closest('[hidden], [inert]') !== null) continue;
+    if (node.getClientRects().length === 0) continue;
+    out.push(node);
+  }
+  return out;
+}
+
 /** A screen managed by the menu stack. Only the top menu is interactive. */
 export interface Menu {
   readonly id: string;
@@ -77,6 +151,7 @@ export class UIRoot {
   private readonly menus: HTMLElement;
   private readonly stack: Menu[] = [];
   private readonly listeners = new Set<MenuStackListener>();
+  private readonly sounds = new UiSoundEmitter();
   // Keys go to the top menu whatever has focus (a rebuilt or removed control
   // leaves focus on <body>), except keys typed into the HUD (debug console).
   // Propagation is left intact so the InputManager (window listener) still
@@ -84,8 +159,25 @@ export class UIRoot {
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     const top = this.top;
     if (!top) return;
-    if (event.target instanceof Node && this.hud.contains(event.target)) return;
-    if (top.onKeyDown?.(event)) event.preventDefault();
+    const from = event.target as Node | null;
+    if (typeof from === 'object' && from !== null && this.hud.contains(from)) return;
+    if (top.onKeyDown?.(event)) {
+      event.preventDefault();
+      return;
+    }
+    // Phase 9: arrows move focus over the real controls of menus that do not handle them (text fields, selects and
+    // sliders keep their own arrows).
+    const dir = arrowDirection(event.key);
+    if (dir === 0 || event.altKey || event.ctrlKey || event.metaKey || usesArrowKeys(event.target)) return;
+    if (this.moveFocus(dir)) event.preventDefault();
+  };
+
+  // 'select' sound for clicks on controls inside the menu layer.
+  private readonly onClick = (event: Event): void => {
+    const target = event.target as Partial<Element> | null;
+    if (typeof target?.closest !== 'function') return;
+    const hit = target.closest('button, [role="button"], input[type="checkbox"], input[type="radio"], select');
+    if (hit !== null) this.sounds.emit('select');
   };
 
   constructor(root?: HTMLElement) {
@@ -96,6 +188,7 @@ export class UIRoot {
     this.menus = el('div', { class: 'ui-menus' });
     this.root.append(this.hud, this.menus);
     this.root.ownerDocument.addEventListener('keydown', this.onKeyDown);
+    this.menus.addEventListener('click', this.onClick);
   }
 
   get top(): Menu | undefined {
@@ -124,6 +217,7 @@ export class UIRoot {
     this.menus.appendChild(this.layerFor(menu));
     this.refresh();
     menu.onShow?.();
+    this.sounds.emit('open');
     this.emit();
   }
 
@@ -139,6 +233,7 @@ export class UIRoot {
     this.layerFor(target).remove();
     this.refresh();
     if (wasTop) this.top?.onShow?.();
+    this.sounds.emit('close');
     this.emit();
     return target;
   }
@@ -179,6 +274,36 @@ export class UIRoot {
   }
 
   /**
+   * Notified for UI sounds: 'open' on push, 'close' on pop, 'move' on a focus move made by `moveFocus`, 'select' on a
+   * click on a button / checkbox / radio / select inside the menu layer, and whatever `sound()` is asked for. Returns
+   * the unsubscribe.
+   */
+  onUiSound(listener: UiSoundListener): () => void {
+    return this.sounds.on(listener);
+  }
+
+  /** Plays a sound through the listeners (other modules: `ui.sound('error')`). */
+  sound(kind: UiSoundKind): void {
+    this.sounds.emit(kind);
+  }
+
+  /**
+   * Moves focus inside the top menu to the next (dir 1) / previous (-1) visible, enabled focusable element in document
+   * order, wrapping. False without a top menu or focusable.
+   */
+  moveFocus(dir: 1 | -1): boolean {
+    const top = this.top;
+    if (!top) return false;
+    const list = focusableElements(top.element);
+    const active = top.element.ownerDocument.activeElement;
+    const next = list[nextFocusIndex(list.length, active === null ? -1 : list.indexOf(active as HTMLElement), dir)];
+    if (!next) return false;
+    next.focus();
+    this.sounds.emit('move');
+    return true;
+  }
+
+  /**
    * Mirrors accessibility settings onto the document: `--text-scale`,
    * `data-colorblind` and `data-reduced-flash`. Returns an unsubscribe.
    */
@@ -199,9 +324,11 @@ export class UIRoot {
   dispose(): void {
     this.closeAll();
     this.root.ownerDocument.removeEventListener('keydown', this.onKeyDown);
+    this.menus.removeEventListener('click', this.onClick);
     this.hud.remove();
     this.menus.remove();
     this.listeners.clear();
+    this.sounds.clear();
   }
 
   private readonly layers = new WeakMap<Menu, HTMLElement>();

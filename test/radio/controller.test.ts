@@ -117,6 +117,13 @@ describe('RadioController', () => {
     expect(radio.sent).toEqual([{ req: { kind: 'status', status: 'available' }, via: 'radio' }]);
   });
 
+  it('exposes the menu cursor (-1 closed, 0 on open): details in cursor.test.ts', () => {
+    const { input, frame } = setup();
+    expect(frame().cursor).toBe(-1);
+    input.tap('radio.menu');
+    expect(frame().cursor).toBe(0);
+  });
+
   it('menu key backs out of a submenu, then closes', () => {
     const { input, frame } = setup();
     input.tap('radio.menu');

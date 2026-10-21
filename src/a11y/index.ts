@@ -1,4 +1,5 @@
 export { PHASE8_ACTIONS } from './audit';
+export { contrastRatio, parseHex, relativeLuminance } from './contrast';
 export { MAX_FLASH_HZ, isReducedFlash, pulse } from './flash';
 export {
   LAYOUT_NAMES,

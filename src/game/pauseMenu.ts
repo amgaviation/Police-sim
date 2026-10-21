@@ -11,6 +11,12 @@ export interface PauseMenuCallbacks {
   openEditor?(): void;
   /** False hides the scenario editor button (a career or co-op session); default: shown. */
   editorAvailable?(): boolean;
+  /** Phase 9: a tutorial is running (shows its two buttons); default: no tutorial. */
+  tutorialActive?(): boolean;
+  /** Phase 9: skip the current tutorial step. */
+  skipTutorialStep?(): void;
+  /** Phase 9: end the tutorial. */
+  endTutorial?(): void;
 }
 
 /** In-game pause screen. Escape is swallowed here; the app toggles it through the `menu.toggle` action. */
@@ -20,12 +26,17 @@ export class PauseMenu implements Menu {
   private readonly ui: UIRoot;
   private readonly status: HTMLElement;
   private readonly editorButton: HTMLElement | null;
+  private readonly tutorialButtons: HTMLElement[];
   private readonly callbacks: PauseMenuCallbacks;
 
   constructor(ui: UIRoot, callbacks: PauseMenuCallbacks) {
     this.ui = ui;
     this.callbacks = callbacks;
     this.editorButton = callbacks.openEditor ? el('button', { onclick: () => callbacks.openEditor?.() }, 'Scenario editor') : null;
+    this.tutorialButtons = [
+      ...(callbacks.skipTutorialStep ? [el('button', { onclick: () => callbacks.skipTutorialStep?.() }, 'Skip tutorial step')] : []),
+      ...(callbacks.endTutorial ? [el('button', { onclick: () => callbacks.endTutorial?.() }, 'End tutorial')] : []),
+    ];
     this.status = el('p', { class: 'hint' });
     this.element = el(
       'div',
@@ -39,6 +50,7 @@ export class PauseMenu implements Menu {
         el('button', { onclick: () => callbacks.openSettings() }, 'Settings'),
         ...(callbacks.openCareer ? [el('button', { onclick: () => callbacks.openCareer?.() }, 'Career / schedule')] : []),
         ...(this.editorButton ? [this.editorButton] : []),
+        ...this.tutorialButtons,
         el('button', { class: 'danger', onclick: () => callbacks.quitToTitle() }, 'Quit to title'),
       ),
       this.status,
@@ -58,6 +70,8 @@ export class PauseMenu implements Menu {
   open(): void {
     this.setStatus('');
     if (this.editorButton) this.editorButton.hidden = this.callbacks.editorAvailable?.() === false;
+    const tutorial = this.callbacks.tutorialActive?.() === true;
+    for (const b of this.tutorialButtons) b.hidden = !tutorial;
     this.ui.push(this);
   }
 

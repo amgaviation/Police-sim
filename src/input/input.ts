@@ -249,6 +249,8 @@ export class InputManager {
   /** Shared keys taken by the radio menu until they are released. */
   private readonly claimed = new Set<string>();
   private readonly justPressed = new Set<string>();
+  /** Gamepad buttons that went down this frame (edge of the polled values). */
+  private readonly justPressedPad = new Set<number>();
   private readonly dropped: { id: ActionId; key: string }[] = [];
   private droppedCount = 0;
 
@@ -452,6 +454,8 @@ export class InputManager {
     };
     this.justPressed.clear();
     for (const code of this.tappedKeys) this.justPressed.add(`keyboard:${code}`);
+    this.justPressedPad.clear();
+    for (let i = 0; i < this.gamepadButtons.length; i++) if (this.padPressed(i)) this.justPressedPad.add(i);
     this.tappedKeys.clear();
     this.tappedMouseButtons.clear();
 
@@ -495,7 +499,7 @@ export class InputManager {
     const byKey = new Map<string, Set<ActionId>>();
     for (const id of ACTION_IDS) {
       for (const b of this.bindings[id]) {
-        if (!isArbitrated(b)) continue;
+        if (!isArbitrated(b) && !isPadButton(b)) continue;
         const key = `${b.device}:${b.code}`;
         const set = byKey.get(key) ?? new Set<ActionId>();
         set.add(id);
@@ -506,8 +510,12 @@ export class InputManager {
     for (const [key, set] of byKey) {
       if (set.size < 2) continue;
       const code = key.slice(key.indexOf(':') + 1);
+      const ids = [...set];
+      const pad = key.startsWith('gamepad:') ? Number(code.slice('GamepadButton'.length)) : -1;
+      // Gamepad buttons are arbitrated only where a radio-menu action wants them (D-pad / A move the cursor).
+      if (pad >= 0 && !ids.some((id) => isModal(id))) continue;
       const mouse = key.startsWith('mouse:') ? Number(code.slice('MouseButton'.length)) : -1;
-      this.shared.push({ key, code, mouse, ids: [...set] });
+      this.shared.push({ key, code, mouse, pad, ids });
     }
   }
 
@@ -523,13 +531,18 @@ export class InputManager {
     const ctx = this.context;
     this.droppedCount = 0;
     for (const entry of this.shared) {
-      const held = entry.mouse >= 0 ? this.raw.mouseButtons.has(entry.mouse) : this.raw.keys.has(entry.code);
+      const held =
+        entry.pad >= 0
+          ? (this.gamepadButtons[entry.pad] ?? 0) >= BUTTON_THRESHOLD
+          : entry.mouse >= 0
+            ? this.raw.mouseButtons.has(entry.mouse)
+            : this.raw.keys.has(entry.code);
       if (!held) {
         this.claimed.delete(entry.key);
         continue;
       }
       let claimed = this.claimed.has(entry.key);
-      if (!claimed && ctx.radioMenu && this.justPressed.has(entry.key) && entry.ids.some((id) => isModal(id))) {
+      if (!claimed && ctx.radioMenu && (entry.pad >= 0 ? this.justPressedPad.has(entry.pad) : this.justPressed.has(entry.key)) && entry.ids.some((id) => isModal(id))) {
         this.claimed.add(entry.key);
         claimed = true;
       }
@@ -563,7 +576,7 @@ export class InputManager {
   private valueWithout(id: ActionId): number {
     let sum = 0;
     for (const b of this.bindings[id]) {
-      if (isArbitrated(b) && this.isDropped(id, `${b.device}:${b.code}`)) continue;
+      if ((isArbitrated(b) || isPadButton(b)) && this.isDropped(id, `${b.device}:${b.code}`)) continue;
       sum += readBinding(b, this.raw, this.deadzoneValue);
     }
     return actionKind(id) === 'button' ? Math.max(0, Math.min(1, sum)) : clamp(sum);
@@ -636,6 +649,21 @@ export class InputManager {
   /** True only on the frame the action went up. */
   wasReleased(action: ActionId): boolean {
     return this.released.has(action);
+  }
+
+  /** Raw value 0..1 of gamepad button `i` this frame (0 without a pad). */
+  padButton(i: number): number {
+    return this.gamepadButtons[i] ?? 0;
+  }
+
+  /** True on the frame gamepad button `i` went down (it was below the button threshold last frame). */
+  padPressed(i: number): boolean {
+    return (this.gamepadButtons[i] ?? 0) >= BUTTON_THRESHOLD && (this.prevGamepadButtons[i] ?? 0) < BUTTON_THRESHOLD;
+  }
+
+  /** Raw axis value -1..1 of gamepad axis `i` (before the deadzone; 0 without a pad). */
+  padAxis(i: number): number {
+    return this.gamepadAxes[i] ?? 0;
   }
 
   /** Resolved value in -1..1 (buttons read 0 or ±1 unless bound to an analog input). */
@@ -784,7 +812,14 @@ interface SharedKey {
   readonly code: string;
   /** Mouse button index, -1 for a keyboard key. */
   readonly mouse: number;
+  /** Gamepad button index, -1 for a keyboard key or mouse button. */
+  readonly pad: number;
   readonly ids: ActionId[];
+}
+
+/** A gamepad button binding (axes are never arbitrated). */
+function isPadButton(b: Binding): boolean {
+  return b.device === 'gamepad' && b.code.startsWith('GamepadButton');
 }
 
 function clampDeadzone(value: number): number {

@@ -1,20 +1,29 @@
 import { log } from '../core/log';
+import { AmbienceBed } from './ambience';
 import { SIREN_DATA, type SirenData } from './data';
 import { fillNoise, glide, safeDisconnect, setListenerPose, swallow, type ListenerState } from './nodes';
 import { RadioFx } from './radioFx';
-import { SirenBank, type AudioStats } from './sirens';
+import { SirenBank, createAudioStats, type AudioStats } from './sirens';
+import { UiSounds } from './uiSounds';
+import { VehicleAudio } from './vehicleAudio';
 
 /**
- * The game's single Web Audio context (design §10.1): created lazily by `unlock()` from a
- * user gesture, graph `master` <- `sfx` bus (sirens) + `radio` bus (radio FX). Without an
- * AudioContext constructor (node, old browsers) `available` is false and every method is a
- * no-op. No method ever throws.
+ * The game's single Web Audio context (design §10.1, phase 9 §5.1): created lazily by `unlock()` from a
+ * user gesture, graph `destination <- master <- { sfx, radio, ambience, ui }`. `sfx` carries sirens, engines and
+ * tires; `radio` the radio FX and chatter; `ambience` the beds; `ui` the UI sounds. Without an AudioContext
+ * constructor (node, old browsers) `available` is false and every method is a no-op. No method ever throws.
  */
+
+/** The five volume buses, in graph order. */
+export const AUDIO_BUSES = ['master', 'sfx', 'radio', 'ambience', 'ui'] as const;
+export type AudioBusName = (typeof AUDIO_BUSES)[number];
 
 export interface AudioVolumes {
   master: number;
   sfx: number;
   radio: number;
+  ambience: number;
+  ui: number;
 }
 
 export interface AudioEngineOptions {
@@ -26,6 +35,8 @@ export interface AudioEngineOptions {
 
 /** Volume change smoothing (s). */
 const VOLUME_TAU = 0.015;
+/** Pause / resume fade of the world buses (s). */
+const PAUSE_TAU = 0.03;
 /** Seed of the shared 1 s noise buffer. */
 const NOISE_SEED = 0x5eed1e55;
 
@@ -42,23 +53,27 @@ function clamp01(v: number): number {
 }
 
 export class AudioEngine {
-  readonly stats: AudioStats = { voices: 0, active: 0 };
+  readonly stats: AudioStats = createAudioStats();
   readonly sirens: SirenBank;
   readonly radio: RadioFx;
+  readonly vehicles: VehicleAudio;
+  readonly ambience: AmbienceBed;
+  readonly ui: UiSounds;
   private factory: (() => AudioContext) | null;
   private ctx: AudioContext | null = null;
-  private master: GainNode | null = null;
-  private sfx: GainNode | null = null;
-  private radioBus: GainNode | null = null;
-  private readonly volumes: AudioVolumes = { master: 0.8, sfx: 1, radio: 1 };
-  private readonly listener: ListenerState = { x: 0, y: 0, z: 0 };
+  private readonly buses: Partial<Record<AudioBusName, GainNode>> = {};
+  private readonly volumes: AudioVolumes = { master: 0.8, sfx: 1, radio: 1, ambience: 0.7, ui: 0.6 };
+  private readonly listener: ListenerState = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
   private paused = false;
   private disposed = false;
 
   constructor(options: AudioEngineOptions = {}) {
     this.factory = options.contextFactory !== undefined ? options.contextFactory : browserContextFactory();
     this.sirens = new SirenBank(this.stats, options.data ?? SIREN_DATA);
-    this.radio = new RadioFx();
+    this.radio = new RadioFx(this.stats);
+    this.vehicles = new VehicleAudio(this.stats);
+    this.ambience = new AmbienceBed(this.stats);
+    this.ui = new UiSounds(this.stats);
   }
 
   /** True when the browser offers Web Audio (and the engine is not disposed). */
@@ -77,7 +92,7 @@ export class AudioEngine {
     try {
       if (!this.ctx) this.build();
       const ctx = this.ctx;
-      if (ctx && !this.paused && ctx.state === 'suspended') swallow(ctx.resume());
+      if (ctx && ctx.state === 'suspended') swallow(ctx.resume());
     } catch (err) {
       log.warn(`Audio unavailable: ${String(err)}`);
       this.teardown();
@@ -85,34 +100,28 @@ export class AudioEngine {
     }
   }
 
-  setVolumes(v: AudioVolumes): void {
+  /** Bus volumes (0..1, clamped; a missing `ambience` / `ui` from an older caller means 1). */
+  setVolumes(v: Pick<AudioVolumes, 'master' | 'sfx' | 'radio'> & Partial<AudioVolumes>): void {
     this.volumes.master = clamp01(v.master);
     this.volumes.sfx = clamp01(v.sfx);
     this.volumes.radio = clamp01(v.radio);
-    this.applyVolumes();
+    this.volumes.ambience = clamp01(v.ambience ?? 1);
+    this.volumes.ui = clamp01(v.ui ?? 1);
+    this.applyVolumes(VOLUME_TAU);
   }
 
-  /** Pause: suspends the context (sirens and radio FX stop advancing). */
+  /**
+   * Pause: the sfx, radio and ambience buses glide to 0 (the context keeps running so UI sounds still play in the
+   * pause menus). The world voices keep accepting updates; they only write params.
+   */
   suspend(): void {
     this.paused = true;
-    const ctx = this.ctx;
-    if (!ctx) return;
-    try {
-      if (ctx.state === 'running') swallow(ctx.suspend());
-    } catch {
-      // ignore
-    }
+    this.applyVolumes(PAUSE_TAU);
   }
 
   resume(): void {
     this.paused = false;
-    const ctx = this.ctx;
-    if (!ctx) return;
-    try {
-      if (ctx.state === 'suspended') swallow(ctx.resume());
-    } catch {
-      // ignore
-    }
+    this.applyVolumes(PAUSE_TAU);
   }
 
   /** Listener pose (world metres; forward and up unit vectors). Call every frame before `sirens.update`. */
@@ -130,6 +139,14 @@ export class AudioEngine {
     }
   }
 
+  /** Listener velocity (m/s), used for the siren Doppler shift. Call every frame with the listener pose. */
+  setListenerVelocity(vx: number, vy: number, vz: number): void {
+    const l = this.listener;
+    l.vx = Number.isFinite(vx) ? vx : 0;
+    l.vy = Number.isFinite(vy) ? vy : 0;
+    l.vz = Number.isFinite(vz) ? vz : 0;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.teardown();
@@ -141,35 +158,50 @@ export class AudioEngine {
     if (!factory) return;
     const ctx = factory();
     this.ctx = ctx;
-    const master = ctx.createGain();
-    const sfx = ctx.createGain();
-    const radio = ctx.createGain();
-    master.gain.value = this.volumes.master;
-    sfx.gain.value = this.volumes.sfx;
-    radio.gain.value = this.volumes.radio;
+    const buses = this.buses;
+    for (const name of AUDIO_BUSES) {
+      const g = ctx.createGain();
+      g.gain.value = this.busTarget(name);
+      buses[name] = g;
+    }
+    const master = buses.master;
+    const sfx = buses.sfx;
+    const radio = buses.radio;
+    const ambience = buses.ambience;
+    const ui = buses.ui;
+    if (!master || !sfx || !radio || !ambience || !ui) return;
     sfx.connect(master);
     radio.connect(master);
+    ambience.connect(master);
+    ui.connect(master);
     master.connect(ctx.destination);
-    this.master = master;
-    this.sfx = sfx;
-    this.radioBus = radio;
 
     const rate = ctx.sampleRate > 0 ? ctx.sampleRate : 48000;
     const noise = ctx.createBuffer(1, Math.round(rate), rate);
     fillNoise(noise.getChannelData(0), NOISE_SEED);
 
     this.sirens.build(ctx, sfx, this.listener);
+    this.vehicles.build(ctx, sfx, noise, this.listener);
+    this.ambience.build(ctx, ambience, noise);
     this.radio.attach(ctx, radio, noise);
+    this.ui.attach(ctx, ui);
   }
 
-  private applyVolumes(): void {
+  /** Target gain of a bus: paused world buses are 0, the ui bus keeps its volume. */
+  private busTarget(name: AudioBusName): number {
+    if (this.paused && (name === 'sfx' || name === 'radio' || name === 'ambience')) return 0;
+    return this.volumes[name];
+  }
+
+  private applyVolumes(tau: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || !this.sfx || !this.radioBus) return;
+    if (!ctx) return;
     try {
       const now = ctx.currentTime;
-      glide(this.master.gain, this.volumes.master, now, VOLUME_TAU);
-      glide(this.sfx.gain, this.volumes.sfx, now, VOLUME_TAU);
-      glide(this.radioBus.gain, this.volumes.radio, now, VOLUME_TAU);
+      for (const name of AUDIO_BUSES) {
+        const g = this.buses[name];
+        if (g) glide(g.gain, this.busTarget(name), now, tau);
+      }
     } catch {
       // ignore
     }
@@ -177,12 +209,14 @@ export class AudioEngine {
 
   private teardown(): void {
     this.sirens.detach();
+    this.vehicles.detach();
+    this.ambience.detach();
     this.radio.detach();
+    this.ui.detach();
     const ctx = this.ctx;
-    if (this.master) safeDisconnect(this.master);
-    this.master = null;
-    this.sfx = null;
-    this.radioBus = null;
+    const master = this.buses.master;
+    if (master) safeDisconnect(master);
+    for (const name of AUDIO_BUSES) delete this.buses[name];
     this.ctx = null;
     if (ctx) {
       try {

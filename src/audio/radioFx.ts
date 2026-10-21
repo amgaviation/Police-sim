@@ -1,4 +1,7 @@
-import { safeDisconnect } from './nodes';
+import { createRng } from '../core/rng';
+import { CHATTER_DATA, type ChatterData } from './chatterData';
+import { glide, safeDisconnect } from './nodes';
+import { createAudioStats, type AudioStats } from './sirens';
 
 /**
  * Non-positional radio effects on the radio bus (design §10.3). Each call schedules a few
@@ -13,6 +16,10 @@ const MAX_DURATION_S = 10;
 /** Envelope edge for gated sounds (s), avoids clicks. */
 const EDGE_S = 0.005;
 const TONE_LEVEL = 0.22;
+/** Glide of the background bed level (s). */
+const BED_TAU = 0.3;
+/** Fade of a babble burst that is cut for a newer one (s). */
+const CUT_S = 0.03;
 
 type FilterSpec = { readonly type: BiquadFilterType; readonly hz: number; readonly q: number } | null;
 
@@ -28,7 +35,23 @@ function clampLevel(l: number): number {
   return Number.isFinite(l) ? Math.min(1, Math.max(0, l)) : 0;
 }
 
+/** A live babble burst: its source and a cleanup that disconnects every node of it. */
+interface Burst {
+  readonly src: AudioBufferSourceNode;
+  readonly env: GainNode;
+  cleanup(): void;
+}
+
 export class RadioFx {
+  private readonly stats: AudioStats;
+  private readonly chatterData: ChatterData;
+  private readonly rng = createRng('audio:chatter');
+  private readonly bursts: Burst[] = [];
+  private bedGain: GainNode | null = null;
+  private bedNodes: AudioNode[] = [];
+  private bedSources: (AudioBufferSourceNode | OscillatorNode)[] = [];
+  /** Requested bed level 0..1 (kept so a level set before unlock applies at attach). */
+  private bedLevel = 0;
   private ctx: BaseAudioContext | null = null;
   private out: AudioNode | null = null;
   private noise: AudioBuffer | null = null;
@@ -37,18 +60,61 @@ export class RadioFx {
   /** Level multiplier (0..1) for the effects scheduled next, e.g. the scan volume for a scanned channel. */
   level = 1;
 
-  /** @internal Attaches the radio bus and the shared noise buffer (engine unlock). */
+  constructor(stats: AudioStats = createAudioStats(), chatterData: ChatterData = CHATTER_DATA) {
+    this.stats = stats;
+    this.chatterData = chatterData;
+  }
+
+  /** @internal Attaches the radio bus and the shared noise buffer (engine unlock); builds the babble bed once. */
   attach(ctx: BaseAudioContext, out: AudioNode, noise: AudioBuffer): void {
     this.ctx = ctx;
     this.out = out;
     this.noise = noise;
+    try {
+      this.buildBed(ctx, out, noise);
+    } catch {
+      // never throw from audio
+    }
   }
 
   /** @internal */
   detach(): void {
+    for (const src of this.bedSources) {
+      try {
+        src.stop();
+      } catch {
+        // already stopped
+      }
+    }
+    for (const node of this.bedNodes) safeDisconnect(node);
+    this.bedSources = [];
+    this.bedNodes = [];
+    this.bedGain = null;
+    for (const b of this.bursts) b.cleanup();
+    this.bursts.length = 0;
+    this.stats.chatter = 0;
     this.ctx = null;
     this.out = null;
     this.noise = null;
+  }
+
+  /**
+   * Unintelligible voice-like babble for `durationS` at `level` (0..1) on the radio bus: looped noise through three
+   * formant band-passes summed, amplitude-modulated by a square-ish syllable envelope (rate drawn per burst from
+   * `syllableHz`), band-limited to `bandHz`; at most `maxBursts` at once (the oldest is cut).
+   */
+  chatter(durationS: number, level: number): void {
+    this.run((t) => {
+      const lvl = clampLevel(level) * this.chatterData.burstLevel;
+      if (lvl <= 0) return;
+      this.burst(t, clampDuration(durationS), lvl);
+    });
+  }
+
+  /** Background babble bed level 0..1 (x `bedLevel`); glides (tau 0.3 s). */
+  setBed(level: number): void {
+    this.bedLevel = clampLevel(level);
+    this.applyBed();
   }
 
   /** Mic key-up: 15 ms click followed by 120 ms of static. */
@@ -103,6 +169,114 @@ export class RadioFx {
           break;
       }
     });
+  }
+
+  private applyBed(): void {
+    const ctx = this.ctx;
+    const gain = this.bedGain;
+    if (!ctx || !gain) return;
+    try {
+      glide(gain.gain, this.bedLevel * this.chatterData.bedLevel, ctx.currentTime, BED_TAU);
+    } catch {
+      // never throw from audio
+    }
+  }
+
+  /** Babble chain: noise -> 3 formant band-passes -> syllable gain (square LFO) -> band-pass -> `dest`. Returns its nodes. */
+  private babble(ctx: BaseAudioContext, noise: AudioBuffer, dest: AudioNode, offset: number): { src: AudioBufferSourceNode; lfo: OscillatorNode; nodes: AudioNode[] } {
+    const d = this.chatterData;
+    const src = ctx.createBufferSource();
+    src.buffer = noise;
+    src.loop = true;
+    const syllable = ctx.createGain();
+    syllable.gain.value = 0.5;
+    const nodes: AudioNode[] = [src, syllable];
+    for (const hz of d.formantsHz) {
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = hz;
+      bp.Q.value = d.formantQ;
+      src.connect(bp);
+      bp.connect(syllable);
+      nodes.push(bp);
+    }
+    const lfo = ctx.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.value = this.rng.nextFloat(d.syllableHz[0], d.syllableHz[1]);
+    const depth = ctx.createGain();
+    depth.gain.value = 0.5;
+    lfo.connect(depth);
+    depth.connect(syllable.gain);
+    // Band limit: one band-pass spanning bandHz (centre = geometric mean, Q = centre / width).
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    const centre = Math.sqrt(d.bandHz[0] * d.bandHz[1]);
+    band.frequency.value = centre;
+    band.Q.value = centre / Math.max(1, d.bandHz[1] - d.bandHz[0]);
+    syllable.connect(band);
+    band.connect(dest);
+    nodes.push(lfo, depth, band);
+    const dur = noise.duration;
+    src.start(0, dur > 0 ? offset * dur : 0);
+    lfo.start();
+    return { src, lfo, nodes };
+  }
+
+  private buildBed(ctx: BaseAudioContext, out: AudioNode, noise: AudioBuffer): void {
+    if (this.bedGain) return;
+    const gain = ctx.createGain();
+    gain.gain.value = this.bedLevel * this.chatterData.bedLevel;
+    gain.connect(out);
+    const chain = this.babble(ctx, noise, gain, 0.61);
+    this.bedGain = gain;
+    this.bedNodes = [gain, ...chain.nodes];
+    this.bedSources = [chain.src, chain.lfo];
+  }
+
+  private burst(t: number, d: number, level: number): void {
+    const ctx = this.ctx;
+    const out = this.out;
+    const noise = this.noise;
+    if (!ctx || !out || !noise) return;
+    const max = this.chatterData.maxBursts;
+    while (this.bursts.length >= max) this.cut(this.bursts.shift(), t);
+    const env = this.envelope(ctx, t, d, level, false);
+    env.connect(out);
+    this.noiseCursor = (this.noiseCursor + 0.137) % 1;
+    const chain = this.babble(ctx, noise, env, this.noiseCursor);
+    const nodes = chain.nodes;
+    let done = false;
+    const burst: Burst = {
+      src: chain.src,
+      env,
+      cleanup: () => {
+        if (done) return;
+        done = true;
+        for (const n of nodes) safeDisconnect(n);
+        safeDisconnect(env);
+        const i = this.bursts.indexOf(burst);
+        if (i >= 0) this.bursts.splice(i, 1);
+        this.stats.chatter = this.bursts.length;
+      },
+    };
+    chain.src.onended = () => burst.cleanup();
+    chain.lfo.stop(t + d + 0.01);
+    chain.src.stop(t + d + 0.01);
+    this.bursts.push(burst);
+    this.stats.chatter = this.bursts.length;
+  }
+
+  /** Fades a burst out quickly and stops it (it is already removed from the live list). */
+  private cut(burst: Burst | undefined, t: number): void {
+    if (!burst) return;
+    try {
+      burst.env.gain.cancelScheduledValues(t);
+      burst.env.gain.setValueAtTime(0, t + CUT_S);
+      burst.src.stop(t + CUT_S);
+    } catch {
+      // already stopped
+    }
+    this.stats.chatter = this.bursts.length;
   }
 
   private run(fn: (t: number) => void): void {

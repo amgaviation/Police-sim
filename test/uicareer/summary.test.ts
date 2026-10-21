@@ -22,6 +22,17 @@ describe('summaryModel', () => {
     expect(m.next).toMatch(/22:00 - 06:00$/);
   });
 
+  it('Escape continues like Enter (the pad\'s B), once', () => {
+    const summary = offDutyHarness().summary;
+    const got: ShiftSummary[] = [];
+    const screen = new ShiftSummaryScreen(null, { continue: (s) => got.push(s) });
+    screen.open(summary);
+    expect(screen.onKeyDown(key('Escape'))).toBe(true);
+    expect(got).toEqual([summary]);
+    expect(screen.isOpen).toBe(false);
+    expect(screen.onKeyDown(key('Escape'))).toBe(false);
+  });
+
   it('shows deductions as a negative line and the DOR of a probation shift', () => {
     const base = offDutyHarness().summary;
     const s: ShiftSummary = {
@@ -63,7 +74,6 @@ describe('ShiftSummaryScreen (headless)', () => {
     screen.open(summary);
     expect(screen.isOpen).toBe(true);
     expect(screen.summary).toBe(summary);
-    expect(screen.onKeyDown(key('Escape'))).toBe(false);
     expect(screen.onKeyDown(key('Enter'))).toBe(true);
     expect(screen.onKeyDown(key('Enter'))).toBe(false);
     screen.proceed();

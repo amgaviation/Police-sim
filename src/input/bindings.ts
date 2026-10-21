@@ -79,6 +79,10 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'radio.option7': [key('Digit7')],
   'radio.option8': [key('Digit8')],
   'radio.option9': [key('Digit9')],
+  // Phase 9 (design §7.5): modal while the radio menu is open; they take PageUp / PageDown / Enter and the D-pad / A from every other action.
+  'radio.cursorPrev': [key('PageUp'), pad('GamepadButton12')],
+  'radio.cursorNext': [key('PageDown'), pad('GamepadButton13')],
+  'radio.cursorSelect': [key('Enter'), pad('GamepadButton0')],
   'radio.ptt': [key('KeyB'), pad('GamepadButton5')],
   'radio.emergency': [key('KeyZ')],
   'radio.channelPrev': [key('BracketLeft')],

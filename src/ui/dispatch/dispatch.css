@@ -13,14 +13,14 @@
   display: grid; grid-template-columns: auto 1fr auto; gap: 0.1em 0.5em; align-items: center;
   text-align: left; width: 100%; padding: 0.3em 0.5em; font-size: 0.9em;
 }
-.dispatch-console .dc-row.dc-selected { border-color: var(--accent); background: #22344a; }
+.dispatch-console .dc-row.dc-selected { border-color: var(--accent); background: var(--row-active); }
 .dispatch-console .dc-row .dc-state { color: var(--fg-dim); font-size: 0.85em; grid-column: 2 / 4; }
 .dispatch-console .dc-unit { grid-template-columns: 4em 1fr auto; }
 .dispatch-console .dc-unit .dc-state { grid-column: auto; }
 .dispatch-console .dc-callsign { font-family: var(--font-mono); font-weight: 600; }
 .dispatch-console .dc-age { font-family: var(--font-mono); color: var(--fg-dim); font-size: 0.85em; }
 .dispatch-console .dc-chip, .dispatch-console button.dc-p1, .dispatch-console button.dc-p2, .dispatch-console button.dc-p3, .dispatch-console button.dc-p4 {
-  color: #0b0f14; font-weight: 700; min-width: 2em; text-align: center; border-radius: var(--radius);
+  color: var(--bg); font-weight: 700; min-width: 2em; text-align: center; border-radius: var(--radius);
 }
 .dispatch-console .dc-chip { padding: 0 0.4em; font-size: 0.85em; }
 .dispatch-console .dc-p1 { background: var(--c-p1); border-color: var(--c-p1); }
@@ -34,7 +34,7 @@
 .dispatch-console .dc-s-onScene .dc-callsign { color: var(--c-unit); }
 .dispatch-console .dc-s-outOfService .dc-callsign { color: var(--fg-dim); }
 .dispatch-console .dc-center { align-items: stretch; }
-.dispatch-console .dc-map { width: 100%; height: auto; border: 1px solid var(--panel-border); border-radius: var(--radius); background: #0e151d; touch-action: none; }
+.dispatch-console .dc-map { width: 100%; height: auto; border: 1px solid var(--panel-border); border-radius: var(--radius); background: var(--map-bg); touch-action: none; }
 .dispatch-console .dc-maptools { gap: 0.3em; }
 .dispatch-console .dc-detail { display: flex; flex-direction: column; gap: 0.4em; border-top: 1px solid var(--panel-border); padding-top: 0.5em; }
 .dispatch-console .dc-title { font-weight: 600; }

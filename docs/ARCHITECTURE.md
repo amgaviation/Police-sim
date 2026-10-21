@@ -15,7 +15,7 @@ Browser-based law-enforcement patrol simulator. Vite + TypeScript (strict), thre
 
 ```
 src/
-  main.ts                 bootstrap: creates App, mounts UI, starts loop; exposes the App as `window.patrol` in dev builds
+  main.ts                 bootstrap: creates App, mounts UI, starts loop; exposes the App as `window.patrol` in dev builds and in any build opened with `?e2e`
   app.ts                  App composition root; owns systems, renderers, HUD and workers; a fresh physics world per session
   core/
     loop.ts               fixed-timestep game loop (accumulator, maxSubSteps, interpolation alpha)
@@ -35,7 +35,7 @@ src/
     actions.ts            action ids with kind and label
   save/
     db.ts                 IndexedDB wrapper (open, get, put, delete, list) with versioned object stores
-    schema.ts             SaveGame (v10) type, nested validators + CURRENT_SAVE_VERSION
+    schema.ts             SaveGame (v11) type, nested validators + CURRENT_SAVE_VERSION
     migrations.ts         ordered migration functions vN -> vN+1
     saveManager.ts        save/load/list/delete slots, autosave, validates & migrates; `peek` reads unvalidated data
     mods.ts               `describeModMismatch`: names the mods a save was made with when they differ from the active ones
@@ -74,11 +74,13 @@ src/
     registry.ts           60 000 persistent vehicle records and plates derived from the seed
     data.ts, idm.ts, components.ts
   debug/
-    perfOverlay.ts        frame time, fps, draw calls, triangles, entities, sim step time, memory, extras
+    perfOverlay.ts        frame time, fps, draw calls, triangles, entities, sim step time, memory, extras, top systems (Phase 9)
+    profiler.ts           SystemProfiler (Phase 9): allocation-free per-system and per-phase mean / p95 / max; fed by SystemRegistry and GameLoop
     console.ts            in-game debug console (` key), command registry, history, autocomplete
     worldCommands.ts      Phase 1 commands (time, weather, tp, route, road, car, traffic, plate, chunks)
   ui/
-    ui.ts                 DOM UI root, layering, menu stack
+    ui.ts                 DOM UI root, layering, menu stack, key / focus navigation fallback and the UI sound emitter (Phase 9)
+    gamepadNav.ts         GamepadNav (Phase 9): the pad drives menus through synthesized key events (D-pad / stick, A, B, LB / RB)
     settingsMenu.ts       settings menu bound to Settings
     mainMenu.ts           new game / continue / settings
     hud/                  Hud (speed, gear, fuel, warnings, damage, clock, weather, street, limit, prompts), Minimap
@@ -92,8 +94,11 @@ src/
   radio/                  RadioSystem (channels, scan, composer, ambient chatter, RadioNet scheduling), RadioPlayer (FX + TTS),
                           RadioController (keys, menu, push-to-talk), voice grammar, spoken text
   police/                 PatrolEquipment (siren, light-bar pattern, spotlight, rack, trunk, cage), OfficerKit, PoliceLights store
-  audio/                  AudioEngine (lazy AudioContext), SirenBank (4 positional synthesized voices), RadioFx (synthesized FX)
+  audio/                  AudioEngine (lazy AudioContext, five buses), SirenBank (4 positional voices with Doppler), RadioFx (FX, chatter bed and
+                          bursts), VehicleAudio (driven engine, tires, 3 traffic engines), AmbienceBed, UiSounds; everything synthesized (Phase 9)
   speech/                 SpeechOut (speechSynthesis wrapper, per-speaker voices), SpeechIn (SpeechRecognition wrapper)
+  render/vfx/             VfxSystem (Phase 9): glow sprites and light pools fed through the car renderer's GlowSink, headlight cones, GPU particle pool,
+                          TASER arc; data in src/data/vfx/vfx.json
   render/police/          CockpitRenderer (patrol-car interior, <= 6 draw calls), MdtScreen (in-car laptop canvas), spotlight pose
   ui/mdt/                 MdtOverlay: the full-screen keyboard-first MDT (queue, call, units, map, person, vehicle, BOLO, reports, stop)
   ui/panels/              ActionPanel (non-pausing option list), RadioPanel (log, channel strip, caption), RadioMenuView
@@ -106,6 +111,8 @@ src/
   scene/                  SceneDirector: scenario runtime of the calls (materialize, timeline, actions, services, pursuits, outcomes)
   render/people/          PeopleRenderer (7 instanced meshes, bone-less limbs), PropRenderer, pose maths (pure)
   ui/dialogue/            DialoguePanel, SfstPanel, SubtitleBar
+  tutorial/               Phase 9: data-driven guided first shift (`firstShift.json`), TutorialRunner (fixed step -651), saved progress, text formatting
+  ui/tutorial/            TutorialCard (HUD) and TutorialDialog (pausing acknowledgement steps)
   world/buildings.ts      BuildingIndex: stable building ids (block * 256 + local), kinds (12), front sides, nearest entrance, station, jail
   interior/               pure interior generator (BSP / corridor / suite templates in data/interior), doors, furniture, hiding spots, spawn and
                           item spots, station points; door-aware pathfinding (nav) and line of sight (los); no THREE, DOM or Rapier
@@ -185,7 +192,11 @@ src/
                           dispatch/, radio/, police/, audio/, people/, calls/, npc/, dialogue/, scene/, interior/, evidence/, tactics/, station/,
                           legal/rulesets, force/, incidents/, conduct/, court/, recording/,
                           units/, backup/, pursuit/, command/
-test/                     vitest unit tests, one folder per src module (node environment, no DOM/WebGL)
+test/                     vitest unit tests, one folder per src module (node environment, no DOM/WebGL); test/perf has the long-shift and memory tests
+scripts/
+  smoke.mjs               headless Chromium smoke test of every phase against the dev server (npm run smoke)
+  e2e.mjs                 Phase 9: end-to-end done-when flow against the production build under `vite preview` (npm run e2e)
+  perf.mjs                Phase 9: browser profile of the production build, CDP heap checkpoints (npm run perf)
 docs/
   ARCHITECTURE.md         this file
   phase1-design.md        Phase 1 design: data formats and the full module APIs
@@ -194,9 +205,12 @@ docs/
   phase4-design.md        Phase 4 design (interiors, tactical movement, evidence and scene work, the station): data formats, module APIs, topics, save v6
   phase5-design.md        Phase 5 design (law, procedure, consequences): legal engine, force, recording, conduct, court, data formats, module APIs, topics, save v7
   phase6-design.md        Phase 6 design (backup, tactical, multi-agency): units, resources, backup, pursuit, command, UI, data formats, module APIs, topics, save v8
+  phase7-design.md        Phase 7 design (fleet, uniforms, customization): vehicles and crafts, livery, gear, maintenance, save v9
   phase8-design.md        Phase 8 design (career, persistent world, training modes, co-op, mods, accessibility), save v10
+  phase9-design.md        Phase 9 design (polish and release): audio, VFX, UI pass, tutorial, performance, test audit, e2e, save v11
+  PERFORMANCE.md          profiler, long-shift and memory results, hot spots, how to run the profiles (docs/perf/ has the raw data)
   MODDING.md, schemas/    the mod bundle format and its JSON schemas
-  ASSETS.md               third-party asset license tracking
+  ASSETS.md               asset licensing (no third-party assets) and the procedural content rules
   PHASES.md               per-phase completion log: what was done, how to run, what to test
 ```
 
@@ -266,6 +280,8 @@ Phase 6 adds (design §15):
 | -665 | `backup` | roster minute tick first, then the officers' FSM per step (observations 4 Hz) and the SWAT team |
 | -662 | `command` | post, triage, transport, TCPs, evacuation, containment, negotiation (work at 4 Hz); traffic blockades and no-go zones on change |
 
+Phase 9 adds (design §14): `tutorial` at **-651** (`TutorialRunner.step()`, only registered while a tutorial is active); the profiler only wraps the existing systems with clock reads.
+
 `GameSession.fixedUpdate` multiplies the walking velocity by `tactical.speedFactor()` (no sprint while crouched) or moves the officer with `tactical.sliceMove` while slicing, and keeps the body's y at `levelY(building) + 0.9`.
 
 Per frame (`App.update`): input -> toggles (Escape: console, then the radio menu, then pause; the MDT and action panels close themselves on Escape) -> mode actions (interact: enter / exit / refuel / trunk / driver contact; camera, headlights, light bar, map zoom, MDT, plate run, siren / tone / pattern / spotlight / equipment panel) -> on-foot look/move or `readDriverInput` and the held horn / manual (stored for the next fixed steps), spotlight aim -> `RadioController` (only while gameplay controls are active) -> `CameraRig` (spotlight aim zeroes the look) -> target pick (10 Hz, `pickTrafficCar` from the camera) -> MDT and action panels -> `EnvironmentRenderer.update` -> `WorldView.update` (chunk streaming at the fog distance, signal heads, streetlights) -> `CarRenderer.update` (+ spotlight target) -> `CockpitRenderer` + `MdtScreen` paint (cockpit view, <= 2 Hz) -> audio (listener from the camera, siren emitters from `PoliceLights`) -> HUD, minimap with markers and the route to the assigned call (10 Hz) -> radio channel strip (4 Hz). Radio lines and captions are written on `radio:start` / `radio:blocked`. Render: `meshes.syncFromEcs`, `renderer.render()`, perf sample (draw calls, triangles, entities, extras `chunks`, `traffic`, `cars`, `dispatch`, `radio`, `audio`, `cockpit`).
@@ -316,10 +332,10 @@ A drivable vehicle is an entity with `Transform`, `PrevTransform`, `PhysicsBody`
 ```ts
 interface SaveEnvelope<T> { version: number; createdAt: number; updatedAt: number; slot: string; data: T }
 ```
-The object-store key is the slot; `list()` names rows by key and `load()` repairs a disagreeing `slot` field. `migrateEnvelope(envelope)` applies `migrations[version]` until `CURRENT_SAVE_VERSION` (7), then validates with `isSaveGame`; `save()` validates before writing so a save that would not load is never stored. v2 stores each body's transform, linear/angular velocity and sleep state plus the camera pitch (v1 saves migrate with bodies at rest). v3 (Phase 1) adds `player { mode, vehicle, lastVehicle }` (`lastVehicle` is the last-driven vehicle for refuelling and its parked headlights, -1 for none), `camera.mode`, `vehicles` (each `SerializedVehicle` plus its colour and RNG stream), `traffic` (snapshot or null), `violations` (the observed-violation log, `[vehicleId, counts]` pairs) and `environment` (`timeOffset`, weather override); `lastVehicle` and `violations` are optional (absent in early v3 saves); v2 saves migrate on foot with the patrol cars re-parked and fresh traffic. v4 (Phase 2) adds `cad` (calls: open + the last 200 closed, units with AVL, documents, the traffic stop, counters), `dispatch` (the dispatcher's RNG states, timers, AI unit FSMs, offers, status checks, queued events and requests; null in migrated saves: a fresh roster and fleet start at load), `records` (touched person / registration snapshots, contacts, served warrants, added BOLOs, query log), `radio` (channel, scan list, log, queue with on-air entries, holds, ambient timers, RNG, composer state), `equipment` (one `EquipmentSave` or null per `vehicles` entry), `officerKit` and the optional `speeding` readings (citation prefill); the traffic snapshot stays version 1 with the optional fleet / stop / curb fields. Load order: environment, entities, vehicles and their equipment (+ `PoliceLights`), traffic, CAD, records, dispatcher (or `start` when null), radio. `migrateV3ToV4` fills empty CAD and records, a null dispatcher, the default radio with the seed's `'radio'` stream, null equipment and an empty kit. v5 (Phase 3, frozen) adds `people` (a `PeopleSave`: only the persons the shift touched, as deltas over the deterministic base identity: intoxication, mood, custody, injuries, added/seized items, officer contacts, statements, discovered facts, remembered lies, flags), `npc` (pedestrians, scene actors, occupant overrides and stepped-out seats; null in migrated saves: fresh pedestrians at load), `contacts` (open conversations with the subject's memory, transcript, pending answers and SFST state) and `scenes` (the scenarios of open calls with branch, variants, participants, flags, actions and services, up to 200 graded outcomes, props, pursuits, the officer's weapon and the queued requests and events; it holds hidden truth and is never shown). `migrateV4ToV5` adds empty people and contacts, a null npc and an empty scene block on the seed's `'scene'` stream (loading then gives every open CAD call a scenario with `adoptOpenCalls`). Phase 3 load order: environment, entities, vehicles + equipment, traffic, CAD, records, **people**, dispatcher, **npc**, **scenes** (`restore`, then `adoptOpenCalls`), **contacts**, radio. Loading regenerates the city from the seed. v6 (Phase 4, frozen) adds `interiors` (the officer's building, door states and light overrides that differ from the generated defaults, the pending fade, queued requests, the 'interior' RNG state, ids of the spawned ambient actors), `tactical` (stance, lean, flashlight, partner mode and place, queued sounds, the 'tactical' RNG state), `investigation` (case files with items, markers, photos with their optional 160x90 JPEG thumbnails (at most 32), prints, canvass results, consents, statements and bodycam segments, the hash-chained custody ledger, scene tapes, the K9 sweep, dusting, arrests, queued requests, the 'investigation' RNG state) and `station` (shift flow, armory log, loadout, holding cells, interview, queued requests). `migrateV5ToV6` adds empty blocks on the seed's own streams, a station already on patrol with the duty pistol and the taser signed out, the officer outdoors, and each patrol car's trunk gains the six Phase 4 items (counts from the `patrol` trunk loadout). Interior layouts are never saved: they are pure functions of (seed, building id). Phase 4 load order: environment, entities (the officer at its saved y), vehicles + equipment, traffic, CAD, records, people, dispatcher, **interiors** (the officer's building made resident), npc, **tactical**, scenes (`restore`, `adoptOpenCalls`), contacts, **investigation** (re-sends closed tapes as no-go zones), **station**, radio. v7 (Phase 5, current, frozen without user approval) adds `force` (selected tool, TASER cartridges / attachment / cycles, ammo, the fellow-officer episode, queued requests, the 'force' RNG state), `incidents` (jurisdiction id, the open and at most 24 closed incident logs of at most 600 events each, camera state, pursuit sampler, the assessment queue, queued requests), `conduct` (trust per district, duty status, points, credibility, commendations, discipline, IA cases, report grades, career stats, the 'conduct' RNG state) and `court` (at most 60 cases, the 'court' RNG state, queued requests); assessments and report choices are pure functions of the log and are recomputed on load. `migrateV6ToV7` adds the default force state, an empty generic incident block, baseline trust with an active career and an empty court on the seed's own streams. The snapshot blobs are not part of the save: they live in the IndexedDB database `patrol-media` under the keys `tag:incident:sim:source` (`tag` = one game, remembered per save slot in localStorage). Phase 5 load order: ... investigation, station, **force**, **incidents** (then `followCall` with the player's CAD call), **conduct**, **court**, radio. Tests assert every version from 1..current migrates and that each malformed block is rejected.
+The object-store key is the slot; `list()` names rows by key and `load()` repairs a disagreeing `slot` field. `migrateEnvelope(envelope)` applies `migrations[version]` until `CURRENT_SAVE_VERSION` (11), then validates with `isSaveGame`; `save()` validates before writing so a save that would not load is never stored. v2 stores each body's transform, linear/angular velocity and sleep state plus the camera pitch (v1 saves migrate with bodies at rest). v3 (Phase 1) adds `player { mode, vehicle, lastVehicle }` (`lastVehicle` is the last-driven vehicle for refuelling and its parked headlights, -1 for none), `camera.mode`, `vehicles` (each `SerializedVehicle` plus its colour and RNG stream), `traffic` (snapshot or null), `violations` (the observed-violation log, `[vehicleId, counts]` pairs) and `environment` (`timeOffset`, weather override); `lastVehicle` and `violations` are optional (absent in early v3 saves); v2 saves migrate on foot with the patrol cars re-parked and fresh traffic. v4 (Phase 2) adds `cad` (calls: open + the last 200 closed, units with AVL, documents, the traffic stop, counters), `dispatch` (the dispatcher's RNG states, timers, AI unit FSMs, offers, status checks, queued events and requests; null in migrated saves: a fresh roster and fleet start at load), `records` (touched person / registration snapshots, contacts, served warrants, added BOLOs, query log), `radio` (channel, scan list, log, queue with on-air entries, holds, ambient timers, RNG, composer state), `equipment` (one `EquipmentSave` or null per `vehicles` entry), `officerKit` and the optional `speeding` readings (citation prefill); the traffic snapshot stays version 1 with the optional fleet / stop / curb fields. Load order: environment, entities, vehicles and their equipment (+ `PoliceLights`), traffic, CAD, records, dispatcher (or `start` when null), radio. `migrateV3ToV4` fills empty CAD and records, a null dispatcher, the default radio with the seed's `'radio'` stream, null equipment and an empty kit. v5 (Phase 3, frozen) adds `people` (a `PeopleSave`: only the persons the shift touched, as deltas over the deterministic base identity: intoxication, mood, custody, injuries, added/seized items, officer contacts, statements, discovered facts, remembered lies, flags), `npc` (pedestrians, scene actors, occupant overrides and stepped-out seats; null in migrated saves: fresh pedestrians at load), `contacts` (open conversations with the subject's memory, transcript, pending answers and SFST state) and `scenes` (the scenarios of open calls with branch, variants, participants, flags, actions and services, up to 200 graded outcomes, props, pursuits, the officer's weapon and the queued requests and events; it holds hidden truth and is never shown). `migrateV4ToV5` adds empty people and contacts, a null npc and an empty scene block on the seed's `'scene'` stream (loading then gives every open CAD call a scenario with `adoptOpenCalls`). Phase 3 load order: environment, entities, vehicles + equipment, traffic, CAD, records, **people**, dispatcher, **npc**, **scenes** (`restore`, then `adoptOpenCalls`), **contacts**, radio. Loading regenerates the city from the seed. v6 (Phase 4, frozen) adds `interiors` (the officer's building, door states and light overrides that differ from the generated defaults, the pending fade, queued requests, the 'interior' RNG state, ids of the spawned ambient actors), `tactical` (stance, lean, flashlight, partner mode and place, queued sounds, the 'tactical' RNG state), `investigation` (case files with items, markers, photos with their optional 160x90 JPEG thumbnails (at most 32), prints, canvass results, consents, statements and bodycam segments, the hash-chained custody ledger, scene tapes, the K9 sweep, dusting, arrests, queued requests, the 'investigation' RNG state) and `station` (shift flow, armory log, loadout, holding cells, interview, queued requests). `migrateV5ToV6` adds empty blocks on the seed's own streams, a station already on patrol with the duty pistol and the taser signed out, the officer outdoors, and each patrol car's trunk gains the six Phase 4 items (counts from the `patrol` trunk loadout). Interior layouts are never saved: they are pure functions of (seed, building id). Phase 4 load order: environment, entities (the officer at its saved y), vehicles + equipment, traffic, CAD, records, people, dispatcher, **interiors** (the officer's building made resident), npc, **tactical**, scenes (`restore`, `adoptOpenCalls`), contacts, **investigation** (re-sends closed tapes as no-go zones), **station**, radio. v7 (Phase 5, current, frozen without user approval) adds `force` (selected tool, TASER cartridges / attachment / cycles, ammo, the fellow-officer episode, queued requests, the 'force' RNG state), `incidents` (jurisdiction id, the open and at most 24 closed incident logs of at most 600 events each, camera state, pursuit sampler, the assessment queue, queued requests), `conduct` (trust per district, duty status, points, credibility, commendations, discipline, IA cases, report grades, career stats, the 'conduct' RNG state) and `court` (at most 60 cases, the 'court' RNG state, queued requests); assessments and report choices are pure functions of the log and are recomputed on load. `migrateV6ToV7` adds the default force state, an empty generic incident block, baseline trust with an active career and an empty court on the seed's own streams. The snapshot blobs are not part of the save: they live in the IndexedDB database `patrol-media` under the keys `tag:incident:sim:source` (`tag` = one game, remembered per save slot in localStorage). Phase 5 load order: ... investigation, station, **force**, **incidents** (then `followCall` with the player's CAD call), **conduct**, **court**, radio. Tests assert every version from 1..current migrates and that each malformed block is rejected. Later versions are described with their phases: v8 (Phase 6), v9 (Phase 7), v10 (Phase 8) and, in "Polish and release (Phase 9)" below, **v11**, which adds the `tutorial` block (the guided first shift's progress, or `null`).
 
 ### Input
-Actions are abstract (`'move.forward'`, `'vehicle.steer'`, `'vehicle.handbrake'`...). Bindings map device inputs → actions. Rebinding UI edits bindings and persists through Settings; new actions appear in it automatically. Phase 5 actions (on foot): `officer.intervene` (H), `officer.bodycamMute` (J); `officer.weapon` (C) now cycles the force tool and `officer.fire` (mouse 0) applies it; switching the light bar off during a vehicle pursuit ends it. Phase 4 actions (design §11.4, shared keys are chosen by context: on foot vs in a car): `officer.crouch` (X), `officer.leanLeft` / `officer.leanRight` (Q / R, held), `officer.slice` (right mouse, held), `officer.flashlight` (F), `officer.bodycam` (U), `investigate.menu` (I), `camera.photo` (O), `partner.menu` (N); V toggles the first-person camera on foot. Phase 3 actions (on foot): `officer.weapon` (C), `officer.fire` (mouse 0, only with a weapon drawn), `officer.tackle` (Space), `officer.shout` (G), `scene.menu` (Y). Phase 2 actions: `vehicle.sirenTone`, `vehicle.horn`, `vehicle.manual`, `vehicle.lightPattern`, `vehicle.spotlight`, `vehicle.spotAim`, `vehicle.equipment`, `mdt.toggle`, `target.runPlate`, `radio.menu`, `radio.option1..9`, `radio.ptt`, `radio.emergency`, `radio.channelPrev`, `radio.channelNext`, `radio.scan` (defaults in `input/bindings.ts`, design §11.5).
+Actions are abstract (`'move.forward'`, `'vehicle.steer'`, `'vehicle.handbrake'`...). Bindings map device inputs → actions. Rebinding UI edits bindings and persists through Settings; new actions appear in it automatically. Phase 9 actions (modal while the radio menu is open, so they take their keys from every other action): `radio.cursorPrev` (PageUp, D-pad up), `radio.cursorNext` (PageDown, D-pad down), `radio.cursorSelect` (Enter, A). Phase 5 actions (on foot): `officer.intervene` (H), `officer.bodycamMute` (J); `officer.weapon` (C) now cycles the force tool and `officer.fire` (mouse 0) applies it; switching the light bar off during a vehicle pursuit ends it. Phase 4 actions (design §11.4, shared keys are chosen by context: on foot vs in a car): `officer.crouch` (X), `officer.leanLeft` / `officer.leanRight` (Q / R, held), `officer.slice` (right mouse, held), `officer.flashlight` (F), `officer.bodycam` (U), `investigate.menu` (I), `camera.photo` (O), `partner.menu` (N); V toggles the first-person camera on foot. Phase 3 actions (on foot): `officer.weapon` (C), `officer.fire` (mouse 0, only with a weapon drawn), `officer.tackle` (Space), `officer.shout` (G), `scene.menu` (Y). Phase 2 actions: `vehicle.sirenTone`, `vehicle.horn`, `vehicle.manual`, `vehicle.lightPattern`, `vehicle.spotlight`, `vehicle.spotAim`, `vehicle.equipment`, `mdt.toggle`, `target.runPlate`, `radio.menu`, `radio.option1..9`, `radio.ptt`, `radio.emergency`, `radio.channelPrev`, `radio.channelNext`, `radio.scan` (defaults in `input/bindings.ts`, design §11.5).
 
 ### Debug console commands
 Phase 0: `help`, `clear`, `echo`, `seed [n]`, `timescale [x]`, `pause`, `save [slot]`, `load [slot]`, `saves`, `perf`, `fps`, `spawn box [n]`, `entities`, `settings get <path> | set <path> <value> | list`, `worker ping`, `debugcam`.
@@ -405,3 +421,117 @@ Protocol: `{ id, type, payload }` request/response with transferables where poss
 **Save v10.** `career` (`CareerSave`), `worldState` (`WorldStateSave`), `mode` (`ModeSave`: course run, dispatch script and score, sandbox scenario) and `mods` (`ModRef[]`). `migrateV9ToV10` writes a patrol-officer career from the save's game time, a blank world (both on the seed's own `career` / `worldstate` streams), free patrol and no mods. Load order: ... -> roster -> resources -> backup -> pursuit -> command -> radio -> **career -> world -> mode** (re-applies the dispatcher flags, script runner, course run and scoring). A save whose mods differ from the active ones still loads when it validates (a flash names the difference); one that fails validation reports "This save was made with mods: ...".
 
 **Frame and fixed-step order.** Fixed: ... fleet -655, **career -654, worldstate -653, training -652**, radio -650, ..., vehicles.pre 40 (steering lag in `laggedInput`). Frame: career / co-op / dispatch-console keys, `Phase8Presenter.update` (co-op drain, console refresh at 4 Hz, editor, course finish), HUD career feed at 10 Hz, `setPaletteMode` on settings change. No new worker: `evolve` (<= 5 ms) and the rollover (city regeneration + load, once per shift) run behind a status line.
+
+## Polish and release (Phase 9)
+
+Phase 9 is the polish pass and the release gate. The audio, VFX, UI, tutorial and profiling work is **presentation** (it never writes
+simulation state; its randomness comes from render-only streams `createRng('audio:<name>')` / `createRng('vfx:<name>')`); the only new
+simulation state is the tutorial runner. The design is `docs/phase9-design.md`; this section is the architecture summary.
+
+### Audio (`src/audio`)
+Everything is synthesized from oscillators and seeded noise; there are no audio files and no assets to license. The graph is built once at
+`unlock()` (the first user gesture) and later only has `AudioParam`s written, at most about 120 live nodes (plus at most 3 bird chirps,
+3 radio chatter bursts and the tones of one-shot UI sounds):
+
+```
+destination <- master <- { sfx, radio, ambience, ui }
+sfx      : SirenBank (4 positional siren + horn voices), VehicleAudio (driven engine, tire voice, 3 pooled traffic engines)
+radio    : RadioFx (transmission FX, chatter bursts, a babble bed)
+ambience : AmbienceBed (7 noise / tone layers + a shared indoor / cabin low-pass)
+ui       : UiSounds (move, select, back, open, close, error, notify)
+```
+`setVolumes({ master, sfx, radio, ambience, ui })` follows the settings (a missing `ambience` / `ui` counts as 1). Pausing glides the sfx,
+radio and ambience buses to 0 and back (`suspend()` / `resume()`); the `AudioContext` keeps running and the `ui` bus is untouched, so menu
+sounds still play in the pause menu. Per frame the app only calls `setListener`, `setListenerVelocity`, `sirens.update`,
+`vehicles.update` and `ambience.update` (parameter writes, about 0.02 ms) and keeps calling them while paused.
+
+- **Doppler.** `dopplerRatio(...)` (pure, clamped to 0.5..2) turns the relative velocity of each siren emitter (`SirenEmitter.vx/vy/vz`, from the
+  car's Transform delta) and the listener into a detune in cents on the siren and horn oscillators, glided with tau 0.06 s; in the cabin it is 0.
+- **Vehicles.** `engineProfileFor(control, style)` picks one of 8 engine profiles (car, v8, diesel, twin, single, outboard, rotor, drone; a bicycle
+  is silent). The driven voice follows RPM and throttle (firing frequency = rpm / 60 x cylinders / 2, low-pass opening with load, a cabin filter
+  for the cockpit and hood cameras). The tire voice follows the slip of the driven car (`tireSlip`: lateral slide, locked wheels, handbrake) with
+  a gravel / dirt crunch off asphalt. The 3 nearest traffic cars within 60 m get a pooled engine voice with a gear model.
+- **Ambience.** `ambienceGains` (pure) mixes traffic, mains hum, wind, rain, birds, crickets and water by district, game hour (linearly between
+  hours), weather, rain / wind drive, indoors (muffled, per-layer factor) and in the cabin; bird chirps are scheduled from the seeded stream.
+- **Radio chatter.** `RadioPlayer` adds a babble burst for every audible transmission that is not spoken by text-to-speech (half level when scanned)
+  and drives a bed from the number of audible transmissions on air (formant band-passes with a syllable-rate envelope; intentionally unintelligible).
+- **UI sounds.** `UIRoot.onUiSound` (kinds identical to `UI_SOUND_KINDS`; the two modules do not import each other) feeds `UiSounds.play`, which
+  rate-limits each kind to 60 ms and ignores unknown kinds.
+
+Content is data: `src/data/audio/{vehicleAudio,ambience,ui,chatter}.json`, validated at import by `parseVehicleAudio`, `parseAmbience`,
+`parseUiSounds` and `parseChatter` (errors name the file and the dotted path). Web Audio code is tested against the hand-written fake in
+`test/audio/fakeAudio.ts`, so audio runs headless in vitest.
+
+### VFX (`src/render/vfx`)
+`VfxSystem` is the one object the app talks to: `glowSink`, `setQuality`, `setReducedFlash`, `burst`, `muzzle`, `arc` and a per-frame
+`update(camera, dt, night, fogDensity, rain)`. There is no full-screen bloom (it would conflict with the heat-haze pass and cost a full-resolution
+blur); cheap sprites stand in for it, at most **6 draw calls** in total:
+
+- **GlowSink** (`begin / glow / pool / beam / end`) is the seam between the car renderer and the effects: `CarRenderer.update` reports every lit lamp
+  (light-bar segment, head lamp, brake lamp) with its world position and colour, a ground-pool centre per car with the bar on and a beam per car with
+  headlights on. `GlowSprites` draws the lamps as one additive instanced billboard mesh (512 capacity), `LightPools` the coloured ground discs
+  under police cars at night, `HeadlightCones` the nearest 32 beams as instanced cones at night and in fog or rain. With no sink the renderer
+  behaves exactly as before.
+- **Particles.** `ParticlePool` is two `Points` (additive and normal) used as ring buffers whose motion is computed in the vertex shader from the
+  birth time, so the CPU only writes on emission (muzzle flashes, TASER sparks, collision sparks and dust, off-road wheel dust). `TaserArc` is one jagged
+  line while probes are attached.
+- **Weather.** Rain splashes (`createSplashes`, a GPU point field added to the scene on the first rain), a wet sheen on roads (`CityMaterials.setWetness`
+  changes roughness and darkening with `weather.wetness` and snow cover) and scene-tape flutter (`PropRenderer.setWind`, a vertex wave).
+- **Settings.** `graphics.effects` is `off | low | high` (low halves counts and drops cones and pools). Reduced flash keeps the glow at the bar's
+  already dimmed level, dims the muzzle flash without a light and keeps the TASER arc static.
+
+### UI pass, keyboard and gamepad navigation
+- **Tokens.** `src/ui/styles.css` defines one set of design tokens on `:root` (colours, spacing `--sp-*`, type scale `--fs-*`, focus ring, panels) plus
+  the three colour-vision palette blocks; every other stylesheet (MDT, panels, dispatch console, career, court, ...) uses only those tokens and em / rem
+  units. `test/ui9/cssAudit.test.ts` fails on a colour literal outside the palette blocks, a px font size, a removed focus outline or an undefined
+  `var(--x)`; `src/a11y/contrast.ts` and `test/a11y/contrast.test.ts` check WCAG contrast of every palette; the HUD adds shape marks next to colours.
+- **Navigation.** `UIRoot.moveFocus` is the fallback for arrow keys a menu does not handle itself, so every menu works from the keyboard.
+  `GamepadNav` (`src/ui/gamepadNav.ts`) reads the pad through `InputManager` (`padPressed / padButton / padAxis`) and, while a menu is open,
+  dispatches real `KeyboardEvent`s (D-pad / stick -> arrows with repeat, A -> Enter or a click, B -> Escape, LB / RB -> Shift+Tab / Tab, Start through the
+  `menu.toggle` binding), so the existing Escape and menu semantics are unchanged.
+- **Radio cursor.** `RadioController` keeps a cursor over the enabled options of the radio menu (`state.cursor`, -1 while closed) driven by the modal
+  actions `radio.cursorPrev / Next / Select`; `RadioMenuView.show(menu, cursor)` highlights the row.
+- **Settings.** `audio.ambience` (0.7), `audio.ui` (0.6) and `graphics.effects` (`high`); the settings blob stays version 2 (missing fields parse to defaults).
+
+### Tutorial (`src/tutorial`, `src/ui/tutorial`)
+*Guided first shift* is a data-driven script (`src/data/tutorial/firstShift.json`, validated by `parseTutorialScript`) of 14 steps (welcome, get in the
+car, drive, light bar, radio status, take a call, drive to it, handle the scene, report, traffic stop, plate run, driver contact, backup, done). A step
+completes on an **ack**, on the first matching **bus event** (`TUTORIAL_TOPICS`, with `where` paths and `$player` / `$call` substitution) or on a
+**probe** (`speedKmh`, `driving`, `lightbar`, `siren`, `distanceToCallM`, read from simulation state only). Because the progress is simulation state
+that is saved, the runner follows the simulation rules:
+
+- `TutorialRunner.step()` is the system `tutorial` at fixed step **-651** (only registered while a tutorial is active). Bus handlers never advance
+  it: `onEvent` copies the JSON-safe payload into a **queue** (at most 64 entries) and the player's `ack` / `skip` / `end` are queued commands (at most
+  8); the next `step()` applies the commands, runs the step's `enter` actions (`createCall` once per step, guarded by the saved `entered` flag, through the
+  port that picks a point of interest at the requested distance deterministically and offers the call to the player unit), matches the queued events
+  against the current step and checks a probe every 15 steps. Every step change emits `tutorial:step`, the end `tutorial:done`, the `flash` action
+  `tutorial:flash`. With no tutorial active nothing changes: every Phase 1-8 fixture stays bit-identical.
+- Presentation reads `runner.view` (a `revision` counter): `TutorialCard` is a non-interactive HUD element (`role="status"`) showing the current step with
+  the live key labels (`formatTutorialText` replaces `{action.id}` tokens), `TutorialDialog` is the pausing menu for the two acknowledgement steps.
+  The pause menu has *Skip tutorial step* and *End tutorial*; the title screen has the *Guided first shift* button.
+
+### Profiler and performance tooling
+`SystemProfiler` (`src/debug/profiler.ts`) records the duration of every registered system per fixed step (`SystemRegistry.runAll` takes one clock read
+per system boundary) and the `sim` / `update` / `render` time of every frame (`GameLoop.setPhaseSink`), with mean, p95 (a log2 histogram), max and share, and
+no allocation after a name was first seen. The F3 overlay lists the top 5 systems. `test/perf/longShift.test.ts` runs 1 game hour (8 with `PATROL_LONG=1`)
+in Node and `test/perf/memory.test.ts` checks heap churn and plateau after forced GC; `scripts/perf.mjs` drives the production build under Chromium and
+reads CDP heap usage and DOM counters at checkpoints (`npm run perf`). Results, the hot spots fixed (traffic allocation and `Math.hypot`, the registry
+clock, loop and mesh-sync allocation) and the ones left (the Rapier soft-body pass in `PhysicsWorld.step`, per-step vehicle scratch vectors) are in
+`docs/PERFORMANCE.md`.
+
+### Release tooling
+- `npm run build` is clean (no `(!)`, warning or timing note; `build.rolldownOptions.checks.bundlerTimings` is off in `vite.config.ts`); the app chunk,
+  three.js and the Rapier WASM chunk are separate.
+- `scripts/e2e.mjs` (`npm run e2e`) builds, serves `dist/` with `vite preview` and runs the done-when flow in headless Chromium under SwiftShader: create an
+  officer, start a shift, customize and drive a patrol car, receive and accept a call with the radio keys, call backup, resolve a call end to end (CAD ->
+  scene -> report -> court verdict), quick save, quit, continue, and verify that everything survived, with zero console errors or warnings.
+  `window.patrol` is exposed by the page parameter `?e2e` (`src/main.ts`), which the smoke, e2e and perf scripts use.
+- The legal engine and the CAD have audit tests: every export is referenced by a test, every rule of every ruleset is produced by a corpus scenario (two
+  documented exemptions), a doctrine outcome matrix per ruleset, seeded property tests and a CAD state-machine and invariant fuzz.
+
+### Save v11
+`CURRENT_SAVE_VERSION = 11`. `SaveGameV11 extends SaveGameV10 { tutorial: TutorialSave | null }`, where `TutorialSave` is plain JSON (script id, step
+index, `entered`, bound call id, probe tick, skipped step ids, `done` / `completed`, the bounded event queue and pending commands); `null` means no tutorial in
+this game. `migrateV10ToV11` writes `tutorial: null` (every save from v1 to v10 still loads, and plays on identically to Phase 8). `isSaveGameV11` is the
+v10 check plus `tutorial === null || isTutorialSave(tutorial)`. Load order: ... -> career -> world -> mode -> **tutorial** (a runner is created when the block
+is non-null and not done) -> radio. `rolloverSave` keeps the block as is.

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DEFAULT_DRAW_DISTANCE, disposeObject, type Renderer, type ShadowQuality } from '../../render/renderer';
+import type { EffectsQuality } from '../../render/vfx/types';
 import type { Environment } from '../environment';
 import type { Rgb } from '../sky';
 import { HeatHazePass } from './heatHaze';
@@ -11,8 +12,11 @@ import {
   PRECIP_SWAY_WRAP,
   PRECIP_WIND_DRIFT,
   createPrecipitation,
+  createSplashes,
   type Precipitation,
+  type Splashes,
 } from './precipitation';
+import { VFX_DATA } from '../../render/vfx/data';
 import { createSkyDome, type SkyDome } from './skyDome';
 
 export interface EnvironmentRendererOptions {
@@ -66,6 +70,12 @@ export class EnvironmentRenderer {
   private readonly root = new THREE.Group();
   private readonly sky: SkyDome;
   private readonly precip: Precipitation;
+  /** Rain splash rings; added to the scene on the first rain (a dry session never pays for them). */
+  private readonly splashes: Splashes;
+  private splashesAttached = false;
+  private effects: EffectsQuality = 'high';
+  /** Splash ring cycle position 0..1 (wrapped, so it never jumps). */
+  private splashPhase = 0;
   private readonly light = new THREE.DirectionalLight(0xffffff, 0);
   private readonly hemisphere = new THREE.HemisphereLight(0xffffff, 0x000000, 0);
   private readonly fog = new THREE.Fog(0x000000, 60, 320);
@@ -95,6 +105,7 @@ export class EnvironmentRenderer {
     this.root.name = 'environment';
     this.sky = createSkyDome();
     this.precip = createPrecipitation();
+    this.splashes = createSplashes();
 
     this.light.name = 'sunMoon';
     this.light.shadow.camera.left = -SHADOW_HALF_EXTENT;
@@ -171,6 +182,7 @@ export class EnvironmentRenderer {
     this.hemisphere.intensity = this.indoor ? INDOOR_AMBIENT * AMBIENT_SCALE : sky.ambientIntensity * AMBIENT_SCALE;
 
     this.updatePrecipitation(env, camera, cameraPos, Math.max(0, realDt));
+    this.updateSplashes(env, camera, cameraPos, Math.max(0, realDt));
     this.updateHaze(this.indoor ? 0 : w.heatHaze, camera);
   }
 
@@ -188,9 +200,15 @@ export class EnvironmentRenderer {
     const points = this.precip.points;
     const visible = points.visible;
     points.visible = true;
+    // The splash rings are compiled the same way (they have their own program).
+    const splash = this.splashes.points;
+    const splashVisible = splash.visible;
+    this.attachSplashes();
+    splash.visible = true;
     renderer.gl.compile(this.scene, camera);
     this.haze.compile(renderer.gl, this.scene, camera);
     points.visible = visible;
+    splash.visible = splashVisible;
   }
 
   /**
@@ -199,6 +217,16 @@ export class EnvironmentRenderer {
    */
   setIndoor(on: boolean): void {
     this.indoor = on;
+  }
+
+  /** Effects quality (`graphics.effects`): off hides the rain splashes, low draws half of them. */
+  setEffects(quality: EffectsQuality): void {
+    this.effects = quality;
+  }
+
+  /** The rain splash points (in the scene once it has rained or after `prewarmHaze`). */
+  get splashPoints(): THREE.Points {
+    return this.splashes.points;
   }
 
   /** Enables/sizes the sun shadow map; call alongside `Renderer.setShadows`. */
@@ -221,6 +249,7 @@ export class EnvironmentRenderer {
     this.haze = null;
     this.root.removeFromParent();
     disposeObject(this.root);
+    disposeObject(this.splashes.points);
     if (this.scene.fog === this.fog) this.scene.fog = null;
     if (this.scene.background === this.background) this.scene.background = null;
   }
@@ -278,6 +307,36 @@ export class EnvironmentRenderer {
     // Dimmer at night so particles do not glow in the dark.
     setSrgb(u.uColor.value, snow ? SNOW_COLOR : RAIN_COLOR, 0.25 + 0.75 * (1 - env.lighting.nightFactor));
     u.uOpacity.value = snow ? 0.9 : 0.35;
+  }
+
+  private attachSplashes(): void {
+    if (this.splashesAttached) return;
+    this.root.add(this.splashes.points);
+    this.splashesAttached = true;
+  }
+
+  /**
+   * Rain splash rings on the ground: draw range = `count * precipitation * (1 - precipSnow)` (half at effects `low`),
+   * none indoors, in snow or with effects `off`.
+   */
+  private updateSplashes(env: Environment, camera: THREE.PerspectiveCamera, cameraPos: THREE.Vector3, dt: number): void {
+    const w = env.weather;
+    const s = this.splashes;
+    const rain = Math.min(1, Math.max(0, w.precipitation)) * (1 - Math.min(1, Math.max(0, w.precipSnow)));
+    const share = this.effects === 'off' || this.indoor ? 0 : this.effects === 'low' ? 0.5 : 1;
+    const count = Math.round(s.count * rain * share);
+    if (count > 0) this.attachSplashes();
+    s.points.visible = count > 0;
+    if (count === 0) return;
+    s.points.geometry.setDrawRange(0, count);
+    const u = s.uniforms;
+    this.splashPhase = (this.splashPhase + dt * VFX_DATA.splashes.rateHz) % 1;
+    u.uPhase.value = this.splashPhase;
+    u.uCamera.value.copy(cameraPos);
+    const height = this.renderer ? this.renderer.gl.getDrawingBufferSize(this.bufferSize).y : HEADLESS_HEIGHT;
+    u.uScale.value = height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+    setSrgb(u.uColor.value, RAIN_COLOR, 0.25 + 0.75 * (1 - env.lighting.nightFactor));
+    u.uOpacity.value = 0.45;
   }
 
   /** Installs the heat-haze pass only while there is haze (and a renderer to draw it). */

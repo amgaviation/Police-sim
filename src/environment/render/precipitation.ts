@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createRng } from '../../core/rng';
+import { VFX_DATA, type VfxData } from '../../render/vfx/data';
 
 /** Edge of the particle box that wraps around the camera, m. */
 export const PRECIP_BOX = 40;
@@ -21,6 +22,8 @@ export const PRECIP_WIND_DRIFT = { rain: 0.15, snow: 0.6 } as const;
  */
 export const PRECIP_FALL_WRAP = PRECIP_BOX * 25;
 export const PRECIP_SWAY_WRAP = 20 * Math.PI;
+/** Height of the rain splash rings above the ground, m. */
+export const SPLASH_HEIGHT = 0.02;
 
 const VERTEX = /* glsl */ `
 #define NEAR_FADE vec2(${PRECIP_NEAR_FADE[0].toFixed(1)}, ${PRECIP_NEAR_FADE[1].toFixed(1)})
@@ -137,4 +140,106 @@ export function createPrecipitation(): Precipitation {
   points.frustumCulled = false;
   points.visible = false;
   return { points, uniforms };
+}
+
+const SPLASH_VERTEX = /* glsl */ `
+#define MAX_POINT_PX ${PRECIP_MAX_POINT_PX.toFixed(1)}
+uniform float uPhase;
+uniform vec3 uCamera;
+uniform float uRadius;
+uniform float uRing;
+uniform float uScale;
+attribute float aRand;
+varying float vPhase;
+varying float vFade;
+void main() {
+  // Ground points wrapped into a square around the camera (xz).
+  vec2 h = vec2(uRadius);
+  vec2 xz = uCamera.xz + mod(position.xz - uCamera.xz + h, 2.0 * h) - h;
+  vec4 mv = viewMatrix * vec4(xz.x, position.y, xz.y, 1.0);
+  gl_Position = projectionMatrix * mv;
+  vPhase = fract(uPhase + aRand);
+  gl_PointSize = min(2.0 * uRing * uScale / max(-mv.z, 0.5), MAX_POINT_PX);
+  float d = length(xz - uCamera.xz);
+  vFade = (1.0 - smoothstep(uRadius * 0.6, uRadius, d)) * (1.0 - vPhase);
+}`;
+
+const SPLASH_FRAGMENT = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+varying float vPhase;
+varying float vFade;
+void main() {
+  // Expanding ring: its radius (0..1 of the sprite half-width) is the phase.
+  float d = length(gl_PointCoord - 0.5) * 2.0;
+  float ring = 1.0 - smoothstep(0.0, 0.18, abs(d - vPhase));
+  float a = ring * vFade * uOpacity;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(uColor, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+
+export interface SplashUniforms {
+  /** Ring cycle position 0..1 (advanced at `rateHz` cycles per second and wrapped by the owner, so it never jumps). */
+  uPhase: THREE.IUniform<number>;
+  uCamera: THREE.IUniform<THREE.Vector3>;
+  uRadius: THREE.IUniform<number>;
+  uRing: THREE.IUniform<number>;
+  /** Drawing-buffer height / (2 tan(fov / 2)). */
+  uScale: THREE.IUniform<number>;
+  uColor: THREE.IUniform<THREE.Color>;
+  uOpacity: THREE.IUniform<number>;
+}
+
+export interface Splashes {
+  readonly points: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  readonly uniforms: SplashUniforms;
+  /** Most splash points (the draw range scales with `precipitation * (1 - precipSnow)`). */
+  readonly count: number;
+}
+
+/**
+ * Rain splashes: `splashes.count` ground points (y = 0.02) scattered over a square of `2 * radiusM` that wraps around
+ * the camera, each drawn as an expanding, fading ring at its own phase. GPU only; the owner writes uniforms and the
+ * draw range (rain only, never snow).
+ */
+export function createSplashes(data: VfxData = VFX_DATA): Splashes {
+  const s = data.splashes;
+  const rng = createRng('vfx:splashes');
+  const positions = new Float32Array(s.count * 3);
+  const rand = new Float32Array(s.count);
+  for (let i = 0; i < s.count; i++) {
+    positions[i * 3] = rng.next() * s.radiusM * 2;
+    positions[i * 3 + 1] = SPLASH_HEIGHT;
+    positions[i * 3 + 2] = rng.next() * s.radiusM * 2;
+    rand[i] = rng.next();
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('aRand', new THREE.BufferAttribute(rand, 1));
+  geometry.setDrawRange(0, 0);
+  const uniforms: SplashUniforms = {
+    uPhase: { value: 0 },
+    uCamera: { value: new THREE.Vector3() },
+    uRadius: { value: s.radiusM },
+    uRing: { value: s.ringM },
+    uScale: { value: 1 },
+    uColor: { value: new THREE.Color() },
+    uOpacity: { value: 0.5 },
+  };
+  const material = new THREE.ShaderMaterial({
+    name: 'splashes',
+    uniforms: { ...uniforms },
+    vertexShader: SPLASH_VERTEX,
+    fragmentShader: SPLASH_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    fog: false,
+  });
+  const points = new THREE.Points(geometry, material);
+  points.name = 'splashes';
+  points.frustumCulled = false;
+  points.visible = false;
+  return { points, uniforms, count: s.count };
 }

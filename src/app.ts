@@ -2,7 +2,6 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { createAudioCommands } from './audio/commands';
 import { AudioEngine } from './audio/engine';
-import type { SirenEmitter } from './audio/math';
 import { createCadCommands } from './cad/commands';
 import './cad/events';
 import type { RadioMode } from './cad/types';
@@ -13,6 +12,7 @@ import { GameLoop, type LoopHooks } from './core/loop';
 import { createRng, normalizeSeed } from './core/rng';
 import { DebugConsole, type Command } from './debug/console';
 import { PerfOverlay, type PerfSample } from './debug/perfOverlay';
+import { SystemProfiler } from './debug/profiler';
 import { createWorldCommands, type WorldCommandDeps } from './debug/worldCommands';
 import { createCallsCommands } from './calls/commands';
 import { createDispatchCommands } from './dispatch/commands';
@@ -36,6 +36,8 @@ import { createMdtDeps } from './game/mdtDeps';
 import { Phase6Presenter } from './game/phase6Presenter';
 import { Phase7Presenter } from './game/phase7Presenter';
 import { Phase8Presenter } from './game/phase8Presenter';
+import { Phase9Presenter } from './game/phase9Presenter';
+import { createPhase9Commands, DEFAULT_TUTORIAL } from './game/phase9Commands';
 import { scenarioBlockedReason } from './game/modes';
 import { createPhase8Commands } from './game/phase8Commands';
 import { beginRolledShift, prepareRollover, type PreparedRollover } from './game/rollover';
@@ -85,9 +87,8 @@ import { initRapier, type PhysicsWorld, type Vec3 } from './physics/physics';
 import { CAMERA_MODE, CAMERA_MODE_NAMES, CameraRig, type CameraRaycast, type FollowTarget, type LookInput } from './player/cameraRig';
 import { readDriverInput } from './player/driverInput';
 import { createPoliceCommands } from './police/commands';
-import { PoliceLights, SIREN_FLAG, hasPoliceLights } from './police/components';
 import { createPoliceInput, readPoliceInput } from './police/controls';
-import { SIREN_TONES, SPOTLIGHT } from './police/equipment';
+import { SPOTLIGHT } from './police/equipment';
 import { RadioController } from './radio/controller';
 import { RADIO_CONFIG, channelDef } from './radio/data';
 import './radio/events';
@@ -106,10 +107,10 @@ import { SettingsStore } from './settings/settings';
 import { SpeechIn } from './speech/recognition';
 import { SpeechOut } from './speech/synthesis';
 import { createTrafficCommands } from './traffic/commands';
-import { PULLOVER } from './traffic/data';
 import { vehicleIdFromPlate, vehicleRecord } from './traffic/registry';
 import { Hud } from './ui/hud/hud';
 import { createMinimapMarkers, type TrafficDots } from './ui/hud/minimap';
+import { GamepadNav } from './ui/gamepadNav';
 import { MainMenu, type MainMenuCharacter } from './ui/mainMenu';
 import { MdtOverlay } from './ui/mdt/overlay';
 import { ActionPanel } from './ui/panels/actionPanel';
@@ -160,7 +161,6 @@ const CAR_STYLES: readonly string[] = ['sedan', 'hatchback', 'suv'];
 const scratchPos = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
 const scratchDir = new THREE.Vector3();
-const scratchUp = new THREE.Vector3();
 const scratchVel: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchPoint = { x: 0, z: 0 };
 const scratchDest = { x: 0, z: 0 };
@@ -235,6 +235,10 @@ export class App {
   readonly phase7: Phase7Presenter;
   /** Phase 8 presentation: academy, career, apartment, summary, dispatch console, scenario editor, mod manager, co-op. */
   readonly phase8: Phase8Presenter;
+  /** Phase 9 presentation: effects and their bridges, the audio frame, the tutorial card and dialog. */
+  readonly phase9: Phase9Presenter;
+  /** Per-system and per-phase frame timings (the perf overlay and `scripts/perf.mjs` read it). */
+  readonly profiler = new SystemProfiler();
   /** Mods applied at this page load (the mod manager shows their errors). */
   readonly boot: BootResult;
   /** Jurisdiction chosen on the title screen for the next new game. */
@@ -255,8 +259,8 @@ export class App {
   /** Interact key held at a door since this time (ms), -1 when not pending: a tap toggles, a hold opens the door panel. */
   private doorHoldMs = -1;
   private readonly markers = createMinimapMarkers(MARKER_CAPACITY);
-  /** Siren emitters rebuilt every frame (reused objects; grows only when more police cars exist). */
-  private readonly emitters: SirenEmitter[] = [];
+  /** Turns the gamepad into menu navigation keys (Phase 9). */
+  private readonly gamepadNav: GamepadNav;
   private readonly radioStatus: { -readonly [K in keyof RadioStatusView]: RadioStatusView[K] } = {
     channel: '',
     scanning: false,
@@ -357,10 +361,18 @@ export class App {
     this.ui = new UIRoot();
     this.disposers.push(this.ui.bindSettings(settings));
     this.perf = new PerfOverlay({ parent: this.ui.hud });
+    this.perf.setProfiler(this.profiler);
+    this.systems.setProfiler(this.profiler);
+    this.gamepadNav = new GamepadNav(this.input, {
+      isMenuOpen: () => this.ui.isMenuOpen(),
+      focusTarget: () => document.activeElement ?? this.ui.top?.element ?? null,
+      moveFocus: (dir) => this.ui.moveFocus(dir),
+    });
     this.console = new DebugConsole({ parent: this.ui.hud, bus: this.bus });
     this.hud = new Hud(this.ui.hud);
     this.hud.setVisible(false);
     this.audio = new AudioEngine();
+    this.disposers.push(this.ui.onUiSound((kind) => this.audio.ui.play(kind)));
     this.speechOut = new SpeechOut();
     this.speechIn = new SpeechIn();
     this.radioPlayer = new RadioPlayer({
@@ -421,6 +433,16 @@ export class App {
       scene: () => (this.renderer ? this.scene : null),
       boot: () => this.boot,
     });
+    this.phase9 = new Phase9Presenter(this.renderer ? this.scene : null, this.ui, this.bus, this.audio, this.world, {
+      session: () => this.sessionValue,
+      flash: (text) => this.flash(text),
+      aim: () => {
+        const session = this.sessionValue;
+        return session ? this.aimDirection(session) : { x: 0, z: -1 };
+      },
+      bindings: () => settings.get('controls.bindings'),
+    });
+    this.carRenderer?.setGlowSink(this.phase9.vfx.glowSink);
     // The radio menu and the voice grammar request any unit type (design 14).
     setRadioRequestTypes(radioRequestTypeList());
     this.presenter = new PeoplePresenter(
@@ -457,6 +479,10 @@ export class App {
       boot: () => this.boot,
       startMode: (mode, option) => this.startTraining(mode, option),
     })) {
+      this.console.register(command);
+    }
+
+    for (const command of createPhase9Commands({ session: () => this.sessionValue, flash: (text) => this.flash(text) })) {
       this.console.register(command);
     }
 
@@ -509,6 +535,17 @@ export class App {
           }
         });
       },
+      tutorial: (seed, jurisdiction, character) => {
+        this.mainMenu.setStatus('Generating city...');
+        afterPaint(() => {
+          try {
+            this.newGame(seed, jurisdiction, character, { tutorial: DEFAULT_TUTORIAL, inStation: false });
+          } catch (error) {
+            log.error('Tutorial start failed:', error);
+            this.mainMenu.setStatus('Could not start the tutorial; see console');
+          }
+        });
+      },
       openCoop: () => this.phase8.lobby.open(),
       openMods: () => void this.phase8.modManager.open(),
       scripts: () => availableScripts().map((sc) => ({ id: sc.id, name: sc.name })),
@@ -545,6 +582,9 @@ export class App {
         const session = this.sessionValue;
         return session === null || scenarioBlockedReason(session, this.phase8.coop !== null) === null;
       },
+      tutorialActive: () => this.sessionValue?.phase9.active === true,
+      skipTutorialStep: () => this.skipTutorialStep(),
+      endTutorial: () => this.endTutorial(),
     });
 
     this.systems.register(copyPrevTransform, -1000);
@@ -559,6 +599,7 @@ export class App {
     };
     this.loop = new GameLoop({ hooks, simHz: SIM_HZ });
     this.loop.frameCap = settings.get('graphics.frameCap');
+    this.loop.setPhaseSink(this.profiler);
 
     this.worker = createWorker();
     this.chunkWorker = this.renderer ? createChunkWorkerOrNull() : null;
@@ -642,7 +683,7 @@ export class App {
   }
 
   /** Replaces the running session with a fresh shift in the city of `seed`. */
-  newGame(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter, options: Pick<NewGameOptions, 'mode' | 'inStation' | 'career'> = {}): GameSession {
+  newGame(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter, options: Pick<NewGameOptions, 'mode' | 'inStation' | 'career' | 'tutorial'> = {}): GameSession {
     this.endSession();
     this.resetSimulation();
     if (jurisdiction !== undefined) this.jurisdiction = jurisdiction;
@@ -656,6 +697,27 @@ export class App {
     if (options.mode === 'career') this.phase8.openAcademy();
     log.info(`New game, seed ${String(session.seed)}${options.mode ? ` (${options.mode})` : ''}`);
     return session;
+  }
+
+  /** Pause menu: skips the current tutorial step (the runner applies it in the next fixed step, so the menu closes). */
+  private skipTutorialStep(): void {
+    const runner = this.sessionValue?.phase9.runner;
+    if (!runner || !this.sessionValue?.phase9.active) return;
+    if (runner.view.step?.skippable !== true) {
+      this.pauseMenu.setStatus('This step cannot be skipped');
+      return;
+    }
+    runner.skip();
+    this.pauseMenu.close();
+    this.flash('Step skipped');
+  }
+
+  /** Pause menu: ends the tutorial (free patrol goes on). */
+  private endTutorial(): void {
+    const runner = this.sessionValue?.phase9.runner;
+    if (!runner || !this.sessionValue?.phase9.active) return;
+    runner.end();
+    this.pauseMenu.close();
   }
 
   /**
@@ -873,6 +935,7 @@ export class App {
     this.phase6.dispose();
     this.phase7.dispose();
     this.phase8.dispose();
+    this.phase9.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -908,6 +971,9 @@ export class App {
    */
   private update(dt: number, alpha: number): void {
     this.syncInputContext();
+    // The pad's synthesized menu keys reach the input manager in this same frame's update (a menu closed by B must not
+    // also read as a fresh Escape one frame later), so the navigation runs just before it.
+    this.gamepadNav.update(performance.now());
     this.input.update();
     this.handleToggles();
     this.menuChangedSinceUpdate = false;
@@ -940,8 +1006,10 @@ export class App {
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
-    this.updateAudio(session);
+    const inCabin = session.driving && (this.rig.mode === CAMERA_MODE.cockpit || this.rig.mode === CAMERA_MODE.hood);
+    this.phase9.updateAudio(session, this.renderer?.activeCamera ?? null, dt, inCabin);
     this.updateHud(session);
+    this.phase9.updateTutorial(session);
     this.updateRadioPanel(now);
   }
 
@@ -1291,7 +1359,7 @@ export class App {
       interpolateTransform(session.player, alpha, scratchPos, scratchQuat);
       this.envRenderer.update(session.env, camera, scratchPos, dt);
       this.view?.setIndoor(session.officerBuilding >= 0);
-      this.view?.update(camera.position.x, camera.position.z, this.envRenderer.viewDistance, session.clock.simTime, lighting);
+      this.view?.update(camera.position.x, camera.position.z, this.envRenderer.viewDistance, session.clock.simTime, lighting, session.env.weather);
       this.phase4.updateWorld(session, dt, camera);
       this.phase4.updateLabels(session, camera, renderer.canvas, performance.now());
       // Once the first ring of chunks is in (session start), so a later heat spell does not stall mid-drive.
@@ -1303,7 +1371,8 @@ export class App {
     }
     if (renderer) {
       const cam = renderer.activeCamera;
-      this.presenter.render(session, alpha, cam.position.x, cam.position.z, lighting.nightFactor, dt);
+      const weather = session.env.weather;
+      this.presenter.render(session, alpha, cam.position.x, cam.position.z, lighting.nightFactor, dt, this.renderTime, Math.hypot(weather.windX, weather.windZ));
     }
     this.phase6.updateRender(session, alpha);
     const cars = this.carRenderer;
@@ -1320,6 +1389,11 @@ export class App {
     } else {
       this.phase7.syncVehicles(session);
     }
+    // Effects after the car renderer fed the lamps to the glow sink.
+    if (renderer) {
+      this.phase9.vfx.setViewportHeight(renderer.canvas.height);
+      this.phase9.updateVfx(session, renderer.activeCamera, dt, session.env.weather, lighting.nightFactor);
+    }
   }
 
   /** Radio keys (only while gameplay controls are active), the radio menu display and one-off hints. */
@@ -1328,7 +1402,7 @@ export class App {
     const feed = this.policeFeedValue;
     if (!ctl || !feed) return;
     const state = ctl.update(dt, active, feed.radioContext(this.radioMode, this.targets?.target ?? null));
-    this.radioMenuView.show(state.menu);
+    this.radioMenuView.show(state.menu, state.cursor);
     if (state.hintSeq !== this.lastRadioHint) {
       this.lastRadioHint = state.hintSeq;
       if (state.hint !== null) this.flash(state.hint);
@@ -1394,55 +1468,6 @@ export class App {
     const visible = this.rig.mode === CAMERA_MODE.cockpit && session.inPatrolCar && carStyle;
     cockpit.update(alpha, visible, feed.cockpitState(visible));
     if (visible && this.mdtScreen.paint(feed.screenModel(now), now)) cockpit.markScreenDirty();
-  }
-
-  /** Listener from the camera; one siren emitter per police car with `PoliceLights` (the driven one in the cabin). */
-  private updateAudio(session: GameSession): void {
-    const audio = this.audio;
-    if (!audio.unlocked) return;
-    const camera = this.renderer?.activeCamera;
-    if (camera) {
-      camera.getWorldPosition(scratchPos);
-      camera.getWorldDirection(scratchDir);
-      scratchUp.copy(camera.up).applyQuaternion(camera.getWorldQuaternion(scratchQuat));
-      audio.setListener(scratchPos.x, scratchPos.y, scratchPos.z, scratchDir.x, scratchDir.y, scratchDir.z, scratchUp.x, scratchUp.y, scratchUp.z);
-    } else {
-      const at = session.playerPosition(scratchPoint);
-      scratchPos.set(at.x, 1.6, at.z);
-      audio.setListener(at.x, 1.6, at.z, 0, 0, -1, 0, 1, 0);
-    }
-    const driven = session.drivenVehicle?.eid ?? 0;
-    let n = 0;
-    for (const vehicle of session.vehicles) {
-      if (session.equipmentOf(vehicle)) n = this.addEmitter(n, vehicle.eid, vehicle.eid === driven);
-    }
-    const traffic = session.traffic;
-    for (let i = 0; i < PULLOVER.fleet.maxCars; i++) {
-      const eid = traffic.fleetEntity(i);
-      if (eid !== 0) n = this.addEmitter(n, eid, false);
-    }
-    audio.sirens.update(this.emitters, n, scratchPos.x, scratchPos.z);
-  }
-
-  /** Writes emitter `n` from the `PoliceLights` of `eid` (skipped without the component); returns the new count. */
-  private addEmitter(n: number, eid: number, inCabin: boolean): number {
-    if (!hasPoliceLights(this.world, eid)) return n;
-    let e = this.emitters[n];
-    if (!e) {
-      e = { id: 0, x: 0, y: 0, z: 0, tone: null, horn: false, manual: false, inCabin: false };
-      this.emitters.push(e);
-    }
-    const siren = PoliceLights.siren[eid] ?? 0;
-    const flags = PoliceLights.sirenFlags[eid] ?? 0;
-    e.id = eid;
-    e.x = Transform.x[eid] ?? 0;
-    e.y = Transform.y[eid] ?? 0;
-    e.z = Transform.z[eid] ?? 0;
-    e.tone = siren > 0 ? (SIREN_TONES[siren - 1] ?? null) : null;
-    e.horn = (flags & SIREN_FLAG.horn) !== 0;
-    e.manual = (flags & SIREN_FLAG.manual) !== 0;
-    e.inCabin = inCabin;
-    return n + 1;
   }
 
   /** Radio channel strip (self-throttled to 4 Hz) and the caption timeout. */
@@ -1536,8 +1561,14 @@ export class App {
     const a = this.audio;
     this.perf.setExtra(
       'audio',
-      !a.available ? 'unavailable' : a.unlocked ? `${String(a.stats.active)}/${String(a.stats.voices)} siren voices` : 'waiting for input',
+      !a.available
+        ? 'unavailable'
+        : a.unlocked
+          ? `${String(a.stats.active)}/${String(a.stats.voices)} sirens, engine ${String(a.stats.engine)}, ${String(a.stats.traffic)} traffic, ${String(a.stats.ambienceLayers)} ambience layers, ${String(a.stats.chatter)} chatter`
+          : 'waiting for input',
     );
+    const vs = this.phase9.vfx.stats;
+    this.perf.setExtra('vfx', `${String(vs.glows)} glows, ${String(vs.pools)} pools, ${String(vs.cones)} cones, ${String(vs.particles)} particles, ${String(vs.drawCalls)} draw calls`);
     const npc = session?.npc.stats;
     this.perf.setExtra('npc', npc ? `${String(npc.peds)} peds, ${String(npc.actors)} actors, ${String(npc.occupants)} occupants, ${npc.stepMs.toFixed(2)} ms` : undefined);
     const sc = session?.scene.stats;
@@ -1614,6 +1645,7 @@ export class App {
     this.flashText = text;
     this.flashUntilMs = performance.now() + FLASH_MS;
     this.nextHudMs = 0;
+    this.ui.sound('notify');
   }
 
   // --- sessions ---------------------------------------------------------------
@@ -1667,6 +1699,7 @@ export class App {
     this.phase6.begin();
     this.phase7.begin(session);
     this.phase8.begin(session);
+    this.phase9.begin();
     this.route = null;
     this.flashUntilMs = 0;
     this.hazeWarm = false;
@@ -1692,6 +1725,7 @@ export class App {
       this.phase6.end();
       this.phase7.end();
       this.phase8.end();
+      this.phase9.end();
       this.presenter.setRemoteFigures(session, []);
       for (const vehicle of session.vehicles) this.carRenderer?.setDrivable(vehicle.eid, null);
       this.carRenderer?.setHeadlightTarget(0);
@@ -1935,7 +1969,11 @@ export class App {
         }
         if (all || change.path === 'controls.mouseSensitivity') this.mouseSensitivity = settings.get('controls.mouseSensitivity');
         if (all || change.path === 'controls.invertY') this.invertY = settings.get('controls.invertY');
-        if (all || change.path === 'accessibility.reducedFlash') this.reducedFlash = settings.get('accessibility.reducedFlash');
+        if (all || change.path === 'graphics.effects') this.applyEffects();
+        if (all || change.path === 'accessibility.reducedFlash') {
+          this.reducedFlash = settings.get('accessibility.reducedFlash');
+          this.phase9.vfx.setReducedFlash(this.reducedFlash);
+        }
         if (all || change.path === 'accessibility.colorblind') setPaletteMode(settings.get('accessibility.colorblind'));
         if (all || change.path.startsWith('audio.') || change.path === 'accessibility.subtitles') this.applyAudioSettings();
       }),
@@ -1981,6 +2019,8 @@ export class App {
     this.mouseSensitivity = settings.get('controls.mouseSensitivity');
     this.invertY = settings.get('controls.invertY');
     this.reducedFlash = settings.get('accessibility.reducedFlash');
+    this.phase9.vfx.setReducedFlash(this.reducedFlash);
+    this.applyEffects();
     setPaletteMode(settings.get('accessibility.colorblind'));
     // pagehide/hidden fire reliably on navigation and tab close (beforeunload does not on mobile),
     // and the settings storage keeps its connection open so the write starts synchronously here.
@@ -2001,7 +2041,7 @@ export class App {
   /** Volumes, text-to-speech, voice commands, radio language and captions from the settings. */
   private applyAudioSettings(): void {
     const a = this.settings.get().audio;
-    this.audio.setVolumes({ master: a.master, sfx: a.sfx, radio: a.radio });
+    this.audio.setVolumes({ master: a.master, sfx: a.sfx, radio: a.radio, ambience: a.ambience, ui: a.ui });
     this.speechOut.enabled = a.tts;
     // Switching spoken radio off also stops the (paused) utterance, so it does not resume later.
     if (!a.tts) this.speechOut.cancel();
@@ -2013,6 +2053,13 @@ export class App {
     this.subtitles = this.settings.get('accessibility.subtitles');
     this.presenter.setSubtitles(this.subtitles);
     if (!this.subtitles) this.radioPanelValue?.setCaption(null, 0);
+  }
+
+  /** The effects setting (glow, light cones, particles, rain splashes) reaches the effects system and the environment renderer. */
+  private applyEffects(): void {
+    const quality = this.settings.get('graphics.effects');
+    this.phase9.vfx.setQuality(quality);
+    this.envRenderer?.setEffects(quality);
   }
 
   /** An audible transmission started: radio log line, and the caption when captions are on. */

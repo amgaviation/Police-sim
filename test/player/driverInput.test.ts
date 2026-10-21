@@ -65,7 +65,8 @@ describe('player input actions', () => {
         for (const other of ACTION_IDS) {
           // The on-foot officer actions deliberately share Space / G / pad buttons with driving (design §12.5), and
           // the aircraft lift shares Space with the handbrake (aircraft have no handbrake, design §5.8).
-          if (other === id || other.startsWith('officer.') || other === 'vehicle.lift') continue;
+          // Phase 9: the radio menu cursor is modal (it acts only while the radio menu is open and then takes the D-pad / A).
+          if (other === id || other.startsWith('officer.') || other.startsWith('radio.cursor') || other === 'vehicle.lift') continue;
           expect(DEFAULT_BINDINGS[other].some((o) => o.device === b.device && o.code === b.code), `${id} ${b.code} vs ${other}`).toBe(false);
         }
       }
