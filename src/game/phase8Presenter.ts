@@ -111,6 +111,8 @@ export class Phase8Presenter {
   private lobbyStarted = false;
 
   constructor(ui: UIRoot, host: Phase8PresenterHost) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
     this.ui = ui;
     this.host = host;
     const scene = host.scene();
@@ -133,7 +135,10 @@ export class Phase8Presenter {
         this.summary.close();
         this.apartment.open();
       },
-      rateTrainee: () => this.trainee.open(),
+      // The rating button shows only for an officer who is a field training officer.
+      get rateTrainee(): (() => void) | undefined {
+        return self.p8Safe()?.career.view.assignment === 'fto' ? () => void self.trainee.open() : undefined;
+      },
     });
     this.trainee = new TraineeEvalPanel(ui, {
       trainee: () => this.p8().career.view.trainee,
@@ -150,6 +155,10 @@ export class Phase8Presenter {
       close: () => undefined,
     });
     this.lobby = new CoopLobby(ui, this.lobbyHost());
+  }
+
+  private p8Safe(): GameSession['phase8'] | null {
+    return this.host.session()?.phase8 ?? null;
   }
 
   private p8(): GameSession['phase8'] {
