@@ -1,7 +1,8 @@
 # Performance and memory
 
 Phase 9 added a zero-allocation per-system profiler, a long-shift profile in Node, a memory plateau test, a browser
-profile of the production build with forced-GC heap checkpoints, and a round of hot-spot fixes. This document records
+profile of the production build with forced-GC heap checkpoints, and two rounds of hot-spot fixes (the perf module's, then
+the integrator's switch-off of Rapier's per-step soft-body pass, which cut the whole step by 43 %). This document records
 the method, the measured numbers (before and after the fixes), the budget, and how to run everything.
 
 Contents: [Tools](#tools) · [Method](#method) · [Budget](#budget) · [Results](#results) · [Memory](#memory) ·
@@ -60,12 +61,12 @@ Design §16, with what was measured at the end of Phase 9.
 
 | Subsystem | Budget | Measured |
 |---|---|---|
-| Whole fixed step (Node, idle patrol) | mean <= 1.5 ms, p95 <= 4 ms | mean 0.72 ms, p95 1.25 ms (8 game hours) |
+| Whole fixed step (Node, idle patrol) | mean <= 1.5 ms, p95 <= 4 ms | mean 0.41 ms, p95 0.69 ms (8 game hours) |
 | Profiler | <= 0.0005 ms per record, no allocation | 0.000034 ms; no heap growth over 100 000 records |
-| Draw calls (smoke scene, browser drive) | <= 300 cap, target <= 200 | mean 88, max 95 |
-| Heap after GC, Node churn | < 12 MB over cycles 2 to 6 | +2.2 MB (84.5 -> 86.2 MB) |
+| Draw calls (smoke scene, browser drive) | <= 300 cap, target <= 200 | mean 86, max 97 (95 in the smoke's Phase 9 section with effects on) |
+| Heap after GC, Node churn | < 12 MB over cycles 2 to 6 | +1.6 MB (85.0 -> 86.6 MB) |
 | Heap after GC, Node plateau | < 16 MB per 4 x 1 800 steps; < 24 MB per 6 x 7 200 | +1.4 MB (4 x 1 800); +3.8 MB (6 x 7 200, 6 game hours) |
-| Heap after GC, browser | < 25 % between 2nd and last checkpoint | +5.0 % (+1.4 MB) over 4 minutes |
+| Heap after GC, browser | < 25 % between 2nd and last checkpoint | +4.1 % (+1.2 MB) over 4 minutes |
 | Test-only limits (CI machines vary) | `longShift`: mean < 4 ms, p95 < 12 ms | |
 
 Audio, VFX, UI, tutorial and build budgets belong to the modules that own them (design §16).
@@ -76,32 +77,34 @@ All numbers from this machine (a shared container; run-to-run noise is about +/-
 
 ### Node: 8 game hours, seed 4242 (57 600 steps)
 
-Raw data: `docs/perf/node-long-shift.json` / `.md` (after) and `node-long-shift.before.json` / `.md` (before the Phase 9
-fixes).
+Raw data: `docs/perf/node-long-shift.json` / `.md` (final) and `node-long-shift.before.json` / `.md` (before the Phase 9
+fixes). "Module fixes" is the state after the perf module's own changes (traffic, registry, loop, mesh sync), "final" adds the
+integrator's physics fix.
 
-| | before | after |
-|---|---:|---:|
-| Whole step mean | 0.746 ms | 0.717 ms |
-| Whole step p95 | 1.218 ms | 1.246 ms |
-| Whole step max | 24.0 ms | 22.5 ms |
+| | before | module fixes | final |
+|---|---:|---:|---:|
+| Whole step mean | 0.746 ms | 0.717 ms | **0.408 ms** |
+| Whole step p95 | 1.218 ms | 1.246 ms | **0.690 ms** |
+| Whole step max | 24.0 ms | 22.5 ms | 25.6 ms |
 
-| system (mean ms per step) | before | after | p95 after | max after | share after |
-|---|---:|---:|---:|---:|---:|
-| physics | 0.285 | 0.281 | 0.431 | 11.3 | 40.1 % |
-| traffic | 0.255 | 0.237 | 0.431 | 11.2 | 33.8 % |
-| npc | 0.043 | 0.045 | 0.091 | 4.0 | 6.4 % |
-| vehicles.pre | 0.045 | 0.044 | 0.091 | 4.9 | 6.3 % |
-| copyPrevTransform | 0.016 | 0.015 | 0.027 | 2.7 | 2.1 % |
-| dispatch | 0.013 | 0.013 | 0.023 | 13.3 | 1.8 % |
-| vehicles.post | 0.011 | 0.012 | 0.023 | 6.8 | 1.7 % |
-| environment | 0.008 | 0.007 | 0.013 | 4.1 | 1.0 % |
+| system (mean ms per step) | before | module fixes | final | p95 final | max final | share final |
+|---|---:|---:|---:|---:|---:|---:|
+| traffic | 0.255 | 0.237 | 0.215 | 0.431 | 11.8 | 54.1 % |
+| physics | 0.285 | 0.281 | **0.030** | 0.064 | 4.2 | 7.6 % |
+| npc | 0.043 | 0.045 | 0.040 | 0.076 | 16.0 | 10.2 % |
+| vehicles.pre | 0.045 | 0.044 | 0.038 | 0.076 | 12.3 | 9.5 % |
+| copyPrevTransform | 0.016 | 0.015 | 0.014 | 0.023 | 8.2 | 3.4 % |
+| dispatch | 0.013 | 0.013 | 0.010 | 0.019 | 15.4 | 2.5 % |
+| vehicles.post | 0.011 | 0.012 | 0.007 | 0.016 | 4.9 | 1.9 % |
+| environment | 0.008 | 0.007 | 0.006 | 0.013 | 9.6 | 1.5 % |
 
 The `max` column is single-step outliers (GC pauses, a chunk of lazy initialisation, the dispatcher generating a
 call); p95 is 3 to 10 times below it and is the number that matters for frame pacing. p95 values are upper bucket
 edges of the profiler's log2 histogram (quarter-octave buckets), so they are accurate to about +19 %.
 
-Traffic is down about 7 % in CPU and about 48 % in allocation (below). Physics is 40 % of the step and almost all of
-it is avoidable; see [Hot spots](#hot-spots).
+Traffic is down about 7 % in CPU (a bit more in the final run) and about 48 % in allocation (below). Physics was 40 % of
+the step and almost all of it was avoidable: the integrator's fix took it from 0.28 ms to 0.03 ms per step (see
+[Hot spots](#hot-spots)); the whole-step max is the same outliers as before (GC and first-use initialisation).
 
 ### Allocation per traffic step (V8 sampling heap profiler, 198 cars, objects collected by GC included)
 
@@ -114,19 +117,21 @@ returned from non-inlined calls inside `computeAccel` and `pose` (V8 behaviour, 
 
 ### Browser: production build, 4 minutes at `timescale 8` (SwiftShader, 1280x720)
 
-Raw data: `docs/perf/browser-profile.json`. Per-system rows came from the in-page sampler (the integrator wires
-`app.profiler` afterwards, then re-run `npm run perf` and update this table).
+Raw data: `docs/perf/browser-profile.json`; the per-system rows come from `app.profiler` (wired by the integrator).
 
 | phase (ms per frame) | mean | p95 | max |
 |---|---:|---:|---:|
-| sim (40 fixed steps per frame at scale 8) | 28.5 | 46.3 | 66.4 |
-| update (input, camera, environment, streaming, cars, HUD) | 2.0 | 4.1 | 6.4 |
-| render hook (CPU side of mesh sync and draw submission) | 2.2 | 3.4 | 7.2 |
+| sim (40 fixed steps per frame at scale 8) | 14.5 | 27.6 | 54.3 |
+| update (input, camera, environment, streaming, cars, effects, audio, HUD) | 2.2 | 4.1 | 9.0 |
+| render hook (CPU side of mesh sync and draw submission) | 2.3 | 4.1 | 8.9 |
 
-8 080 fixed steps (141 simulation seconds) and 203 frames in the 4 minutes; the rest of each 1.3 s frame is the
-software rasteriser. Draw calls: mean 88, max 95; triangles: mean 194 000, max 212 000.
+9 760 fixed steps (168 simulation seconds) and 245 frames in the 4 minutes (before the physics fix 8 080 steps and 203
+frames: the same wall time simulates 21 % more); the rest of each 1.06 s frame is the software rasteriser. Draw calls:
+mean 86, max 97; triangles: mean 189 500, max 212 100.
 
-Per step the browser agrees with Node: physics 0.28 ms, traffic 0.17 ms, vehicles.pre 0.06 ms, npc 0.05 ms.
+Per system per fixed step in the page: traffic 0.152 ms, vehicles.pre 0.048, physics 0.046, npc 0.035, dispatch 0.010,
+vehicles.post 0.009, copyPrevTransform 0.009, integrateVelocity 0.009; the sim phase fell from 28.5 to 14.5 ms per frame
+(40 steps: 0.71 -> 0.36 ms per step).
 
 ## Memory
 
@@ -134,9 +139,9 @@ Node, after GC (`test/perf/memory.test.ts`):
 
 | test | readings (MB) | verdict |
 |---|---|---|
-| churn: 6 x (seed 77, 600 steps, reset) | 84.0, 84.5, 85.4, 85.6, 85.5, 86.2; bus listeners 0 after every reset | +2.2 MB from cycle 2 to 6 (limit 12) |
+| churn: 6 x (seed 77, 600 steps, reset) | 84.5, 85.0, 85.8, 86.0, 86.0, 86.6; bus listeners 0 after every reset | +1.6 MB from cycle 2 to 6 (limit 12) |
 | plateau, 4 x 1 800 steps | 90.1, 90.6, 91.6, 92.0 | +1.4 MB from segment 2 to 4 (limit 16) |
-| plateau, 6 x 7 200 steps (`PATROL_LONG=1`) | 92.4, 94.4, 95.8, 96.7, 97.4, 98.1 | +3.8 MB from segment 2 to 6 (limit 24) |
+| plateau, 6 x 7 200 steps (`PATROL_LONG=1`) | 92.9, 94.9, 96.3, 97.2, 98.0, 98.7 | +3.8 MB from segment 2 to 6 (limit 24) |
 
 The slow rise is bounded caches filling up, not a leak. A census of every collection reachable from the session
 (array lengths, Map and Set sizes) after 2 and after 6 game hours shows growth only in LRU caches
@@ -148,14 +153,15 @@ Browser, after two forced GCs (`docs/perf/browser-profile.json`, 4-minute drive,
 
 | checkpoint | heap | DOM nodes | JS listeners |
 |---|---:|---:|---:|
-| 0.5 min | 27.45 MB | 1 638 | 232 |
-| 1.33 min | 27.73 MB | 1 643 | 226 |
-| 2.67 min | 28.69 MB | 1 647 | 229 |
-| 4.0 min | 29.11 MB | 1 667 | 235 |
+| 0.5 min | 27.37 MB | 1 663 | 238 |
+| 1.33 min | 28.01 MB | 1 672 | 237 |
+| 2.67 min | 28.61 MB | 1 676 | 237 |
+| 4.0 min | 29.16 MB | 1 675 | 231 |
 
-Growth from the second to the last checkpoint: heap +1.4 MB (+5.0 %), DOM nodes +1.5 %, listeners +4.0 %. Heap
-snapshots: 34.1 MB / 478 501 nodes at the first checkpoint, 35.9 MB / 504 772 nodes at the last (the 26 000 extra
-nodes are the same caches filling). Zero console errors.
+Growth from the second to the last checkpoint: heap +1.2 MB (+4.1 %), DOM nodes +0.2 %, listeners -2.5 %. (The earlier
+`PERF_SNAPSHOT=1` run, before the integration, compared snapshots of 34.1 MB / 478 501 nodes and 35.9 MB / 504 772 nodes;
+the extra nodes are the same caches filling.) Zero console errors. The audio graph, the effects and the tutorial add no
+growth: the audio nodes are built once at unlock, the effects pools are fixed-size and the tutorial is a plain object.
 
 To compare two snapshots by hand, load both in Chrome DevTools > Memory and use the Comparison view on the second.
 
@@ -174,19 +180,19 @@ hash the same before and after, and `test/game` passes unchanged):
 | `src/core/loop.ts` | `stepAccumulatorInto` reuses one result object per frame; new `updateMs` / `renderMs` stats and `setPhaseSink` | no per-frame allocation in `tick` |
 | `src/render/meshSync.ts` | `syncFromEcs` iterates the object map with a preallocated `forEach` callback instead of `for (const [eid, object] of map)` | no entry arrays per frame |
 
-Not in files this module owns (for the integrator, in order of value):
+Not in files the perf module owns (for the integrator, in order of value; item 1 was fixed by the integrator, the rest remain):
 
-1. **`src/physics/physics.ts`, `PhysicsWorld.step` (0.28 ms per step, 40 % of the whole step; ~360 KB allocated per
+1. **FIXED: `src/physics/physics.ts`, `PhysicsWorld` (0.28 ms per step, 40 % of the whole step; ~360 KB allocated per
    step).** Rapier's `World.step()` ends with `mapNewSoftBodies()`, which walks every body and collider through a
    wasm-to-JS callback (`forEachColliderHandle`, `unmapRemovedColliders` building `map.getAll()` arrays) to keep the
-   JS wrapper maps in sync. With 1 204 colliders (mostly static city geometry) and 8 bodies that is ~90 % of the step.
-   Measured: replacing `world.mapNewSoftBodies` with a no-op on the instance took the step from 0.29 ms to 0.025 to
-   0.034 ms, and a 1 500-step session serialised to the identical JSON. The wrappers for bodies and colliders created
-   through the JS API are registered when they are created, and `removeRigidBody` / `removeCollider` unmap their own
-   colliders, so the per-step pass only matters for handles created inside wasm (the game has none). Suggested fix:
-   after `new World(...)` in the `PhysicsWorld` constructor set
-   `(world as unknown as { mapNewSoftBodies(): void }).mapNewSoftBodies = () => undefined;` with a comment, then run
-   `test/game`, `test/physics`, `test/vehicles` and `npm run smoke`. A second, independent lever is fewer colliders
+   JS wrapper maps in sync. With 1 204 colliders (mostly static city geometry) and 8 bodies that was ~90 % of the step.
+   The wrappers for bodies and colliders created through the JS API are registered when they are created, and
+   `removeRigidBody` / `removeCollider` unmap their own colliders, so the per-step pass only matters for handles created
+   inside wasm (the game has none, and no soft bodies). The `PhysicsWorld` constructor now replaces the instance's
+   `mapNewSoftBodies` with a no-op (with a comment). Result: physics 0.281 -> 0.030 ms per step, the whole step 0.717 ->
+   0.408 ms (mean) and 1.25 -> 0.69 ms (p95). Verified bit-identical: `test/game/phase9.test.ts` compares the saves of three
+   free-patrol runs (idle and driving, two seeds) with hashes taken from the Phase 8 build (commit 9c54ce0), and
+   `test/game`, `test/physics` and `test/vehicles` pass unchanged. A second, independent lever remains: fewer colliders
    (merge static chunk colliders into one compound or trimesh per chunk).
 2. **`src/vehicles/drivableVehicle.ts`, `preStep` / `preStepCraft` / `postStep` (vehicles.pre 0.044 ms, vehicles.post
    0.012 ms; 0.7 + 0.6 + 0.5 KB per step).** Small, steady allocations from `preStep`, `preStepCraft` and
@@ -216,7 +222,7 @@ PERF_MINUTES=1 PERF_NO_BUILD=1 node scripts/perf.mjs                            
 PERF_SNAPSHOT=1 node scripts/perf.mjs                                               # + heap snapshots in $TMPDIR
 ```
 
-The release module adds the `perf`, `perf:node` and `test:long` package scripts; until then use the raw commands above.
+The `perf`, `perf:node` and `test:long` package scripts run these.
 `PATROL_LONG=1` rewrites `docs/perf/node-long-shift.json` and `.md`; `scripts/perf.mjs` rewrites
 `docs/perf/browser-profile.json`. Pass `PATROL_DATE=<ISO string>` to fix the date written into the Node report.
 

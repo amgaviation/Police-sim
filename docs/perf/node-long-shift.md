@@ -1,24 +1,24 @@
 # Node long shift
 
 Seed 4242, 57600 fixed steps (8.0 game hours), free patrol, officer idle at the station.
-Date: 2026-10-21T19:21:24.197Z
+Date: 2026-10-21T21:41:25.965Z
 
-Whole step: mean 0.717 ms, p95 1.246 ms, max 22.467 ms (wall 41.4 s).
+Whole step: mean 0.408 ms, p95 0.690 ms, max 25.627 ms (wall 23.6 s).
 
 | system | mean ms | p95 | max | share |
 |---|---:|---:|---:|---:|
-| physics | 0.281 | 0.431 | 11.278 | 40.1% |
-| traffic | 0.237 | 0.431 | 11.183 | 33.8% |
-| npc | 0.045 | 0.091 | 4.017 | 6.4% |
-| vehicles.pre | 0.044 | 0.091 | 4.859 | 6.3% |
-| copyPrevTransform | 0.015 | 0.027 | 2.663 | 2.1% |
-| dispatch | 0.013 | 0.023 | 13.251 | 1.8% |
-| vehicles.post | 0.012 | 0.023 | 6.771 | 1.7% |
-| environment | 0.007 | 0.013 | 4.128 | 1.0% |
-| integrateVelocity | 0.006 | 0.013 | 4.115 | 0.8% |
-| scene | 0.005 | 0.016 | 6.004 | 0.7% |
-| resources | 0.004 | 0.008 | 9.006 | 0.6% |
-| tactical | 0.004 | 0.016 | 4.377 | 0.6% |
-| force | 0.004 | 0.006 | 5.850 | 0.5% |
-| radio | 0.003 | 0.005 | 20.817 | 0.5% |
-| investigation | 0.003 | 0.006 | 4.074 | 0.5% |
+| traffic | 0.215 | 0.431 | 11.800 | 54.1% |
+| npc | 0.040 | 0.076 | 16.014 | 10.2% |
+| vehicles.pre | 0.038 | 0.076 | 12.347 | 9.5% |
+| physics | 0.030 | 0.064 | 4.200 | 7.6% |
+| copyPrevTransform | 0.014 | 0.023 | 8.233 | 3.4% |
+| dispatch | 0.010 | 0.019 | 15.373 | 2.5% |
+| vehicles.post | 0.007 | 0.016 | 4.892 | 1.9% |
+| environment | 0.006 | 0.013 | 9.641 | 1.5% |
+| integrateVelocity | 0.005 | 0.011 | 6.840 | 1.3% |
+| scene | 0.004 | 0.013 | 8.522 | 1.0% |
+| tactical | 0.004 | 0.013 | 4.073 | 0.9% |
+| resources | 0.003 | 0.006 | 4.055 | 0.7% |
+| backup | 0.003 | 0.005 | 8.866 | 0.7% |
+| force | 0.002 | 0.004 | 2.402 | 0.6% |
+| radio | 0.002 | 0.004 | 3.644 | 0.6% |
