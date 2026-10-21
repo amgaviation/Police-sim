@@ -45,6 +45,8 @@ export interface ContactRig {
   /** What `premises()` returns for every person (null: none). */
   readonly premises: { value: { buildingId: number; authority: boolean; room: number } | null };
   readonly interpreter: { available: boolean };
+  /** Whether the officer's loadout carries handcuffs (default true). */
+  readonly gear: { cuffs: boolean };
   readonly clock: { sim: number; game: number };
   readonly spot: { x: number; z: number };
   /** Makes a second manager over the same world (for seed searches); the first stays registered on the bus. */
@@ -116,6 +118,7 @@ export async function makeRig(start = NOON): Promise<ContactRig> {
   const level: { building: number | undefined } = { building: undefined };
   const premises: { value: { buildingId: number; authority: boolean; room: number } | null } = { value: null };
   const interpreter = { available: false };
+  const gear = { cuffs: true };
   const focus = { x: spot.x, z: spot.z, yaw: 0, speed: 0, onFoot: true, weapon: 'none' as const, lights: false, backup: 0 };
 
   function build(seed: number): ContactManager {
@@ -142,6 +145,7 @@ export async function makeRig(start = NOON): Promise<ContactRig> {
       districtOf: () => 'downtown',
       stopVehicleId: () => stop.vehicleId,
       interpreterAvailable: () => interpreter.available,
+      carries: (id) => id !== 'cuffs' || gear.cuffs,
     });
   }
 
@@ -164,6 +168,7 @@ export async function makeRig(start = NOON): Promise<ContactRig> {
     level,
     premises,
     interpreter,
+    gear,
     clock,
     spot,
     manager: build,

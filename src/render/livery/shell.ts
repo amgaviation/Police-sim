@@ -20,8 +20,8 @@ export interface ShellGeometryData {
 /** A face corner in the vehicle frame. */
 type Corner = readonly [x: number, y: number, z: number];
 
-/** True for the body styles that get a decal shell (a shell around a thin-framed vehicle would hide it). */
-export function hasShell(model: VehicleModel): boolean {
+/** True for the car styles, whose shell follows the lower body and the cabin and carries the painted base and wrap. */
+export function isCarShell(model: VehicleModel): boolean {
   const style = model.body.style;
   return style === 'sedan' || style === 'hatchback' || style === 'suv' || style === 'pickup' || style === 'van' || style === 'truck' || style === 'bus';
 }
@@ -34,12 +34,13 @@ export function hasShell(model: VehicleModel): boolean {
  * Car styles (sedan, hatchback, suv, pickup, van, truck, bus): the sides of the lower body (floor to belt line,
  * the length of the painted body), the hood (on top of the lower body, front to cabin start), the roof (over the
  * cabin), the painted front and rear faces. Other styles: the faces of the whole body box (sides full height,
- * hood = the front half of the top, roof = the rear half).
+ * hood = the front half of the top, roof = the rear half). Those shells carry the decals only (`PaintOptions.decalsOnly`),
+ * transparent elsewhere, so the frame of a bike, boat or aircraft stays visible.
  */
 export function shellGeometryData(model: VehicleModel): ShellGeometryData {
   const { width: w, height: h, length: l } = model.body;
   const e = SHELL_INFLATE;
-  const car = hasShell(model);
+  const car = isCarShell(model);
   let zF: number;
   let zR: number;
   const yBottom = -h / 2;

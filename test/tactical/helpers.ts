@@ -160,7 +160,7 @@ export interface Rig {
 
 const stubCity = { surfaceAt: () => 0 } as unknown as City;
 
-export function makeRig(layout: InteriorLayout | null, building = 1, seed = 7): Rig {
+export function makeRig(layout: InteriorLayout | null, building = 1, seed = 7, hasFlashlight?: () => boolean): Rig {
   const bus = new EventBus<EventMap>();
   const interiors = new StubInteriors(layout === null ? [] : [[building, layout]]);
   const port = new StubListeners();
@@ -177,6 +177,7 @@ export function makeRig(layout: InteriorLayout | null, building = 1, seed = 7): 
     officer: (out) => Object.assign(out, officer),
     radioEarpiece: () => earpiece.on,
     nightFactor: () => night.value,
+    ...(hasFlashlight ? { hasFlashlight } : {}),
     config: TACTICS,
   };
   port.defaultBuilding = officer.building;

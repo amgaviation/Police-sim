@@ -8,6 +8,8 @@ import { officerPreset, validateOfficerLoadout } from './validate';
 export const MAX_GEAR_PRESETS = 8;
 const MAX_PRESET_NAME = 24;
 const VEST_ID = 'ballisticVest';
+/** Loadout long guns and the gun-rack item each one is (`data/police/equipment.json` rack ids). */
+const LONG_GUN_RACK_ID: Readonly<Record<string, string>> = { rifle: 'rifle', shotgun: 'shotgun', lessLethalLauncher: 'lessLethal' };
 const HOLSTER_ID = 'holster';
 
 export interface GearPreset {
@@ -128,6 +130,12 @@ export class OfficerGear {
 
   has(id: string): boolean {
     return this.current.items.some((it) => it.id === id && it.count > 0);
+  }
+
+  /** Rack id of the long gun the loadout carries (the first of rifle, shotgun, launcher), null for none. */
+  longGun(): string | null {
+    for (const [gearId, rackId] of Object.entries(LONG_GUN_RACK_ID)) if (this.has(gearId)) return rackId;
+    return null;
   }
 
   /** Holster retention level; 1 without a holster. */

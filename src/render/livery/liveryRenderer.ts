@@ -5,7 +5,7 @@ import { paintLivery, SHELL_ATLAS, type Canvas2DLike } from '../../livery/painte
 import type { VehicleModel } from '../../vehicles/model';
 import { disposeObject } from '../renderer';
 import { vehicleRenderBasis } from '../vehicles/carRenderer';
-import { hasShell, shellGeometryData } from './shell';
+import { isCarShell, shellGeometryData } from './shell';
 
 /** What the canvas factory returns: an object with a 2D context (a real `HTMLCanvasElement` satisfies it). */
 export interface LiveryCanvas {
@@ -40,6 +40,8 @@ interface Entry {
   json: string;
   unit: string;
   dept: string;
+  /** Thin-framed styles (bikes, ATV, boat, aircraft, drone): the shell shows the layers only, not the base paint and wrap. */
+  decalsOnly: boolean;
   color: Paint | null;
   glow: Paint | null;
   material: THREE.MeshStandardMaterial | null;
@@ -100,23 +102,24 @@ export class LiveryRenderer {
   }
 
   /**
-   * Sets (or clears with null, or for a style without a shell) the livery of vehicle `eid`; repaints its two canvases only when the document, the
+   * Sets (or clears with null) the livery of vehicle `eid`; repaints its two canvases only when the document, the
    * unit number or the department changed (pass a new document object after an edit).
    */
   set(eid: EntityId, model: VehicleModel, doc: LiveryDoc | null, unit: string, dept: string): void {
-    // Thin-framed styles (bikes, ATV, boat, aircraft, drone) get no shell: an opaque slab would hide the vehicle.
-    if (doc === null || !hasShell(model)) {
+    if (doc === null) {
       this.remove(eid);
       return;
     }
     let entry = this.byEid.get(eid);
     if (!entry) {
-      entry = { eid, model, doc, json: '', unit: '', dept: '', color: null, glow: null, material: null };
+      entry = { eid, model, doc, json: '', unit: '', dept: '', decalsOnly: false, color: null, glow: null, material: null };
       this.entries.push(entry);
       this.byEid.set(eid, entry);
     }
     entry.model = model;
-    let changed = entry.json === '' || entry.unit !== unit || entry.dept !== dept;
+    const wasDecalsOnly = entry.decalsOnly;
+    entry.decalsOnly = !isCarShell(model);
+    let changed = entry.json === '' || entry.unit !== unit || entry.dept !== dept || entry.decalsOnly !== wasDecalsOnly;
     if (entry.doc !== doc || entry.json === '') {
       const json = JSON.stringify(doc);
       if (json !== entry.json) changed = true;
@@ -227,8 +230,8 @@ export class LiveryRenderer {
         polygonOffsetFactor: POLYGON_OFFSET,
       });
     }
-    paintLivery(entry.color.ctx, entry.doc, { unit: entry.unit, dept: entry.dept, reflectiveOnly: false });
-    paintLivery(entry.glow.ctx, entry.doc, { unit: entry.unit, dept: entry.dept, reflectiveOnly: true });
+    paintLivery(entry.color.ctx, entry.doc, { unit: entry.unit, dept: entry.dept, reflectiveOnly: false, decalsOnly: entry.decalsOnly });
+    paintLivery(entry.glow.ctx, entry.doc, { unit: entry.unit, dept: entry.dept, reflectiveOnly: true, decalsOnly: entry.decalsOnly });
     entry.color.texture.needsUpdate = true;
     entry.glow.texture.needsUpdate = true;
     const material = entry.material;

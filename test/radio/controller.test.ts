@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { UnitRequest } from '../../src/cad/types';
 import type { ActionId } from '../../src/input/actions';
-import { RadioController, type RadioControllerContext, type RadioLike, type SpeechInLike } from '../../src/radio/controller';
+import { HINTS, RadioController, type RadioControllerContext, type RadioLike, type SpeechInLike } from '../../src/radio/controller';
 import { RadioMenu } from '../../src/radio/menu';
 
 class FakeInput {
@@ -91,10 +91,10 @@ const CTX: RadioControllerContext = {
   fallbackVehicleId: 31,
 };
 
-function setup(speech: FakeSpeechIn | null = new FakeSpeechIn()) {
+function setup(speech: FakeSpeechIn | null = new FakeSpeechIn(), hasRadio?: () => boolean) {
   const input = new FakeInput();
   const radio = new FakeRadio();
-  const ctl = new RadioController({ input, radio, speechIn: speech });
+  const ctl = new RadioController({ input, radio, speechIn: speech, ...(hasRadio ? { hasRadio } : {}) });
   const frame = (ctx: RadioControllerContext = CTX, dt = 1 / 60, active = true) => {
     const s = ctl.update(dt, active, ctx);
     input.clear();
@@ -211,6 +211,21 @@ describe('RadioController', () => {
     const na = new FakeSpeechIn();
     na.available = false;
     expect(setup(na).frame().voice).toBe('unavailable');
+  });
+
+  it('transmits nothing without a radio in the loadout: requests and the emergency button say so', () => {
+    const { input, radio, frame } = setup(new FakeSpeechIn(), () => false);
+    input.tap('radio.menu');
+    frame();
+    input.tap('radio.option1');
+    frame();
+    input.tap('radio.option1');
+    const s = frame();
+    expect(radio.sent).toEqual([]);
+    expect(s.hint).toBe(HINTS.noRadio);
+    input.down.add('radio.emergency');
+    frame(CTX, 1.5);
+    expect(radio.calls).toEqual([]);
   });
 
   it('emergency fires once after a 1.2 s hold, with a charge meter', () => {

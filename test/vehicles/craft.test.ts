@@ -184,6 +184,33 @@ describe('stepCraft: helicopter', () => {
     expect(s.y).toBeLessThan(clearance(heli) + 100 - 10);
   });
 
+  it.each([
+    ['helicopter', heli],
+    ['drone', drone],
+  ] as const)('flares a full-descent landing from 30 m below the hard-landing speed (%s)', (kind, m) => {
+    const s = createCraftState(0, clearance(m) + 30, 0, 0);
+    let touchdown = 0;
+    let landed = false;
+    const out = step();
+    for (let n = 0; n < 60 * 60 && !landed; n++) {
+      const vyBefore = s.vy;
+      stepCraft(kind, spec(m), clearance(m), s, input(0, 0, -1), DT, env(), out);
+      s.y += out.dy;
+      if (out.landed) {
+        landed = true;
+        touchdown = -vyBefore;
+      }
+    }
+    expect(landed).toBe(true);
+    expect(touchdown).toBeLessThan(2);
+  });
+
+  it('keeps the dead-engine fall at 6 m/s (above the hard-landing speed)', () => {
+    const s = createCraftState(0, clearance(heli) + 30, 0, 0);
+    run('helicopter', heli, s, input(0, 0, -1), 2, env({ engineOk: false }));
+    expect(s.vy).toBeCloseTo(-6, 6);
+  });
+
   it('bleeds speed while sitting on the ground with no lift, but not when lifting', () => {
     const resting = ground();
     resting.speed = 20;

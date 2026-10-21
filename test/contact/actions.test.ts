@@ -64,6 +64,21 @@ describe('custody', () => {
     rig.officer.x -= 30;
   });
 
+  it('refuses to cuff without handcuffs in the loadout', () => {
+    const { pid, actor } = standing(9000);
+    const id = rig.mgr.open({ kind: 'actor', actorId: actor }, incident(key('K')), rig.time());
+    rig.gear.cuffs = false;
+    try {
+      act(id, 'cuff');
+      expect(lastSystem(id)).toBe('No handcuffs');
+      expect(rig.people.state(pid).custody).toBe('none');
+    } finally {
+      rig.gear.cuffs = true;
+    }
+    act(id, 'cuff');
+    expect(rig.people.state(pid).custody).toBe('arrested');
+  });
+
   it('escorts a prisoner and cages them: the actor is removed and contact:caged fires', () => {
     const { pid, actor } = standing(7000);
     const k = key('K');

@@ -37,6 +37,8 @@ export interface TacticalDeps {
   radioEarpiece(): boolean;
   /** 0 (day) .. 1 (night): outdoor darkness. */
   nightFactor(): number;
+  /** Optional: whether the officer's loadout carries a flashlight (absent: yes). */
+  hasFlashlight?(): boolean;
   readonly config?: TacticsConfig;
 }
 
@@ -123,6 +125,11 @@ export class TacticalSystem {
 
   get flashlightOn(): boolean {
     return this.flashlight;
+  }
+
+  /** False when the loadout has no flashlight: the torch cannot be switched on. */
+  get canFlashlight(): boolean {
+    return this.deps.hasFlashlight?.() !== false;
   }
 
   /** True while the officer is slicing a doorway (the session then moves them with `sliceMove`). */
@@ -261,6 +268,7 @@ export class TacticalSystem {
           }
           break;
         case 'flashlight':
+          if (!this.flashlight && !this.canFlashlight) break;
           this.flashlight = !this.flashlight;
           bus.emit('tactical:flashlight', { on: this.flashlight });
           this.queueSound('flashlightClick', o.x, o.z, o.building, sourceLevel('flashlightClick', this.cfg));

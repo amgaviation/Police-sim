@@ -49,6 +49,8 @@ export interface RadioControllerDeps {
   readonly input: RadioInput;
   readonly radio: RadioLike;
   readonly speechIn: SpeechInLike | null;
+  /** Optional: whether the officer carries a radio (absent: yes). Without one nothing can be transmitted. */
+  hasRadio?(): boolean;
 }
 
 export type RadioControllerContext = MenuContext & {
@@ -67,6 +69,7 @@ export const HINTS = {
   noPlate: 'No plate to run',
   micBlocked: 'Microphone blocked',
   voiceUnavailable: 'Voice service unavailable',
+  noRadio: 'No radio in your loadout',
 } as const;
 
 interface MutableState {
@@ -171,7 +174,8 @@ export class RadioController {
     s.emergencyCharge = Math.min(1, this.emergencyHeld / EMERGENCY_HOLD_S);
     if (!this.emergencyFired && this.emergencyHeld >= EMERGENCY_HOLD_S) {
       this.emergencyFired = true;
-      this.deps.radio.emergencyButton();
+      if (this.deps.hasRadio?.() === false) this.setHint(HINTS.noRadio);
+      else this.deps.radio.emergencyButton();
     }
   }
 
@@ -202,6 +206,10 @@ export class RadioController {
   }
 
   private send(req: UnitRequest, via: 'radio' | 'voice', ctx: RadioControllerContext): void {
+    if (this.deps.hasRadio?.() === false) {
+      this.setHint(HINTS.noRadio);
+      return;
+    }
     let r = req;
     if (r.kind === 'runPlate' && r.plate === '') {
       if (ctx.fallbackPlate === null || ctx.fallbackPlate === '') {

@@ -200,6 +200,17 @@ describe('paintLivery', () => {
     for (const s of styles) expect(s.endsWith('=#ffffff'), s).toBe(true);
   });
 
+  it('decalsOnly skips the base fill and the wrap but still paints the layers', () => {
+    const doc = withLayers([textLayer({ text: 'AIR' })], { wrap: { kind: 'solid', colors: ['#123456'], split: 0.5 } });
+    const full = paint(doc);
+    const decals = paint(doc, { decalsOnly: true });
+    expect(full).toContain('fillRect(0,0,1024,512)');
+    expect(decals).not.toContain('fillRect(0,0,1024,512)');
+    expect(decals).toContain('clearRect(0,0,1024,512)');
+    expect(texts(decals).map((x) => x.text)).toEqual(texts(full).map((x) => x.text));
+    expect(decals.length).toBeLessThan(full.length);
+  });
+
   it('reflectiveOnly of a doc with no reflective layers only clears', () => {
     const log = paint(withLayers([textLayer()]), { reflectiveOnly: true });
     expect(log.some((l) => l.startsWith('fillText') || l.startsWith('fillRect'))).toBe(false);

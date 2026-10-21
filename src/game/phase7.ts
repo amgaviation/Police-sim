@@ -162,6 +162,8 @@ export class Phase7 {
   private readonly appearanceCache = new Map<string, { outfit: number; top: number; bottom: number }>();
   /** Policy flash shown for this uniform and fleet class (once per pair). */
   private policyFlashed = '';
+  /** The locker's Vest row as last seen (synced from, and reported to, the gear); only a change of it reaches the gear. */
+  private lastStationVest = true;
   private warning: GearWarning | null = null;
   private warningFor: unknown = null;
 
@@ -185,6 +187,12 @@ export class Phase7 {
   restoreGear(save: GearSave): void {
     this.gearValue = OfficerGear.restore(save);
     this.gearValue.setExtraVestSlots(extraVestSlots(this.profileValue));
+  }
+
+  /** Makes the locker's Vest row show the gear's real vest state (after a new game, a load, a gear change or a new shift). */
+  syncStationVest(station: { setVest(on: boolean): void }): void {
+    this.lastStationVest = this.gear.has('ballisticVest');
+    station.setVest(this.lastStationVest);
   }
 
   /** A loaded profile (the session's `officer` record is restored separately). */
@@ -365,7 +373,12 @@ export class Phase7 {
       bus.on('fleet:shiftEnd', (e) => {
         this.lastShiftEnd = e;
       }),
-      bus.on('station:loadout', (e) => this.gear.setVest(e.loadout.vest)),
+      bus.on('station:loadout', (e) => {
+        // Other locker rows re-emit the whole loadout; only a toggled Vest row touches the gear.
+        if (e.loadout.vest === this.lastStationVest) return;
+        this.lastStationVest = e.loadout.vest;
+        this.gear.setVest(e.loadout.vest);
+      }),
       bus.on('npc:attack', (e) => {
         if (e.kind === 'fire') this.attackers.push(e.actorId);
       }),

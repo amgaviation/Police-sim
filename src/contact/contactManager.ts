@@ -1307,6 +1307,7 @@ export class ContactManager {
       case 'checkVin':
         return hasVehicle ? '' : 'No vehicle';
       case 'cuff':
+        if (this.deps.carries?.('cuffs') === false) return 'No handcuffs';
         if (seated) return 'Order the subject out of the vehicle first';
         if (!a) return 'Subject is gone';
         if (a.cuffed) return 'Already cuffed';

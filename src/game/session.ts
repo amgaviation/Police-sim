@@ -651,6 +651,7 @@ export class GameSession {
         out.z = this.traffic.view.z[slot] ?? 0;
         return true;
       },
+      carries: (id) => this.phase7.gear.has(id),
     });
     this.investigation = new InvestigationSystem({
       seed,
@@ -669,6 +670,7 @@ export class GameSession {
       officer: (out) => this.fillTacticalOfficer(out),
       radioEarpiece: () => this.station.loadout.radioAudio === 'earpiece',
       nightFactor: () => this.env.lighting.nightFactor,
+      hasFlashlight: () => this.phase7.gear.has('flashlight'),
     });
     this.scene = new SceneDirector({
       seed,
@@ -875,7 +877,10 @@ export class GameSession {
    */
   setGear(loadout: OfficerLoadout): void {
     const before = this.phase7.gear.kitGrants();
+    const gunBefore = this.phase7.gear.longGun();
     this.phase7.gear.setLoadout(loadout);
+    this.syncLoadoutLongGun(gunBefore);
+    this.phase7.syncStationVest(this.station);
     const after = this.phase7.gear.kitGrants();
     for (const item of TRUNK_ITEMS) {
       const delta = (after[item.id] ?? 0) - (before[item.id] ?? 0);
@@ -883,6 +888,17 @@ export class GameSession {
       const have = this.kit.carried(item.id);
       this.kit.adjust(item.id, Math.min(item.carryMax, Math.max(0, have + delta)) - have);
     }
+  }
+
+  /**
+   * The long gun the loadout carries is in the officer's hands (HUD, equipment panel); when the loadout changes it
+   * follows, unless the officer holds another gun from the rack. `before` is the loadout's gun before the change.
+   */
+  private syncLoadoutLongGun(before: string | null): void {
+    const after = this.phase7.gear.longGun();
+    if (after === before) return;
+    const held = this.kit.longGun;
+    if (held === null || held === before) this.kit.setLongGun(after);
   }
 
   /** The vehicle the officer drove last (or is driving); refuelling and the headlight spots use it. */
@@ -2659,9 +2675,11 @@ export class GameSession {
     this.interiors.placeOfficerInside(st.id, locker);
     if (this.interiors.officerBuilding !== st.id) return false;
     this.station.restore(newShiftStationSave());
+    this.phase7.syncStationVest(this.station);
     this.phase6.startShift();
     // What the officer's gear carries (med kit, naloxone, evidence kit, K9 treats...); the ram stays in the trunk.
     for (const [item, n] of Object.entries(this.phase7.gear.kitGrants())) this.kit.adjust(item, n);
+    this.syncLoadoutLongGun(null);
     this.phase7.fleet.startShift(this.syncCadTime());
     this.phase7.flashGearErrors();
     this.dispatcher.request(this.dispatcher.playerCallsign, { kind: 'status', status: 'outOfService' }, 'auto');
@@ -3435,6 +3453,7 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
     // Phase 4 (design §20): the shift starts in the station's locker room (the station's interior is resident at once).
     if (options.inStation !== false) session.beginShiftInStation();
     else session.station.restore(migratedStationSave(session.officer.badge));
+    session.phase7.syncStationVest(session.station);
     if (options.jurisdiction !== undefined) session.phase5.setJurisdiction(options.jurisdiction);
     primeContacts(ctx.physics, sessionBodies(session));
   } catch (error) {
@@ -3517,6 +3536,7 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
     session.contact.restore(data.contacts);
     session.investigation.restore(data.investigation);
     session.station.restore(data.station);
+    session.phase7.syncStationVest(session.station);
     // Phase 5 (design 16): force, incidents, conduct, court.
     session.phase5.restore(data);
     // Phase 6 (design 16): roster, resources, backup, pursuit, command.

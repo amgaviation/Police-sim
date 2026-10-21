@@ -12,7 +12,7 @@ function input(over: Partial<BriefingInput> = {}): BriefingInput {
   return {
     seed: SEED,
     gameSeconds: GAME,
-    officer: { name: 'Alex Rivera', badge: '4417' },
+    officer: { name: 'Officer Alex Rivera', badge: '4417' },
     unit: { callsign: '12-A', beat: 'Beat 4' },
     district: 'downtown',
     bolos: dailyBolos(SEED, epochDayOfGameSeconds(GAME)),
@@ -54,7 +54,8 @@ describe('buildBriefing', () => {
     expect(v.assignment).toBe('12-A / Beat 4');
     expect(v.date).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
     expect(v.sections.map((s) => s.heading)).toEqual(['Assignment', 'BOLOs', 'District notes', 'Crime trends', 'Open calls', 'Units on duty']);
-    expect(v.sections[0]?.lines.join(' ')).toContain('Alex Rivera');
+    // The officer's display name already carries the rank label, so it is not prefixed again.
+    expect(v.sections[0]?.lines[0]).toBe('Officer Alex Rivera, badge 4417');
     expect(v.sections[0]?.lines.join(' ')).toContain('12-A');
   });
 

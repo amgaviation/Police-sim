@@ -84,6 +84,42 @@ describe('Phase 7 review round 1 (session)', () => {
     expect(session.officerKit.carried('firstAid')).toBe(1);
   });
 
+  it('locker rows other than the vest never add a vest, and the Vest row shows the real gear', () => {
+    const { h, session } = begin();
+    const base = session.gear.loadout;
+    session.setGear({ assignment: base.assignment, items: base.items.filter((i) => i.id !== 'ballisticVest') });
+    expect(session.gear.has('ballisticVest')).toBe(false);
+    expect(session.station.loadout.vest).toBe(false);
+    for (const field of ['flashlight', 'bodycamMount', 'radioAudio', 'uniform'] as const) {
+      session.station.request({ kind: 'loadout', field });
+      h.step(session, 1);
+      expect(session.gear.has('ballisticVest')).toBe(false);
+    }
+    // The Vest row itself still toggles the gear, both ways.
+    session.station.request({ kind: 'loadout', field: 'vest' });
+    h.step(session, 1);
+    expect(session.gear.has('ballisticVest')).toBe(true);
+    session.station.request({ kind: 'loadout', field: 'vest' });
+    h.step(session, 1);
+    expect(session.gear.has('ballisticVest')).toBe(false);
+  });
+
+  it('a long gun in the loadout is in the officer\'s hands and follows the locker', () => {
+    const { session } = begin();
+    expect(session.officerKit.longGun).toBeNull();
+    const base = session.gear.loadout;
+    session.setGear({ assignment: base.assignment, items: [...base.items, { id: 'shotgun', count: 1 }] });
+    expect(session.officerKit.longGun).toBe('shotgun');
+    session.setGear(base);
+    expect(session.officerKit.longGun).toBeNull();
+    // A gun taken from the rack is not replaced by the loadout, nor dropped when the loadout loses its own.
+    session.officerKit.setLongGun('rifle');
+    session.setGear({ assignment: base.assignment, items: [...base.items, { id: 'shotgun', count: 1 }] });
+    expect(session.officerKit.longGun).toBe('rifle');
+    session.setGear(base);
+    expect(session.officerKit.longGun).toBe('rifle');
+  });
+
   it('a K9 unit (partition, no cage seat) is never the arrest car', () => {
     const { h, session } = begin();
     const k9 = drive(h, session, 'K-501');

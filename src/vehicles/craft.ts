@@ -53,6 +53,8 @@ export interface CraftStep {
 /** Vertical acceleration limit of the aircraft (m/s²) and the descent rate with a dead engine (m/s). */
 const VERTICAL_ACCEL = 4;
 const DEAD_ENGINE_SINK = 6;
+/** Descent rate (m/s) a pilot-commanded landing flares down to at touchdown; well under the hard-landing threshold. */
+const FLARE_TOUCHDOWN_MPS = 1;
 /** Speed (m/s) from which the boat steers fully, and its floor factor at rest. */
 const STEER_FULL_SPEED = 3;
 const BOAT_MIN_STEER = 0.15;
@@ -109,10 +111,15 @@ export function stepCraft(
     out.dy = env.waterY + clearance - s.y;
     s.vy = 0;
   } else {
-    const targetVy = env.engineOk ? lift * spec.climbMps : -DEAD_ENGINE_SINK;
+    const floor = env.groundY + clearance;
+    let targetVy = env.engineOk ? lift * spec.climbMps : -DEAD_ENGINE_SINK;
+    if (env.engineOk && lift < 0) {
+      // Landing flare: a commanded descent slows so the craft can always stop within the height that is left.
+      const h = Math.max(0, s.y - floor);
+      targetVy = Math.max(targetVy, -(FLARE_TOUCHDOWN_MPS + 2 * Math.sqrt(h)));
+    }
     s.vy += clamp(targetVy - s.vy, -VERTICAL_ACCEL * dt, VERTICAL_ACCEL * dt);
     let ny = s.y + s.vy * dt;
-    const floor = env.groundY + clearance;
     const ceiling = floor + spec.maxAltitudeM;
     if (ny <= floor) {
       ny = floor;

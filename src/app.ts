@@ -1491,6 +1491,7 @@ export class App {
       input: this.input,
       radio: session.radio,
       speechIn: this.speechIn.available ? this.speechIn : null,
+      hasRadio: () => session.gear.has('radio'),
     });
     this.presenter.begin(session);
     this.phase4.begin();

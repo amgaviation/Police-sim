@@ -120,6 +120,8 @@ export interface ContactDeps {
    * vehicle of the active stop and next to any subject who stepped out of it.
    */
   vehiclePosition?(vehicleId: number, out: { x: number; z: number }): boolean;
+  /** Optional: whether the officer's loadout carries gear item `id` (handcuffs for the cuff action). Absent: everything is carried. */
+  carries?(id: string): boolean;
 }
 
 export interface ContactSaveEntry {

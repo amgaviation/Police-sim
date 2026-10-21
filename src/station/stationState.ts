@@ -72,6 +72,11 @@ export class StationState {
     return this.current;
   }
 
+  /** Sets the Vest row to the officer's real gear (silent: no `station:loadout` event, so it is not echoed back to the gear). */
+  setVest(on: boolean): void {
+    if (this.current.vest !== on) this.current = { ...this.current, vest: on };
+  }
+
   /** Person id in the interview room, -1 when empty. */
   get interviewing(): number {
     return this.interview;

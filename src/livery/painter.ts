@@ -62,6 +62,8 @@ export interface PaintOptions {
   dept: string;
   /** Paint only the reflective layers, in white (the emissive map). */
   reflectiveOnly: boolean;
+  /** Skip the opaque base and wrap fill, so only the layers show (shells around thin-framed vehicles). */
+  decalsOnly?: boolean;
 }
 
 const ATLAS_FACES: readonly AtlasFace[] = ['left', 'right', 'hood', 'roof', 'front', 'rear'];
@@ -237,13 +239,14 @@ function facesOf(face: Face): readonly AtlasFace[] {
 
 /**
  * Clears the atlas and paints `doc`: base colour, wrap, then the layers in order. With `reflectiveOnly`
- * only the reflective layers are painted, in white, on the cleared canvas (the emissive map).
+ * only the reflective layers are painted, in white, on the cleared canvas (the emissive map). With `decalsOnly` the base
+ * colour and wrap are left out too: the canvas stays transparent but for the layers.
  */
 export function paintLivery(ctx: Canvas2DLike, doc: LiveryDoc, opts: PaintOptions): void {
   ctx.save();
   ctx.globalAlpha = 1;
   ctx.clearRect(0, 0, SHELL_ATLAS.width, SHELL_ATLAS.height);
-  if (!opts.reflectiveOnly) {
+  if (!opts.reflectiveOnly && opts.decalsOnly !== true) {
     ctx.fillStyle = doc.base.color;
     ctx.fillRect(0, 0, SHELL_ATLAS.width, SHELL_ATLAS.height);
     paintWrap(ctx, doc);

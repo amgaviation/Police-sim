@@ -215,15 +215,33 @@ describe('LiveryRenderer placement', () => {
     renderer.dispose();
   });
 
-  it('gives no shell to thin-framed styles (a two-wheeler, the ATV, the boat, aircraft stay visible)', () => {
-    const { scene, world, renderer } = setup();
-    for (const id of ['police_motorcycle', 'police_bicycle', 'police_atv', 'patrol_boat', 'police_helicopter', 'police_drone']) {
+  it('gives thin-framed styles (a two-wheeler, the ATV, the boat, aircraft) a decals-only shell, so the frame stays visible', () => {
+    const { scene, world, renderer, fake } = setup();
+    const ids = ['police_motorcycle', 'police_bicycle', 'police_atv', 'patrol_boat', 'police_helicopter', 'police_drone'];
+    const doc = defaultLivery('airSupport');
+    expect(doc.layers.some((l) => l.type === 'text')).toBe(true);
+    for (const id of ids) {
       const eid = addCar(world, vehicleModel(id).index, 3, -4);
-      renderer.set(eid, vehicleModel(id), defaultLivery('motorMarked'), '7', 'City Police');
+      renderer.set(eid, vehicleModel(id), doc, '7', 'City Police');
     }
-    expect(renderer.size).toBe(0);
+    expect(renderer.size).toBe(ids.length);
+    // Only the layers are painted: no opaque base fill over the atlas, and the text of the layers is drawn.
+    for (const c of fake.canvases) expect(c.ctx.fills).not.toContain(doc.base.color);
+    expect(fake.canvases.some((c) => c.ctx.texts.length > 0)).toBe(true);
     renderer.update(1, 0, 0, 0);
-    expect(visibleShells(scene).length).toBe(0);
+    expect(visibleShells(scene).length).toBe(Math.min(ids.length, 8));
+    expect(visibleShells(scene).map((m) => m.geometry.name)).toContain('livery-shell:police_helicopter');
+    renderer.dispose();
+  });
+
+  it('a car shell still paints the base colour (and a model change between car and thin styles repaints)', () => {
+    const { world, renderer, fake } = setup();
+    const eid = addCar(world, SEDAN.index, 0, 0);
+    renderer.set(eid, SEDAN, DOC, '1', 'City Police');
+    expect(fake.canvases[0]?.ctx.fills).toContain(DOC.base.color);
+    const repaints = renderer.stats.repaints;
+    renderer.set(eid, vehicleModel('police_motorcycle'), DOC, '1', 'City Police');
+    expect(renderer.stats.repaints).toBe(repaints + 1);
     renderer.dispose();
   });
 

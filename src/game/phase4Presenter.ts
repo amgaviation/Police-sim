@@ -163,7 +163,10 @@ export class Phase4Presenter {
     if (input.wasPressed('officer.bodycam')) this.toggleBodycam(session);
     if (!onFoot) return;
     if (input.wasPressed('officer.crouch')) session.tactical.request({ kind: 'crouch' });
-    if (input.wasPressed('officer.flashlight')) session.tactical.request({ kind: 'flashlight' });
+    if (input.wasPressed('officer.flashlight')) {
+      if (!session.tactical.flashlightOn && !session.tactical.canFlashlight) this.host.flash('No flashlight in your loadout');
+      else session.tactical.request({ kind: 'flashlight' });
+    }
     if (input.wasPressed('investigate.menu')) openTools();
     if (input.wasPressed('camera.photo')) this.openCamera(session);
     if (input.wasPressed('partner.menu')) openPartner();

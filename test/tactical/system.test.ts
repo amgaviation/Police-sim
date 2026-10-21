@@ -315,6 +315,26 @@ describe('stance requests', () => {
   });
 });
 
+describe('flashlight gear', () => {
+  it('cannot be switched on without a flashlight in the loadout, but can always be switched off', () => {
+    let carried = false;
+    const r = makeRig(twoRooms(), 1, 7, () => carried);
+    expect(r.sys.canFlashlight).toBe(false);
+    r.sys.request({ kind: 'flashlight' });
+    stepN(r, 1);
+    expect(r.sys.flashlightOn).toBe(false);
+    carried = true;
+    expect(r.sys.canFlashlight).toBe(true);
+    r.sys.request({ kind: 'flashlight' });
+    stepN(r, 1);
+    expect(r.sys.flashlightOn).toBe(true);
+    carried = false;
+    r.sys.request({ kind: 'flashlight' });
+    stepN(r, 1);
+    expect(r.sys.flashlightOn).toBe(false);
+  });
+});
+
 describe('slicing', () => {
   it('engages an open doorway ahead while held, moves the officer on its arc and releases', () => {
     const r = makeRig(twoRooms());

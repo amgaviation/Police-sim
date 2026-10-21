@@ -209,3 +209,13 @@ describe('startingGearSave', () => {
     expect(OfficerGear.restore(defaultGearSave()).kitGrants()['evidenceBags']).toBeUndefined();
   });
 });
+
+describe('OfficerGear.longGun', () => {
+  it('maps the loadout long gun to its rack id, null without one', () => {
+    expect(new OfficerGear(defaultGearSave()).longGun()).toBeNull();
+    expect(new OfficerGear({ version: 1, loadout: officerPreset('swatOperator'), presets: [] }).longGun()).toBe('rifle');
+    const base = officerPreset('patrolStandard');
+    const launcher = { assignment: base.assignment, items: [...base.items, { id: 'lessLethalLauncher', count: 1 }] };
+    expect(new OfficerGear({ version: 1, loadout: launcher, presets: [] }).longGun()).toBe('lessLethal');
+  });
+});

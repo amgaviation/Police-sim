@@ -42,7 +42,7 @@ export function buildBriefing(input: BriefingInput): BriefingView {
   const day = epochDayOfGameSeconds(input.gameSeconds);
 
   const assignment: string[] = [
-    `Officer ${input.officer.name}, badge ${input.officer.badge}`,
+    `${input.officer.name}, badge ${input.officer.badge}`,
     `Unit ${input.unit.callsign}, ${input.unit.beat}`,
     `District: ${input.district}`,
   ];
