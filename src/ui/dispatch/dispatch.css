@@ -1,5 +1,7 @@
 /* Dispatch console (Phase 8 design 12.1). Sizes in em so --text-scale applies; status colours come from the --c-* variables; no animations. */
 .dispatch-console { width: min(96vw, 78em); max-height: 94vh; gap: 0.6em; }
+/* The panel scrolls instead of squashing the grid onto the detail pane. */
+.dispatch-console > * { flex-shrink: 0; }
 .dispatch-console .dc-head { justify-content: space-between; flex-wrap: nowrap; }
 .dispatch-console .dc-heading { margin: 0; font-size: 1.2em; }
 .dispatch-console .dc-score { font-family: var(--font-mono); color: var(--c-ok); }

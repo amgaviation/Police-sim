@@ -3617,7 +3617,14 @@ async function phase8(page, hasRenderer, browser, watch) {
     await page2.evaluate(() => {
       window.patrol.phase8.coop.send({ t: 'callCreate', ref: 'smoke1', typeId: 'noiseComplaint', label: 'Noise complaint', priority: 3, x: 0, z: 0, address: '100 Smoke Street', narrative: 'Loud music reported', origin: 'dispatcher' });
     });
-    await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 90000 });
+    try {
+      await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 90000 });
+    } catch (error) {
+      const dump = await Promise.all([page, page2].map((p) => p.evaluate(() => { const c = window.patrol.phase8.coop; return { connected: c.connected, state: c.client.state, calls: [...c.calls.values()].map((x) => [x.id, x.status]), rej: c.rejections, invalid: c.client.invalidMessages, paused: window.patrol.loop.paused, ui: window.patrol.ui.menuStack.map((m) => m.id), cad: window.patrol.session.cad.calls().length }; })));
+      console.log('coop dump:', JSON.stringify(dump));
+      throw error;
+    }
+    await page2.waitForFunction(() => window.patrol.phase8.coop.calls.size >= 1, null, { timeout: 90000 });
     const callId = await page2.evaluate(() => [...window.patrol.phase8.coop.calls.keys()][0]);
     await page2.evaluate((id) => window.patrol.phase8.coop.send({ t: 'callAssign', callId: id, unit: 'N1' }), callId);
     await page.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.units.includes('N1')), null, { timeout: 90000 });
