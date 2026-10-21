@@ -104,6 +104,13 @@ export class SaveManager {
     return envelope;
   }
 
+  /** The unvalidated `data` of `slot` (null when the slot is empty or unreadable): used to name the mods of a save that fails to load. */
+  async peek(slot: string): Promise<unknown> {
+    const db = await this.db();
+    const raw = await dbGet<unknown>(db, STORES.saves, slot);
+    return isSaveEnvelope(raw) ? raw.data : null;
+  }
+
   /**
    * Best-effort write-back of a migrated envelope. It replaces the slot only if
    * the slot still holds the record that was read (a save() in between wins),

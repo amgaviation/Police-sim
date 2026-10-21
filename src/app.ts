@@ -40,6 +40,8 @@ import { createPhase8Commands } from './game/phase8Commands';
 import { beginRolledShift, prepareRollover, type PreparedRollover } from './game/rollover';
 import { setPaletteMode } from './a11y';
 import { CURRENT_SAVE_VERSION } from './save/schema';
+import { SaveModsError, describeModMismatch } from './save/mods';
+import { activeModRefs } from './mods/registry';
 import type { BootResult } from './mods/boot';
 import type { GameMode } from './training';
 import { availableScripts } from './game/phase8';
@@ -96,7 +98,7 @@ import { MdtScreen } from './render/police/mdtScreen';
 import { Renderer } from './render/renderer';
 import { CarRenderer } from './render/vehicles/carRenderer';
 import { MIGRATION_FAILURES, SaveMigrationError } from './save/migrations';
-import type { SaveGame } from './save/schema';
+import type { SaveEnvelope, SaveGame } from './save/schema';
 import { SaveManager, SaveNotFoundError } from './save/saveManager';
 import { SettingsStore } from './settings/settings';
 import { SpeechIn } from './speech/recognition';
@@ -685,7 +687,17 @@ export class App {
    * while rebuilding returns to the title screen. Either way the promise rejects.
    */
   async loadGame(slot: string): Promise<GameSession> {
-    const envelope = await this.saves.load(slot);
+    let envelope: SaveEnvelope<SaveGame>;
+    try {
+      envelope = await this.saves.load(slot);
+    } catch (error) {
+      // A save that fails validation because its mods are not active names them (design §16).
+      if (error instanceof SaveMigrationError) {
+        const message = describeModMismatch(extractMods(await this.saves.peek(slot).catch(() => null)), activeModRefs());
+        if (message !== null) throw new SaveModsError(message, []);
+      }
+      throw error;
+    }
     this.endSession();
     this.resetSimulation();
     let session: GameSession;
@@ -697,6 +709,9 @@ export class App {
     }
     this.beginSession(session, Phase5Presenter.tagOfSlot(slot));
     this.resumeMode(session);
+    // A loadable save made with other mods still loads; the player is told.
+    const modNote = describeModMismatch(envelope.data.mods, activeModRefs());
+    if (modNote !== null) this.flash(modNote);
     log.info(`Loaded '${slot}' (seed ${String(session.seed)}, ${String(session.entityCount)} entities)`);
     return session;
   }
@@ -2054,8 +2069,14 @@ function afterPaint(fn: () => void): void {
   requestAnimationFrame(() => setTimeout(fn, 0));
 }
 
+/** The `mods` list of unvalidated save data. */
+function extractMods(data: unknown): unknown {
+  return typeof data === 'object' && data !== null ? (data as { mods?: unknown }).mods : undefined;
+}
+
 /** Player-facing reason a save could not be loaded. */
 function describeLoadError(slot: string, error: unknown): string {
+  if (error instanceof SaveModsError) return error.message;
   if (error instanceof SaveNotFoundError) return `Save '${slot}' no longer exists`;
   if (error instanceof SaveMigrationError) {
     if (error.reason === MIGRATION_FAILURES.futureVersion) return `Save '${slot}' was made by a newer version of Patrol`;

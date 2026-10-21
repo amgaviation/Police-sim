@@ -133,6 +133,8 @@ export class Phase8Presenter {
     this.summary = new ShiftSummaryScreen(ui, {
       continue: () => {
         this.summary.close();
+        // The fleet's own summary panel (Phase 7) is replaced by the career flow.
+        this.host.closeFleetPanel();
         this.apartment.open();
       },
       // The rating button shows only for an officer who is a field training officer.
@@ -265,7 +267,6 @@ export class Phase8Presenter {
     this.offs.push(
       bus.on('career:shiftSummary', (s) => {
         this.lastSummary = s;
-        this.host.closeFleetPanel();
         this.summary.open(s);
       }),
       bus.on('training:course', (e) => {

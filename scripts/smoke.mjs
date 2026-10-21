@@ -3159,7 +3159,11 @@ async function phase7(page, hasRenderer) {
   check(flow.serviced && flow.cost > 0, `the station service repairs P-101 and the department ledger records $${flow.cost}`);
   check(flow.rows >= 8, `the inspection checklist runs (${flow.rows} checks)`);
   check(flow.points1 <= flow.points0 && flow.summary === 'summary', `End shift applies the career charge (${flow.points0} -> ${flow.points1}) and opens the shift summary`);
-  await page.evaluate(() => window.patrol.phase7.panel.close());
+  await page.evaluate(() => {
+    window.patrol.phase7.panel.close();
+    // Phase 8: End shift also opened the career summary (a pausing screen); this run goes on with the same shift.
+    window.patrol.phase8.summary.close();
+  });
 
   // --- A v9 save / load round trip ---------------------------------------------------------------------------------------------
   const save = await page.evaluate(async () => {
@@ -3222,6 +3226,488 @@ async function phase7(page, hasRenderer) {
   return { perf, frame, extras };
 }
 
+
+/** Starts `node server/main.ts` on a free port; resolves { child, port }. */
+async function startCoopServer() {
+  const child = spawn('node', ['server/main.ts'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PATROL_SERVER_PORT: '0' } });
+  const port = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('the co-op server did not report its port')), 15000);
+    child.stdout.on('data', (d) => {
+      const m = String(d).match(/ws:\/\/[^:]+:(\d+)/);
+      if (m) {
+        clearTimeout(timer);
+        resolve(Number(m[1]));
+      }
+    });
+    child.once('exit', (code) => reject(new Error(`the co-op server exited with ${code}`)));
+  });
+  return { child, port };
+}
+
+/** Runs a console line in the page and returns its output lines. */
+async function consoleRun(page, line) {
+  return page.evaluate(async (l) => {
+    const c = window.patrol.console;
+    const before = c.lines.length;
+    await c.execute(l);
+    return c.lines.slice(before).map((x) => `${x.kind}: ${x.text}`);
+  }, line);
+}
+
+/**
+ * Phase 8 checks (career, persistent world, modes, mods, accessibility, co-op): New career from the title screen and the
+ * academy (a quiz and a defensive drill answered with the real keys, the range, a report exercise), the driving course,
+ * graduation, End shift -> summary -> apartment -> Report for duty -> the next shift with premise history, dispatch-only
+ * with the friday-night script, the scenario editor, the mod manager with the example mod, colour vision and the left-hand
+ * layout, co-op against a local server (two pages: patrol and dispatcher), a v10 save/load and the Phase 8 console commands.
+ */
+async function phase8(page, hasRenderer, browser, watch) {
+  await mkdir(SHOTS, { recursive: true });
+
+  // --- Title screen sections and New career ---------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.quitToTitle();
+    app.settings.set('accessibility.colorblind', 'none');
+  });
+  await waitFrames(page, 3);
+  const title = await page.evaluate(() => [...document.querySelectorAll('button')].map((b) => b.textContent.trim()));
+  console.log('title buttons:', JSON.stringify(title));
+  check(['New career', 'New game', 'Academy drills', 'Report writing', 'Driving academy', 'Dispatch-only', 'Scenario editor', 'Co-op lobby…', 'Manage mods…'].every((b) => title.includes(b)), 'the title screen offers career, training, multiplayer and mods');
+  await page.fill('#seed', String(SEED));
+  await page.getByRole('button', { name: 'New career' }).click();
+  await waitFor(page, () => window.patrol.session?.phase8.modeId === 'career' && window.patrol.phase8.academy.isOpen, null, 90000);
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  const academy = await page.evaluate(() => {
+    const app = window.patrol;
+    const v = app.session.phase8.career.view;
+    return { stage: v.stage, open: app.phase8.academy.isOpen, ui: app.ui.menuStack.map((m) => m.id), rows: app.phase8.academy.model.rows.map((r) => r.module), paused: app.loop.paused };
+  });
+  console.log('academy:', JSON.stringify(academy));
+  check(academy.stage === 'academy' && academy.open && academy.rows.length === 5 && academy.paused, 'New career starts in the academy hub with five modules (the game is paused)');
+  await waitFrames(page, 3);
+  await page.screenshot({ path: path.join(SHOTS, 'phase8-academy.png') });
+
+  // The legal quiz, answered with the real keys.
+  const quiz = await page.evaluate(() => {
+    const screen = window.patrol.phase8.academy.launch('legal');
+    return { total: screen?.state.total ?? 0, id: screen?.id ?? null };
+  });
+  check(quiz.id === 'legal-quiz' && quiz.total > 0, `the legal quiz opens (${quiz.total} questions)`);
+  for (let i = 0; i < quiz.total * 2 + 4; i++) {
+    const done = await page.evaluate(() => window.patrol.phase8.academy.activeScreen?.state.done ?? true);
+    if (done) break;
+    await page.keyboard.press('1');
+    await page.keyboard.press('Enter');
+  }
+  const quizDone = await page.evaluate(() => ({ done: window.patrol.phase8.academy.activeScreen?.state.done ?? null, best: window.patrol.session.phase8.career.view.academy.legal }));
+  console.log('quiz:', JSON.stringify(quizDone));
+  check(quizDone.done === true && quizDone.best.attempts === 1 && quizDone.best.best >= 0, `the quiz result is recorded in the career (${quizDone.best.best})`);
+  await page.evaluate(() => window.patrol.phase8.academy.activeScreen?.close());
+
+  // The defensive-tactics drill.
+  const defensive = await page.evaluate(() => {
+    const screen = window.patrol.phase8.academy.launch('defensive');
+    return { total: screen?.state.total ?? 0 };
+  });
+  for (let i = 0; i < defensive.total * 2 + 4; i++) {
+    const done = await page.evaluate(() => window.patrol.phase8.academy.activeScreen?.state.drill === null);
+    if (done) break;
+    await page.keyboard.press('1');
+    await page.keyboard.press('Enter');
+  }
+  const defRec = await page.evaluate(() => window.patrol.session.phase8.career.view.academy.defensive);
+  console.log('defensive:', JSON.stringify(defRec));
+  check(defRec.attempts === 1, `the defensive drill is recorded (${defRec.best})`);
+  await page.evaluate(() => window.patrol.phase8.academy.activeScreen?.close());
+
+  // The firearms range: scripted shots at the visible targets.
+  const range = await page.evaluate(() => {
+    const screen = window.patrol.phase8.academy.launch('firearms');
+    const run = screen.state;
+    run.start();
+    let shots = 0;
+    for (let i = 0; i < 4000 && run.phase !== 'done'; i++) {
+      screen.advance(0.05);
+      const t = run.visible([])[0];
+      if (t && i % 6 === 0) {
+        run.movePointer(t.x, t.y);
+        if (run.fire()) shots++;
+      }
+    }
+    screen.advance(0.05);
+    return { shots, score: run.result()?.score ?? -1, rec: window.patrol.session.phase8.career.view.academy.firearms };
+  });
+  console.log('range:', JSON.stringify(range));
+  check(range.shots > 0 && range.score >= 0 && range.rec.attempts === 1, `the range runs with scripted shots (${range.shots} shots, score ${range.score}) and the score is recorded`);
+  await page.evaluate(() => window.patrol.phase8.academy.activeScreen?.close());
+
+  // A report-writing exercise.
+  const report = await page.evaluate(() => {
+    const screen = window.patrol.phase8.academy.launch('report');
+    for (const st of screen.state.statements().slice(0, 3)) screen.toggle(st.id);
+    const fb = screen.submit();
+    return { feedback: !!fb, rec: window.patrol.session.phase8.career.view.academy.report };
+  });
+  check(report.feedback && report.rec.attempts === 1, `the report exercise grades a report and records it (${report.rec.best})`);
+  await page.evaluate(() => window.patrol.phase8.academy.activeScreen?.close());
+
+  // --- The driving course: the car is placed, the cones are drawn, scripted driving along the axis -------------------------------
+  const course = await page.evaluate(async () => {
+    const app = window.patrol;
+    app.phase8.academy.close();
+    await app.console.execute('course start basic');
+    const s = app.session;
+    const m = s.phase8.mode;
+    return { driving: s.driving, courseId: m.courseId, hasAnchor: m.anchor !== null, length: m.anchor?.length ?? 0, cones: app.phase8.cones?.count ?? -1 };
+  });
+  console.log('course start:', JSON.stringify(course));
+  check(course.driving && course.courseId === 'basic' && course.hasAnchor && course.length >= 320, `the driving course starts on a straight road of ${Math.round(course.length)} m with the officer seated`);
+  if (hasRenderer) check(course.cones > 0, `the cones are drawn (${course.cones})`);
+  const drive = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const run = () => s.phase8.mode.course;
+    // Throttle along the axis; the car starts facing it.
+    for (let i = 0; i < 60 * 90 && run() && !run().done && !run().aborted; i++) {
+      s.driverInput.accelerate = 0.6;
+      app.loop.hooks.fixedUpdate(1 / 60, 0);
+    }
+    s.driverInput.accelerate = 0;
+    const r = run()?.done || run()?.aborted ? run().result() : null;
+    // The frame loop turns the finished run into a result (the score goes to the academy in a career).
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return { result: r, left: s.phase8.mode.course === null, academy: s.phase8.career.view.academy.driving };
+  });
+  console.log('course run:', JSON.stringify(drive));
+  check(drive.left && drive.academy.attempts >= 1, `the course score reaches the academy record (${JSON.stringify(drive.academy)})`);
+  await page.evaluate(() => window.patrol.phase8.academy.close());
+
+  // --- Graduation ----------------------------------------------------------------------------------------------------------
+  await consoleRun(page, 'career academy * 100');
+  const grad = await page.evaluate(() => {
+    const app = window.patrol;
+    const can = app.phase8.academy.graduate();
+    return { can, stage: app.session.phase8.career.view.stage, shift: app.session.phase8.career.view.shift };
+  });
+  console.log('graduation:', JSON.stringify(grad));
+  check(grad.stage === 'probation' && grad.shift.onDuty && grad.shift.shiftNo === 1, 'graduating starts probation with the first shift');
+  await page.evaluate(() => window.patrol.ui.closeAll());
+
+  // --- A shift: premise history, then End shift -> summary -> apartment -> Report for duty --------------------------------------
+  const prep = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    for (let i = 0; i < 60 * 20; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    // A closed call at an address becomes premise history; the officer's chip shows wellbeing numbers after a long shift.
+    const call = s.dispatcher.createCall('noiseComplaint', s.now());
+    for (let i = 0; i < 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.cad.closeCall(call.id, 'handled', s.now());
+    for (let i = 0; i < 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { text: call.location.text, history: s.phase8.world.premiseHistory(call.location.text).length };
+  });
+  check(prep.history === 1, `a closed call becomes premise history (${prep.text})`);
+  const ended = await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.console.execute('fleet endshift');
+    for (let i = 0; i < 10; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    await new Promise((r) => setTimeout(r, 500));
+    return { ui: app.ui.menuStack.map((m) => m.id), off: app.session.phase8.career.view.offDuty !== null, calls: app.session.phase8.career.view.stats.calls };
+  });
+  console.log('end shift:', JSON.stringify(ended));
+  check(ended.ui.includes('shift-summary') && ended.off, 'End shift opens the career summary and the off-duty period');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await waitFor(page, () => window.patrol.phase8.apartment.isOpen, null, 5000);
+  const plan = await page.evaluate(() => {
+    const c = window.patrol.session.phase8.career;
+    return [c.planActivity('rest', 5).ok, c.planActivity('family', 2).ok];
+  });
+  check(plan[0] && plan[1], 'the apartment accepts rest and family time');
+  await waitFrames(page, 3);
+  await page.screenshot({ path: path.join(SHOTS, 'phase8-apartment.png') });
+  await page.getByRole('button', { name: 'Report for duty' }).click();
+  await waitFor(page, () => window.patrol.session?.phase8.career.view.shift.shiftNo === 2 && window.patrol.session.station.flow.step === 'locker', null, 60000);
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  const next = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const v = s.phase8.career.view;
+    // A new call at the remembered address: the MDT call tab shows the premise history.
+    const mdt = app.mdt;
+    const old = s.phase8.world.serialize().premises[0];
+    const call = s.dispatcher.createScriptedCall({ typeId: 'noiseComplaint', x: old.x, z: old.z }, s.now());
+    for (let i = 0; i < 20; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    mdt.open('call');
+    mdt.selectCall(call.id);
+    return { shift: v.shift.shiftNo, onDuty: v.shift.onDuty, game: s.now().game, start: v.shift.startGame, premises: s.phase8.world.serialize().premises.length, history: s.phase8.world.premiseHistory(call.location.text).length, shown: mdt.premiseModelShown?.entries.length ?? -1, flow: s.station.flow.step };
+  });
+  console.log('next shift:', JSON.stringify(next));
+  check(next.shift === 2 && next.onDuty && next.game >= next.start, `Report for duty starts shift 2 at the new shift time (${next.game - next.start} s in)`);
+  check(next.premises >= 1 && next.history >= 1 && next.shown >= 1, `premise history survived the rollover and shows in the MDT (${next.shown} entries)`);
+  await page.evaluate(() => window.patrol.mdt.close());
+
+  // --- Dispatch-only with the friday-night script --------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.mainMenu.seed = '42';
+    app.startTraining('dispatchOnly', 'friday-night');
+  });
+  await waitFor(page, () => window.patrol.session?.phase8.modeId === 'dispatchOnly' && window.patrol.phase8.console?.isOpen, null, 90000);
+  const dispatch = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    for (let i = 0; i < 60 * 200; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const port = app.phase8.console;
+    const open = s.cad.openCalls().filter((c) => c.units.length === 0);
+    const units = s.cad.units().filter((u) => u.kind === 'ai' && u.status === 'available');
+    let assigned = 0;
+    // Two manual assignments through the console's own buttons (the keyboard shortcut A assigns the first suggestion).
+    for (let i = 0; i < Math.min(2, open.length, units.length); i++) {
+      app.phase8.console.model.sel = { callId: open[i].id, unit: null };
+      assigned += s.dispatcher.assignUnit(units[i].callsign, open[i].id, s.now()) ? 1 : 0;
+    }
+    for (let i = 0; i < 60 * 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    await new Promise((r) => setTimeout(r, 400));
+    return { mode: s.phase8.modeId, console: port?.isOpen ?? false, open: open.length, assigned, script: s.phase8.mode.script?.script.id, scored: s.phase8.mode.dispatch?.serialize().calls.length ?? 0, manual: s.cad.units().filter((u) => u.kind === 'ai' && u.callId !== null).length };
+  });
+  console.log('dispatch-only:', JSON.stringify(dispatch));
+  check(dispatch.mode === 'dispatchOnly' && dispatch.console && dispatch.script === 'friday-night' && dispatch.open >= 2, `dispatch-only runs the friday-night script with the console open (${dispatch.open} calls waiting)`);
+  check(dispatch.assigned === 2 && dispatch.manual >= 2 && dispatch.scored >= 2, `two manual assignments sent AI units (${dispatch.manual} busy) and the calls are scored (${dispatch.scored})`);
+  await waitFrames(page, 4);
+  await page.screenshot({ path: path.join(SHOTS, 'phase8-dispatch.png') });
+
+  // --- Scenario editor: place, export, run -----------------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.mainMenu.seed = '42';
+    app.startTraining('sandbox');
+  });
+  await waitFor(page, () => window.patrol.session?.phase8.modeId === 'sandbox' && window.patrol.phase8.editor?.dirty !== undefined, null, 90000);
+  const editor = await page.evaluate(async () => {
+    const app = window.patrol;
+    const ed = app.phase8.editor;
+    const a = ed.state.doc.anchor;
+    ed.setTool('npc');
+    ed.state.place('npc', a.x + 6, a.z + 4, { profile: 'suspectNervous', role: 'suspect' });
+    ed.state.place('npc', a.x - 6, a.z + 4, { profile: 'calmCitizen', role: 'witness' });
+    ed.state.place('vehicle', a.x + 12, a.z, { modelId: 'compact' });
+    ed.state.place('evidence', a.x + 3, a.z + 2, { item: 'knife' });
+    ed.state.setCall({ typeId: 'suspiciousPerson', priority: 3 });
+    const doc = ed.state.doc;
+    const text = ed.exportFile ? null : null;
+    void text;
+    const errors = ed.state.validate();
+    const vehiclesBefore = app.session.vehicles.length;
+    ed.run();
+    await new Promise((r) => setTimeout(r, 600));
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const s = app.session;
+    return { errors, npcs: doc.npcs.length, vehicles: s.vehicles.length - vehiclesBefore, calls: s.cad.openCalls().length, scenario: s.phase8.mode.scenario?.id ?? null, closed: !ed.isOpen };
+  });
+  console.log('editor:', JSON.stringify(editor));
+  check(editor.errors.length === 0 && editor.npcs === 2, 'the scenario editor places two NPCs, a vehicle and evidence and validates the scenario');
+  check(editor.vehicles === 1 && editor.calls >= 1 && editor.scenario !== null && editor.closed, 'Run spawns the vehicle and the call into the world and stores the scenario in the mode');
+
+  // --- Mod manager with the example mod -----------------------------------------------------------------------------------------
+  await page.evaluate(() => window.patrol.quitToTitle());
+  await waitFrames(page, 3);
+  const mods = await page.evaluate(async () => {
+    const app = window.patrol;
+    const text = await (await fetch('/examples/mods/night-shift-pack.json')).text();
+    const file = new File([text], 'night-shift-pack.json', { type: 'application/json' });
+    const manager = app.phase8.modManager;
+    await manager.open();
+    const results = await manager.install([file], 'files');
+    manager.setEnabled('night-shift-pack', true);
+    return { results: results.map((r) => ({ ok: r.ok, id: r.id, errors: r.errors })), rows: manager.rows.map((r) => ({ id: r.id, enabled: r.enabled })), messages: [...manager.messages] };
+  });
+  console.log('mods:', JSON.stringify(mods));
+  check(mods.results.length === 1 && mods.results[0].ok, 'the example mod validates and installs');
+  check(mods.rows.some((r) => r.id === 'night-shift-pack' && r.enabled), 'the mod is enabled in the manager');
+  await waitFrames(page, 3);
+  await page.screenshot({ path: path.join(SHOTS, 'phase8-mods.png') });
+  // Apply: store the enabled list as "Save & reload" does, then reload (mods apply at page load).
+  await page.evaluate(async () => {
+    const { ModStore } = await import('/src/mods/store.ts');
+    await new ModStore().setEnabled(['night-shift-pack']);
+  });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => Boolean(window.patrol), null, { timeout: 60000 });
+  const modActive = await page.evaluate(async () => {
+    const app = window.patrol;
+    app.newGame(42);
+    await new Promise((r) => setTimeout(r, 500));
+    const out = [];
+    const c = app.console;
+    const before = c.lines.length;
+    await c.execute('mods list');
+    await c.execute('fleet list');
+    for (const l of c.lines.slice(before)) out.push(l.text);
+    const { modOverlay } = await import('/src/mods/registry.ts');
+    return { refs: modOverlay().refs.map((r) => r.id), boot: app.boot.active.map((r) => r.id), lines: out.slice(0, 40) };
+  });
+  console.log('mod active:', JSON.stringify({ refs: modActive.refs, boot: modActive.boot }));
+  check(modActive.refs.includes('night-shift-pack') && modActive.boot.includes('night-shift-pack'), 'after the reload the mod is applied at page load (boot + overlay)');
+  check(modActive.lines.some((l) => l.includes('night-shift-pack')), 'mods list names the active mod');
+  const modCar = await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.console.execute('car spawn night_courier');
+    return app.session.vehicles.some((v) => v.model.id === 'night_courier');
+  });
+  check(modCar, 'the mod vehicle spawns with the car command');
+  // Disable the mod again so the rest of the run (and later runs) use the base game.
+  await page.evaluate(async () => {
+    const { ModStore } = await import('/src/mods/store.ts');
+    await new ModStore().setEnabled([]);
+  });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => Boolean(window.patrol), null, { timeout: 60000 });
+
+  // --- Colour vision and the left-hand layout -----------------------------------------------------------------------------------
+  const access = await page.evaluate(async () => {
+    const app = window.patrol;
+    app.settings.set('accessibility.colorblind', 'protanopia');
+    app.settings.set('accessibility.oneHanded', 'left');
+    const { paletteMode, semanticColor } = await import('/src/a11y/index.ts');
+    const root = document.documentElement;
+    return { mode: paletteMode(), attr: root.dataset.colorblind ?? '', emergency: semanticColor('emergency'), hand: app.settings.get('accessibility.oneHanded') };
+  });
+  console.log('accessibility:', JSON.stringify(access));
+  check(access.mode === 'protanopia' && access.attr === 'protanopia', `protanopia switches the palette and the CSS (${access.emergency})`);
+  check(access.hand === 'left', 'the left-hand layout setting is stored');
+  const layout = await page.evaluate(async () => {
+    const { layoutBindings } = await import('/src/a11y/index.ts');
+    const b = layoutBindings('left');
+    const { ACTION_IDS } = await import('/src/input/actions.ts');
+    return { count: Object.keys(b).length, actions: ACTION_IDS.length, career: b['career.menu'], coop: b['coop.menu'], dispatch: b['dispatch.console'] };
+  });
+  check(layout.count >= layout.actions && layout.career && layout.coop && layout.dispatch, `the left-hand layout binds every action including the three new ones (${layout.count}/${layout.actions})`);
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.settings.set('accessibility.colorblind', 'none');
+    app.settings.set('accessibility.oneHanded', 'off');
+  });
+
+  // --- Co-op against a local server: a patrol page and a dispatcher page ---------------------------------------------------------
+  const { child, port } = await startCoopServer();
+  const page2 = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+  watch(page2, 'dispatcher');
+  try {
+    await page2.goto(URL_BASE, { waitUntil: 'load' });
+    await page2.waitForFunction(() => Boolean(window.patrol), null, { timeout: 60000 });
+    const join = async (p, role, name) => {
+      await p.evaluate(({ port: pt, role: r, name: n }) => {
+        const app = window.patrol;
+        app.phase8.lobby.open();
+        app.phase8.lobby.setForm({ url: `ws://127.0.0.1:${pt}`, room: 'smoke', name: n, role: r });
+        app.phase8.lobby.connect();
+      }, { port, role, name });
+      await p.waitForFunction(() => window.patrol.phase8.lobbyClient?.state === 'joined', null, { timeout: 15000 });
+    };
+    await join(page, 'patrol', 'Alex');
+    await join(page2, 'dispatcher', 'Dana');
+    await Promise.all([page, page2].map((p) => p.evaluate(() => window.patrol.phase8.lobby.start())));
+    await Promise.all([page, page2].map((p) => p.waitForFunction(() => window.patrol.phase8.coop !== null && window.patrol.session !== null, null, { timeout: 90000 })));
+    const roles = await Promise.all([page, page2].map((p) => p.evaluate(() => ({ self: window.patrol.phase8.coop.self, role: window.patrol.phase8.coop.role, members: window.patrol.phase8.coop.units.size, console: window.patrol.phase8.console?.isOpen ?? false, mode: window.patrol.session.phase8.modeId }))));
+    console.log('coop joined:', JSON.stringify(roles));
+    check(roles[0].self === 'N1' && roles[1].self === 'DISPATCH' && roles[0].members === 2 && roles[1].members === 2, 'two pages join one room as N1 and the dispatcher');
+    check(roles[1].console && !roles[0].console && roles[0].mode === 'coop', 'the dispatcher page opens the console with the net port');
+    // The dispatcher creates a call; the patrol client sees it in its MDT queue and in its CAD.
+    await page2.evaluate(() => {
+      window.patrol.phase8.coop.send({ t: 'callCreate', ref: 'smoke1', typeId: 'noiseComplaint', label: 'Noise complaint', priority: 3, x: 120, z: 80, address: '100 Smoke Street', narrative: 'Loud music reported', origin: 'dispatcher' });
+    });
+    await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 15000 });
+    const callId = await page2.evaluate(() => [...window.patrol.phase8.coop.calls.keys()][0]);
+    await page2.evaluate((id) => window.patrol.phase8.coop.send({ t: 'callAssign', callId: id, unit: 'N1' }), callId);
+    await page.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.units.includes('N1')), null, { timeout: 15000 });
+    const shared = await page.evaluate(() => {
+      const app = window.patrol;
+      const call = app.session.cad.openCalls()[0];
+      app.mdt.open('queue');
+      const rows = app.mdt.queueRows ? app.mdt.queueRows.length : -1;
+      app.mdt.close();
+      return { type: call?.typeId, address: call?.location.text, net: [...app.phase8.coop.calls.values()].map((c) => [c.status, c.units.join(',')]), rows };
+    });
+    console.log('coop shared CAD:', JSON.stringify(shared));
+    check(shared.type === 'noiseComplaint' && shared.net[0][1] === 'N1', 'the patrol client sees the dispatcher call and its assignment in the shared CAD');
+    // An illegal action is rejected by the server: patrol units cannot create dispatcher calls or assign others.
+    const rej = await page.evaluate(async () => {
+      const c = window.patrol.phase8.coop;
+      c.send({ t: 'callCreate', ref: 'bad1', typeId: 'noiseComplaint', label: 'x', priority: 1, x: 1, z: 1, address: 'a', narrative: 'n', origin: 'dispatcher' });
+      c.send({ t: 'callAssign', callId: 1, unit: 'DISPATCH' });
+      c.send({ t: 'callPriority', callId: 1, priority: 1 });
+      await new Promise((r) => setTimeout(r, 1500));
+      return c.rejections.slice();
+    });
+    console.log('coop rejections:', JSON.stringify(rej));
+    check(rej.length >= 3, `the server rejects illegal patrol actions (${rej.length} rejections)`);
+    const status = await consoleRun(page, 'mp status');
+    check(status.some((l) => l.includes('Connected as N1')), 'mp status reports the connection');
+    const presence = await page2.evaluate(() => [...window.patrol.phase8.coop.units.values()].find((u) => u.callsign === 'N1'));
+    check(presence && Number.isFinite(presence.x), 'presence reaches the dispatcher');
+    await page.screenshot({ path: path.join(SHOTS, 'phase8-coop.png') });
+    await page.evaluate(() => window.patrol.phase8.coop.disconnect());
+    const off = await page.evaluate(() => ({ connected: window.patrol.phase8.coop.connected, mode: window.patrol.session.phase8.modeId }));
+    check(!off.connected && off.mode === 'freePatrol', 'disconnecting leaves the session running offline');
+  } finally {
+    await page2.close().catch(() => undefined);
+    child.kill('SIGINT');
+  }
+
+  // --- v10 save / load round trip and the Phase 8 console ---------------------------------------------------------------------------
+  const save = await page.evaluate(async () => {
+    const app = window.patrol;
+    app.newGame(42, undefined, undefined, { mode: 'career' });
+    await new Promise((r) => setTimeout(r, 500));
+    app.phase8.academy.close();
+    await app.console.execute('career academy driving 91');
+    await app.console.execute('career graduate');
+    await app.console.execute('career academy firearms 100');
+    await app.saveGame('p8');
+    const before = JSON.stringify(app.serializeGame().career);
+    await app.loadGame('p8');
+    const s = app.session;
+    const data = app.serializeGame();
+    return { version: (await app.saves.load('p8')).version, same: JSON.stringify(data.career) === before, stage: s.phase8.career.view.stage, mods: data.mods, mode: data.mode.id, world: !!data.worldState };
+  });
+  console.log('v10 save:', JSON.stringify(save));
+  check(save.version === 10 && save.same && save.mode === 'career' && save.world && Array.isArray(save.mods), 'a v10 save round-trips the career, world, mode and mod list');
+  await page.evaluate(() => window.patrol.ui.closeAll());
+  const cmds = await page.evaluate(async () => {
+    const run = async (line) => {
+      const c = window.patrol.console;
+      const before = c.lines.length;
+      await c.execute(line);
+      return c.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    const out = [];
+    for (const line of ['career show', 'career set sergeant', 'career stress 0.2', 'world cases', 'world offenders', 'world evolve 2', 'world news', 'course list', 'script list', 'scenario list', 'mods list', 'mp status', 'coop status']) {
+      out.push(`> ${line}`, ...(await run(line)));
+    }
+    return out;
+  });
+  console.log('phase 8 console commands:\n  ' + cmds.map((l) => l.slice(0, 160)).join('\n  '));
+  check(!cmds.some((l) => l.startsWith('error:')), 'Phase 8 console commands ran without errors');
+
+  // --- Perf -------------------------------------------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.ui.closeAll();
+    for (let i = 0; i < 60 * 10; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  const perf = await page.evaluate(perfSnapshot);
+  const extras = await page.evaluate(() => {
+    const out = {};
+    for (const [name, ms] of window.patrol.systems.timings) if (['career', 'worldstate', 'training', 'dispatch', 'scene'].includes(name)) out[name] = Number(ms.toFixed(4));
+    const w = window.patrol.session.phase8.world.serialize();
+    return { systems: out, premises: w.premises.length, offenders: w.offenders.length };
+  });
+  const frame = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+  console.log('perf phase 8:', JSON.stringify(perf));
+  console.log('phase 8 sim costs:', JSON.stringify(extras));
+  return { perf, frame, extras };
+}
+
 async function run() {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({
@@ -3234,18 +3720,22 @@ async function run() {
   const consoleErrors = [];
   const consoleWarnings = [];
   const consoleLines = [];
-  page.on('console', (msg) => {
-    const line = `[${msg.type()}] ${msg.text()}`;
-    consoleLines.push(line);
-    if (msg.type() === 'error') consoleErrors.push(line);
-    // Chromium's own GPU-process notes (e.g. SwiftShader "GPU stall due to ReadPixels") are not the app's.
-    if (msg.type() === 'warning' && !msg.text().includes('GL Driver Message')) consoleWarnings.push(line);
-  });
-  page.on('pageerror', (error) => {
-    const line = `[pageerror] ${error.message}`;
-    consoleLines.push(line);
-    consoleErrors.push(line);
-  });
+  // Console capture for the main page and for any extra page a phase opens (the co-op dispatcher).
+  const watch = (p, label = '') => {
+    p.on('console', (msg) => {
+      const line = `[${label}${msg.type()}] ${msg.text()}`;
+      consoleLines.push(line);
+      if (msg.type() === 'error') consoleErrors.push(line);
+      // Chromium's own GPU-process notes (e.g. SwiftShader "GPU stall due to ReadPixels") are not the app's.
+      if (msg.type() === 'warning' && !msg.text().includes('GL Driver Message')) consoleWarnings.push(line);
+    });
+    p.on('pageerror', (error) => {
+      const line = `[${label}pageerror] ${error.message}`;
+      consoleLines.push(line);
+      consoleErrors.push(line);
+    });
+  };
+  watch(page);
 
   try {
     await page.goto(URL_BASE, { waitUntil: 'load' });
@@ -3253,6 +3743,18 @@ async function run() {
 
     const hasRenderer = await page.evaluate(() => window.patrol.renderer !== null);
     console.log(`renderer: ${hasRenderer ? 'WebGL available' : 'UNAVAILABLE (headless simulation only)'}`);
+
+    // SMOKE_ONLY=8 runs just the Phase 8 checks.
+    if (process.env.SMOKE_ONLY === '8') {
+      const only = await phase8(page, hasRenderer, browser, watch);
+      console.log('phase 8 frame:', JSON.stringify(only.frame));
+      check(only.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 8 within the cap (${only.perf.drawCalls})`);
+      check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+      check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
+      console.log('--- browser console ---');
+      for (const line of consoleLines) console.log(line);
+      return;
+    }
 
     // SMOKE_ONLY=7 runs just the Phase 7 checks.
     if (process.env.SMOKE_ONLY === '7') {
@@ -3592,6 +4094,7 @@ async function run() {
     const phase5Perf = await guarded('phase 5', () => phase5(page, hasRenderer));
     const phase6Perf = await guarded('phase 6', () => phase6(page, hasRenderer));
     const phase7Perf = await guarded('phase 7', () => phase7(page, hasRenderer));
+    const phase8Perf = await guarded('phase 8', () => phase8(page, hasRenderer, browser, watch));
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -3637,6 +4140,12 @@ async function run() {
       console.log('perf phase 7:', JSON.stringify(phase7Perf.perf));
       console.log('phase 7 sim costs:', JSON.stringify(phase7Perf.extras));
       check(phase7Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 7 within the cap (${phase7Perf.perf.drawCalls})`);
+    }
+    if (phase8Perf) {
+      console.log(describe('Phase 8 patrol (career, world, HUD chips):', phase8Perf.frame));
+      console.log('perf phase 8:', JSON.stringify(phase8Perf.perf));
+      console.log('phase 8 sim costs:', JSON.stringify(phase8Perf.extras));
+      check(phase8Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 8 within the cap (${phase8Perf.perf.drawCalls})`);
     }
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
