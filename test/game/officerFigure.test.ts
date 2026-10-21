@@ -24,6 +24,7 @@ function stubSession(sim: { t: number }): GameSession {
     investigation: { props: { count: 0 }, dog: { count: 0 } },
     phase6: { backup: { view: { count: 0 } }, resources: { crews: { count: 0 } } },
     station: { loadout: { uniform: 'longSleeve' } },
+    phase7: { playerAppearance: null, playerOutfit: 0, outfits: { defs: [null] }, aiOutfit: () => 0 },
     clock: { get simTime() { return sim.t; } },
   } as unknown as GameSession;
 }
