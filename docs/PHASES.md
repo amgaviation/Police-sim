@@ -536,7 +536,7 @@ The fleet key can be rebound under *Settings > Controls*. The fleet panel does n
 
 ### Performance
 - Node (seed 42, fixed steps with the four-unit fleet parked): the fleet system costs about 0 ms per idle step (event driven; a request step ≤ 0.2 ms), crafts use the O(1) integrator plus one character-controller query each, wear is a few typed-array operations per vehicle (see the per-system timings in the smoke output below).
-- Headless Chromium with SwiftShader (1280x720, software GL, ~1 fps, so these are draw-call and sim counts, not frame rates): see `npm run smoke` output `perf phase 7`; the livery shells add at most 8 draw calls, the accessory mesh 1, each new vehicle model in view 2-3.
+- Headless Chromium with SwiftShader (1280x720, software GL, ~1 fps, so these are draw-call and sim counts, not frame rates): measured in the final smoke (Phase 7 on patrol, four-unit fleet, 157 cars): 71 draw calls (cap 300), 178k triangles, sim 4.0 ms for 5 steps (fleet 0 ms, vehicles.pre 0.1 ms, vehicles.post 0 ms, physics 0.2 ms), render submit 1.2 ms, 4 livery shells = 4 draw calls and 60 repaints. Frame breakdown on foot in the day: 2 fps = sim 6.3 ms + update 1.9 ms + render submit 1.4 ms + 500 ms GPU wait (software GL); the livery shells add at most 8 draw calls, the accessory mesh 1, each new vehicle model in view 2-3. Zero console errors and zero app warnings.
 - Save size: a v9 save adds the character (~1 KiB), the gear (~1 KiB), the fleet (17 units, a few KiB; 32 custom liveries at most 8 KiB each).
 
 ### Known limitations
