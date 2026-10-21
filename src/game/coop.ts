@@ -16,7 +16,7 @@ export const PRESENCE_INTERVAL_MS = 200;
 /** The orders list keeps this many lines. */
 const ORDER_LOG = 6;
 /** The call type a mirrored call falls back to when this client lacks the sender's type (mods differ). */
-const FALLBACK_TYPE = 'disturbance';
+const FALLBACK_TYPE = 'noiseComplaint';
 const NO_UNITS: readonly NetUnit[] = [];
 
 const clampPriority = (p: number): ConsolePriority => (p <= 1 ? 1 : p >= 4 ? 4 : (Math.round(p) as ConsolePriority));
@@ -286,10 +286,13 @@ export class CoopSession {
     createCall: (c) => {
       const s = this.session;
       const typeId = findCallType(c.typeId) ? c.typeId : FALLBACK_TYPE;
-      const call = s.dispatcher.createScriptedCall(
-        { typeId, priority: c.priority, x: c.x, z: c.z, ...(c.narrative !== '' ? { narrative: c.narrative } : {}) },
-        s.now(),
-      );
+      const spec = { typeId, priority: c.priority, ...(c.narrative !== '' ? { narrative: c.narrative } : {}) };
+      // Each client simulates its own city: a point that is water or off the map here falls back to the officer's own position.
+      let call = s.dispatcher.createScriptedCall({ ...spec, x: c.x, z: c.z }, s.now());
+      if (!call) {
+        const at = s.playerPosition({ x: 0, z: 0 });
+        call = s.dispatcher.createScriptedCall({ ...spec, x: at.x, z: at.z }, s.now());
+      }
       if (!call) return -1;
       this.sentCalls.add(call.id);
       return call.id;

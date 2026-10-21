@@ -3494,7 +3494,7 @@ async function phase8(page, hasRenderer, browser, watch) {
     ed.state.place('npc', a.x - 6, a.z + 4, { profile: 'witnessReluctant', role: 'witness' });
     ed.state.place('vehicle', a.x + 12, a.z, { modelId: 'compact' });
     ed.state.place('evidence', a.x + 3, a.z + 2, { item: 'knife' });
-    ed.state.setCall('disturbance', 3);
+    ed.state.setCall('noiseComplaint', 3);
     const doc = ed.state.doc;
     const exported = ed.state.exportJson();
     const errors = ed.state.validate();
@@ -3615,7 +3615,7 @@ async function phase8(page, hasRenderer, browser, watch) {
     check(roles[1].console && !roles[0].console && roles[0].mode === 'coop', 'the dispatcher page opens the console with the net port');
     // The dispatcher creates a call; the patrol client sees it in its MDT queue and in its CAD.
     await page2.evaluate(() => {
-      window.patrol.phase8.coop.send({ t: 'callCreate', ref: 'smoke1', typeId: 'noiseComplaint', label: 'Noise complaint', priority: 3, x: 120, z: 80, address: '100 Smoke Street', narrative: 'Loud music reported', origin: 'dispatcher' });
+      window.patrol.phase8.coop.send({ t: 'callCreate', ref: 'smoke1', typeId: 'noiseComplaint', label: 'Noise complaint', priority: 3, x: 0, z: 0, address: '100 Smoke Street', narrative: 'Loud music reported', origin: 'dispatcher' });
     });
     await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 90000 });
     const callId = await page2.evaluate(() => [...window.patrol.phase8.coop.calls.keys()][0]);
