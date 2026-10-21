@@ -1003,7 +1003,7 @@ async function phase2(page, hasRenderer) {
   });
   const same = (k) => saveLoad.before[k] === saveLoad.after[k];
   console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
-  check(saveLoad.slot === 9, `saved as v9 (${saveLoad.slot})`);
+  check(saveLoad.slot === 10, `saved as v10 (${saveLoad.slot})`);
   check(same('calls') && same('docs') && same('units'), 'save/load v6 keeps the CAD (calls, units, documents)');
   check(same('records'), 'save/load v6 keeps the records (touched persons and vehicles, contacts, query log)');
   check(same('radio'), `save/load v6 keeps the radio (${saveLoad.after.radio})`);
@@ -1432,7 +1432,7 @@ async function phase3(page, hasRenderer) {
     return { before, after, version: list.find((x) => x.slot === 'smoke-phase3')?.version ?? -1 };
   });
   console.log('phase 3 save/load:', JSON.stringify({ version: v5.version, people: v5.after.people.length, scenarios: v5.after.scenarios, closed: v5.after.closed.length, contacts: v5.after.contacts, peds: v5.after.peds }));
-  check(v5.version === 9, `saved as v9 (${v5.version})`);
+  check(v5.version === 10, `saved as v10 (${v5.version})`);
   check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v6 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
   check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v6 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
   check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v6 keeps the open contacts and the pedestrians/actors');
@@ -1897,7 +1897,7 @@ async function phase4(page, hasRenderer) {
     };
   });
   console.log('phase 4 save/load:', JSON.stringify(save));
-  check(save.version === 9, `the save is written as version 9 (${save.version})`);
+  check(save.version === 10, `the save is written as version 10 (${save.version})`);
   check(save.after.building === save.before.building && save.after.building >= 0, 'the officer is back inside the station after the load');
   check(save.after.files === save.before.files && save.after.ledger === save.before.ledger, `case files and the custody ledger survive (${save.after.files} files, ${save.after.ledger} entries)`);
   check(save.after.holding === save.before.holding && save.after.flow === save.before.flow, 'holding cells and the shift flow survive');
@@ -2374,7 +2374,7 @@ async function phase5(page, hasRenderer) {
     };
   });
   console.log('phase 5 save/load:', JSON.stringify(save));
-  check(save.version === 9, `the save is written as version 9 (${save.version})`);
+  check(save.version === 10, `the save is written as version 10 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'incident logs, court cases, IA cases, report grades and trust survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------
@@ -2771,7 +2771,7 @@ async function phase6(page, hasRenderer) {
     };
   });
   console.log('phase 6 save/load:', JSON.stringify(save));
-  check(save.version === 9, `the save is written as version 9 (${save.version})`);
+  check(save.version === 10, `the save is written as version 10 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the roster, resource units, command post and victims survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------------------
@@ -3188,7 +3188,7 @@ async function phase7(page, hasRenderer) {
     return { version: list.find((x) => x.slot === 'p7')?.version ?? 0, before, after: snap(app.session) };
   });
   console.log('phase 7 save/load:', JSON.stringify(save));
-  check(save.version === 9, `the save is written as version 9 (${save.version})`);
+  check(save.version === 10, `the save is written as version 10 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the character, gear, saved liveries, checked-out units and ledger survive the load');
 
   // --- Console commands ---------------------------------------------------------------------------------------------------------
@@ -4028,7 +4028,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v9'), "slot 'smoke' listed as a v9 save");
+    check(saveLoad.slots.includes('smoke v10'), "slot 'smoke' listed as a v10 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);
