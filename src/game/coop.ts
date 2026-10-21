@@ -297,6 +297,11 @@ export class CoopSession {
     assign: (local, callsign, self) => {
       const s = this.session;
       if (self) {
+        // A unit that is 10-7 (the shift is not started yet) cannot take the call: say so instead of failing silently.
+        if (s.cad.unit(s.dispatcher.playerCallsign)?.status === 'outOfService') {
+          s.bus.emit('coop:flash', { text: `Dispatch assigned you ${s.cad.call(local)?.number ?? 'a call'}: go 10-8 (available) to respond` });
+          return;
+        }
         s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'selfAssign', callId: local }, 'auto');
         return;
       }
