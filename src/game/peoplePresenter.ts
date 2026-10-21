@@ -35,6 +35,8 @@ export const PEOPLE_DRAW_DISTANCE = 150;
 const SIM_HZ = 60;
 /** Seconds without a fixed step after which the officer figure stands still. */
 const STILL_AFTER_S = 0.1;
+/** Co-op teammates drawn on foot. */
+const REMOTE_FIGURES = 5;
 const WALK_SPEED = 0.3;
 const RUN_SPEED = 4.2;
 /** Stride length (m per gait cycle) of the officer figure. */
@@ -80,7 +82,9 @@ export class PeoplePresenter {
   private readonly officerFigure = createHumanoidSource(1);
   private readonly staff = createStaffFigures(8);
   private readonly mergedProps = createPropSource(MERGED_PROP_CAPACITY);
-  private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure, createHumanoidSource(0), createHumanoidSource(0), this.staff, createHumanoidSource(0), createHumanoidSource(0)];
+  /** Phase 8: the other co-op officers on foot (up to 5), filled from presence by `setRemoteFigures`. */
+  private readonly remoteFigures = createHumanoidSource(REMOTE_FIGURES);
+  private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure, createHumanoidSource(0), createHumanoidSource(0), this.staff, createHumanoidSource(0), createHumanoidSource(0), this.remoteFigures];
   /** The camera is at the officer's eyes: the officer's own figure is hidden. */
   private firstPerson = false;
   private readonly offs: (() => void)[] = [];
@@ -401,6 +405,41 @@ export class PeoplePresenter {
   }
 
   // --- The officer's own figure -------------------------------------------------------------
+
+  /**
+   * Co-op teammates on foot as figures (design §20.5, presentation only): position and heading from presence, the patrol
+   * outfit, walking when they move. Call once per frame; pass an empty list outside co-op.
+   */
+  setRemoteFigures(session: GameSession, units: readonly { callsign: string; x: number; z: number; heading: number; speed: number }[]): void {
+    const f = this.remoteFigures;
+    const n = Math.min(units.length, REMOTE_FIGURES);
+    f.count = n;
+    for (let i = 0; i < n; i++) {
+      const u = units[i] as (typeof units)[number];
+      f.prevX[i] = u.x;
+      f.prevZ[i] = u.z;
+      f.prevYaw[i] = u.heading;
+      f.x[i] = u.x;
+      f.y[i] = 0;
+      f.prevY[i] = 0;
+      f.z[i] = u.z;
+      f.yaw[i] = u.heading;
+      f.anchor[i] = 0;
+      f.speed[i] = u.speed;
+      f.gait[i] = (f.gait[i] ?? 0) + u.speed * 0.02;
+      f.pose[i] = u.speed > RUN_SPEED ? POSE.run : u.speed > WALK_SPEED ? POSE.walk : POSE.stand;
+      f.held[i] = HELD.none;
+      f.body[i] = 0;
+      f.flags[i] = 0;
+      f.outfit[i] = session.phase7.aiOutfit(u.callsign, 'patrol');
+      f.height[i] = 1.75;
+      f.build[i] = 1;
+      f.skin[i] = 0xd9a77f;
+      f.hair[i] = 0x2b2118;
+      f.top[i] = 0x1f3b6f;
+      f.bottom[i] = 0x1b2230;
+    }
+  }
 
   private fillOfficer(session: GameSession, dt: number): void {
     const f = this.officerFigure;

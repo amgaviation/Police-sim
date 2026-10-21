@@ -5,6 +5,10 @@ export interface PauseMenuCallbacks {
   quickSave(): void;
   openSettings(): void;
   quitToTitle(): void;
+  /** Phase 8: the career / schedule screen. */
+  openCareer?(): void;
+  /** Phase 8: the scenario editor. */
+  openEditor?(): void;
 }
 
 /** In-game pause screen. Escape is swallowed here; the app toggles it through the `menu.toggle` action. */
@@ -27,6 +31,8 @@ export class PauseMenu implements Menu {
         el('button', { class: 'primary', autofocus: true, onclick: () => callbacks.resume() }, 'Resume'),
         el('button', { onclick: () => callbacks.quickSave() }, 'Quick save'),
         el('button', { onclick: () => callbacks.openSettings() }, 'Settings'),
+        ...(callbacks.openCareer ? [el('button', { onclick: () => callbacks.openCareer?.() }, 'Career / schedule')] : []),
+        ...(callbacks.openEditor ? [el('button', { onclick: () => callbacks.openEditor?.() }, 'Scenario editor')] : []),
         el('button', { class: 'danger', onclick: () => callbacks.quitToTitle() }, 'Quit to title'),
       ),
       this.status,

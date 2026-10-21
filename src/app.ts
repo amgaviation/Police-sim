@@ -35,6 +35,15 @@ import { HudFeed, interactPrompt, keyLabel } from './game/hudFeed';
 import { createMdtDeps } from './game/mdtDeps';
 import { Phase6Presenter } from './game/phase6Presenter';
 import { Phase7Presenter } from './game/phase7Presenter';
+import { Phase8Presenter } from './game/phase8Presenter';
+import { createPhase8Commands } from './game/phase8Commands';
+import { beginRolledShift, prepareRollover, type PreparedRollover } from './game/rollover';
+import { setPaletteMode } from './a11y';
+import { CURRENT_SAVE_VERSION } from './save/schema';
+import type { BootResult } from './mods/boot';
+import type { GameMode } from './training';
+import { availableScripts } from './game/phase8';
+import type { NetClient } from './net';
 import { createPhase7Commands } from './game/phase7Commands';
 import { radioRequestTypeList } from './game/phase6';
 import { createPhase6Commands } from './game/phase6Commands';
@@ -63,6 +72,7 @@ import {
   startNewGame,
   type GameContext,
   type InteractResult,
+  type NewGameOptions,
 } from './game/session';
 import { TargetTracker, type TargetInfo } from './game/target';
 import { WorldView } from './game/worldView';
@@ -219,6 +229,10 @@ export class App {
   readonly phase6: Phase6Presenter;
   /** Phase 7 presentation: fleet panels, livery editor and shells, character creator, drone camera. */
   readonly phase7: Phase7Presenter;
+  /** Phase 8 presentation: academy, career, apartment, summary, dispatch console, scenario editor, mod manager, co-op. */
+  readonly phase8: Phase8Presenter;
+  /** Mods applied at this page load (the mod manager shows their errors). */
+  readonly boot: BootResult;
   /** Jurisdiction chosen on the title screen for the next new game. */
   private jurisdiction = 'generic';
 
@@ -299,8 +313,9 @@ export class App {
   private readonly disposers: Array<() => void> = [];
   private disposed = false;
 
-  private constructor(settings: SettingsStore) {
+  private constructor(settings: SettingsStore, boot: BootResult) {
     this.settings = settings;
+    this.boot = boot;
     this.physicsValue = createScenePhysics(FIXED_DT);
     this.world = createGameWorld();
 
@@ -392,6 +407,15 @@ export class App {
       closePatrolPanels: () => this.panels.close(),
     });
     this.phase7.setDrivableSink((eid, vehicle) => this.carRenderer?.setDrivable(eid, vehicle));
+    this.phase8 = new Phase8Presenter(this.ui, {
+      session: () => this.sessionValue,
+      flash: (text) => this.flash(text),
+      reportForDuty: () => this.reportForDuty(),
+      closeFleetPanel: () => this.phase7.panel.close(),
+      startCoop: (client) => this.startCoop(client),
+      scene: () => (this.renderer ? this.scene : null),
+      boot: () => this.boot,
+    });
     // The radio menu and the voice grammar request any unit type (design 14).
     setRadioRequestTypes(radioRequestTypeList());
     this.presenter = new PeoplePresenter(
@@ -420,6 +444,16 @@ export class App {
       this.console.register(command);
     }
     for (const command of createPhase7Commands({ session: () => this.sessionValue })) this.console.register(command);
+    for (const command of createPhase8Commands({
+      session: () => this.sessionValue,
+      presenter: () => this.phase8,
+      flash: (text) => this.flash(text),
+      reportForDuty: () => this.reportForDuty(),
+      boot: () => this.boot,
+      startMode: (mode, option) => this.startTraining(mode, option),
+    })) {
+      this.console.register(command);
+    }
 
     this.saves = new SaveManager({ bus: this.bus });
     this.settingsMenu = new SettingsMenu(this.ui, settings, this.input);
@@ -440,6 +474,40 @@ export class App {
         this.jurisdiction = id;
         Phase5Presenter.storeJurisdiction(id);
       },
+      newCareer: (seed, jurisdiction, character) => {
+        this.mainMenu.setStatus('Generating city...');
+        afterPaint(() => {
+          try {
+            this.newGame(seed, jurisdiction, character, { mode: 'career' });
+          } catch (error) {
+            log.error('New career failed:', error);
+            this.mainMenu.setStatus('Could not start a new career; see console');
+          }
+        });
+      },
+      training: (kind, option) => {
+        if (kind === 'drills') {
+          this.phase8.openStandaloneAcademy();
+          return;
+        }
+        if (kind === 'report') {
+          this.phase8.openStandaloneReport();
+          return;
+        }
+        this.mainMenu.setStatus('Generating city...');
+        afterPaint(() => {
+          try {
+            this.startTraining(kind === 'driving' ? 'drivingAcademy' : kind === 'dispatch' ? 'dispatchOnly' : 'sandbox', option);
+          } catch (error) {
+            log.error('Training start failed:', error);
+            this.mainMenu.setStatus('Could not start the training mode; see console');
+          }
+        });
+      },
+      openCoop: () => this.phase8.lobby.open(),
+      openMods: () => void this.phase8.modManager.open(),
+      scripts: () => availableScripts().map((sc) => ({ id: sc.id, name: sc.name })),
+      modSummary: () => (this.boot.safeMode ? 'Mods were disabled after a failed start' : this.boot.active.length === 0 ? 'No mods active' : `${String(this.boot.active.length)} mod${this.boot.active.length === 1 ? '' : 's'} active`),
       continueGame: (slot) => {
         this.mainMenu.setStatus(`Loading '${slot}'...`);
         this.loadGame(slot).catch((error: unknown) => {
@@ -462,6 +530,11 @@ export class App {
       quickSave: () => void this.quickSave(),
       openSettings: () => this.settingsMenu.open(),
       quitToTitle: () => this.quitToTitle(),
+      openCareer: () => this.openCareerMenu(),
+      openEditor: () => {
+        this.pauseMenu.close();
+        this.phase8.openEditor();
+      },
     });
 
     this.systems.register(copyPrevTransform, -1000);
@@ -483,11 +556,11 @@ export class App {
   }
 
   /** Loads settings (defaults if storage is unavailable), initialises Rapier and builds the app. */
-  static async create(): Promise<App> {
+  static async create(boot: BootResult = { active: [], errors: [], safeMode: false }): Promise<App> {
     const settings = new SettingsStore();
     await settings.load();
     await initRapier();
-    return new App(settings);
+    return new App(settings, boot);
   }
 
   get session(): GameSession | null {
@@ -559,16 +632,38 @@ export class App {
   }
 
   /** Replaces the running session with a fresh shift in the city of `seed`. */
-  newGame(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter): GameSession {
+  newGame(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter, options: Pick<NewGameOptions, 'mode' | 'inStation' | 'career'> = {}): GameSession {
     this.endSession();
     this.resetSimulation();
     if (jurisdiction !== undefined) this.jurisdiction = jurisdiction;
     const session = startNewGame(this.context(normalizeSeed(seed)), seed, {
       jurisdiction: this.jurisdiction,
       ...(character ? { character: { profile: character.profile, gear: character.gear } } : {}),
+      ...options,
     });
     this.beginSession(session, newMediaTag());
-    log.info(`New game, seed ${String(session.seed)}`);
+    // A new career starts in the academy: its hub opens over the locker room.
+    if (options.mode === 'career') this.phase8.openAcademy();
+    log.info(`New game, seed ${String(session.seed)}${options.mode ? ` (${options.mode})` : ''}`);
+    return session;
+  }
+
+  /**
+   * Starts a training mode with the seed box of the title screen (design §20.3): the driving academy (the cone course
+   * in P-101), dispatch-only (manual dispatch, the picked script, the dispatch console) or the sandbox (the scenario editor).
+   */
+  startTraining(mode: GameMode, option?: string): GameSession {
+    const seed = this.mainMenu.seed.trim() === '' ? 'training' : this.mainMenu.seed;
+    const session = this.newGame(seed, undefined, undefined, { mode, inStation: mode === 'dispatchOnly' });
+    if (mode === 'drivingAcademy') {
+      const err = this.phase8.beginCourse(option ?? 'basic');
+      if (err !== null) log.warn(`Driving academy: ${err}`);
+    } else if (mode === 'dispatchOnly') {
+      if (option !== undefined && option !== '') session.phase8.startScript(option);
+      this.phase8.openConsole();
+    } else if (mode === 'sandbox') {
+      this.phase8.openEditor();
+    }
     return session;
   }
 
@@ -601,8 +696,90 @@ export class App {
       throw error;
     }
     this.beginSession(session, Phase5Presenter.tagOfSlot(slot));
+    this.resumeMode(session);
     log.info(`Loaded '${slot}' (seed ${String(session.seed)}, ${String(session.entityCount)} entities)`);
     return session;
+  }
+
+  /** What a loaded save was doing: the apartment between shifts, the academy, the dispatch console. */
+  private resumeMode(session: GameSession): void {
+    const p8 = session.phase8;
+    const v = p8.career.view;
+    if (v.offDuty !== null) this.phase8.openApartment();
+    else if (v.stage === 'academy' && p8.modeId === 'career') this.phase8.openAcademy();
+    else if (p8.modeId === 'dispatchOnly') this.phase8.openConsole();
+  }
+
+  /**
+   * Report for duty (design §20.3): the world evolves over the gap, the session is saved, rolled over and loaded again
+   * behind a status line. Returns the reason when the officer cannot (unfit: mandatory leave), else undefined.
+   */
+  reportForDuty(): { ok: boolean; reason: string } | undefined {
+    const session = this.sessionValue;
+    if (!session) return { ok: false, reason: 'No game running' };
+    const attempt = prepareRollover(session);
+    if (!attempt.ok) return { ok: false, reason: attempt.reason };
+    this.flash('Starting the next shift...');
+    afterPaint(() => {
+      try {
+        this.applyRollover(attempt);
+      } catch (error) {
+        log.error('Rollover failed:', error);
+        this.quitToTitle();
+        this.mainMenu.setStatus('The next shift could not start; see console');
+      }
+    });
+    return undefined;
+  }
+
+  /** Loads the rolled-over save into a fresh session and starts the shift in the locker room. */
+  applyRollover(prepared: PreparedRollover): GameSession {
+    const tag = this.phase5.tag;
+    this.endSession();
+    this.resetSimulation();
+    const now = Date.now();
+    const session = loadGame(this.context(normalizeSeed(prepared.save.seed)), {
+      version: CURRENT_SAVE_VERSION,
+      createdAt: now,
+      updatedAt: now,
+      slot: 'rollover',
+      data: prepared.save,
+    });
+    this.beginSession(session, tag);
+    const calls = beginRolledShift(session, prepared.followUps);
+    const news = prepared.news[0];
+    this.flash(news !== undefined ? news : calls > 0 ? 'A follow-up warrant call is waiting' : 'Next shift');
+    log.info(`Shift ${String(session.phase8.career.view.shift.shiftNo)} started (${String(calls)} follow-up calls)`);
+    return session;
+  }
+
+  /** The co-op lobby's Start: a new game in the room's seed with the client. */
+  private startCoop(client: NetClient): void {
+    const welcome = client.welcome;
+    if (!welcome) return;
+    this.phase8.lobby.close();
+    this.mainMenu.setStatus('Generating city...');
+    afterPaint(() => {
+      try {
+        const session = this.newGame(welcome.snapshot.seed, undefined, undefined, { mode: 'freePatrol', inStation: welcome.role === 'patrol' });
+        this.phase8.beginCoop(session, client);
+      } catch (error) {
+        log.error('Co-op start failed:', error);
+        client.close();
+        this.mainMenu.setStatus('Could not start the co-op game; see console');
+      }
+    });
+  }
+
+  /** The career key (Minus): the apartment between shifts, the academy before graduation, else the career screen. */
+  private openCareerMenu(): void {
+    const session = this.sessionValue;
+    if (!session) return;
+    const v = session.phase8.career.view;
+    this.pauseMenu.close();
+    if (v.offDuty !== null) this.phase8.openApartment();
+    else if (v.stage === 'academy') this.phase8.openAcademy();
+    else this.phase8.openCareer();
   }
 
   async deleteSave(slot: string): Promise<void> {
@@ -670,6 +847,7 @@ export class App {
     this.phase5.dispose();
     this.phase6.dispose();
     this.phase7.dispose();
+    this.phase8.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -731,6 +909,8 @@ export class App {
     this.phase5.updatePanels(session, now);
     this.phase6.updatePanels(session, now);
     this.phase7.updatePanels(session, now);
+    this.phase8.update(session, now);
+    this.presenter.setRemoteFigures(session, this.phase8.coop?.figureUnits() ?? []);
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
@@ -802,6 +982,10 @@ export class App {
     // Phase 7: the fleet panel (') and the camera drone (=).
     if (input.wasPressed('fleet.menu')) this.phase7.openGarage();
     if (input.wasPressed('drone.toggle')) this.toggleDrone(session);
+    // Phase 8: the career screen (-), the co-op panel (0) and the dispatch console (Home).
+    if (input.wasPressed('career.menu')) this.openCareerMenu();
+    if (input.wasPressed('coop.menu')) this.phase8.openCoopPanel();
+    if (input.wasPressed('dispatch.console')) this.phase8.toggleConsole();
     if (session.remote) return;
     if (!session.driving) {
       if (input.wasPressed('camera.toggle')) this.phase4.toggleView();
@@ -1244,6 +1428,7 @@ export class App {
     this.phase4.fillHud(snapshot, session);
     this.phase5.fillHud(snapshot, session, session.clock.simTime);
     this.phase6.fillHud(snapshot, session);
+    this.phase8.feedHud(this.hud, session, now);
     this.hud.update(snapshot, now);
     const view = this.view;
     if (!view) return;
@@ -1263,6 +1448,7 @@ export class App {
     dots.z = traffic.z;
     // A route plotted with the console wins; otherwise the route to the player's call.
     const route = this.route ?? this.updateAutoRoute(session, at.x, at.z, now);
+    view.minimap.setRemoteUnits(this.phase8.coop?.remoteUnits() ?? null);
     view.minimap.update(at.x, at.z, yaw, dots, route, now, feed ? this.presenter.fillMarkers(feed.fillMarkers(this.markers), session) : null);
   }
 
@@ -1366,6 +1552,18 @@ export class App {
     // Phase 7: open damage incidents, livery shells (draw calls, repaints) and the accessory boxes drawn on figures.
     const open = session?.fleet.incidents().filter((i) => !i.closed).length ?? 0;
     this.perf.setExtra('fleet', session ? `${String(session.fleet.units().filter((u) => u.spawned).length)} out, ${String(open)} open incidents, ${String(session.fleet.openReports())} unreported` : undefined);
+    // Phase 8: the career, the persistent world and the co-op connection.
+    const p8 = session?.phase8;
+    if (p8) {
+      const cv = p8.career.view;
+      this.perf.setExtra('career', `${cv.stage} ${cv.rank}, shift ${String(cv.shift.shiftNo)}, fatigue ${cv.wellbeing.fatigue.toFixed(2)}, stress ${cv.wellbeing.stress.toFixed(2)}, $${String(Math.round(cv.money))}`);
+      const w = p8.world.serialize();
+      this.perf.setExtra('world', `${String(w.premises.length)} premises, ${String(w.offenders.length)} offenders, ${String(w.cases.length)} cases`);
+      const coop = this.phase8.coop;
+      this.perf.setExtra('net', coop ? `${coop.connected ? 'connected' : 'offline'} ${coop.self}, rev ${String(coop.revision)}, ${String(coop.rejections.length)} rejects, ${String(coop.client.invalidMessages)} invalid` : undefined);
+    } else {
+      for (const k of ['career', 'world', 'net']) this.perf.setExtra(k, undefined);
+    }
     const shells = this.phase7.liveries?.stats;
     this.perf.setExtra('liveries', shells && session ? `${String(shells.shells)} shells, ${String(shells.drawCalls)} draw calls, ${String(shells.repaints)} repaints` : undefined);
     this.perf.setExtra('gear', this.presenter.renderer && session ? `${String(this.presenter.renderer.stats.gearBoxes)} boxes drawn` : undefined);
@@ -1428,6 +1626,7 @@ export class App {
     this.phase5.begin(session, mediaTag);
     this.phase6.begin();
     this.phase7.begin(session);
+    this.phase8.begin(session);
     this.route = null;
     this.flashUntilMs = 0;
     this.hazeWarm = false;
@@ -1452,6 +1651,8 @@ export class App {
       this.phase5.end();
       this.phase6.end();
       this.phase7.end();
+      this.phase8.end();
+      this.presenter.setRemoteFigures(session, []);
       for (const vehicle of session.vehicles) this.carRenderer?.setDrivable(vehicle.eid, null);
       this.carRenderer?.setHeadlightTarget(0);
       this.carRenderer?.setSpotlightTarget(0);
@@ -1482,6 +1683,7 @@ export class App {
         openIa: (caseId) => this.phase5.openIa(caseId),
         openReview: (key) => this.phase5.openReview(key),
         etaBoard: (callId) => this.etaBoard(session, callId),
+        remoteUnits: () => this.phase8.coop?.remoteUnits() ?? [],
       }),
     );
     const panel = new RadioPanel(this.ui.hud);
@@ -1694,6 +1896,7 @@ export class App {
         if (all || change.path === 'controls.mouseSensitivity') this.mouseSensitivity = settings.get('controls.mouseSensitivity');
         if (all || change.path === 'controls.invertY') this.invertY = settings.get('controls.invertY');
         if (all || change.path === 'accessibility.reducedFlash') this.reducedFlash = settings.get('accessibility.reducedFlash');
+        if (all || change.path === 'accessibility.colorblind') setPaletteMode(settings.get('accessibility.colorblind'));
         if (all || change.path.startsWith('audio.') || change.path === 'accessibility.subtitles') this.applyAudioSettings();
       }),
       this.ui.onMenuChange(() => {
@@ -1738,6 +1941,7 @@ export class App {
     this.mouseSensitivity = settings.get('controls.mouseSensitivity');
     this.invertY = settings.get('controls.invertY');
     this.reducedFlash = settings.get('accessibility.reducedFlash');
+    setPaletteMode(settings.get('accessibility.colorblind'));
     // pagehide/hidden fire reliably on navigation and tab close (beforeunload does not on mobile),
     // and the settings storage keeps its connection open so the write starts synchronously here.
     const flushSettings = (): void => {

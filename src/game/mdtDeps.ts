@@ -3,7 +3,9 @@ import { REGISTRY_POPULATION } from '../traffic/registry';
 import { isFleetVehicleId } from '../traffic/trafficSystem';
 import { CAREER_LIST_MAX } from '../ui/mdt/career';
 import { requestableTypes } from '../units';
-import type { MdtDeps, MdtEtaRow } from '../ui/mdt/types';
+import { formatStamp } from '../records/calendar';
+import type { RemoteUnit } from '../ui/hud/types';
+import type { MdtCareerSummaryLine, MdtCaseRow, MdtDeps, MdtEtaRow, PremiseView } from '../ui/mdt/types';
 import type { GameSession } from './session';
 import type { TargetInfo } from './target';
 
@@ -18,6 +20,80 @@ export interface MdtHooks {
   openReview?(key: string): void;
   /** Phase 6: the presentation-only ETA board of the Resources tab (the worker's `eta.matrix`); empty without a worker. */
   etaBoard?(callId: number): Promise<readonly MdtEtaRow[]>;
+  /** Phase 8: the co-op teammates drawn on the MDT map. */
+  remoteUnits?(): readonly RemoteUnit[];
+}
+
+/** Display name of a person id ("Jordan Reyes"), '' when unknown. */
+function personName(session: GameSession, id: number): string {
+  if (id < 0) return '';
+  const p = session.records.person(id);
+  return `${p.first} ${p.last}`.trim();
+}
+
+const CASE_NAMES_MAX = 3;
+
+function namesOf(session: GameSession, ids: readonly number[]): string {
+  if (ids.length === 0) return 'none known';
+  const shown = ids.slice(0, CASE_NAMES_MAX).map((id) => personName(session, id));
+  return ids.length > CASE_NAMES_MAX ? `${shown.join(', ')} +${String(ids.length - CASE_NAMES_MAX)}` : shown.join(', ');
+}
+
+/** The Phase 8 feeds of the MDT: premise history, the case register and the career summary lines. */
+function phase8Deps(session: GameSession, hooks: MdtHooks): Pick<MdtDeps, 'premise' | 'cases' | 'careerSummary' | 'remoteUnits'> {
+  const world = session.phase8.world;
+  let flagsRev = -1;
+  let flagsFor = '';
+  let flags: readonly string[] = [];
+  let caseRev = -1;
+  let rows: readonly MdtCaseRow[] = [];
+  return {
+    premise: (callId): PremiseView | null => {
+      const call = session.cad.call(callId);
+      if (!call) return null;
+      const address = call.location.text;
+      if (flagsRev !== world.revision || flagsFor !== address) {
+        flagsRev = world.revision;
+        flagsFor = address;
+        flags = world.premiseFlags(address);
+      }
+      const entries = world
+        .premiseHistory(address)
+        .slice()
+        .reverse()
+        .map((e) => ({ when: formatStamp(e.game), text: `${e.callNumber} ${e.nature}: ${e.disposition}` }));
+      return { address, flags, entries };
+    },
+    cases: {
+      revision: () => world.revision,
+      rows: () => {
+        if (caseRev === world.revision) return rows;
+        caseRev = world.revision;
+        rows = world.cases().map((c): MdtCaseRow => ({
+          id: c.id,
+          status: c.status,
+          nature: c.nature,
+          opened: formatStamp(c.openedGame),
+          location: c.locationText,
+          suspects: namesOf(session, c.suspects),
+          witnesses: namesOf(session, c.witnesses),
+        }));
+        return rows;
+      },
+    },
+    careerSummary: (): readonly MdtCareerSummaryLine[] => {
+      const v = session.phase8.career.view;
+      const w = v.wellbeing;
+      const pct = (x: number): string => `${String(Math.round(x * 100))} %`;
+      return [
+        { label: 'Stage', text: `${v.stage}, ${v.rank}${v.assignment === 'patrol' ? '' : `, ${v.assignment}`}` },
+        { label: 'Shift', text: v.shift.onDuty ? `shift ${String(v.shift.shiftNo)}, ${v.slot.slot} / ${v.slot.beat}` : 'off duty' },
+        { label: 'Wellbeing', text: `fatigue ${pct(w.fatigue)}, stress ${pct(w.stress)}, health ${pct(w.health)}` },
+        { label: 'Money', text: `$${String(Math.round(v.money))}` },
+      ];
+    },
+    ...(hooks.remoteUnits ? { remoteUnits: () => hooks.remoteUnits?.() ?? [] } : {}),
+  };
 }
 
 /**
@@ -98,5 +174,6 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
       board: () => session.phase6.command.board(),
       request: (r) => session.phase6.command.request(r),
     },
+    ...phase8Deps(session, hooks),
   };
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { beginRolledShift, prepareRollover } from '../../src/game/rollover';
-import { serializeGame, startNewGame, type GameSession } from '../../src/game/session';
+import { serializeGame, startNewGame } from '../../src/game/session';
 import { initRapier } from '../../src/physics/physics';
 import { CURRENT_SAVE_VERSION, isSaveGame, type SaveGame } from '../../src/save/schema';
 import type { City } from '../../src/world/city';
@@ -47,7 +47,7 @@ describe('Phase 8: shift rollover', () => {
     beginRolledShift(next, attempt.followUps);
     expect(next.phase8.career.view.shift.shiftNo).toBe(2);
     expect(next.env.time.totalSeconds).toBeGreaterThanOrEqual(attempt.plan.startGame);
-    expect(next.station.flow.current).toBe('locker');
+    expect(next.station.flow.step).toBe('locker');
     expect(next.cad.calls().every((c) => c.status === 'closed')).toBe(true);
     h.step(next, 60);
     const saved = roundTrip(serializeGame(next));

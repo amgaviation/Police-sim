@@ -1,5 +1,6 @@
-import { App } from './app';
+import { bootMods, enterSafeMode } from './mods/boot';
 import { log } from './core/log';
+import type { App } from './app';
 
 declare global {
   interface Window {
@@ -23,7 +24,23 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 async function main(): Promise<void> {
-  const app = await App.create();
+  // Enabled mods are applied before anything that reads the data tables is imported (design §20.1): only the boot
+  // module and core code may be imported statically here; the app is imported after the overlay is installed.
+  const boot = await bootMods({ skip: new URLSearchParams(location.search).has('nomods') });
+  let app: App;
+  try {
+    const { App: AppClass } = await import('./app');
+    app = await AppClass.create(boot);
+  } catch (error) {
+    // A mod that breaks the data tables must not brick the game: reload with the mods switched off.
+    if (boot.active.length > 0) {
+      log.error('Startup failed with mods active; switching to safe mode:', error);
+      enterSafeMode();
+      location.reload();
+      return;
+    }
+    throw error;
+  }
   if (import.meta.env.DEV) window.patrol = app;
   app.start();
 }

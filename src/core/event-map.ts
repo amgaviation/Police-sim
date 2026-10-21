@@ -32,6 +32,11 @@
  * in conduct/events.ts, `player:mode` mode `remote` (the camera drone) in player/events.ts. The session bridges
  * `fleet:charge` to the conduct points request, `fleet:flash` and `conduct:points` to the HUD flash line and
  * `station:loadout` (vest) to the officer's gear; the presenter opens the shift summary on `fleet:shiftEnd`.
+ * Phase 8: `career:*` in career/events.ts (flash, stage, shiftSummary, points), `world:*` in worldstate/events.ts (recidivist,
+ * case, flash), `training:*` in training/events.ts (course, dispatchScore, flash) and `coop:*` here (status, order, flash;
+ * emitted by game/coop.ts). The session bridges the stress, stat, world and premise requests of design §14 in game/phase8.ts,
+ * `career:points` to the conduct points request, `career:stage` to the officer's rank and the dispatcher's call mix, and
+ * every `*:flash` to the HUD line; the presenter opens the career summary on `career:shiftSummary` and the apartment after it.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;
@@ -43,6 +48,10 @@ export interface EventMap {
   'settings:changed': { path: string; value: unknown };
   'console:log': { level: 'debug' | 'info' | 'warn' | 'error'; message: string; time: number };
   'rng:reseed': { seed: number };
+  /** Phase 8 co-op (src/game/coop.ts): the connection chip, an order addressed to this unit and a one-line notice. */
+  'coop:status': { connected: boolean; unit: string; members: number };
+  'coop:order': { from: string; order: string; callId: number | null; text: string; line: string };
+  'coop:flash': { text: string };
 }
 
 export type EventTopic = keyof EventMap;

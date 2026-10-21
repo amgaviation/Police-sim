@@ -5,18 +5,19 @@
   "type": "module",
   "description": "Patrol \u2014 browser-based hyper-realistic police patrol simulator",
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && vite build",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && tsc -p server/tsconfig.json && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && tsc -p server/tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "server": "node server/main.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0",
