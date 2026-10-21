@@ -917,7 +917,10 @@ async function phase2(page, hasRenderer) {
     return { lines: v.transcript.map((l) => `${l.speaker}: ${l.text}`), statements: v.statements.map((n) => n.text), facts: v.facts.length, driverId: window.patrol.session.cad.trafficStop?.driverId ?? -1 };
   });
   console.log('driver dialogue:', JSON.stringify(idAnswer));
-  check(idAnswer.lines.some((l) => l.startsWith('subject:')) && idAnswer.driverId >= 0, 'the driver answered the ID request and CAD has the identity');
+  // A driver with a language barrier or a hearing loss (a seeded trait of whichever car the timing picked) answers without
+  // understanding and gives no ID: that is the game working, not a failure.
+  const unheard = idAnswer.lines.some((l) => /don't understand|Slower, please|what do you say|can't hear|Pardon|Sorry\.\.\./i.test(l));
+  check(idAnswer.lines.some((l) => l.startsWith('subject:')) && (idAnswer.driverId >= 0 || unheard), `the driver answered the ID request and CAD has the identity${idAnswer.driverId < 0 && unheard ? ' (the driver did not understand)' : ''}`);
   // Writing the citation opens the MDT form (contact:openForm), prefilled from the stop.
   await page.evaluate(() => {
     const c = window.patrol.session.contact;
@@ -3836,7 +3839,8 @@ async function phase9(page, hasRenderer) {
   await press(page, 'KeyT');
   await press(page, 'Digit1');
   await press(page, 'Digit1');
-  await page.evaluate(stepSim, 40);
+  // The request goes out when the spoken transmission ends (a few simulated seconds).
+  await page.evaluate(stepSim, 600);
   await waitFor(page, () => window.patrol.session.phase9.runner.view.step.id === 'takeCall', null, 20000);
   const takeCall = await page.evaluate(() => {
     const app = window.patrol;
@@ -3916,14 +3920,22 @@ async function phase9(page, hasRenderer) {
     s.driverInput.brake = 0;
     if (!s.drivenVehicle.lightbar) s.toggleLightbar();
     if (!s.drivenVehicle.headlights) s.toggleHeadlights();
+    // On the curb lane of the road in front of the station, facing along it.
+    const g = s.city.graph;
+    const station = s.city.pois.find((p) => p.kind === 'station');
+    const lane = station.entrance.edge * 16; // laneRef(edge, 0, 0): curb lane, from -> to
+    const p = { x: 0, z: 0, hx: 0, hz: 0, yaw: 0 };
+    g.lanePoint(lane, g.laneStart(lane) + 15, p);
+    app.teleport(p.x, p.z, p.yaw);
     return { driving: s.driving, bar: s.drivenVehicle.lightbar };
   });
   check(driveSetup.driving && driveSetup.bar, 'driving at night in rain with the light bar on');
+  await waitFor(page, () => (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 30000);
   await page.keyboard.down('KeyW');
   await waitFrames(page, 2);
-  await page.evaluate(stepSim, 240);
+  await page.evaluate(stepSim, 120);
   await sleep(1500);
-  await page.evaluate(stepSim, 240);
+  await page.evaluate(stepSim, 60);
   await waitFrames(page, 4);
   const fx = await page.evaluate(() => {
     const app = window.patrol;
@@ -3963,33 +3975,40 @@ async function phase9(page, hasRenderer) {
   if (hasRenderer) check(quality.off.glows === 0 && quality.off.cones === 0 && quality.on.glows > 0, 'the Effects setting turns glow and cones off and on');
 
   // --- TASER, firearm, crash: particles ----------------------------------------------------------------------------------------
-  const bursts = await page.evaluate(async () => {
+  const bursts = await page.evaluate(() => {
     const app = window.patrol;
     const s = app.session;
-    const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const base = app.phase9.vfx.stats.particles;
+    const camera = app.renderer?.activeCamera;
+    // Muzzle flashes and TASER sparks live a fraction of a second, and a software-GL frame takes longer: a 2 ms update
+    // uploads the new particles and counts them while they are still alive (a birth time is stored as a float32, so an
+    // update of exactly zero seconds can see a particle born a rounding error in the future).
+    const live = () => {
+      if (camera) app.phase9.vfx.update(camera, 0.002, s.env.lighting.nightFactor, 0, 0);
+      return app.phase9.vfx.stats.particles;
+    };
+    const base = live();
     const send = (tool) =>
       s.bus.emit('force:applied', {
         seq: 900, tool, level: 'x', personId: -1, actorId: -1, callId: 0, resistance: 'active', hit: false, injury: 0, fatal: false,
         cycle: 0, riskFactors: [], distance: 4, restrained: false, sim: s.clock.simTime,
       });
     send('taser');
-    await frame();
-    const taser = app.phase9.vfx.stats.particles;
+    const taser = live();
     send('firearm');
-    await frame();
-    const firearm = app.phase9.vfx.stats.particles;
+    const firearm = live();
     const eid = s.drivenVehicle?.eid ?? s.vehicles[0].eid;
     s.bus.emit('vehicle:damaged', { eid, zone: 'front', amount: 0.3, impactSpeed: 14 });
-    await frame();
-    const crash = app.phase9.vfx.stats.particles;
-    return { base, taser, firearm, crash };
+    const crash = live();
+    s.bus.emit('traffic:collision', { eid, vehicleId: 0, other: 0, impactSpeed: 9 });
+    const collision = live();
+    return { base, taser, firearm, crash, collision };
   });
   console.log('particles:', JSON.stringify(bursts));
   if (hasRenderer) {
     check(bursts.taser > bursts.base, `a TASER shot throws particles (${bursts.base} -> ${bursts.taser})`);
-    check(bursts.firearm > 0, `a firearm shot flashes (${bursts.firearm} particles)`);
-    check(bursts.crash > 0, `a crash throws sparks and dust (${bursts.crash} particles)`);
+    check(bursts.firearm > bursts.taser, `a firearm shot flashes (${bursts.taser} -> ${bursts.firearm})`);
+    check(bursts.crash > bursts.firearm, `a crash throws sparks and dust (${bursts.firearm} -> ${bursts.crash})`);
+    check(bursts.collision > bursts.crash, `a traffic collision throws sparks (${bursts.crash} -> ${bursts.collision})`);
   }
 
   // --- Audio: after a real key press the engine, sirens and ambience run -----------------------------------------------------
@@ -4051,7 +4070,7 @@ async function phase9(page, hasRenderer) {
   await padTap(page, [13]); // down
   const cursor1 = await page.evaluate(() => window.patrol.radioMenuView.cursor);
   await padTap(page, [0]); // A
-  await page.evaluate(stepSim, 30);
+  await page.evaluate(stepSim, 600);
   requests.push(...(await page.evaluate(() => window.__requests)));
   console.log('radio cursor:', JSON.stringify({ cursor0, level, cursor1, requests }));
   check(cursor0.open && cursor0.cursor === 0, 'the radio menu opens with the cursor on the first option');

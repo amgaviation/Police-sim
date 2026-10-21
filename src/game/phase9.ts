@@ -16,6 +16,9 @@ import {
 import type { DrivableVehicle } from '../vehicles/drivableVehicle';
 import type { City } from '../world/city';
 
+/** POIs tried for a tutorial call before giving up. */
+const MAX_CALL_TRIES = 24;
+
 /** Everything the tutorial reads of the rest of the session (the session fills it). */
 export interface Phase9Host {
   readonly bus: EventBus<EventMap>;
@@ -120,33 +123,31 @@ export class Phase9 {
 
   /**
    * The call of a step: at the POI (any kind) whose distance from the player is nearest to the middle of `minM`..`maxM`
-   * (within the range; else the nearest one beyond `minM`), ties to the lower POI id. The dispatcher's own assignment pass
-   * offers a pending call to an available player in a police car.
+   * (within the range; else the nearest ones beyond `maxM`), ties to the lower POI id. A POI the dispatcher cannot place a
+   * call at (no road nearby) is skipped for the next best. The dispatcher's own assignment pass offers a pending call to an
+   * available player in a police car.
    */
   private createCall(typeId: string, minM: number, maxM: number): number {
     const host = this.host;
     const p = host.playerPosition(this.scratch);
     const mid = (minM + maxM) / 2;
-    let best: { x: number; z: number } | null = null;
-    let bestScore = Infinity;
-    let fallback: { x: number; z: number } | null = null;
-    let fallbackD = Infinity;
+    const inRange: { id: number; x: number; z: number; score: number }[] = [];
+    const beyond: { id: number; x: number; z: number; score: number }[] = [];
     for (const poi of host.city.pois) {
       const d = Math.hypot(poi.x - p.x, poi.z - p.z);
-      if (d >= minM && d <= maxM) {
-        const score = Math.abs(d - mid);
-        if (score < bestScore) {
-          bestScore = score;
-          best = poi;
-        }
-      } else if (d > maxM && d < fallbackD) {
-        fallbackD = d;
-        fallback = poi;
-      }
+      if (d >= minM && d <= maxM) inRange.push({ id: poi.id, x: poi.x, z: poi.z, score: Math.abs(d - mid) });
+      else if (d > maxM) beyond.push({ id: poi.id, x: poi.x, z: poi.z, score: d });
     }
-    const at = best ?? fallback;
-    if (at === null) return -1;
-    const call = host.dispatcher.createScriptedCall({ typeId, x: at.x, z: at.z }, host.now());
-    return call === null ? -1 : call.id;
+    const byScore = (a: { id: number; score: number }, b: { id: number; score: number }): number => a.score - b.score || a.id - b.id;
+    inRange.sort(byScore);
+    beyond.sort(byScore);
+    const t = host.now();
+    let tries = 0;
+    for (const at of [...inRange, ...beyond]) {
+      if (tries++ >= MAX_CALL_TRIES) break;
+      const call = host.dispatcher.createScriptedCall({ typeId, x: at.x, z: at.z }, t);
+      if (call !== null) return call.id;
+    }
+    return -1;
   }
 }

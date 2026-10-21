@@ -4,7 +4,7 @@
 .ui-hud > .tut-card {
   position: absolute;
   left: 50%;
-  bottom: 5em;
+  bottom: 8.5em;
   transform: translateX(-50%);
   width: calc(100% - 2em);
   max-width: 36em;

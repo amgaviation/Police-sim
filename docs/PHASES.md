@@ -41,7 +41,7 @@ npm run smoke      # headless browser test + docs/screenshots/phase0.png
 
 ### Known limitations
 - Saves (schema v2) restore every body's transform, velocity and sleep state exactly (loading runs one uncounted, gravity-free priming step to rebuild contact pairs, so a settled pile stays asleep and in place), but not Rapier's internal warm-start caches, so a pile that is being pushed at the moment of saving continues slightly differently after a load (a full Rapier snapshot would make it exact but costs ~0.5 MB per save). New games with the same seed and inputs replay exactly, including later sessions in the same page.
-- Audio, colour-vision, subtitle and one-handed settings are stored but hidden from the menu until the systems that use them exist.
+- Audio, colour-vision, subtitle and one-handed settings are stored but hidden from the menu until the systems that use them exist. *(Phase 9: all of them are in the menu now; only `audio.music` stays hidden.)*
 - The player is a box, not a character controller; there is no jumping, slopes or stairs.
 - Under software GL (SwiftShader) the frame rate is ~10 fps and the loop hits its 5-sub-step cap; on a real GPU it runs at the display rate.
 - The Rapier bundle (~4.3 MB) is imported statically; splitting it into a worker/dynamic import is Phase 1+ work.
@@ -110,11 +110,11 @@ npm run smoke      # headless browser test + docs/screenshots/phase1.png, phase1
 
 ### Known limitations
 - The officer on foot is a kinematic box moved by a character controller: buildings, poles, walls and vehicles block it, but it cannot jump or climb.
-- Traffic stops for the player (the driven car or the officer on foot) and for up to 8 parked player vehicles near the focus (the car the officer last left first, then the nearest others); a ninth or later vehicle further away is not seen and gets driven into. Traffic never changes lanes or overtakes; no pedestrians, police AI, audio (the siren key does nothing yet) or traffic stops (Phase 2).
+- Traffic stops for the player (the driven car or the officer on foot) and for up to 8 parked player vehicles near the focus (the car the officer last left first, then the nearest others); a ninth or later vehicle further away is not seen and gets driven into. Traffic never changes lanes or overtakes; no pedestrians, police AI, audio (the siren key does nothing yet) or traffic stops (Phase 2). *(Phase 9: the siren, engine, tyres and ambience are synthesized.)*
 - The world is flat and every road is a straight axis-aligned grid line; the state highway crosses streets at grade with signals.
 - Saves restore every body's pose and velocity but not Rapier's solver caches, so a car saved in motion continues within a few centimetres of the original path; traffic, time, weather and every RNG stream continue exactly.
 - `time HH:MM` only moves forward (an earlier hour means the next day); the weather override lasts until `weather auto`.
-- The plotted route is drawn on the minimap only, with no in-world guidance; the light bar does not light the surroundings (only the headlights have spot lights); four pooled point lights (two with shadows off) light the streetlights nearest the camera, the rest are emissive only.
+- The plotted route is drawn on the minimap only, with no in-world guidance; the light bar does not light the surroundings (only the headlights have spot lights; *Phase 9: glow sprites and a coloured ground pool under the car*); four pooled point lights (two with shadows off) light the streetlights nearest the camera, the rest are emissive only.
 - Under software GL (SwiftShader) the game runs at about 1.5 fps and the loop hits its 5-sub-step cap, so the simulation (and the car) runs slower than real time there; on a real GPU it runs at the display rate.
 
 ## Phase 2 — Police Vehicle, MDT, CAD, Radio

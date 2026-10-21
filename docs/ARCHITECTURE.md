@@ -187,6 +187,9 @@ src/
   game/consolePorts.ts    the dispatch console's port over the local CAD (dispatch-only)
   game/phase8Presenter.ts Phase 8 presentation: screens, hosts, cones, console, editor, mod manager, lobby, HUD feed
   game/phase8Commands.ts  career / world / course / dispatchmode / script / sandbox / scenario / mods / coop (mp)
+  game/phase9.ts          Phase9: the tutorial runner of a session, its bus forwarding and the probes / call creation ports (simulation state only)
+  game/phase9Presenter.ts Phase 9 presentation: VfxSystem and the event bridges, the audio frame (velocities, engines, ambience), tutorial card and dialog
+  game/phase9Commands.ts  tutorial [status|skip|end|start]
   server/                 the optional co-op server (Node 22, no dependencies): wsFrames.ts, wsServer.ts, main.ts
   data/                   JSON content: world/, environment/, crime/, vehicles/, physics/, traffic/, records/, cad/,
                           dispatch/, radio/, police/, audio/, people/, calls/, npc/, dialogue/, scene/, interior/, evidence/, tactics/, station/,
@@ -280,7 +283,7 @@ Phase 6 adds (design §15):
 | -665 | `backup` | roster minute tick first, then the officers' FSM per step (observations 4 Hz) and the SWAT team |
 | -662 | `command` | post, triage, transport, TCPs, evacuation, containment, negotiation (work at 4 Hz); traffic blockades and no-go zones on change |
 
-Phase 9 adds (design §14): `tutorial` at **-651** (`TutorialRunner.step()`, only registered while a tutorial is active); the profiler only wraps the existing systems with clock reads.
+Phase 9 adds (design §14): `tutorial` at **-651** (`Phase9.step()` -> `TutorialRunner.step()`; the system is always registered and does nothing without a runner); the profiler only wraps the existing systems with clock reads.
 
 `GameSession.fixedUpdate` multiplies the walking velocity by `tactical.speedFactor()` (no sprint while crouched) or moves the officer with `tactical.sliceMove` while slicing, and keeps the body's y at `levelY(building) + 0.9`.
 
@@ -488,7 +491,9 @@ blur); cheap sprites stand in for it, at most **6 draw calls** in total:
 - **Navigation.** `UIRoot.moveFocus` is the fallback for arrow keys a menu does not handle itself, so every menu works from the keyboard.
   `GamepadNav` (`src/ui/gamepadNav.ts`) reads the pad through `InputManager` (`padPressed / padButton / padAxis`) and, while a menu is open,
   dispatches real `KeyboardEvent`s (D-pad / stick -> arrows with repeat, A -> Enter or a click, B -> Escape, LB / RB -> Shift+Tab / Tab, Start through the
-  `menu.toggle` binding), so the existing Escape and menu semantics are unchanged.
+  `menu.toggle` binding), so the existing Escape and menu semantics are unchanged. The app runs it just before `InputManager.update()` so that the
+  synthesized keys are read in the same frame (a menu that B closes must not also read as a fresh Escape one frame later), and the key-up goes to a
+  connected element when the key closed its own menu (a detached element's event never reaches the window and the key would stay held).
 - **Radio cursor.** `RadioController` keeps a cursor over the enabled options of the radio menu (`state.cursor`, -1 while closed) driven by the modal
   actions `radio.cursorPrev / Next / Select`; `RadioMenuView.show(menu, cursor)` highlights the row.
 - **Settings.** `audio.ambience` (0.7), `audio.ui` (0.6) and `graphics.effects` (`high`); the settings blob stays version 2 (missing fields parse to defaults).
@@ -500,7 +505,7 @@ completes on an **ack**, on the first matching **bus event** (`TUTORIAL_TOPICS`,
 **probe** (`speedKmh`, `driving`, `lightbar`, `siren`, `distanceToCallM`, read from simulation state only). Because the progress is simulation state
 that is saved, the runner follows the simulation rules:
 
-- `TutorialRunner.step()` is the system `tutorial` at fixed step **-651** (only registered while a tutorial is active). Bus handlers never advance
+- `TutorialRunner.step()` is the system `tutorial` at fixed step **-651** (`game/phase9.ts` registers it for every session; without a runner it does nothing). Bus handlers never advance
   it: `onEvent` copies the JSON-safe payload into a **queue** (at most 64 entries) and the player's `ack` / `skip` / `end` are queued commands (at most
   8); the next `step()` applies the commands, runs the step's `enter` actions (`createCall` once per step, guarded by the saved `entered` flag, through the
   port that picks a point of interest at the requested distance deterministically and offers the call to the player unit), matches the queued events
@@ -516,7 +521,7 @@ per system boundary) and the `sim` / `update` / `render` time of every frame (`G
 no allocation after a name was first seen. The F3 overlay lists the top 5 systems. `test/perf/longShift.test.ts` runs 1 game hour (8 with `PATROL_LONG=1`)
 in Node and `test/perf/memory.test.ts` checks heap churn and plateau after forced GC; `scripts/perf.mjs` drives the production build under Chromium and
 reads CDP heap usage and DOM counters at checkpoints (`npm run perf`). Results, the hot spots fixed (traffic allocation and `Math.hypot`, the registry
-clock, loop and mesh-sync allocation) and the ones left (the Rapier soft-body pass in `PhysicsWorld.step`, per-step vehicle scratch vectors) are in
+clock, loop and mesh-sync allocation) (the Rapier soft-body pass in `PhysicsWorld.step`, 40 % of the step, is switched off) and the ones left (per-step vehicle scratch vectors, npc occupants, lane helpers) are in
 `docs/PERFORMANCE.md`.
 
 ### Release tooling
@@ -533,5 +538,5 @@ clock, loop and mesh-sync allocation) and the ones left (the Rapier soft-body pa
 `CURRENT_SAVE_VERSION = 11`. `SaveGameV11 extends SaveGameV10 { tutorial: TutorialSave | null }`, where `TutorialSave` is plain JSON (script id, step
 index, `entered`, bound call id, probe tick, skipped step ids, `done` / `completed`, the bounded event queue and pending commands); `null` means no tutorial in
 this game. `migrateV10ToV11` writes `tutorial: null` (every save from v1 to v10 still loads, and plays on identically to Phase 8). `isSaveGameV11` is the
-v10 check plus `tutorial === null || isTutorialSave(tutorial)`. Load order: ... -> career -> world -> mode -> **tutorial** (a runner is created when the block
-is non-null and not done) -> radio. `rolloverSave` keeps the block as is.
+v10 check plus `tutorial === null || isTutorialSave(tutorial)`. Load order: ... -> radio -> career -> world -> mode -> **tutorial** (a runner is created for any non-null block; a finished
+tutorial stays finished and is saved back as it was). `rolloverSave` keeps the block as is.

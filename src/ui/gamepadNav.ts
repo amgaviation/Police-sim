@@ -78,7 +78,8 @@ function isClickable(target: EventTarget): boolean {
 }
 
 /**
- * Per-frame gamepad menu navigation. Call `update(nowMs)` after `InputManager.update()`; it does nothing while no menu is
+ * Per-frame gamepad menu navigation. Call `update(nowMs)` once per frame (the app calls it just before `InputManager.update()`, so
+ * the synthesized keys are read in the same frame); it does nothing while no menu is
  * open (and then forgets held directions, so a stick held while a menu opens does not fire at once).
  */
 export class GamepadNav {
@@ -122,11 +123,26 @@ export class GamepadNav {
     if (this.pad.padPressed(PAD_BUTTON.rb)) this.press('Tab', false);
   }
 
+  /**
+   * keydown on `to`, then keyup. A key that closes its own menu removes `to` from the page, and an event dispatched on a
+   * detached element never reaches the window, so the input manager would keep the key held: the keyup goes to the
+   * element that has the focus now (the page when nothing has).
+   */
+  private tap(to: EventTarget, key: string, shift: boolean): boolean {
+    const free = this.dispatch(to, 'keydown', key, key, shift);
+    let up: EventTarget = to;
+    if ((to as { isConnected?: unknown }).isConnected === false) {
+      const now = this.target.focusTarget();
+      up = now !== null && (now as { isConnected?: unknown }).isConnected !== false ? now : typeof document !== 'undefined' ? document : to;
+    }
+    this.dispatch(up, 'keyup', key, key, shift);
+    return free;
+  }
+
   private arrow(key: string): void {
     const to = this.target.focusTarget();
     if (to === null) return;
-    const free = this.dispatch(to, 'keydown', key, key, false);
-    this.dispatch(to, 'keyup', key, key, false);
+    const free = this.tap(to, key, false);
     if (free) this.target.moveFocus(key === 'ArrowUp' || key === 'ArrowLeft' ? -1 : 1);
   }
 
@@ -137,15 +153,13 @@ export class GamepadNav {
       (to as HTMLElement).click();
       return;
     }
-    this.dispatch(to, 'keydown', 'Enter', 'Enter', false);
-    this.dispatch(to, 'keyup', 'Enter', 'Enter', false);
+    this.tap(to, 'Enter', false);
   }
 
   private press(key: 'Escape' | 'Tab', shift: boolean): void {
     const to = this.target.focusTarget();
     if (to === null) return;
-    const free = this.dispatch(to, 'keydown', key, key, shift);
-    this.dispatch(to, 'keyup', key, key, shift);
+    const free = this.tap(to, key, shift);
     // The browser does not move focus for a synthetic Tab.
     if (free && key === 'Tab') this.target.moveFocus(shift ? -1 : 1);
   }

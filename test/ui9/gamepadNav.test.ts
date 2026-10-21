@@ -319,3 +319,28 @@ describe('GamepadNav repeat and stick', () => {
     expect(keys(sent)).toEqual(['ArrowDown']);
   });
 });
+
+describe('GamepadNav: a key that closes its own menu', () => {
+  it('sends the keyup to a connected element when the target was removed by the keydown', () => {
+    const detached = { name: 'removed', isConnected: true };
+    const page = { name: 'page', isConnected: true };
+    const s = setup({ target: detached });
+    // The menu closes on the keydown: the element leaves the page and the focus is back on the page.
+    const dispatch: KeyDispatch = (to, type, key, code, shift) => {
+      s.sent.push({ type, key, code, shift, target: to });
+      if (type === 'keydown') {
+        detached.isConnected = false;
+        s.state.focus = page;
+      }
+      return true;
+    };
+    const nav = new GamepadNav(
+      s.pad,
+      { isMenuOpen: () => true, focusTarget: () => s.state.focus as EventTarget | null, moveFocus: () => true },
+      dispatch,
+    );
+    s.pad.press(PAD_BUTTON.b);
+    nav.update(16);
+    expect(s.sent.map((e) => `${e.type}:${e.key}:${(e.target as { name: string }).name}`)).toEqual(['keydown:Escape:removed', 'keyup:Escape:page']);
+  });
+});
