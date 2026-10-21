@@ -63,6 +63,11 @@ export class Harness {
     return this.attach(loadGame(this.ctx, envelope(data)));
   }
 
+  /** Loaded game from a save payload (not yet attached). */
+  loadFrom(data: SaveGame): GameSession {
+    return loadGame(this.ctx, envelope(data));
+  }
+
   attach(session: GameSession): GameSession {
     this.detach?.();
     this.detach = session.attachSystems(this.registry);

@@ -502,6 +502,7 @@ export class GameSession {
   private headlightOverride: boolean | null = null;
   private autoHeadlights: boolean;
   private readonly trainingRng: Rng;
+  private homeEdges: readonly number[] | null = null;
   private readonly lagInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   private steerLagged = 0;
   private steerLagReady = false;
@@ -2163,6 +2164,17 @@ export class GameSession {
     const uniform = unit && (UNIFORM_CLASSES as readonly string[]).includes(unit.uniformClass) ? (unit.uniformClass as typeof p.outfit.uniform) : p.outfit.uniform;
     if (p.rank === rank && p.outfit.uniform === uniform) return;
     this.phase7.setProfile({ ...p, rank, outfit: { ...p.outfit, uniform } });
+  }
+
+  /** A residential address text for a draw in [0, 1) (a witness moves there); null when the city has no home edges. */
+  randomAddress(u: number): string | null {
+    if (this.homeEdges === null) this.homeEdges = homeEdgesOf(this.city);
+    const edges = this.homeEdges;
+    if (edges.length === 0) return null;
+    const edge = edges[Math.min(edges.length - 1, Math.floor(u * edges.length))] as number;
+    const length = this.city.graph.edges[edge]?.length ?? 0;
+    const districtOf = (x: number, z: number): string => DISTRICT_NAMES[this.city.districtAt(x, z)] ?? '';
+    return addressOnEdge(this.city.graph, edge, length * 0.5, districtOf).text;
   }
 
   /** A dispatch script step location: the nearest POI of a kind to the station, a point in a district, or the point itself. */
