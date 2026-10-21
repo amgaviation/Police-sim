@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { canTransition as cadCanTransition } from '../../src/cad/cadState';
 import { LIMITS, NET_UNIT_STATUSES, PROTOCOL_VERSION } from '../../src/net/protocol';
 import type { ClientMsg, NetRole, NetUnitStatus, RoomEvent } from '../../src/net/protocol';
 import { canTransition, RateLimiter, Room } from '../../src/net/room';
@@ -101,10 +102,17 @@ describe('canTransition', () => {
     available: ['enRoute', 'onScene', 'busy', 'outOfService'],
     enRoute: ['onScene', 'available', 'busy', 'outOfService'],
     onScene: ['busy', 'available', 'transporting', 'enRoute', 'outOfService'],
-    busy: ['available', 'onScene', 'enRoute', 'outOfService'],
-    transporting: ['available', 'onScene', 'outOfService'],
+    busy: ['available', 'onScene', 'enRoute', 'transporting', 'outOfService'],
+    transporting: ['available', 'onScene', 'busy', 'outOfService'],
     outOfService: ['available'],
   };
+  it('allows every move the CAD allows (a legal local status change is never refused by the room)', () => {
+    for (const from of NET_UNIT_STATUSES) {
+      for (const to of NET_UNIT_STATUSES) {
+        if (cadCanTransition(from, to)) expect(canTransition(from, to), `${from} -> ${to}`).toBe(true);
+      }
+    }
+  });
   it('matches the table for every pair', () => {
     for (const from of NET_UNIT_STATUSES) {
       for (const to of NET_UNIT_STATUSES) {
@@ -406,15 +414,31 @@ describe('permission matrix', () => {
     expect(r.events[0]).toMatchObject({ k: 'callCreated', call: { origin: 'officer', createdBy: 'N1', status: 'pending' } });
     unchanged(fx, () => fx.send('p1', callCreate({ origin: 'officer', x: 100 + 151, z: 100 })), 'invalidValue');
   });
+  it('callCreate: one member cannot fill the shared CAD (per-member open-call cap)', () => {
+    const fx = fixture();
+    allowed(fx.send('p1', presence(1, 1)));
+    for (let i = 0; i < 3; i++) allowed(fx.send('p1', callCreate({ origin: 'officer', x: 1, z: 1 })));
+    unchanged(fx, () => fx.send('p1', callCreate({ origin: 'officer', x: 1, z: 1 })), 'illegalState');
+    // The dispatcher and the other patrol still create calls, and closing one frees the member's slot.
+    allowed(fx.send('d', callCreate({ origin: 'dispatcher' })));
+    allowed(fx.send('p2', presence(1, 1)));
+    allowed(fx.send('p2', callCreate({ origin: 'officer', x: 1, z: 1 })));
+    allowed(fx.send('d', close(1)));
+    allowed(fx.send('p1', callCreate({ origin: 'officer', x: 1, z: 1 })));
+    for (let i = 0; i < 19; i++) allowed(fx.send('d', callCreate({ origin: 'dispatcher' })));
+    unchanged(fx, () => fx.send('d', callCreate({ origin: 'dispatcher' })), 'illegalState');
+  });
   it('callCreate: patrol cannot use the dispatcher origin; dispatcher / supervisor only dispatcher origin', () => {
     const fx = fixture();
     unchanged(fx, () => fx.send('p1', callCreate({ origin: 'dispatcher' })), 'forbidden');
     allowed(fx.send('d', callCreate({ origin: 'dispatcher' })));
     allowed(fx.send('s', callCreate({ origin: 'dispatcher' })));
-    for (const id of ['d', 's']) {
-      unchanged(fx, () => fx.send(id, callCreate({ origin: 'officer' })), 'forbidden');
-      unchanged(fx, () => fx.send(id, callCreate({ origin: 'generator' })), 'forbidden');
-    }
+    for (const id of ['d', 's']) unchanged(fx, () => fx.send(id, callCreate({ origin: 'officer' })), 'forbidden');
+    // The supervisor never generates; the dispatcher's client is the room's call source (paced like the host generator).
+    unchanged(fx, () => fx.send('s', callCreate({ origin: 'generator' })), 'forbidden');
+    allowed(fx.send('d', callCreate({ origin: 'generator' })));
+    unchanged(fx, () => fx.send('d', callCreate({ origin: 'generator' })), 'rate');
+    allowed(fx.send('d', callCreate({ origin: 'generator' }), fx.now + 10000));
   });
   it('callCreate: generator calls only from the host, with no dispatcher, one per 10 s', () => {
     const fx = fixture();
@@ -632,8 +656,16 @@ describe('state rules', () => {
   });
   it('limits open calls', () => {
     const fx = fixture();
-    for (let i = 0; i < LIMITS.maxOpenCalls; i++) fx.newCall();
-    unchanged(fx, () => fx.send('d', callCreate()), 'illegalState');
+    fx.room.join('p3', hello('patrol', 'Three'), 0);
+    fx.room.join('p4', hello('patrol', 'Four'), 0);
+    // The dispatcher fills its own cap, then the four patrols add their officer calls up to the room limit.
+    for (let i = 0; i < 20; i++) fx.newCall();
+    for (const id of ['p1', 'p2', 'p3', 'p4']) {
+      allowed(fx.send(id, presence(1, 1)));
+      for (let i = 0; i < 3 && fx.room.snapshot.calls.length < LIMITS.maxOpenCalls; i++) allowed(fx.send(id, callCreate({ origin: 'officer', x: 1, z: 1 })));
+    }
+    expect(fx.room.snapshot.calls).toHaveLength(LIMITS.maxOpenCalls);
+    unchanged(fx, () => fx.send('p4', callCreate({ origin: 'officer', x: 1, z: 1 })), 'illegalState');
     fx.send('d', close(1));
     allowed(fx.send('d', callCreate()));
   });
@@ -656,7 +688,8 @@ describe('state rules', () => {
     expect(en.events).toEqual([{ k: 'unitStatus', callsign: 'N1', status: 'enRoute', callId: c }]);
     allowed(fx.send('p1', status('onScene', c)));
     allowed(fx.send('p1', status('transporting', c)));
-    unchanged(fx, () => fx.send('p1', status('busy')), 'illegalState'); // transporting -> busy
+    allowed(fx.send('p1', status('busy'))); // transporting -> busy (the CAD allows it too)
+    allowed(fx.send('p1', status('transporting', c)));
     allowed(fx.send('p1', status('outOfService')));
     unchanged(fx, () => fx.send('p1', status('busy')), 'illegalState'); // outOfService -> available only
     allowed(fx.send('p1', status('available')));

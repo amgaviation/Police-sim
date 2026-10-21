@@ -740,6 +740,8 @@ export class App {
   reportForDuty(): { ok: boolean; reason: string } | undefined {
     const session = this.sessionValue;
     if (!session) return { ok: false, reason: 'No game running' };
+    // The next shift is a fresh session: it would silently drop the room connection.
+    if (this.phase8.coop?.connected === true) return { ok: false, reason: 'Leave the co-op session first (Co-op panel > Disconnect)' };
     const attempt = prepareRollover(session);
     if (!attempt.ok) return { ok: false, reason: attempt.reason };
     this.flash('Starting the next shift...');

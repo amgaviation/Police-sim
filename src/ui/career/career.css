@@ -127,7 +127,8 @@
 
 .cr-range-canvas { width: 100%; height: auto; aspect-ratio: 16 / 9; background: #10161d; border: 1px solid var(--cr-line); border-radius: var(--radius, 4px); cursor: crosshair; }
 
-.cr-rating { display: flex; align-items: center; gap: 0.4em; padding: 0.25em 0.4em; border: 1px solid transparent; }
+.cr-rating { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em; padding: 0.25em 0.4em; border: 1px solid transparent; }
 .cr-rating.cr-current { border-color: var(--cr-line); }
 .cr-rating-label { min-width: 11em; }
+.cr-rating-note { flex-basis: 100%; font-size: 0.85em; }
 .cr-rate { min-width: 2.4em; text-align: center; padding: 0.3em 0.5em; }

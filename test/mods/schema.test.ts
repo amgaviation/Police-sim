@@ -299,6 +299,19 @@ describe('validateModBundle: dispatch scripts', () => {
     if (!r.ok) expectError(r.errors, 'dispatchScripts[0].steps[0].typeId', 'unknown call type "loadingZoneBlocked"');
   });
 
+  it('rejects a script id that a shipped dispatch script already uses', () => {
+    const r = validateModBundle(
+      (() => {
+        const p = nightShiftPack() as Json;
+        p.content.dispatchScripts[0].id = 'friday-night';
+        return p;
+      })(),
+      realContext(),
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expectError(r.errors, 'dispatchScripts[0].id', '"friday-night" already exists in the base game');
+  });
+
   it('rejects duplicate script ids', () => {
     expectError(errorsOf((p) => p.content.dispatchScripts.push({ ...p.content.dispatchScripts[0] })), 'dispatchScripts[1].id', 'duplicates "night-courier-run"');
   });

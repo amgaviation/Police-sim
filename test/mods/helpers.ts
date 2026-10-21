@@ -55,6 +55,7 @@ export function fakeContext(over: Partial<ModValidationContext> = {}): ModValida
     baseVehicleIds: new Set(['patrol_sedan']),
     baseRulesetIds: new Set(['generic']),
     baseStatuteIds: new Set(['TR-301']),
+    baseScriptIds: ['friday-night'],
     districts: ['downtown', 'harbor'],
     uniformClassIds: ['classA', 'classB'],
     phraseKinds: ['assign', 'accept'],

@@ -30,14 +30,64 @@ export function ratingRequest(r: Readonly<Record<DorCategory, number>>): Extract
   return { kind: 'traineeRating', ratings };
 }
 
-/** The panel's rows: label and current value per category (the trainee's hidden true scores are never shown). */
+/** What the officer saw of the trainee, per category and true score 1..5 (index 0 = score 1). Evidence to rate from. */
+const OBSERVATIONS: Readonly<Record<DorCategory, readonly [string, string, string, string, string]>> = {
+  safety: [
+    'Walked up to a subject without cover and never called for backup.',
+    'Forgot to watch the subject\'s hands and stood too close.',
+    'Kept a reasonable distance and called for backup when asked.',
+    'Used cover, kept hands in view and called for backup early.',
+    'Controlled every contact: cover, distance, backup, no surprises.',
+  ],
+  procedure: [
+    'Skipped steps and guessed at the legal basis for a stop.',
+    'Needed prompting on the legal basis and on the paperwork steps.',
+    'Followed the usual steps with an occasional reminder.',
+    'Stated the legal basis clearly and followed every step.',
+    'Textbook procedure, explained the reasoning without being asked.',
+  ],
+  reports: [
+    'Report was missing facts and had to be rewritten.',
+    'Report was vague; times and names were wrong.',
+    'Report was complete but plain.',
+    'Report was clear, ordered and accurate.',
+    'Report was thorough and ready for court without edits.',
+  ],
+  community: [
+    'Snapped at a caller and ignored a worried bystander.',
+    'Impatient with the public and spoke in jargon.',
+    'Polite and professional with the public.',
+    'Calmed a tense scene and explained what happens next.',
+    'People thanked them; trust on the street went up.',
+  ],
+  driving: [
+    'Rolled through a stop sign and braked hard in traffic.',
+    'Followed too closely and was late to signal.',
+    'Drove safely at normal speeds.',
+    'Smooth, smart routing, no incidents on code-3 runs.',
+    'Flawless driving, even in bad conditions.',
+  ],
+};
+
+/** The observation line for a category at a true score (clamped to 1..5). */
+export function observationFor(category: DorCategory, score: number): string {
+  const i = Math.min(RATING_MAX, Math.max(RATING_MIN, Math.round(score))) - 1;
+  return OBSERVATIONS[category][i] ?? '';
+}
+
+/**
+ * The panel's rows: label, current value and what the officer observed per category. The trainee's true scores are never
+ * shown as numbers; the observation lines are the evidence the player rates from.
+ */
 export function traineeModel(t: Readonly<Trainee> | null, r: Readonly<Record<DorCategory, number>>): {
   name: string;
-  rows: { category: DorCategory; label: string; value: number }[];
+  rows: { category: DorCategory; label: string; value: number; note: string }[];
 } {
   return {
     name: t?.name ?? '',
-    rows: DOR_CATEGORIES.map((category) => ({ category, label: dorCategoryLabel(category), value: r[category] })),
+    rows: DOR_CATEGORIES.map((category) => ({
+      category, label: dorCategoryLabel(category), value: r[category], note: t === null ? '' : observationFor(category, t.truth[category]),
+    })),
   };
 }
 
@@ -176,10 +226,11 @@ export class TraineeEvalPanel implements Menu {
     keepFocus(body, () => {
       clearChildren(body);
       body.appendChild(el('h2', { class: 'cr-title' }, `Rate your trainee: ${model.name}`));
-      body.appendChild(el('p', { class: 'cr-dim' }, '1 = unacceptable · 3 = meets standard · 5 = outstanding. The closer you are to their real performance, the more career points you earn.'));
+      body.appendChild(el('p', { class: 'cr-dim' }, '1 = unacceptable · 3 = meets standard · 5 = outstanding. Rate from what you observed; only ratings closer than a blind guess earn career points.'));
       model.rows.forEach((row, i) => {
         const group = el('div', { class: `cr-rating${i === this.focusIdx ? ' cr-current' : ''}`, role: 'radiogroup', 'aria-label': row.label });
         group.appendChild(el('span', { class: 'cr-rating-label' }, row.label));
+        if (row.note !== '') group.appendChild(el('span', { class: 'cr-dim cr-rating-note' }, row.note));
         for (let n = RATING_MIN; n <= RATING_MAX; n++) {
           group.appendChild(el('button', {
             type: 'button', role: 'radio', 'aria-checked': row.value === n ? 'true' : 'false', 'data-focus': `${row.category}:${String(n)}`,

@@ -676,7 +676,7 @@ describe('specialties and FTO', () => {
     const h = harness(save);
     h.career.request({ kind: 'traineeRating', ratings: { safety: 4, procedure: 2, reports: 4, community: 2, driving: 4 } });
     stepAt(h, NIGHT_START);
-    expect(h.points[0]).toMatchObject({ delta: 8, key: 'fto:1' });
+    expect(h.points[0]).toMatchObject({ delta: 2, key: 'fto:1' });
   });
 
   it('refuses FTO without enough seniority', () => {
@@ -685,6 +685,44 @@ describe('specialties and FTO', () => {
     stepAt(h, NIGHT_START);
     expect(h.career.view.assignment).toBe('patrol');
     expect(h.flashes[0]).toBe('Needs 40 shifts of seniority (have 0)');
+  });
+});
+
+describe('a shift ended too early', () => {
+  it('pays the time worked and counts neither for seniority nor for probation', () => {
+    const h = harness(saveAt('probation'));
+    stepAt(h, NIGHT_START);
+    const start = h.career.view.shift.startGame;
+    for (let i = 0; i < 6; i++) {
+      stepAt(h, h.career.view.shift.startGame + 60);
+      h.career.request({ kind: 'endShift', ctx: GOOD_CTX, suspended: false });
+      expect(h.career.reportForDuty(epochDay(h.career.view.offDuty?.nextStartGame ?? 0)).ok).toBe(true);
+      stepAt(h, h.career.view.shift.startGame);
+    }
+    const v = h.career.view;
+    expect(v.stage).toBe('probation');
+    expect(v.probationShiftsLeft).toBe(5);
+    expect(v.dor).toHaveLength(0);
+    expect(v.shift.shiftNo).toBe(7);
+    expect(v.shift.startGame).toBeGreaterThan(start);
+    expect(h.summaries[0]?.dor).toBeNull();
+    // 60 s of an 8 h night shift: 1/480 of the hours, not the full 256.
+    expect(h.summaries[0]?.pay.hours).toBeCloseTo(60 / 3600, 6);
+    expect(h.summaries[0]?.pay.total).toBeLessThan(2);
+  });
+
+  it('a patrol officer gains no seniority from a short shift but does from a full one', () => {
+    const h = harness(saveAt('patrol'));
+    stepAt(h, NIGHT_START);
+    h.career.request({ kind: 'endShift', ctx: GOOD_CTX, suspended: false });
+    stepAt(h, NIGHT_START + 3600);
+    expect(h.career.view.seniorityShifts).toBe(0);
+    expect(h.flashes.some((f) => f.includes('too early'))).toBe(true);
+    const h2 = harness(saveAt('patrol'));
+    stepAt(h2, NIGHT_START);
+    h2.career.request({ kind: 'endShift', ctx: GOOD_CTX, suspended: false });
+    stepAt(h2, NIGHT_START + 4 * H);
+    expect(h2.career.view.seniorityShifts).toBe(1);
   });
 });
 

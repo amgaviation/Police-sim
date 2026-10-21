@@ -15,6 +15,9 @@ export interface FileLike {
 
 export type ReadResult = { ok: true; json: unknown; size: number } | { ok: false; errors: string[] };
 
+/** Most file references a manifest may list in total (a file read once per reference would defeat the size limit). */
+export const MOD_MAX_FILE_REFS = 64;
+
 const KINDS: readonly string[] = MOD_CONTENT_KINDS;
 /** Kinds whose file holds a single patch object instead of one document per file. */
 const OBJECT_KINDS: readonly string[] = ['uniforms', 'districts'];
@@ -94,6 +97,26 @@ export async function readModFiles(files: readonly FileLike[]): Promise<ReadResu
   const { files: map, ...rest } = manifest;
   if (map !== undefined && !isRecord(map)) return { ok: false, errors: ['mod.json: files must be an object of kind -> list of paths'] };
   const content: Record<string, unknown> = isRecord(rest.content) ? { ...rest.content } : {};
+
+  // Each reference is read and parsed: bound their number, refuse repeats and count their bytes per reference.
+  let refs = 0;
+  let refBytes = 0;
+  for (const [kind, paths] of Object.entries(map ?? {})) {
+    if (!Array.isArray(paths)) continue;
+    refs += paths.length;
+    for (const rel of paths as unknown[]) if (typeof rel === 'string') refBytes += byPath.get(normalize(rel))?.size ?? 0;
+    if (!KINDS.includes(kind)) continue;
+    const seen = new Set<string>();
+    for (const rel of paths as unknown[]) {
+      if (typeof rel !== 'string') continue;
+      const name = normalize(rel);
+      if (seen.has(name)) errors.push(`mod.json: files.${kind}: ${rel} is listed more than once`);
+      seen.add(name);
+    }
+  }
+  if (refs > MOD_MAX_FILE_REFS) errors.push(`mod.json: ${refs} file references; the limit is ${MOD_MAX_FILE_REFS}`);
+  if (refBytes > MOD_MAX_BYTES) errors.push(`mod.json: the referenced files add up to ${mib(refBytes)}; the limit is ${mib(MOD_MAX_BYTES)}`);
+  if (errors.length > 0) return { ok: false, errors };
 
   for (const [kind, paths] of Object.entries(map ?? {})) {
     if (!KINDS.includes(kind)) {

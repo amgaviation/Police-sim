@@ -18,7 +18,7 @@ import { CRIME_CATEGORIES } from '../environment/crime';
 import { RULESETS, parseRuleset } from '../legal/ruleset';
 import { TRUNK_ITEMS } from '../police/inventory';
 import { PHRASE_KINDS, validatePhrases } from '../radio/data';
-import { defaultScriptContext, parseDispatchScript } from '../training/script';
+import { BUILTIN_SCRIPTS, defaultScriptContext, parseDispatchScript } from '../training/script';
 import { parseUniformData } from '../uniform/data';
 import { UNIFORM_CLASSES } from '../uniform/types';
 import { VEHICLE_MODELS, parseModVehicle } from '../vehicles/model';
@@ -406,6 +406,7 @@ export function validateModBundle(json: unknown, ctx: ModValidationContext): { o
           errors.push(...checkErrors(mod, p, ctx.checkScript(s, extra)));
           if (errors.length === before && isRecord(s) && typeof s.id === 'string') {
             if (seen.has(s.id)) add(`${p}.id`, `duplicates ${show(s.id)}`);
+            else if (ctx.baseScriptIds.includes(s.id)) add(`${p}.id`, `${show(s.id)} already exists in the base game`);
             seen.add(s.id);
           }
         });
@@ -478,6 +479,7 @@ export function defaultModContext(): ModValidationContext {
     baseVehicleIds: without(VEHICLE_MODELS.map((m) => m.id), mine.vehicles),
     baseRulesetIds: without(RULESETS.keys(), mine.rulesets),
     baseStatuteIds: without(STATUTES.map((s) => s.id), mine.statutes),
+    baseScriptIds: BUILTIN_SCRIPTS.map((x) => x.id),
     districts: [...DISTRICT_NAMES],
     uniformClassIds: [...UNIFORM_CLASSES],
     phraseKinds: [...PHRASE_KINDS],

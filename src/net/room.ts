@@ -58,8 +58,8 @@ const TRANSITIONS: Readonly<Record<NetUnitStatus, readonly NetUnitStatus[]>> = {
   available: ['enRoute', 'onScene', 'busy', 'outOfService'],
   enRoute: ['onScene', 'available', 'busy', 'outOfService'],
   onScene: ['busy', 'available', 'transporting', 'enRoute', 'outOfService'],
-  busy: ['available', 'onScene', 'enRoute', 'outOfService'],
-  transporting: ['available', 'onScene', 'outOfService'],
+  busy: ['available', 'onScene', 'enRoute', 'transporting', 'outOfService'],
+  transporting: ['available', 'onScene', 'busy', 'outOfService'],
   outOfService: ['available'],
 };
 
@@ -75,6 +75,9 @@ const GENERATOR_GAP_MS = 10000;
 /** Position jitter a presence may exceed the speed limit by (m): the step must stay within `maxSpeedMps * dt + slack`. */
 const PRESENCE_SLACK_M = 10;
 const DEFAULT_MAX_MEMBERS = 6;
+/** Open calls one member may have created at a time (generated calls are limited by their own gap): one client cannot fill the shared CAD. */
+const MAX_OPEN_OFFICER_CALLS = 3;
+const MAX_OPEN_DISPATCHER_CALLS = 20;
 
 interface Member {
   id: string;
@@ -312,6 +315,13 @@ export class Room {
     return n;
   }
 
+  /** Open calls a member created and that are not host-generated. */
+  private openCallsBy(callsign: string): number {
+    let n = 0;
+    for (const c of this.calls.values()) if (c.status !== 'closed' && c.createdBy === callsign && c.origin !== 'generator') n++;
+    return n;
+  }
+
   private hasDispatcher(): boolean {
     for (const m of this.members.values()) if (m.unit.role === 'dispatcher') return true;
     return false;
@@ -400,10 +410,20 @@ export class Room {
         }
         generated = true;
       }
+    } else if (u.role === 'dispatcher' && msg.origin === 'generator') {
+      // The dispatcher's client is the room's call source: its generated calls are paced like the host's.
+      if (this.lastGeneratorMs !== null && nowMs - this.lastGeneratorMs < GENERATOR_GAP_MS) {
+        return rej('rate', 'generated calls are limited to one per 10 s');
+      }
+      generated = true;
     } else if (msg.origin !== 'dispatcher') {
       return rej('forbidden', 'only patrol units create officer or generated calls');
     }
     if (this.openCallCount() >= LIMITS.maxOpenCalls) return rej('illegalState', 'too many open calls');
+    if (!generated) {
+      const cap = u.role === 'patrol' ? MAX_OPEN_OFFICER_CALLS : MAX_OPEN_DISPATCHER_CALLS;
+      if (this.openCallsBy(u.callsign) >= cap) return rej('illegalState', `you already have ${cap} open calls; close one first`);
+    }
     if (generated) this.lastGeneratorMs = nowMs;
     const call: NetCall = {
       id: this.nextCallId++,

@@ -18,6 +18,8 @@ export interface ModValidationContext {
   baseVehicleIds: ReadonlySet<string>;
   baseRulesetIds: ReadonlySet<string>;
   baseStatuteIds: ReadonlySet<string>;
+  /** Ids of the shipped dispatch scripts (a mod script with one of them would never be available). */
+  baseScriptIds: readonly string[];
   districts: readonly string[];
   uniformClassIds: readonly string[];
   phraseKinds: readonly string[];

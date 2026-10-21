@@ -286,11 +286,21 @@ describe('FTO trainee', () => {
   it('rates accuracy against the hidden truth', () => {
     const t = { name: 'T', truth };
     expect(rateTrainee(truth, t)).toEqual({ accuracy: 1, points: 10 });
-    expect(rateTrainee({ safety: 4, procedure: 2, reports: 4, community: 2, driving: 4 }, t)).toEqual({ accuracy: 0.75, points: 8 });
-    expect(rateTrainee({ safety: 1, procedure: 1, reports: 1, community: 1, driving: 1 }, t).accuracy).toBe(0.5);
+    expect(rateTrainee({ safety: 4, procedure: 2, reports: 4, community: 2, driving: 4 }, t)).toEqual({ accuracy: 0.75, points: 2 });
+    expect(rateTrainee({ safety: 1, procedure: 1, reports: 1, community: 1, driving: 1 }, t)).toEqual({ accuracy: 0.5, points: 0 });
     const far = rateTrainee({ safety: 5, procedure: 5, reports: 5, community: 5, driving: 5 }, { name: 'T', truth: { ...truth, safety: 1, procedure: 1, reports: 1, community: 1, driving: 1 } });
     expect(far).toEqual({ accuracy: 0, points: 0 });
     expect(CAREER_CONFIG.fto.pointsPerAccuracy).toBe(10);
+  });
+
+  it('a blind guess (everything 3) earns about nothing: only accuracy above the blind baseline pays', () => {
+    const all3 = { safety: 3, procedure: 3, reports: 3, community: 3, driving: 3 };
+    let total = 0;
+    const rng = createRng(11);
+    const n = 400;
+    for (let i = 0; i < n; i++) total += rateTrainee(all3, newTrainee(rng, ['Pat'])).points;
+    expect(total / n).toBeLessThan(1.5);
+    expect(rateTrainee(all3, { name: 'T', truth: { safety: 3, procedure: 3, reports: 3, community: 3, driving: 4 } }).points).toBe(8);
   });
 
   it('newTrainee draws 1..5 per category deterministically', () => {

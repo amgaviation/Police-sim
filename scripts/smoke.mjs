@@ -3618,23 +3618,24 @@ async function phase8(page, hasRenderer, browser, watch) {
       window.patrol.phase8.coop.send({ t: 'callCreate', ref: 'smoke1', typeId: 'noiseComplaint', label: 'Noise complaint', priority: 3, x: 0, z: 0, address: '100 Smoke Street', narrative: 'Loud music reported', origin: 'dispatcher' });
     });
     try {
-      await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 90000 });
+      // The dispatcher client also generates calls (it is the room's call source): pick the typed call by its narrative.
+      await page.waitForFunction(() => window.patrol.session.cad.openCalls().some((c) => c.narrative.some((n) => n.text.includes('Loud music reported'))), null, { timeout: 90000 });
     } catch (error) {
       const dump = await Promise.all([page, page2].map((p) => p.evaluate(() => { const c = window.patrol.phase8.coop; return { connected: c.connected, state: c.client.state, calls: [...c.calls.values()].map((x) => [x.id, x.status]), rej: c.rejections, invalid: c.client.invalidMessages, paused: window.patrol.loop.paused, ui: window.patrol.ui.menuStack.map((m) => m.id), cad: window.patrol.session.cad.calls().length }; })));
       console.log('coop dump:', JSON.stringify(dump));
       throw error;
     }
-    await page2.waitForFunction(() => window.patrol.phase8.coop.calls.size >= 1, null, { timeout: 90000 });
-    const callId = await page2.evaluate(() => [...window.patrol.phase8.coop.calls.keys()][0]);
+    await page2.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.address === '100 Smoke Street'), null, { timeout: 90000 });
+    const callId = await page2.evaluate(() => [...window.patrol.phase8.coop.calls.values()].find((c) => c.address === '100 Smoke Street').id);
     await page2.evaluate((id) => window.patrol.phase8.coop.send({ t: 'callAssign', callId: id, unit: 'N1' }), callId);
-    await page.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.units.includes('N1')), null, { timeout: 90000 });
+    await page.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.address === '100 Smoke Street' && c.units.includes('N1')), null, { timeout: 90000 });
     const shared = await page.evaluate(() => {
       const app = window.patrol;
-      const call = app.session.cad.openCalls()[0];
+      const call = app.session.cad.openCalls().find((c) => c.narrative.some((n) => n.text.includes('Loud music reported')));
       app.mdt.open('queue');
       const rows = app.mdt.queueRows ? app.mdt.queueRows.length : -1;
       app.mdt.close();
-      return { type: call?.typeId, address: call?.location.text, net: [...app.phase8.coop.calls.values()].map((c) => [c.status, c.units.join(',')]), rows };
+      return { type: call?.typeId, address: call?.location.text, net: [...app.phase8.coop.calls.values()].filter((c) => c.address === '100 Smoke Street').map((c) => [c.status, c.units.join(',')]), rows };
     });
     console.log('coop shared CAD:', JSON.stringify(shared));
     check(shared.type === 'noiseComplaint' && shared.net[0][1] === 'N1', 'the patrol client sees the dispatcher call and its assignment in the shared CAD');
@@ -3644,7 +3645,9 @@ async function phase8(page, hasRenderer, browser, watch) {
       c.send({ t: 'callCreate', ref: 'bad1', typeId: 'noiseComplaint', label: 'x', priority: 1, x: 1, z: 1, address: 'a', narrative: 'n', origin: 'dispatcher' });
       c.send({ t: 'callAssign', callId: 1, unit: 'DISPATCH' });
       c.send({ t: 'callPriority', callId: 1, priority: 1 });
-      await new Promise((r) => setTimeout(r, 1500));
+      // The rejections arrive with the next frames: wait for them (a loaded software-GL page can be slow).
+      const until = performance.now() + 20000;
+      while (c.rejections.length < 3 && performance.now() < until) await new Promise((r) => setTimeout(r, 100));
       return c.rejections.slice();
     });
     console.log('coop rejections:', JSON.stringify(rej));

@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { readModFiles } from '../../src/mods/loader';
+import { MOD_MAX_FILE_REFS, readModFiles, type FileLike } from '../../src/mods/loader';
 import { validateCombination } from '../../src/mods/combine';
 import { validateModBundle } from '../../src/mods/schema';
 import { MOD_MAX_BYTES, type ModBundle } from '../../src/mods/types';
@@ -133,6 +133,47 @@ describe('readModFiles: folder', () => {
       ok: false,
       errors: ['mod.json: files must be an object of kind -> list of paths'],
     });
+  });
+});
+
+describe('readModFiles: file references', () => {
+  const doc = JSON.stringify({ id: 'a' });
+  function pack(files: unknown, docSize = doc.length): FileLike[] {
+    const main = fileLike('mod.json', JSON.stringify({ format: 'patrol-mod', files }), 'pack/mod.json');
+    const a = { ...fileLike('a.json', doc, 'pack/calls/a.json'), size: docSize };
+    return [main, a];
+  }
+
+  it('rejects a file listed more than once in a kind (no re-reading one file thousands of times)', async () => {
+    let reads = 0;
+    const files = pack({ callTypes: Array<string>(3000).fill('calls/a.json') });
+    const a = files[1];
+    if (a === undefined) throw new Error('fixture');
+    const counted: FileLike[] = [files[0] as FileLike, { ...a, text: () => { reads++; return a.text(); } }];
+    const r = await readModFiles(counted);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join('\n')).toMatch(/calls\/a\.json is listed more than once/);
+    expect(reads).toBe(0);
+  });
+
+  it('caps the number of references in total', async () => {
+    const kinds = ['callTypes', 'statutes', 'rulesets', 'vehicles', 'dispatchScripts'];
+    const files = Object.fromEntries(kinds.map((k) => [k, Array.from({ length: MOD_MAX_FILE_REFS }, (_, i) => `calls/${k}${i}.json`)]));
+    const r = await readModFiles(pack(files));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join('\n')).toContain(`file references; the limit is ${MOD_MAX_FILE_REFS}`);
+  });
+
+  it('counts the bytes of a file once per reference against the size limit', async () => {
+    const files = pack({ callTypes: ['calls/a.json'], statutes: ['calls/a.json'], rulesets: ['calls/a.json'] }, MOD_MAX_BYTES / 2);
+    const r = await readModFiles(files);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join('\n')).toContain('the referenced files add up to');
+  });
+
+  it('still reads one reference per file', async () => {
+    const r = await readModFiles(pack({ callTypes: ['calls/a.json'] }));
+    expect(r.ok).toBe(true);
   });
 });
 

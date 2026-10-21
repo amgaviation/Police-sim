@@ -46,6 +46,14 @@ export function recordAcademyScore(r: AcademyRecord, module: AcademyModule, scor
   return { best: Math.max(r.best, score), attempts: r.attempts + 1, passed: r.passed || score >= cfg.academy.pass[module] };
 }
 
+/** A shift counts for seniority and probation only when at least this fraction of its scheduled window was worked. */
+export const MIN_WORKED_FRACTION = 0.5;
+
+/** True when `workedS` of a `windowS` shift is enough for the shift to count (seniority, probation, DOR). */
+export function shiftCounts(workedS: number, windowS: number): boolean {
+  return workedS + 1e-9 >= windowS * MIN_WORKED_FRACTION;
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -174,14 +182,21 @@ export function promotionEligibility(
   return { ok: reasons.length === 0, reasons, exam: def.exam };
 }
 
-/** `accuracy = 1 - mean(|rating - truth|) / 4` over the categories; `points = round(accuracy * pointsPerAccuracy)`. */
+/** Accuracy a blind guess (every category 3) earns on average; points count only the accuracy above it. */
+export const BLIND_ACCURACY = 0.7;
+
+/**
+ * `accuracy = 1 - mean(|rating - truth|) / 4` over the categories; `points = round(max(0, (accuracy - BLIND_ACCURACY) /
+ * (1 - BLIND_ACCURACY)) x pointsPerAccuracy)`, so rating without observing earns about nothing.
+ */
 export function rateTrainee(
   ratings: Readonly<Record<DorCategory, number>>, t: Readonly<Trainee>, cfg: CareerConfig['fto'] = CAREER_CONFIG.fto,
 ): { accuracy: number; points: number } {
   let sum = 0;
   for (const category of DOR_CATEGORIES) sum += Math.abs(ratings[category] - t.truth[category]);
   const accuracy = 1 - sum / DOR_CATEGORIES.length / 4;
-  return { accuracy, points: Math.round(accuracy * cfg.pointsPerAccuracy) };
+  const above = Math.max(0, (accuracy - BLIND_ACCURACY) / (1 - BLIND_ACCURACY));
+  return { accuracy, points: Math.round(above * cfg.pointsPerAccuracy) };
 }
 
 /** A trainee with hidden true scores (`rng.nextInt(1, 5)` per DOR category, then the name from `names`). */

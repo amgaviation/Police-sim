@@ -1848,7 +1848,7 @@ export class GameSession {
     copyTransformSlot(Transform, PrevTransform, this.playerEid);
     // A uniform the unit's class rules out is a policy flash, not a block.
     const cls = this.fleetClassOf(vehicle);
-    if (cls !== null) this.phase7.checkUniformPolicy(cls);
+    if (cls !== null && !this.phase7.checkUniformPolicy(cls)) this.phase8.checkUnitClass(cls);
     return true;
   }
 

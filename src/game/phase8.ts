@@ -67,6 +67,9 @@ export interface Phase8Host {
   setWeatherOverride(kind: string | null, intensity: number): void;
 }
 
+/** Crime (call rate) multiplier while the officer is in the district of the awarded beat. */
+export const BEAT_CRIME_FACTOR = 1.4;
+
 /** Scratch step list for the script runner. */
 const dueScratch: DispatchScriptStep[] = [];
 
@@ -113,6 +116,8 @@ export class Phase8 {
   private scriptGeneratorOff = false;
   private coopManual = false;
   private manualApplied = false;
+  /** The last unit-class mismatch flashed (`want|have`), so entering the same wrong unit again stays quiet. */
+  private unitFlashed = '';
   /** The weather override before a sandbox scenario replaced it (undefined = not replaced). */
   private weatherBefore: { kind: string; intensity: number } | null | undefined = undefined;
 
@@ -140,14 +145,34 @@ export class Phase8 {
     const h = this.host;
     h.scene.setPersonBias((callId, district, fits, draw, fitsDesignated) => this.world.pickPerson(callId, district, h.nowGame(), fits, draw, fitsDesignated));
     h.dispatcher.setLocationBias((draw) => this.world.pickRepeatLocation(draw));
-    h.dispatcher.setCrimeFactor((d) => h.conduct.effects(d).crimeFactor * this.world.crimeFactor(d));
+    h.dispatcher.setCrimeFactor((d) => h.conduct.effects(d).crimeFactor * this.world.crimeFactor(d) * this.beatFactor(d));
     h.force.setAccuracyFactor(() => this.perf.aimSpread);
     this.applyAssignment();
     this.applyMode();
   }
 
+  /** The awarded beat's district sees more calls while the officer is in it (read live: the bid can change the beat). */
+  private beatFactor(district: string): number {
+    return district === this.career.view.slot.beat ? BEAT_CRIME_FACTOR : 1;
+  }
+
+  /**
+   * Entering a unit of `vehicleClass`: a one-time flash when the specialty assignment calls for another unit class
+   * (patrol and field training officers drive any unit). Returns whether it flashed.
+   */
+  checkUnitClass(vehicleClass: string): boolean {
+    const want = assignmentEffects(this.career.view.assignment).fleetClass;
+    if (want === 'patrol' || want === vehicleClass) return false;
+    const key = `${want}|${vehicleClass}`;
+    if (this.unitFlashed === key) return false;
+    this.unitFlashed = key;
+    this.host.flash(`Assigned to a ${want} unit: this is a ${vehicleClass} unit, sign out the ${want} vehicle at the garage`, 'warn');
+    return true;
+  }
+
   /** Dispatcher category weights of the current specialty (null for patrol: the plain generator). */
   private applyAssignment(): void {
+    this.unitFlashed = '';
     const weights = assignmentEffects(this.career.view.assignment).callWeights;
     this.host.dispatcher.setCategoryWeights(Object.keys(weights).length === 0 ? null : (category) => weights[category] ?? 1);
   }
@@ -365,7 +390,8 @@ export class Phase8 {
       bus.on('conduct:commendation', () => career.request({ kind: 'stress', event: 'commendation' })),
       bus.on('court:verdict', (e) => {
         const c = h.court.cases().find((x) => x.id === e.caseId);
-        if (c && c.personId >= 0) {
+        // Only a booking's case decides the offender's custody; a traffic citation must not re-jail or free anyone.
+        if (c && c.docKind === 'booking' && c.personId >= 0) {
           const verdict = e.verdict === 'acquitted' ? 'acquitted' : e.verdict === 'dismissed' ? 'dismissed' : 'convicted';
           this.world.request({ kind: 'verdict', personId: c.personId, verdict, game: h.nowGame() });
         }

@@ -8,6 +8,8 @@ import {
 import type { RemoteUnit } from '../ui/hud/types';
 import type { ConsoleCall, ConsolePriority, ConsoleUnit, DispatchConsolePort } from '../ui/dispatch/model';
 import type { CoopPanelState } from '../ui/coop/panel';
+import { formatStamp } from '../records/calendar';
+import { districtLabel } from '../mods/registry';
 import { headingOf, type GameSession } from './session';
 import { Transform } from '../ecs/components';
 
@@ -18,6 +20,8 @@ const ORDER_LOG = 6;
 /** The call type a mirrored call falls back to when this client lacks the sender's type (mods differ). */
 const FALLBACK_TYPE = 'noiseComplaint';
 const NO_UNITS: readonly NetUnit[] = [];
+/** Premise lines shown under a call. */
+const PREMISE_LINES = 3;
 
 const clampPriority = (p: number): ConsolePriority => (p <= 1 ? 1 : p >= 4 ? 4 : (Math.round(p) as ConsolePriority));
 
@@ -133,6 +137,8 @@ export class CoopSession {
   private applying = false;
   private lastGenerated = -1;
   private readonly sentCalls = new Set<number>();
+  /** Local clock (ms, the `update` clock) at which each open call was first seen: the server's wall clock is not comparable. */
+  private readonly seenAt = new Map<number, number>();
   private readonly figures = new Map<string, number>();
   private readonly remote: RemoteUnit[] = [];
   private lastX = 0;
@@ -169,9 +175,9 @@ export class CoopSession {
     return false;
   }
 
-  /** Manual dispatch always; the generator only for the host patrol while no dispatcher is in the room. */
+  /** Manual dispatch always; the generator for the dispatcher (the room's call source) or the host patrol while no dispatcher is present. */
   private updateDispatchFlags(): void {
-    const generator = this.connected && this.role === 'patrol' && this.host === this.self && !this.hasDispatcher();
+    const generator = this.connected && (this.role === 'dispatcher' || (this.role === 'patrol' && this.host === this.self && !this.hasDispatcher()));
     this.session.phase8.setCoopDispatch(this.connected, generator || !this.connected);
     this.generatorOn = generator;
   }
@@ -197,6 +203,7 @@ export class CoopSession {
     this.client.drain(inbox);
     for (let i = 0; i < inbox.length; i++) this.handle(inbox[i] as ServerMsg);
     inbox.length = 0;
+    this.stampCalls(nowMs);
     if (this.client.state === 'closed' || this.client.state === 'failed') {
       this.drop(this.client.reason === '' ? 'Connection lost' : this.client.reason);
       return;
@@ -205,6 +212,33 @@ export class CoopSession {
       this.nextPresenceMs = nowMs + PRESENCE_INTERVAL_MS;
       this.sendPresence();
     }
+  }
+
+  /** Records the local time a call was first seen (calls of the welcome snapshot count from the join). */
+  private stampCalls(nowMs: number): void {
+    for (const id of this.calls.keys()) if (!this.seenAt.has(id)) this.seenAt.set(id, nowMs);
+    if (this.seenAt.size > this.calls.size) for (const id of this.seenAt.keys()) if (!this.calls.has(id)) this.seenAt.delete(id);
+  }
+
+  /** Seconds since this client first saw call `id` at local clock `nowMs` (0 for an unknown call). */
+  callAgeS(id: number, nowMs: number): number {
+    const seen = this.seenAt.get(id);
+    return seen === undefined ? 0 : Math.max(0, (nowMs - seen) / 1000);
+  }
+
+  /** CAD location (address text, district id) of a map point, from this client's own city. */
+  locate(x: number, z: number): { text: string; district: string } {
+    const loc = this.session.dispatcher.locate(x, z);
+    return { text: loc.text, district: loc.district };
+  }
+
+  /** Premise history lines (newest first) of an address, from this client's world state. */
+  premiseLines(address: string, max: number): string[] {
+    return this.session.phase8.world
+      .premiseHistory(address)
+      .slice(-max)
+      .reverse()
+      .map((e) => `${formatStamp(e.game)} ${e.nature}: ${e.disposition}`);
   }
 
   private handle(msg: ServerMsg): void {
@@ -244,6 +278,10 @@ export class CoopSession {
       this.mirror.applyEvent(ev, this.port);
     } finally {
       this.applying = false;
+    }
+    // A call the local officer opened (traffic stop ...) was assigned and put on scene locally before the room mapped it.
+    if (ev.k === 'callCreated' && ev.call.createdBy === this.self && this.role !== 'dispatcher') {
+      this.syncSelfToCall(this.mirror.localIdOf(ev.call.id));
     }
     if (ev.k === 'joined' || ev.k === 'left' || ev.k === 'host') {
       this.updateDispatchFlags();
@@ -379,12 +417,7 @@ export class CoopSession {
       }),
       bus.on('cad:unitAssigned', (e) => {
         if (e.callsign !== pc || this.applying || this.role === 'dispatcher') return;
-        const net = this.mirror.netIdOf(e.callId);
-        if (net < 0 || this.calls.get(net)?.units.includes(this.self)) return;
-        send({ t: 'callAssign', callId: net, unit: this.self });
-        // The room sets only the call link on an assignment: bring its unit status (en route ...) up to the local one.
-        const status = this.session.cad.unit(pc)?.status;
-        if (status !== undefined && status !== 'available') send({ t: 'unitStatus', status, callId: net });
+        this.syncSelfToCall(e.callId);
       }),
       bus.on('cad:callClosed', (e) => {
         if (this.applying) return;
@@ -395,10 +428,10 @@ export class CoopSession {
         send({ t: 'callClose', callId: net, disposition: e.disposition as NetDisposition });
       }),
       bus.on('cad:callCreated', (e) => {
-        if (this.applying || this.sentCalls.has(e.callId) || this.role !== 'patrol') return;
+        if (this.applying || this.sentCalls.has(e.callId) || this.role === 'supervisor') return;
         const call = this.session.cad.call(e.callId);
         if (!call) return;
-        const officer = call.selfInitiated;
+        const officer = this.role === 'patrol' && call.selfInitiated;
         if (!officer && !this.generatorOn) return;
         this.sentCalls.add(e.callId);
         const ref = `L${String(this.nextRef++)}`;
@@ -418,6 +451,21 @@ export class CoopSession {
         this.lastGenerated = e.callId;
       }),
     );
+  }
+
+  /**
+   * Tells the room that the local officer is on local call `local`: callAssign, then the status (the room sets only the call
+   * link on an assignment). Does nothing while the call has no net id yet (a call this client opened is mapped by the
+   * room's echo, which calls this again) or the room already lists the unit on it.
+   */
+  private syncSelfToCall(local: number): void {
+    const pc = this.session.dispatcher.playerCallsign;
+    const net = this.mirror.netIdOf(local);
+    if (net < 0 || this.calls.get(net)?.units.includes(this.self)) return;
+    const unit = this.session.cad.unit(pc);
+    if (!unit || unit.callId !== local) return;
+    this.send({ t: 'callAssign', callId: net, unit: this.self });
+    if (unit.status !== 'available') this.send({ t: 'unitStatus', status: unit.status, callId: net });
   }
 
   /** Id of the last call this client proposed as generated (tests). */
@@ -556,12 +604,12 @@ export class NetConsolePort implements DispatchConsolePort {
         priority: clampPriority(c.priority),
         status: c.status,
         address: c.address,
-        district: '',
-        ageS: Math.max(0, (now - c.createdAtMs) / 1000),
+        district: districtLabel(this.coop.locate(c.x, c.z).district),
+        ageS: this.coop.callAgeS(c.id, now),
         units: [...c.units],
         x: c.x,
         z: c.z,
-        premise: [],
+        premise: this.coop.premiseLines(c.address, PREMISE_LINES),
         notes: [c.narrative, ...c.notes.map((n) => `${n.by}: ${n.text}`)].filter((t) => t !== '').slice(-6),
       });
     }
@@ -625,7 +673,7 @@ export class NetConsolePort implements DispatchConsolePort {
       priority,
       x,
       z,
-      address: `${Math.round(x)}, ${Math.round(z)}`,
+      address: this.coop.locate(x, z).text.slice(0, LIMITS.address),
       narrative: type.narratives[0] ?? type.label,
       origin: 'dispatcher',
     });

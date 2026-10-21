@@ -8,7 +8,7 @@ import { CAREER_CONFIG, SPECIALTIES } from './data';
 import { payForShift, rentDue } from './pay';
 import {
   academyPassed, dorFromStats, ftoEligibility, probationStep, promotionEligibility, rankIndex, rateTrainee, newTrainee,
-  recordAcademyScore, specialtyEligibility, type CareerEligibilityInput,
+  recordAcademyScore, shiftCounts, specialtyEligibility, type CareerEligibilityInput,
 } from './progression';
 import {
   emptyShiftStats, isStatKey, newCareerSave, MAX_DOR, MAX_HISTORY, MAX_PAY, type CareerRequest, type CareerSave,
@@ -354,16 +354,22 @@ export class CareerState {
     const events: CareerEvent[] = [];
     const stageAtStart = s.stage;
     const shiftNo = s.shift.shiftNo;
+    // Pay covers the time actually worked (never more than scheduled); a short shift does not count for seniority or probation.
+    const windowS = s.shift.endGame - s.shift.startGame;
+    const workedS = Math.min(windowS, Math.max(0, game - s.shift.startGame));
+    const counts = shiftCounts(workedS, windowS);
     const pay = payForShift({
-      shiftNo, rank: s.rank, assignment: s.assignment, slot: s.slot.slot, startGame: s.shift.startGame, endGame: s.shift.endGame,
-      stats: s.stats, suspended,
+      shiftNo, rank: s.rank, assignment: s.assignment, slot: s.slot.slot, startGame: s.shift.startGame,
+      endGame: s.shift.startGame + workedS, stats: s.stats, suspended,
     }, this.cfg);
     s.money += pay.total;
     s.pay.push(pay);
     if (s.pay.length > MAX_PAY) s.pay.splice(0, s.pay.length - MAX_PAY);
 
     let dor: DorReport | null = null;
-    if (stageAtStart === 'probation') {
+    if (!counts) {
+      this.flash('Shift ended too early: it does not count toward seniority or probation');
+    } else if (stageAtStart === 'probation') {
       const p = this.cfg.probation;
       dor = dorFromStats(shiftNo, s.stats);
       s.dor.push(dor);
@@ -385,7 +391,7 @@ export class CareerState {
         this.flash('Separated from service after probation');
       }
     }
-    if (stageAtStart === 'patrol') s.seniorityShifts++;
+    if (counts && stageAtStart === 'patrol') s.seniorityShifts++;
 
     s.shift.onDuty = false;
     if (s.stage === 'separated') {
