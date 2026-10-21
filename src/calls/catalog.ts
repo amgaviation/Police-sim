@@ -9,6 +9,7 @@ import legacyJson from '../data/calls/legacy.json';
 import servicesJson from '../data/calls/services.json';
 import variantsJson from '../data/calls/variants.json';
 import { DISPOSITIONS } from '../cad/data';
+import { modOverlay } from '../mods/registry';
 import { CRIME_CATEGORIES } from '../environment/crime';
 import { TRUNK_ITEMS } from '../police/inventory';
 import {
@@ -809,7 +810,10 @@ function loadTypeFiles(modules: Readonly<Record<string, unknown>>): { file: stri
 export const CALL_CATALOG: CallCatalog = validateCatalog(
   {
     families: familiesJson,
-    types: loadTypeFiles(import.meta.glob<unknown>('../data/calls/types/*.json', { eager: true, import: 'default' })),
+    types: [
+      ...loadTypeFiles(import.meta.glob<unknown>('../data/calls/types/*.json', { eager: true, import: 'default' })),
+      ...modOverlay().callTypes,
+    ],
     actions: actionsJson,
     services: servicesJson,
     variants: variantsJson,

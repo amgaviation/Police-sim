@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/scenario.schema.json",
+  "title": "Sandbox scenario",
+  "description": "A scenario of the sandbox editor (src/training/scenario.ts): things placed within 150 m of the anchor. Not a mod content kind; shared as a stand-alone file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "id",
+    "name",
+    "description",
+    "anchor",
+    "npcs",
+    "vehicles",
+    "evidence"
+  ],
+  "properties": {
+    "format": {
+      "const": "patrol-scenario"
+    },
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,39}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 400
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "z"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": -3584,
+          "maximum": 3584
+        },
+        "z": {
+          "type": "number",
+          "minimum": -3584,
+          "maximum": 3584
+        }
+      }
+    },
+    "call": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typeId",
+            "priority"
+          ],
+          "properties": {
+            "typeId": {
+              "type": "string"
+            },
+            "priority": {
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "npcs": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "x",
+          "z",
+          "yaw",
+          "profile",
+          "role",
+          "weapon",
+          "hidden"
+        ],
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -3584,
+            "maximum": 3584
+          },
+          "z": {
+            "type": "number",
+            "minimum": -3584,
+            "maximum": 3584
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 100
+          },
+          "profile": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^[a-zA-Z]{1,24}$"
+          },
+          "weapon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "vehicles": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "modelId",
+          "x",
+          "z",
+          "yaw"
+        ],
+        "properties": {
+          "modelId": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number",
+            "minimum": -3584,
+            "maximum": 3584
+          },
+          "z": {
+            "type": "number",
+            "minimum": -3584,
+            "maximum": 3584
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item",
+          "x",
+          "z",
+          "concealed"
+        ],
+        "properties": {
+          "item": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number",
+            "minimum": -3584,
+            "maximum": 3584
+          },
+          "z": {
+            "type": "number",
+            "minimum": -3584,
+            "maximum": 3584
+          },
+          "concealed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "timeOfDay": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 23
+    },
+    "weather": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

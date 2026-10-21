@@ -34,3 +34,10 @@ export interface HudLocation {
   /** Room label, e.g. 'Kitchen'. */
   room: string;
 }
+
+/** A co-op teammate drawn on the minimap and the MDT map (presentation only). */
+export interface RemoteUnit {
+  callsign: string;
+  x: number;
+  z: number;
+}

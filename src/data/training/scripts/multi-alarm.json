@@ -1,0 +1,131 @@
+{
+  "format": "patrol-dispatch-script",
+  "version": 1,
+  "id": "multi-alarm",
+  "name": "Multi alarm",
+  "description": "A burst of alarms and break-ins across several districts in ten minutes; there are fewer units than calls.",
+  "generator": "off",
+  "durationS": 600,
+  "steps": [
+    {
+      "atS": 20,
+      "typeId": "alarm",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 55,
+      "typeId": "burglaryInProgress",
+      "priority": 2,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 90,
+      "typeId": "alarm",
+      "priority": 3,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 130,
+      "typeId": "theftInProgress",
+      "priority": 2,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 170,
+      "typeId": "alarm",
+      "priority": 3,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 210,
+      "typeId": "vehicleBreakInProgress",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 260,
+      "typeId": "alarm",
+      "priority": 2,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 310,
+      "typeId": "commercialBurglaryInProgress",
+      "priority": 2,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 360,
+      "typeId": "prowler",
+      "priority": 2,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 420,
+      "typeId": "suspiciousVehicle",
+      "priority": 3,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 480,
+      "typeId": "shotsFired",
+      "priority": 1,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 540,
+      "typeId": "alarm",
+      "priority": 3,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    }
+  ]
+}

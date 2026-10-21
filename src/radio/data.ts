@@ -12,6 +12,8 @@ import channelsJson from '../data/radio/channels.json';
 import commandsJson from '../data/radio/commands.json';
 import phoneticJson from '../data/radio/phonetic.json';
 import phrasesJson from '../data/radio/phrases.json';
+import { mergePhrases } from '../mods/combine';
+import { modOverlay } from '../mods/registry';
 import { fail, readArray, readBoolean, readNumber, readObject, readOneOf, readString, readVersion, type JsonObject } from '../vehicles/json';
 import { CHANNEL_IDS, type ChannelId } from './types';
 
@@ -283,7 +285,7 @@ export function validateCommands(data: unknown, file = 'commands.json'): Command
 // --- Loaded tables --------------------------------------------------------------------------
 
 export const RADIO_CONFIG: RadioConfig = validateChannels(channelsJson);
-export const PHRASES: PhraseTable = validatePhrases(phrasesJson);
+export const PHRASES: PhraseTable = validatePhrases(mergePhrases(phrasesJson, modOverlay().voicePack?.phrases));
 export const AMBIENT: Readonly<Record<ChannelId, AmbientChannel>> = validateAmbient(ambientJson, RADIO_CONFIG.channels, 'ambient.json', [
   UNITS_DATA.player.callsign,
   ...UNITS_DATA.units.map((u) => u.callsign),

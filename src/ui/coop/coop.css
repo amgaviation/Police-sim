@@ -1,0 +1,9 @@
+/* Co-op lobby and prompt (Phase 8 design 12.4). Sizes in em; colours from the theme variables; no animations. */
+.coop-lobby { width: min(92vw, 34em); }
+.coop-lobby .cl-form { display: grid; grid-template-columns: 7em 1fr; gap: 0.5em 0.8em; align-items: center; }
+.coop-lobby code { font-family: var(--font-mono); background: #1b2633; padding: 0 0.3em; border-radius: var(--radius); }
+.coop-lobby .cl-status { margin: 0; min-height: 1.4em; }
+.coop-lobby .cl-ok { color: var(--c-ok); }
+.coop-lobby .cl-error, .line-prompt .cl-error { color: var(--c-alert); font-size: 0.9em; }
+.line-prompt { width: min(92vw, 30em); }
+.line-prompt input { width: 100%; }

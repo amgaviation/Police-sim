@@ -81,7 +81,8 @@ export class ForceSystem {
   private readonly ids: number[] = [];
   private readonly scan = newActorInfo();
   private readonly target = newActorInfo();
-  private readonly ctx: ShotContext & { cold: boolean } = { distance: 0, officerMoving: false, officerCrouched: false, targetRunning: false, cold: false };
+  private readonly ctx: ShotContext & { cold: boolean } = { distance: 0, officerMoving: false, officerCrouched: false, targetRunning: false, cold: false, aimFactor: 1 };
+  private accuracyFactor: (() => number) | null = null;
   private targetDist = 0;
   private toolId: ForceToolId = 'none';
   private seq = 0;
@@ -156,6 +157,14 @@ export class ForceSystem {
       this.fellowCheck(t, officer);
     }
     if (this.episode !== null) this.stepEpisode(t, officer);
+  }
+
+  /**
+   * Phase 8: multiplies the aim error of firearm, TASER probe and less-lethal shots by `fn()` (>= 1: fatigue, stress),
+   * read once per shot. `null` restores the plain models. Not saved.
+   */
+  setAccuracyFactor(fn: (() => number) | null): void {
+    this.accuracyFactor = fn;
   }
 
   serialize(): ForceSave {
@@ -518,6 +527,8 @@ export class ForceSystem {
     ctx.officerMoving = o.moving;
     ctx.officerCrouched = o.crouched;
     ctx.targetRunning = info.state === ACTOR_STATE.flee;
+    const factor = this.accuracyFactor !== null ? this.accuracyFactor() : 1;
+    ctx.aimFactor = Number.isFinite(factor) && factor > 0 ? factor : 1;
     const restrained = info.cuffed;
     const callId = info.callId;
     const rng = this.deps.rng;

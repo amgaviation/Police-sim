@@ -1,0 +1,283 @@
+{
+  "format": "patrol-mod",
+  "version": 1,
+  "id": "night-shift-pack",
+  "name": "Night shift pack",
+  "author": "Example author",
+  "description": "Example mod: a loading-zone call, a matching statute, a courier hatchback, a night-blue duty shirt, harbor district tuning, a calm night desk voice and a dispatch script.",
+  "modVersion": "1.0.0",
+  "content": {
+    "callTypes": [
+      {
+        "family": "parking",
+        "types": [
+          {
+            "id": "loadingZoneBlocked",
+            "label": "Loading zone blocked",
+            "category": "traffic",
+            "generated": true,
+            "weight": 0.2,
+            "narratives": [
+              "Business reports a {vehicle}, plate {plate}, blocking the loading zone at {address}.",
+              "Delivery driver at {address} advises a car, plate {plate}, has been in the loading zone all night."
+            ]
+          }
+        ]
+      }
+    ],
+    "statutes": [
+      {
+        "id": "TR-399",
+        "title": "Blocking a loading zone",
+        "category": "traffic",
+        "class": "infraction",
+        "fine": 90,
+        "citeable": true,
+        "bookable": false
+      }
+    ],
+    "vehicles": [
+      {
+        "version": 1,
+        "id": "night_courier",
+        "name": "Night Courier",
+        "role": "civilian",
+        "trafficWeight": 2,
+        "body": {
+          "style": "hatchback",
+          "length": 4.05,
+          "width": 1.72,
+          "height": 1.2,
+          "groundClearance": 0.29,
+          "wheelbase": 2.5,
+          "track": 1.48,
+          "cabin": {
+            "start": 0.32,
+            "end": 0.95,
+            "height": 0.48,
+            "inset": 0.08
+          }
+        },
+        "colors": [
+          {
+            "hex": "#1f2a36",
+            "weight": 3
+          },
+          {
+            "hex": "#d9dde2",
+            "weight": 2
+          },
+          {
+            "hex": "#5c8f7a",
+            "weight": 1
+          }
+        ],
+        "lightbar": false,
+        "mass": 1150,
+        "comHeight": 0.5,
+        "engine": {
+          "maxForce": 4000,
+          "maxPowerKw": 85,
+          "maxSpeedKmh": 180,
+          "reverseMaxSpeedKmh": 25,
+          "idleRpm": 800,
+          "redlineRpm": 6500,
+          "gearRatios": [
+            3.7,
+            2.1,
+            1.4,
+            1.05,
+            0.83
+          ],
+          "finalDrive": 4.2
+        },
+        "drive": "fwd",
+        "steering": {
+          "maxAngleDeg": 37,
+          "highSpeedFactor": 0.45,
+          "rateDegPerS": 160
+        },
+        "suspension": {
+          "restLength": 0.28,
+          "stiffness": 30,
+          "compression": 2.3,
+          "relaxation": 3,
+          "maxTravel": 0.2,
+          "maxForce": 17000
+        },
+        "tires": {
+          "radius": 0.31,
+          "width": 0.19,
+          "frictionSlip": 0.95,
+          "sideStiffness": 1,
+          "loadSensitivity": 0.15
+        },
+        "brakes": {
+          "maxForce": 12300,
+          "frontBias": 0.68,
+          "abs": true,
+          "handbrakeForce": 8500,
+          "heatPerKJ": 0.26,
+          "coolingPerS": 0.002,
+          "airflowCooling": 0.0003,
+          "fadeStartC": 330,
+          "fadeEndC": 600,
+          "minEfficiency": 0.45
+        },
+        "fuel": {
+          "capacityL": 42,
+          "idleLph": 0.55,
+          "litersPerKWh": 0.27
+        },
+        "damage": {
+          "minImpactSpeed": 2,
+          "zoneStrength": 10.5,
+          "engineFrontShare": 0.7,
+          "tireBurstSpeed": 8.5,
+          "stallBelow": 0.3,
+          "stallChancePerS": 0.05,
+          "failBelow": 0.05
+        },
+        "traffic": {
+          "maxAccel": 1.9,
+          "comfortDecel": 2.3,
+          "maxDecel": 6.5
+        }
+      }
+    ],
+    "uniforms": {
+      "classes": [
+        {
+          "id": "classB",
+          "label": "Class B (night duty)",
+          "top": "#1f3d4d"
+        }
+      ]
+    },
+    "districts": {
+      "harbor": {
+        "label": "Harbor Row",
+        "crimeFactor": 1.15,
+        "trustBaseline": 0.5
+      },
+      "downtown": {
+        "label": "Old Town"
+      }
+    },
+    "voicePacks": [
+      {
+        "id": "night-desk",
+        "name": "Night desk",
+        "voices": {
+          "dispatcher": {
+            "pitch": [
+              0.9,
+              1.0
+            ],
+            "rate": [
+              1.0,
+              1.08
+            ],
+            "prefer": [
+              "en-GB"
+            ]
+          },
+          "officer": {
+            "pitch": [
+              0.85,
+              1.15
+            ],
+            "rate": [
+              0.95,
+              1.1
+            ],
+            "prefer": []
+          }
+        },
+        "phrases": {
+          "accept": {
+            "tenCode": [
+              "{unit}, {code:ack}, I'll take it, {code:enRoute}."
+            ],
+            "plain": [
+              "{unit}, copy, taking it, on my way."
+            ]
+          }
+        }
+      }
+    ],
+    "dispatchScripts": [
+      {
+        "format": "patrol-dispatch-script",
+        "version": 1,
+        "id": "night-courier-run",
+        "name": "Night courier run",
+        "description": "Six calls in ten minutes around the harbor, including the pack's own loading zone call type.",
+        "generator": "off",
+        "durationS": 600,
+        "steps": [
+          {
+            "atS": 30,
+            "typeId": "loadingZoneBlocked",
+            "priority": 4,
+            "near": {
+              "district": "harbor"
+            },
+            "narrative": null,
+            "radio": null
+          },
+          {
+            "atS": 120,
+            "typeId": "noiseComplaint",
+            "priority": 4,
+            "near": {
+              "district": "downtown"
+            },
+            "narrative": "Neighbor reports a delivery van idling with loud music.",
+            "radio": null
+          },
+          {
+            "atS": 210,
+            "typeId": "suspiciousPerson",
+            "priority": 3,
+            "near": {
+              "poi": "fuel"
+            },
+            "narrative": null,
+            "radio": null
+          },
+          {
+            "atS": 330,
+            "typeId": "loadingZoneBlocked",
+            "priority": 3,
+            "near": {
+              "district": "downtown"
+            },
+            "narrative": null,
+            "radio": "Units, a second blocked loading zone downtown."
+          },
+          {
+            "atS": 450,
+            "typeId": "alarm",
+            "priority": 3,
+            "near": {
+              "district": "industrial"
+            },
+            "narrative": null,
+            "radio": null
+          },
+          {
+            "atS": 540,
+            "typeId": "welfareCheck",
+            "priority": 3,
+            "near": {
+              "district": "harbor"
+            },
+            "narrative": null,
+            "radio": null
+          }
+        ]
+      }
+    ]
+  }
+}

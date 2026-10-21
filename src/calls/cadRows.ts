@@ -4,6 +4,7 @@
  * `cad/data.ts` imports this file, so a dependency back would be a cycle); `cad/data.ts` validates the rows.
  */
 import familiesJson from '../data/calls/families.json';
+import { modOverlay } from '../mods/registry';
 
 type Json = Record<string, unknown>;
 
@@ -78,5 +79,8 @@ export function mergeCadRows(families: unknown, files: readonly { file: string; 
 
 /** Rows for `CALL_TYPES` (`cad/data.ts`): untyped; `validateCallTypes` checks them (all `types/*.json`, Phase 6 `massCasualty` included). */
 export function catalogCadRows(): unknown[] {
-  return mergeCadRows(familiesJson, sortedFiles(import.meta.glob<unknown>('../data/calls/types/*.json', { eager: true, import: 'default' })));
+  return mergeCadRows(familiesJson, [
+    ...sortedFiles(import.meta.glob<unknown>('../data/calls/types/*.json', { eager: true, import: 'default' })),
+    ...modOverlay().callTypes,
+  ]);
 }

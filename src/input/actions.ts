@@ -87,6 +87,10 @@ export const ACTIONS = {
   'vehicle.lift': { kind: 'axis', label: 'Climb / descend (aircraft)', bipolar: true },
   'fleet.menu': { kind: 'button', label: 'Fleet / garage panel' },
   'drone.toggle': { kind: 'button', label: 'Deploy / recall drone' },
+  // Phase 8: career / schedule screen, co-op panel and dispatch console (design §9.3).
+  'career.menu': { kind: 'button', label: 'Career / schedule' },
+  'coop.menu': { kind: 'button', label: 'Co-op panel' },
+  'dispatch.console': { kind: 'button', label: 'Dispatch console' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

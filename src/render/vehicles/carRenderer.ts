@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MAX_ENTITIES, Transform } from '../../ecs/components';
 import type { GameWorld } from '../../ecs/world';
 import { hasPoliceLights, PoliceLights } from '../../police/components';
+import { lightbarRgb } from '../../a11y/palette';
 import { LIGHTBAR_SEGMENTS, lightbarColors, REDUCED_FLASH, SEGMENT_COLOR } from '../../police/lightbar';
 import { FAULT, LIGHT, TRIM, VehicleLook } from '../../vehicles/components';
 import type { WheelPose } from '../../vehicles/drivableVehicle';
@@ -47,16 +48,8 @@ const ROTOR_STRIDE = 6;
 const HAZARD_HZ = 1.5;
 /** Unlit light-bar lenses (and the whole bar when off), as in Phase 1. */
 const LIGHTBAR_DIM = 0.12;
-/** Lit light-bar colours by `SEGMENT_COLOR` (linear RGB at full level); index 0 (off) unused. */
-const SEGMENT_RGB: readonly (readonly [number, number, number])[] = (() => {
-  const table: [number, number, number][] = [];
-  table[SEGMENT_COLOR.off] = [0, 0, 0];
-  table[SEGMENT_COLOR.red] = [1, 0.05, 0.05];
-  table[SEGMENT_COLOR.blue] = [0.05, 0.15, 1];
-  table[SEGMENT_COLOR.white] = [1, 1, 1];
-  table[SEGMENT_COLOR.amber] = [1, 0.55, 0.05];
-  return table;
-})();
+/** Lit lens colour scratch for `lightbarRgb` (linear RGB at full level; the active colour-vision palette picks the values). */
+const scratchLens = new Float32Array(3);
 /** Peak headlight spot intensity (candela) at night; a quarter of it by day. */
 const SPOT_INTENSITY = 120;
 const SPOT_DISTANCE = 70;
@@ -778,8 +771,10 @@ function lensColor(
  * dim tint: red on the left half of the bar, blue on the right.
  */
 function barLensColor(segment: number, color: number, level: number, out: THREE.TypedArray, o: number): void {
-  const lit = color !== SEGMENT_COLOR.off ? SEGMENT_RGB[color] : undefined;
-  if (lit) return rgb(out, o, lit[0] * level, lit[1] * level, lit[2] * level);
+  if (color > SEGMENT_COLOR.off && color <= SEGMENT_COLOR.amber) {
+    lightbarRgb(color, scratchLens);
+    return rgb(out, o, (scratchLens[0] ?? 0) * level, (scratchLens[1] ?? 0) * level, (scratchLens[2] ?? 0) * level);
+  }
   if (segment < LIGHTBAR_SEGMENTS / 2) rgb(out, o, LIGHTBAR_DIM, LIGHTBAR_DIM * 0.05, LIGHTBAR_DIM * 0.05);
   else rgb(out, o, LIGHTBAR_DIM * 0.05, LIGHTBAR_DIM * 0.15, LIGHTBAR_DIM);
 }

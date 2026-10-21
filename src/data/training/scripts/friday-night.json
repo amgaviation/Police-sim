@@ -1,0 +1,231 @@
+{
+  "format": "patrol-dispatch-script",
+  "version": 1,
+  "id": "friday-night",
+  "name": "Friday night",
+  "description": "A busy Friday night: twenty-two calls in thirty minutes, two of them priority 1, with the random generator off so every call is scripted.",
+  "generator": "off",
+  "durationS": 1800,
+  "steps": [
+    {
+      "atS": 30,
+      "typeId": "noiseComplaint",
+      "priority": 4,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 80,
+      "typeId": "intoxicatedPerson",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 140,
+      "typeId": "fightInProgress",
+      "priority": 2,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 200,
+      "typeId": "minorCollision",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 260,
+      "typeId": "loudParty",
+      "priority": 4,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 330,
+      "typeId": "shopliftingInProgress",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 390,
+      "typeId": "armedRobbery",
+      "priority": 1,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 450,
+      "typeId": "impairedDriver",
+      "priority": 2,
+      "near": {
+        "district": "highway"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 520,
+      "typeId": "verbalDispute",
+      "priority": 3,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 590,
+      "typeId": "vehicleBreakInProgress",
+      "priority": 3,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 660,
+      "typeId": "disorderlyPerson",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 730,
+      "typeId": "alarm",
+      "priority": 3,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 800,
+      "typeId": "suspiciousPerson",
+      "priority": 3,
+      "near": {
+        "poi": "park"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 880,
+      "typeId": "domesticDisturbance",
+      "priority": 2,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 950,
+      "typeId": "largeFight",
+      "priority": 2,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1030,
+      "typeId": "roadRageReport",
+      "priority": 3,
+      "near": {
+        "district": "highway"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1110,
+      "typeId": "personDown",
+      "priority": 2,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1190,
+      "typeId": "stabbingReported",
+      "priority": 1,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1280,
+      "typeId": "welfareCheck",
+      "priority": 4,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1400,
+      "typeId": "burglaryInProgress",
+      "priority": 2,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1530,
+      "typeId": "recklessDriver",
+      "priority": 2,
+      "near": {
+        "district": "highway"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1680,
+      "typeId": "parkingComplaint",
+      "priority": 4,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    }
+  ]
+}

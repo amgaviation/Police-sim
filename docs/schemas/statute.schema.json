@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/statute.schema.json",
+  "title": "Statute row",
+  "description": "One entry of content.statutes (a row of src/data/cad/statutes.json \"statutes\").",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "category",
+    "class",
+    "fine",
+    "citeable",
+    "bookable"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}-\\d{3}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "enum": [
+        "traffic",
+        "criminal"
+      ]
+    },
+    "class": {
+      "enum": [
+        "infraction",
+        "misdemeanor",
+        "felony",
+        "warrant"
+      ]
+    },
+    "fine": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "citeable": {
+      "type": "boolean"
+    },
+    "bookable": {
+      "type": "boolean"
+    },
+    "speed": {
+      "type": "boolean"
+    }
+  }
+}

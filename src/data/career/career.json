@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "academy": { "pass": { "driving": 70, "firearms": 75, "defensive": 70, "report": 70, "legal": 70 }, "quizQuestions": 10 },
+  "probation": { "shifts": 5, "passAverage": 3.0, "extensionShifts": 3 },
+  "shift": {
+    "hours": 8,
+    "startHour": { "day": 6, "swing": 14, "night": 22 },
+    "rotation": [1, 1, 1, 1, 1, 0, 0],
+    "minRestH": 8,
+    "commuteH": 1
+  },
+  "bidding": { "everyShifts": 10, "capacity": 2, "maxPrefs": 4, "syntheticBidders": 9 },
+  "pay": {
+    "hourly": { "officer": 30, "corporal": 33, "sergeant": 38, "lieutenant": 44, "captain": 50 },
+    "nightPerHour": 2,
+    "ftoPerHour": 3,
+    "overtimeMultiplier": 1.5,
+    "courtMultiplier": 1.5,
+    "rentPerWeek": 600,
+    "startingMoney": 1500
+  },
+  "wellbeing": {
+    "fatiguePerHour": 0.06,
+    "slotFactor": { "day": 1.0, "swing": 1.1, "night": 1.35 },
+    "sleepDebtFactor": 0.5,
+    "stressDecayOnDutyPerHour": 0.01,
+    "stress": {
+      "forceUsed": 0.05,
+      "firearmDischarged": 0.2,
+      "officerInjured": 0.25,
+      "pursuit": 0.06,
+      "deceasedOnScene": 0.15,
+      "iaOpened": 0.1,
+      "iaSustained": 0.15,
+      "courtLoss": 0.05,
+      "commendation": -0.05,
+      "criticalIncident": 0.12,
+      "arrestMade": 0.01,
+      "callCleared": -0.005
+    },
+    "activities": {
+      "rest": { "fatigue": -0.09, "stress": -0.01, "fitness": 0, "family": 0, "money": 0, "sleep": 1, "maxPerDay": 12 },
+      "exercise": { "fatigue": 0.03, "stress": -0.05, "fitness": 0.03, "family": 0, "money": 0, "sleep": 0, "maxPerDay": 3 },
+      "family": { "fatigue": 0.0, "stress": -0.06, "fitness": 0, "family": 0.08, "money": 0, "sleep": 0, "maxPerDay": 6 },
+      "secondJob": { "fatigue": 0.05, "stress": 0.02, "fitness": 0, "family": -0.02, "money": 25, "sleep": 0, "maxPerDay": 8 }
+    },
+    "idle": { "fatigue": -0.03, "stress": -0.005, "sleep": 0.5 },
+    "neglect": {
+      "familyPerDay": 0.05,
+      "familyStressBelow": 0.3,
+      "familyStress": 0.04,
+      "exerciseGraceDays": 3,
+      "fitnessPerDay": 0.02,
+      "debtStress": 0.05,
+      "sleepNeedH": 8,
+      "healthRecoveryPerDay": 0.05
+    },
+    "performance": { "aimFatigue": 0.8, "aimStress": 0.6, "lagMaxS": 0.25, "lagFrom": 0.6, "vignetteFrom": 0.7 },
+    "fit": { "minHealth": 0.35, "maxStress": 0.95 }
+  },
+  "range": { "targets": 12, "noShoot": 3, "durationS": 45, "radius": 0.06, "showS": [1.6, 2.6], "swayBase": 0.012 },
+  "fto": { "minSeniorityShifts": 40, "minAvgReport": 70, "minPoints": 50, "pointsPerAccuracy": 10 },
+  "promotions": {
+    "corporal": { "minSeniorityShifts": 40, "minPoints": 100, "exam": 0, "maxSustainedIa": 0 },
+    "sergeant": { "minSeniorityShifts": 80, "minPoints": 250, "exam": 75, "maxSustainedIa": 0 },
+    "lieutenant": { "minSeniorityShifts": 150, "minPoints": 500, "exam": 80, "maxSustainedIa": 0 },
+    "captain": { "minSeniorityShifts": 250, "minPoints": 900, "exam": 85, "maxSustainedIa": 0 }
+  }
+}

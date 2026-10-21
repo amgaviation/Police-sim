@@ -4,6 +4,7 @@ import rulesJson from '../data/dialogue/rules.json';
 import toolsJson from '../data/dialogue/tools.json';
 import trustJson from '../data/dialogue/trust.json';
 import utterancesJson from '../data/dialogue/utterances.json';
+import { modOverlay } from '../mods/registry';
 import { FACT_SOURCES, type FactSource } from '../people';
 import {
   fail,
@@ -457,7 +458,16 @@ export function parseTools(json: unknown, file = TOOLS_FILE): ToolsData {
 
 export const UTTERANCE_DATA: UtteranceData = parseUtterances(utterancesJson);
 export const RESPONSES: ResponsesData = parseResponses(responsesJson);
-export const TRUST: ReadonlyMap<string, number> = parseTrust(trustJson);
+/** Baselines of `trust.json`; an active mod's `districts[d].trustBaseline` replaces the district's value. */
+function loadTrust(): ReadonlyMap<string, number> {
+  const trust = new Map(parseTrust(trustJson));
+  for (const [district, patch] of Object.entries(modOverlay().districts)) {
+    if (patch.trustBaseline !== undefined && trust.has(district)) trust.set(district, patch.trustBaseline);
+  }
+  return trust;
+}
+
+export const TRUST: ReadonlyMap<string, number> = loadTrust();
 export const MIRANDA: MirandaData = parseMiranda(mirandaJson);
 export const RULES: readonly InconsistencyRule[] = parseRules(rulesJson);
 export const TOOLS: ToolsData = parseTools(toolsJson);

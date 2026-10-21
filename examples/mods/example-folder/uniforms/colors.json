@@ -1,0 +1,13 @@
+{
+  "classes": [
+    {
+      "id": "tactical",
+      "accent": "#a3a8ad"
+    }
+  ],
+  "department": {
+    "badge": {
+      "enamel": "#1b4d2e"
+    }
+  }
+}

@@ -1,9 +1,9 @@
+import { revision as paletteRevision, semanticColor, type SemanticColor } from '../../a11y/palette';
 import type { City, PoiKind } from '../../world/city';
 import { ROAD_CLASS } from '../../world/ids';
 import type { RoadEdge } from '../../world/roadGraph';
 import { worldToMap, type MapPoint } from './format';
-import { PRIORITY_COLORS } from './police';
-import type { FloorPlan } from './types';
+import type { FloorPlan, RemoteUnit } from './types';
 
 /** Canvas size in CSS pixels (square). */
 export const MINIMAP_SIZE = 200;
@@ -86,12 +86,10 @@ export function markerProjection(
   return out;
 }
 
-const UNIT_FILL = '#4f8cff';
-const UNIT_BUSY_FILL = '#2a4f8f';
-const EMERGENCY_OUTLINE = '#ff3b3b';
-const SUSPECT_FILL = '#ff3b3b';
-const PERSON_FILL = '#ffffff';
-const PURSUIT_FILL = '#ff7a1a';
+/** Call priority P1..P4 -> semantic colour key (colour-vision safe, read at draw time). */
+const PRIORITY_KEYS: readonly SemanticColor[] = ['p1', 'p2', 'p3', 'p4'];
+/** Most co-op teammates drawn. */
+export const MAX_REMOTE_UNITS = 8;
 
 /** Road colour and minimum stroke width (px) per `ROAD_CLASS` id, drawn minor classes first. */
 const ROAD_STYLE: readonly { readonly color: string; readonly minWidth: number }[] = [
@@ -177,6 +175,12 @@ export class Minimap {
   private readonly fit: PlanFit = { scale: 1, centerX: 0, centerZ: 0 };
   private lastDraw = -Infinity;
   private drawCount = 0;
+  /** Palette revision the last draw used (a change forces a repaint). */
+  private lastPaletteRev = -1;
+  private remoteCount = 0;
+  private readonly remoteX = new Float32Array(MAX_REMOTE_UNITS);
+  private readonly remoteZ = new Float32Array(MAX_REMOTE_UNITS);
+  private readonly remoteNames: string[] = new Array<string>(MAX_REMOTE_UNITS).fill('');
 
   constructor(parent: HTMLElement, city: City) {
     this.city = city;
@@ -232,6 +236,22 @@ export class Minimap {
     this.planZ = officerZ;
   }
 
+  /**
+   * Co-op teammates (up to `MAX_REMOTE_UNITS`): drawn as unit-coloured squares with their callsign. Copies into reused
+   * arrays; null or [] clears them. Redraws on the next update.
+   */
+  setRemoteUnits(units: readonly RemoteUnit[] | null): void {
+    const n = Math.min(units?.length ?? 0, MAX_REMOTE_UNITS);
+    for (let i = 0; i < n; i++) {
+      const u = units?.[i] as RemoteUnit;
+      this.remoteX[i] = u.x;
+      this.remoteZ[i] = u.z;
+      this.remoteNames[i] = u.callsign;
+    }
+    this.remoteCount = n;
+    this.lastDraw = -Infinity;
+  }
+
   update(
     x: number,
     z: number,
@@ -241,6 +261,11 @@ export class Minimap {
     nowMs: number,
     markers: MinimapMarkers | null = null,
   ): void {
+    const paletteRev = paletteRevision();
+    if (paletteRev !== this.lastPaletteRev) {
+      this.lastPaletteRev = paletteRev;
+      this.lastDraw = -Infinity;
+    }
     if (nowMs - this.lastDraw < 1000 / MINIMAP_HZ) return;
     this.lastDraw = nowMs;
     this.drawCount += 1;
@@ -267,6 +292,7 @@ export class Minimap {
     this.drawPois(ctx, x, z, yaw, radius, mpp);
     if (traffic) this.drawTraffic(ctx, x, z, yaw, traffic, radius, mpp);
     if (markers && markers.count > 0) this.drawMarkers(ctx, x, z, yaw, markers, mpp);
+    if (this.remoteCount > 0) this.drawRemote(ctx, x, z, yaw, mpp);
     this.drawPlayer(ctx);
     this.drawNorth(ctx, x, z, yaw, mpp);
     ctx.restore();
@@ -306,7 +332,7 @@ export class Minimap {
     ctx.lineTo(0, 2);
     ctx.lineTo(-5, 5);
     ctx.closePath();
-    ctx.fillStyle = '#4f8cff';
+    ctx.fillStyle = semanticColor('unit');
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
     ctx.stroke();
@@ -350,7 +376,7 @@ export class Minimap {
       if (k === 0) ctx.moveTo(HALF + p.x, HALF + p.y);
       else ctx.lineTo(HALF + p.x, HALF + p.y);
     }
-    ctx.strokeStyle = '#3fa9ff';
+    ctx.strokeStyle = semanticColor('accent');
     ctx.lineWidth = 3;
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -406,7 +432,7 @@ export class Minimap {
       if (kind === MARKER.suspect || kind === MARKER.person) {
         ctx.beginPath();
         ctx.arc(cx, cy, kind === MARKER.suspect ? 4 : 3, 0, Math.PI * 2);
-        ctx.fillStyle = kind === MARKER.suspect ? SUSPECT_FILL : PERSON_FILL;
+        ctx.fillStyle = semanticColor(kind === MARKER.suspect ? 'suspect' : 'person');
         ctx.fill();
         ctx.strokeStyle = '#111';
         ctx.lineWidth = 1;
@@ -423,15 +449,15 @@ export class Minimap {
         ctx.lineWidth = 1.5;
         continue;
       }
-      ctx.fillStyle = kind === MARKER.unitBusy ? UNIT_BUSY_FILL : UNIT_FILL;
+      ctx.fillStyle = semanticColor(kind === MARKER.unitBusy ? 'unitBusy' : 'unit');
       ctx.fillRect(cx - 3.5, cy - 3.5, 7, 7);
-      ctx.strokeStyle = kind === MARKER.unitEmergency ? EMERGENCY_OUTLINE : '#111';
+      ctx.strokeStyle = kind === MARKER.unitEmergency ? semanticColor('emergency') : '#111';
       ctx.lineWidth = kind === MARKER.unitEmergency ? 2 : 1;
       ctx.strokeRect(cx - 3.5, cy - 3.5, 7, 7);
     }
     // Calls, lowest priority first so P1 is drawn on top.
     for (let kind: number = MARKER.callP4; kind >= MARKER.callP1; kind--) {
-      ctx.fillStyle = PRIORITY_COLORS[kind - 1] ?? PRIORITY_COLORS[3];
+      ctx.fillStyle = semanticColor(PRIORITY_KEYS[kind - 1] ?? 'p4');
       for (let i = 0; i < n; i++) {
         if (m.kind[i] !== kind) continue;
         markerProjection(x, z, yaw, m.x[i] ?? 0, m.z[i] ?? 0, mpp, MARKER_RIM, p);
@@ -456,9 +482,9 @@ export class Minimap {
       markerProjection(x, z, yaw, m.x[i] ?? 0, m.z[i] ?? 0, mpp, MARKER_RIM, p);
       ctx.beginPath();
       ctx.arc(HALF + p.x, HALF + p.y, p.clamped ? 4 : 5.5, 0, Math.PI * 2);
-      ctx.fillStyle = PURSUIT_FILL;
+      ctx.fillStyle = semanticColor('pursuit');
       ctx.fill();
-      ctx.strokeStyle = '#ff1a1a';
+      ctx.strokeStyle = semanticColor('emergency');
       ctx.lineWidth = 2;
       ctx.stroke();
     }
@@ -471,11 +497,32 @@ export class Minimap {
     ctx.lineTo(HALF, HALF + 3);
     ctx.lineTo(HALF - 6, HALF + 6);
     ctx.closePath();
-    ctx.fillStyle = '#4f8cff';
+    ctx.fillStyle = semanticColor('unit');
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+  }
+
+  /** Co-op teammates: a unit-coloured square with the callsign beside it (those off the map are skipped). */
+  private drawRemote(ctx: CanvasRenderingContext2D, x: number, z: number, yaw: number, mpp: number): void {
+    const p = this.mp;
+    ctx.font = 'bold 10px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < this.remoteCount; i++) {
+      markerProjection(x, z, yaw, this.remoteX[i] ?? 0, this.remoteZ[i] ?? 0, mpp, HALF + 4, p);
+      if (p.clamped) continue;
+      const cx = HALF + p.x;
+      const cy = HALF + p.y;
+      ctx.fillStyle = semanticColor('unit');
+      ctx.fillRect(cx - 3.5, cy - 3.5, 7, 7);
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - 3.5, cy - 3.5, 7, 7);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(this.remoteNames[i] ?? '', cx + 6, cy);
+    }
   }
 
   /** "N" on the rim in the direction of north (-Z). */
@@ -487,7 +534,7 @@ export class Minimap {
     ctx.font = 'bold 12px ui-sans-serif, system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ff6b6b';
+    ctx.fillStyle = semanticColor('alert');
     ctx.fillText('N', nx, ny);
   }
 }

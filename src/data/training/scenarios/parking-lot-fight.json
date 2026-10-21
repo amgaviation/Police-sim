@@ -1,0 +1,89 @@
+{
+  "format": "patrol-scenario",
+  "version": 1,
+  "id": "parking-lot-fight",
+  "name": "Parking lot fight",
+  "description": "Two men fight beside parked cars while a bystander films; one has a knife in his waistband.",
+  "anchor": {
+    "x": 0,
+    "z": 0
+  },
+  "call": {
+    "typeId": "fightInProgress",
+    "priority": 2
+  },
+  "npcs": [
+    {
+      "x": -2,
+      "z": 0,
+      "yaw": 1.57,
+      "profile": "suspectAgitated",
+      "role": "suspect",
+      "weapon": null,
+      "hidden": false
+    },
+    {
+      "x": 2,
+      "z": 0.5,
+      "yaw": -1.57,
+      "profile": "suspectHostile",
+      "role": "suspect",
+      "weapon": "knife",
+      "hidden": false
+    },
+    {
+      "x": 12,
+      "z": 6,
+      "yaw": 3.14,
+      "profile": "bystander",
+      "role": "witness",
+      "weapon": null,
+      "hidden": false
+    },
+    {
+      "x": -14,
+      "z": 8,
+      "yaw": 0.5,
+      "profile": "witnessReluctant",
+      "role": "witness",
+      "weapon": null,
+      "hidden": false
+    }
+  ],
+  "vehicles": [
+    {
+      "modelId": "sedan",
+      "x": -6,
+      "z": -5,
+      "yaw": 0
+    },
+    {
+      "modelId": "pickup",
+      "x": 6,
+      "z": -5,
+      "yaw": 0.1
+    },
+    {
+      "modelId": "hatchback",
+      "x": 20,
+      "z": -5,
+      "yaw": 0
+    }
+  ],
+  "evidence": [
+    {
+      "item": "knife",
+      "x": 3,
+      "z": 1,
+      "concealed": false
+    },
+    {
+      "item": "brokenGlass",
+      "x": 0,
+      "z": -3,
+      "concealed": false
+    }
+  ],
+  "timeOfDay": 22,
+  "weather": "clear"
+}

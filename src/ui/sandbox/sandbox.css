@@ -1,0 +1,22 @@
+/* Scenario editor (Phase 8 design 12.2). Sizes in em; colours from the theme variables; no animations. */
+.scenario-editor { width: min(96vw, 76em); max-height: 94vh; gap: 0.6em; }
+.scenario-editor .sb-head { justify-content: space-between; flex-wrap: nowrap; }
+.scenario-editor .sb-head h1 { margin: 0; font-size: 1.2em; }
+.scenario-editor .sb-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(14em, 1fr); gap: 0.8em; min-height: 0; }
+.scenario-editor .sb-left, .scenario-editor .sb-side { display: flex; flex-direction: column; gap: 0.4em; min-width: 0; }
+.scenario-editor .sb-side { overflow: auto; max-height: 70vh; }
+.scenario-editor .sb-side h2 { margin: 0.4em 0 0; }
+.scenario-editor .sb-canvas { width: 100%; max-width: 38em; height: auto; aspect-ratio: 1; border: 1px solid var(--panel-border); border-radius: var(--radius); background: #0e151d; touch-action: none; cursor: crosshair; }
+.scenario-editor .sb-tools button[aria-pressed="true"] { border-color: var(--accent); background: #22344a; }
+.scenario-editor .sb-options, .scenario-editor .sb-details { display: flex; flex-direction: column; gap: 0.3em; }
+.scenario-editor .sb-field { display: grid; grid-template-columns: 6em 1fr; gap: 0.5em; align-items: center; }
+.scenario-editor .sb-field span { color: var(--fg-dim); font-size: 0.9em; }
+.scenario-editor .sb-library { display: flex; flex-direction: column; gap: 0.3em; }
+.scenario-editor .sb-entry { flex-wrap: nowrap; }
+.scenario-editor .sb-problem { color: var(--c-alert); font-size: 0.9em; }
+.scenario-editor .sb-ok { color: var(--c-ok); font-size: 0.9em; }
+.scenario-editor .sb-empty { color: var(--fg-dim); font-style: italic; font-size: 0.9em; }
+.scenario-editor .sb-status { min-height: 1.4em; margin: 0; }
+@media (max-width: 60em) {
+  .scenario-editor .sb-grid { grid-template-columns: 1fr; }
+}

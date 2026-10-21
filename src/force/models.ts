@@ -12,6 +12,8 @@ export interface ShotContext {
   officerMoving: boolean;
   officerCrouched: boolean;
   targetRunning: boolean;
+  /** Phase 8: multiplier >= 1 of the aim error (fatigue, stress); absent = 1. */
+  aimFactor?: number;
 }
 
 /** Lateral miss distance (m) of an aim error of `errDeg` degrees at `distance` metres. */
@@ -23,10 +25,10 @@ function lerp(range: readonly [number, number], u: number): number {
   return range[0] + (range[1] - range[0]) * u;
 }
 
-/** Aim error standard deviation: `base x (1 + moving + running + crouched)`, never below `0.2 x base`. */
+/** Aim error standard deviation: `base x (1 + moving + running + crouched)`, never below `0.2 x base`, times `c.aimFactor`. */
 export function sigmaDeg(base: number, c: ShotContext, mods: ForceConfig['modifiers']): number {
   const f = 1 + (c.officerMoving ? mods.officerMoving : 0) + (c.targetRunning ? mods.targetRunning : 0) + (c.officerCrouched ? mods.crouched : 0);
-  return base * Math.max(0.2, f);
+  return base * Math.max(0.2, f) * (c.aimFactor ?? 1);
 }
 
 export interface TaserShotResult {

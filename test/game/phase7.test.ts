@@ -292,7 +292,7 @@ describe('Phase 7: fleet, uniforms, customization', () => {
   it('loads a v8 save: the fleet binds the saved cars, then checks out the motorcycle and flies the drone', () => {
     const v8 = makeSaveGameV8();
     const data = migrateEnvelope({ version: 8, createdAt: 1, updatedAt: 1, slot: 'old', data: v8 }).data;
-    expect(CURRENT_SAVE_VERSION).toBe(9);
+    expect(CURRENT_SAVE_VERSION).toBe(10);
     const h = new Harness(city);
     live.push(h);
     const session = h.load(data);

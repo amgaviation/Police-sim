@@ -209,6 +209,11 @@ export class Dispatcher {
   private dispositionResolver: ((callId: number) => string | null) | null = null;
   /** Player state of the current step (requests and helpers read it). */
   private player: PlayerUnitState = { x: 0, z: 0, speed: 0, inPoliceVehicle: false };
+  /** Phase 8 hooks (runtime only, never saved): generator on/off, manual dispatch, repeat-address location bias. */
+  private generatorEnabled = true;
+  private manualDispatch = false;
+  private locationBias: ((draw: () => number) => { x: number; z: number } | null) | null = null;
+  private readonly drawCalls = (): number => this.callsRng.next();
 
   constructor(deps: DispatchDeps) {
     this.deps = deps;
@@ -504,6 +509,88 @@ export class Dispatcher {
     }
     this.assignDirty = true;
     return call;
+  }
+
+  /** Phase 8: false stops the random call generator (no draws); scripted and officer calls still work. */
+  setGeneratorEnabled(on: boolean): void {
+    this.generatorEnabled = on;
+  }
+
+  /**
+   * Phase 8: true = manual dispatch (dispatch-only mode). No offers go to the player and the automatic assignment
+   * pass does nothing: AI units stay on patrol until `assignUnit`. Releases and returns to patrol are unchanged.
+   */
+  setManualDispatch(on: boolean): void {
+    if (on && !this.manualDispatch) this.withdrawOffer(time(this.lastT));
+    this.manualDispatch = on;
+    this.assignDirty = true;
+  }
+
+  /** Phase 8: a location for generated calls (repeat addresses). `fn` gets the calls stream draw; null removes it. */
+  setLocationBias(fn: ((draw: () => number) => { x: number; z: number } | null) | null): void {
+    this.locationBias = fn;
+  }
+
+  /** Phase 8: multiplies each type's weight in the call generator by `fn(category)` (specialty call mix). */
+  setCategoryWeights(fn: ((category: string) => number) | null): void {
+    this.generator.setCategoryWeight(fn);
+  }
+
+  /**
+   * Phase 8: dispatches AI unit `callsign` to open call `callId` exactly like the automatic path (emergency for P1-2,
+   * else respond). False when the unit (not the player) or the call is unknown, the call is closed, or the unit is busy.
+   */
+  assignUnit(callsign: string, callId: number, t: CadTime): boolean {
+    const u = this.units.find((v) => v.callsign === callsign);
+    const { cad } = this.deps;
+    const call = cad.call(callId);
+    const cu = cad.unit(callsign);
+    if (!u || !call || !cu || call.status === 'closed' || u.callId === callId) return false;
+    if (!this.eligible(u, cu, 'available')) return false;
+    const urgency: FleetUrgency = call.priority <= 2 ? 'emergency' : 'respond';
+    this.dispatchUnit(u, callId, call.location.x, call.location.z, urgency, 'dispatch', 'call', t);
+    return true;
+  }
+
+  /** Phase 8: AI unit `callsign` leaves its call and resumes patrol (the call returns to pending when left empty). */
+  unassignUnit(callsign: string, t: CadTime): boolean {
+    const u = this.units.find((v) => v.callsign === callsign);
+    if (!u || u.callId === null) return false;
+    this.deps.cad.unassign(callsign, t);
+    this.toPatrol(u, t);
+    this.assignDirty = true;
+    return true;
+  }
+
+  /** Phase 8: changes the priority of an open call. */
+  setCallPriority(callId: number, p: Priority, t: CadTime): void {
+    this.deps.cad.setPriority(callId, p, t);
+    this.assignDirty = true;
+  }
+
+  /**
+   * Phase 8: opens a call of `spec.typeId` at (x, z) with generated caller and persons; `priority` and `narrative`
+   * override the drawn ones. Null when the type is unknown or no location resolves.
+   */
+  createScriptedCall(spec: { typeId: string; priority?: Priority; x: number; z: number; narrative?: string }, t: CadTime): CadCall | null {
+    const type = findCallType(spec.typeId);
+    if (!type) return null;
+    const g = this.generator.generate(this.callsRng, this.player.x, this.player.z, this.playerCallsign, t.game, type, { x: spec.x, z: spec.z });
+    if (!g) return null;
+    return this.openCall(g.typeId, spec.priority ?? g.priority, g.location, g.caller, spec.narrative ?? g.narrative, t, false, g.persons, g.vehicles);
+  }
+
+  /** Phase 8: straight-line distance from (x, z) to the nearest AI unit on patrol (available), Infinity when none. */
+  nearestAvailableDistance(x: number, z: number): number {
+    let best = Infinity;
+    for (const u of this.units) {
+      if (u.mode !== 'patrol' && u.mode !== 'beat') continue;
+      const cu = this.deps.cad.unit(u.callsign);
+      if (!cu || cu.status !== 'available') continue;
+      const d = Math.hypot(cu.x - x, cu.z - z);
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   /** Debug/tests: creates a call of `typeId` now (at `at`, else a generated location); null when impossible. */
@@ -1336,7 +1423,7 @@ export class Dispatcher {
   // --- Generator --------------------------------------------------------------------------------
 
   private generate(dt: number, t: CadTime): void {
-    if (t.sim < this.nextCallSim) return;
+    if (!this.generatorEnabled || t.sim < this.nextCallSim) return;
     const g = this.cfg.generator;
     const p = this.player;
     if (t.sim >= this.nextMultiplierSim) {
@@ -1348,7 +1435,8 @@ export class Dispatcher {
     const calls = this.deps.cad.calls();
     for (let i = 0; i < calls.length; i++) if (calls[i]?.status !== 'closed') open++;
     if (open >= g.maxOpenCalls) return;
-    const c = this.generator.generate(this.callsRng, p.x, p.z, this.playerCallsign, t.game);
+    const at = this.locationBias !== null ? this.locationBias(this.drawCalls) : null;
+    const c = this.generator.generate(this.callsRng, p.x, p.z, this.playerCallsign, t.game, undefined, at ?? undefined);
     if (!c) return;
     this.openCall(c.typeId, c.priority, c.location, c.caller, c.narrative, t, false, c.persons, c.vehicles);
     this.generated++;
@@ -1419,6 +1507,7 @@ export class Dispatcher {
     const calls = cad.calls();
     if (this.assignDirty) this.prunePlans();
     this.assignDirty = false;
+    if (this.manualDispatch) return;
     for (let prio = 1; prio <= 4; prio++) {
       for (let i = 0; i < calls.length; i++) {
         const c = calls[i];

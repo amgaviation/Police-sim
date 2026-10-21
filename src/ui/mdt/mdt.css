@@ -2,12 +2,12 @@
    --text-scale (applied to the body font) scales everything. */
 
 .mdt {
-  --mdt-p1: #ff4d4d;
-  --mdt-p2: #ff9a3c;
-  --mdt-p3: #f2d23c;
-  --mdt-p4: #6cc8ff;
-  --mdt-alert: #ff5a5a;
-  --mdt-caution: #f2c14e;
+  --mdt-p1: var(--c-p1, #ff4d4d);
+  --mdt-p2: var(--c-p2, #ff9a3c);
+  --mdt-p3: var(--c-p3, #f2d23c);
+  --mdt-p4: var(--c-p4, #6cc8ff);
+  --mdt-alert: var(--c-alert, #ff5a5a);
+  --mdt-caution: var(--c-caution, #f2c14e);
   --mdt-info: #8fc7ff;
   --mdt-row-hover: #172230;
   --mdt-row-active: #1d3147;
@@ -273,3 +273,17 @@ html[data-reduced-flash="true"] .mdt-emergency td { animation: none; }
 .mdt-cmd-post { font-weight: 700; }
 .mdt-chips { display: flex; flex-wrap: wrap; gap: 0.4em; }
 .mdt-chip { padding: 0.1em 0.7em; border-radius: 0.3em; font-weight: 700; border: 1px solid var(--panel-border); }
+
+/* Premise history (Phase 8 §11.4): flag chips, then the last calls at the address. Static; no animation. */
+.mdt-premise { margin-top: 0.8em; border-top: 1px solid var(--panel-border); padding-top: 0.4em; }
+.mdt-premise-address { margin: 0.2em 0; color: var(--fg-dim); }
+.mdt-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4em; padding: 0; margin: 0.3em 0; }
+.mdt-chip { padding: 0.1em 0.6em; border: 1px solid var(--panel-border); border-radius: 0.8em; font-size: 0.85em; font-weight: 700; letter-spacing: 0.05em; }
+.mdt-chip-alert { color: var(--mdt-alert); border-color: var(--mdt-alert); }
+.mdt-chip-caution { color: var(--mdt-caution); border-color: var(--mdt-caution); }
+.mdt-chip-info { color: var(--mdt-info); border-color: var(--mdt-info); }
+.mdt-premise-entries { margin: 0.2em 0; padding-left: 1.4em; }
+.mdt-premise-entries time { color: var(--fg-dim); }
+
+/* Cases tab (Phase 8 §11.4). */
+.mdt-case-cold td, .mdt-case-cleared td { color: var(--fg-dim); }

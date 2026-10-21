@@ -1,0 +1,8 @@
+{
+  "industrial": {
+    "crimeFactor": 0.9
+  },
+  "suburbs": {
+    "trustBaseline": 0.7
+  }
+}

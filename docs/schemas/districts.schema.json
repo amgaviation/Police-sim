@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/districts.schema.json",
+  "title": "District table",
+  "description": "content.districts: per district label, crime factor (multiplies the base crime target) and trust baseline.",
+  "type": "object",
+  "minProperties": 1,
+  "propertyNames": {
+    "enum": [
+      "downtown",
+      "suburbs",
+      "industrial",
+      "highway",
+      "rural",
+      "campus",
+      "hospital",
+      "airport",
+      "harbor",
+      "park",
+      "water"
+    ]
+  },
+  "additionalProperties": {
+    "type": "object",
+    "additionalProperties": false,
+    "minProperties": 1,
+    "properties": {
+      "label": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+      },
+      "crimeFactor": {
+        "type": "number",
+        "minimum": 0.2,
+        "maximum": 3
+      },
+      "trustBaseline": {
+        "type": "number",
+        "minimum": 0.05,
+        "maximum": 0.95
+      }
+    }
+  }
+}

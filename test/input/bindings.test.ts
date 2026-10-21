@@ -417,6 +417,47 @@ describe('Phase 7 default bindings', () => {
   });
 });
 
+describe('Phase 8 default bindings', () => {
+  const phase8 = ['career.menu', 'coop.menu', 'dispatch.console'] as const;
+  const keys: Record<(typeof phase8)[number], string> = {
+    'career.menu': 'Minus',
+    'coop.menu': 'Digit0',
+    'dispatch.console': 'Home',
+  };
+
+  it('bind Minus, Digit0 and Home with no gamepad default', () => {
+    for (const id of phase8) expect(DEFAULT_BINDINGS[id], id).toEqual([{ device: 'keyboard', code: keys[id] }]);
+  });
+
+  it('collide with no other default binding', () => {
+    for (const id of phase8) {
+      const owners = ACTION_IDS.filter((a) => DEFAULT_BINDINGS[a].some((b) => b.device === 'keyboard' && b.code === keys[id]));
+      expect(owners, keys[id]).toEqual([id]);
+    }
+  });
+
+  it('survive a round trip and an old save without them gets the defaults', () => {
+    expect(parseBindings(JSON.parse(JSON.stringify(serializeBindings(DEFAULT_BINDINGS))))).toEqual(DEFAULT_BINDINGS);
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([id]) => !phase8.some((p) => p === id)));
+    expect(parseBindings({ version: BINDINGS_SCHEMA_VERSION, bindings: old })).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('resolve from their keys', () => {
+    for (const id of phase8) {
+      const raw: RawInputState = {
+        keys: new Set([keys[id]]),
+        mouseButtons: new Set<number>(),
+        mouse: { x: 0, y: 0, wheel: 0 },
+        gamepadButtons: [],
+        gamepadAxes: [],
+      };
+      const r = resolveActions(DEFAULT_BINDINGS, raw);
+      expect(r[id], id).toBe(1);
+      expect(phase8.filter((o) => r[o] === 1)).toEqual([id]);
+    }
+  });
+});
+
 describe('isBinding', () => {
   it('accepts well-formed bindings for each device', () => {
     expect(isBinding({ device: 'keyboard', code: 'KeyW' })).toBe(true);

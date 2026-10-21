@@ -58,6 +58,7 @@ import {
 } from './tactical';
 import { BACKUP_HUD_LINES, PURSUIT_VERDICT_MS } from './phase6';
 import { altitudeText, batteryText, fleetChipText, gearWarningText, oilLowFlag, tyresWornFlag, type HudWear } from './phase7';
+import { vignetteOpacity, wellbeingChip, type ChipSeverity, type HudCareer } from './phase8';
 import type { HudBodycam, HudLocation, HudTactical } from './types';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
@@ -276,6 +277,20 @@ export interface HudText {
   fleet: string;
   /** Gear warning line; '' hides it. */
   gearWarning: string;
+  // Phase 8 (design §11.3): set through `Hud.setCareer` / `setCourseLine` / `setCoopChip` / `setOrderLine`.
+  /** Wellbeing chip ('FATIGUE 72 %'); '' hides it. */
+  careerChip: string;
+  careerSeverity: ChipSeverity;
+  /** Career shift line ('Shift 06:00-14:00' / 'OT +0:35'); '' hides it. */
+  careerShift: string;
+  /** Vignette strength 0..1 (hundredths); 0 hides the overlay. */
+  vignette: number;
+  /** Driving course line; '' hides it. */
+  courseLine: string;
+  /** Co-op chip; '' hides it. */
+  coopChip: string;
+  /** Dispatcher order line (co-op); '' hides it. */
+  orderLine: string;
 }
 
 export function createHudText(): HudText {
@@ -350,6 +365,13 @@ export function createHudText(): HudText {
     battery: '',
     fleet: '',
     gearWarning: '',
+    careerChip: '',
+    careerSeverity: 'clear',
+    careerShift: '',
+    vignette: 0,
+    courseLine: '',
+    coopChip: '',
+    orderLine: '',
   };
 }
 
@@ -530,6 +552,10 @@ const STYLES = {
   pursuitVerdict: `${PANEL};left:50%;top:${px(92)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-weight:700;font-size:${px(14)};white-space:nowrap`,
   backupPanel: `${PANEL};position:relative;border-left:4px solid #6c9bff;font-size:${px(12)};font-weight:600`,
   gearLine: `${PANEL};left:50%;bottom:${px(160)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-size:${px(14)};font-weight:700;white-space:nowrap`,
+  careerShift: `${PANEL};position:relative;border-left:4px solid var(--c-unit, #4f8cff);font-size:${px(13)};font-weight:600`,
+  courseLine: `${PANEL};left:50%;top:${px(128)};transform:translateX(-50%);border-left:4px solid var(--c-ok, #5fd35f);font:700 ${px(15)}/1.3 ui-monospace, Menlo, Consolas, monospace;white-space:nowrap`,
+  orderLine: `${PANEL};left:50%;top:${px(164)};transform:translateX(-50%);border-left:4px solid var(--c-caution, #ffcc66);font-weight:700;font-size:${px(14)};white-space:nowrap`,
+  vignette: 'position:absolute;inset:0;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center, rgba(0,0,0,0) 40%, rgba(0,0,0,0.92) 100%)',
   commandLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(12)};font-weight:700;letter-spacing:0.04em`,
 } as const;
 
@@ -617,6 +643,12 @@ interface HudView {
   altChip: HTMLSpanElement;
   fleetChip: HTMLSpanElement;
   gearLine: HTMLDivElement;
+  careerChip: HTMLSpanElement;
+  coopChip: HTMLSpanElement;
+  careerShift: HTMLDivElement;
+  courseLine: HTMLDivElement;
+  orderLine: HTMLDivElement;
+  vignette: HTMLDivElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -649,6 +681,8 @@ function buildView(parent: HTMLElement): HudView {
   const resourceEta = chip('', '#9fd0ff', chipRow);
   const flirChip = chip('FLIR', '#e8f4ea', chipRow);
   const fleetChip = chip('', '#f2c14e', chipRow);
+  const careerChip = chip('', 'var(--c-caution, #ffcc66)', chipRow);
+  const coopChip = chip('', 'var(--c-unit, #4f8cff)', chipRow);
   const tacticalRow = node('div', STYLES.tacticalRow, bottomRight);
   tacticalRow.style.display = 'none';
   const tactical = node('div', STYLES.tacticalChips, tacticalRow);
@@ -695,6 +729,8 @@ function buildView(parent: HTMLElement): HudView {
   offer.style.display = 'none';
   const shift = node('div', STYLES.shiftLine, topLeft);
   shift.style.display = 'none';
+  const careerShift = node('div', STYLES.careerShift, topLeft);
+  careerShift.style.display = 'none';
   const scenePanel = node('div', STYLES.scenePanel, topLeft);
   scenePanel.style.display = 'none';
   const sceneTitle = node('div', STYLES.sceneTitle, scenePanel);
@@ -731,6 +767,11 @@ function buildView(parent: HTMLElement): HudView {
   const pursuitVerdict = node('div', STYLES.pursuitVerdict, root);
   pursuitVerdict.style.display = 'none';
 
+  const courseLine = node('div', STYLES.courseLine, root);
+  courseLine.style.display = 'none';
+  const orderLine = node('div', STYLES.orderLine, root);
+  orderLine.style.display = 'none';
+
   const reticle = node('div', STYLES.reticle, root);
   for (const corner of CORNERS) node('div', `${STYLES.corner};${corner}`, reticle);
   reticle.style.display = 'none';
@@ -762,6 +803,8 @@ function buildView(parent: HTMLElement): HudView {
   legal.style.display = 'none';
   const gearLine = node('div', STYLES.gearLine, root);
   gearLine.style.display = 'none';
+  // Last child, so it dims the other elements; opacity only, never animated.
+  const vignette = node('div', STYLES.vignette, root);
 
   parent.appendChild(root);
   return {
@@ -774,6 +817,7 @@ function buildView(parent: HTMLElement): HudView {
     dash, forceChip, episode, legal, duty, court, trust,
     backupPanel, backupRows, pursuit6, pursuitVerdict, resourceEta, command, flirChip,
     oilChip, wornChip, altChip, fleetChip, gearLine,
+    careerChip, coopChip, careerShift, courseLine, orderLine, vignette,
   };
 }
 
@@ -804,6 +848,11 @@ export class Hud {
   /** The tactic verdict last seen and when it first appeared (it hides `PURSUIT_VERDICT_MS` later). */
   private verdictSeen = '';
   private verdictAtMs = 0;
+  // Phase 8 inputs (set by the integrator's feed, merged into the text model at each throttled update).
+  private career: Readonly<HudCareer> | null = null;
+  private courseText = '';
+  private coopText = '';
+  private orderText = '';
 
   constructor(parent: HTMLElement, options: HudOptions = {}) {
     this.intervalMs = 1000 / Math.max(0.1, options.updateHz ?? 10);
@@ -825,8 +874,29 @@ export class Hud {
     this.lastRender = nowMs;
     this.renderCount += 1;
     hudText(snapshot, this.next);
+    this.mergePhase8();
     this.expireVerdict(nowMs);
     this.apply();
+  }
+
+  /** Career wellbeing chip, shift line and vignette (null hides them). Applied at the next throttled update. */
+  setCareer(c: Readonly<HudCareer> | null): void {
+    this.career = c;
+  }
+
+  /** Driving course line (use `courseLine`); '' hides it. */
+  setCourseLine(text: string): void {
+    this.courseText = text;
+  }
+
+  /** Co-op chip (use `coopChip`); '' hides it. */
+  setCoopChip(text: string): void {
+    this.coopText = text;
+  }
+
+  /** Dispatcher order line (co-op); '' hides it. */
+  setOrderLine(text: string): void {
+    this.orderText = text;
   }
 
   setVisible(visible: boolean): void {
@@ -837,6 +907,20 @@ export class Hud {
 
   dispose(): void {
     this.view?.root.remove();
+  }
+
+  /** Copies the Phase 8 inputs into the next text model. */
+  private mergePhase8(): void {
+    const n = this.next;
+    const c = this.career;
+    const chip = c ? wellbeingChip(c.fatigue, c.stress) : null;
+    n.careerChip = chip?.text ?? '';
+    n.careerSeverity = chip?.severity ?? 'clear';
+    n.careerShift = c?.shiftLine ?? '';
+    n.vignette = c ? vignetteOpacity(c.vignette) : 0;
+    n.courseLine = this.courseText;
+    n.coopChip = this.coopText;
+    n.orderLine = this.orderText;
   }
 
   /** Hides the pursuit verdict `PURSUIT_VERDICT_MS` after the text last changed. */
@@ -958,6 +1042,7 @@ export class Hud {
     this.applyLaw(all);
     this.applyPhase6(all);
     this.applyPhase7(all);
+    this.applyPhase8(all);
   }
 
   /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
@@ -1302,6 +1387,54 @@ export class Hud {
       if (v) {
         v.gearLine.textContent = n.gearWarning;
         show(v.gearLine, n.gearWarning !== '');
+      }
+    }
+  }
+
+  /** Phase 8 fields (wellbeing chip, career shift line, vignette, course line, co-op chip, order line). */
+  private applyPhase8(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    if (all || n.careerChip !== o.careerChip || n.careerSeverity !== o.careerSeverity) {
+      o.careerChip = n.careerChip;
+      o.careerSeverity = n.careerSeverity;
+      if (v) {
+        v.careerChip.textContent = n.careerChip;
+        v.careerChip.style.background = n.careerSeverity === 'alert' ? 'var(--c-alert, #ff5a5a)' : 'var(--c-caution, #ffcc66)';
+        show(v.careerChip, n.careerChip !== '', 'inline');
+      }
+    }
+    if (all || n.careerShift !== o.careerShift) {
+      o.careerShift = n.careerShift;
+      if (v) {
+        v.careerShift.textContent = n.careerShift;
+        show(v.careerShift, n.careerShift !== '');
+      }
+    }
+    if (all || n.vignette !== o.vignette) {
+      o.vignette = n.vignette;
+      if (v) v.vignette.style.opacity = String(n.vignette);
+    }
+    if (all || n.courseLine !== o.courseLine) {
+      o.courseLine = n.courseLine;
+      if (v) {
+        v.courseLine.textContent = n.courseLine;
+        show(v.courseLine, n.courseLine !== '');
+      }
+    }
+    if (all || n.coopChip !== o.coopChip) {
+      o.coopChip = n.coopChip;
+      if (v) {
+        v.coopChip.textContent = n.coopChip;
+        show(v.coopChip, n.coopChip !== '', 'inline');
+      }
+    }
+    if (all || n.orderLine !== o.orderLine) {
+      o.orderLine = n.orderLine;
+      if (v) {
+        v.orderLine.textContent = n.orderLine;
+        show(v.orderLine, n.orderLine !== '');
       }
     }
   }

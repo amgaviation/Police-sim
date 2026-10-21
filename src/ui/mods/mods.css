@@ -1,0 +1,21 @@
+/* Mod manager (Phase 8 design 12.3). Sizes in em; colours from the theme variables; no animations. */
+.mod-manager { width: min(94vw, 52em); max-height: 92vh; gap: 0.6em; }
+.mod-manager .mm-head { justify-content: space-between; flex-wrap: nowrap; }
+.mod-manager .mm-head h1 { margin: 0; }
+.mod-manager .mm-notice { margin: 0; padding: 0.5em 0.7em; border: 1px solid var(--c-caution); border-radius: var(--radius); color: var(--c-caution); }
+.mod-manager .mm-notice[hidden] { display: none; }
+.mod-manager .mm-list { display: flex; flex-direction: column; gap: 0.3em; max-height: 40vh; overflow: auto; }
+.mod-manager .mm-row { display: grid; grid-template-columns: minmax(10em, 1.4fr) minmax(8em, 1.2fr) minmax(6em, 1fr) auto auto; gap: 0.4em 0.8em; align-items: center; padding: 0.4em 0.6em; border: 1px solid var(--panel-border); border-radius: var(--radius); }
+.mod-manager .mm-row.mm-enabled { border-color: var(--accent); }
+.mod-manager .mm-check { display: flex; gap: 0.5em; align-items: center; cursor: pointer; }
+.mod-manager .mm-name { font-weight: 600; }
+.mod-manager .mm-meta { color: var(--fg-dim); font-size: 0.85em; }
+.mod-manager .mm-badge { font-family: var(--font-mono); font-size: 0.85em; color: var(--fg-dim); }
+.mod-manager .mm-actions { display: flex; gap: 0.3em; }
+.mod-manager .mm-empty { color: var(--fg-dim); font-style: italic; }
+.mod-manager .mm-error { color: var(--c-alert); }
+.mod-manager .mm-line { font-family: var(--font-mono); font-size: 0.85em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mod-manager .mm-messages { max-height: 24vh; overflow: auto; }
+@media (max-width: 40em) {
+  .mod-manager .mm-row { grid-template-columns: 1fr; }
+}

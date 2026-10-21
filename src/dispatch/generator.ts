@@ -106,6 +106,7 @@ export class CallGenerator {
   private readonly hit: RoadHit = { edge: -1, s: 0, t: 0, x: 0, z: 0, distance: 0, side: 1 };
   private readonly pt = { x: 0, z: 0 };
   private crimeFactor: ((district: string) => number) | null = null;
+  private categoryWeight: ((category: string) => number) | null = null;
 
   constructor(city: City, records: RecordsDb, seed: number, config: DispatchConfig['generator']) {
     this.city = city;
@@ -131,6 +132,20 @@ export class CallGenerator {
    */
   setCrimeFactor(fn: ((district: string) => number) | null): void {
     this.crimeFactor = fn;
+  }
+
+  /**
+   * Phase 8: multiplies each generated type's weight in `pickType` by `fn(type.category)` (specialty call mix); `null`
+   * removes it. A result that is not a finite number >= 0 counts as 1.
+   */
+  setCategoryWeight(fn: ((category: string) => number) | null): void {
+    this.categoryWeight = fn;
+  }
+
+  private catWeight(t: CallType): number {
+    if (this.categoryWeight === null) return 1;
+    const f = this.categoryWeight(t.category);
+    return Number.isFinite(f) && f >= 0 ? f : 1;
   }
 
   /**
@@ -163,17 +178,17 @@ export class CallGenerator {
     const { hour, weekday } = clockParts(gameSeconds);
     const w = this.scratchW;
     w.length = 0;
-    for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district) * crimeWeight(t.category, hour, weekday, district));
+    for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district) * crimeWeight(t.category, hour, weekday, district) * this.catWeight(t));
     const u = rng.next();
     let i = weightedIndex(w, u);
     if (i < 0) {
       w.length = 0;
-      for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district));
+      for (const t of this.generatedTypes) w.push(t.weight * this.districtFactor(t, district) * this.catWeight(t));
       i = weightedIndex(w, u);
     }
     if (i < 0) {
       w.length = 0;
-      for (const t of this.generatedTypes) w.push(t.weight);
+      for (const t of this.generatedTypes) w.push(t.weight * this.catWeight(t));
       i = weightedIndex(w, u);
     }
     return this.generatedTypes[i] ?? null;

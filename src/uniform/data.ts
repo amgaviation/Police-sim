@@ -1,4 +1,6 @@
 import uniformsJson from '../data/uniform/uniforms.json';
+import { applyUniformPatches } from '../mods/combine';
+import { modOverlay } from '../mods/registry';
 import { fail, readArray, readBoolean, readColor, readNumber, readObject, readOneOf, readString, readVersion } from '../vehicles/json';
 import type { JsonObject } from '../vehicles/json';
 import { CARRIER_IDS, HAT_IDS, RANK_IDS, UNIFORM_CLASSES } from './types';
@@ -207,7 +209,7 @@ export function parseUniformData(json: unknown, file: string): UniformData {
   };
 }
 
-export const UNIFORM_DATA: UniformData = parseUniformData(uniformsJson, 'uniforms.json');
+export const UNIFORM_DATA: UniformData = parseUniformData(applyUniformPatches(uniformsJson, modOverlay().uniforms), 'uniforms.json');
 
 const CLASS_BY_ID: ReadonlyMap<UniformClass, UniformClassDef> = new Map(UNIFORM_DATA.classes.map((c) => [c.id, c]));
 const RANK_BY_ID: ReadonlyMap<RankId, RankDef> = new Map(UNIFORM_DATA.ranks.map((r) => [r.id, r]));

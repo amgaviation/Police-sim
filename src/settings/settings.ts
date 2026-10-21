@@ -1,3 +1,4 @@
+import type { OneHandedLayout } from '../a11y/layouts';
 import type { EventMap } from '../core/event-map';
 import { bus as defaultBus, type EventBus } from '../core/events';
 import { log } from '../core/log';
@@ -12,7 +13,7 @@ import {
 import { SettingsBlobStore } from '../save/saveManager';
 
 /** Bump when the persisted shape changes and add a step to `SETTINGS_MIGRATIONS`. */
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 
 export type ShadowQuality = 'off' | 'low' | 'high';
 export type FrameCap = 0 | 30 | 60 | 120;
@@ -55,7 +56,8 @@ export interface AccessibilitySettings {
   colorblind: ColorblindMode;
   reducedFlash: boolean;
   subtitles: boolean;
-  oneHanded: boolean;
+  /** Binding preset for one-handed play (Phase 8); the settings menu swaps `controls.bindings` when it changes. */
+  oneHanded: OneHandedLayout;
 }
 
 export interface Settings {
@@ -180,7 +182,6 @@ export const SETTINGS_FIELDS = {
   'accessibility.colorblind': {
     kind: 'enum',
     label: 'Color vision',
-    implemented: false,
     options: [
       { value: 'none', label: 'Default' },
       { value: 'protanopia', label: 'Protanopia' },
@@ -190,7 +191,15 @@ export const SETTINGS_FIELDS = {
   },
   'accessibility.reducedFlash': { kind: 'boolean', label: 'Reduce flashing lights' },
   'accessibility.subtitles': { kind: 'boolean', label: 'Radio captions' },
-  'accessibility.oneHanded': { kind: 'boolean', label: 'One-handed mode', implemented: false },
+  'accessibility.oneHanded': {
+    kind: 'enum',
+    label: 'One-handed layout',
+    options: [
+      { value: 'off', label: 'Off' },
+      { value: 'left', label: 'Left hand' },
+      { value: 'right', label: 'Right hand' },
+    ],
+  },
 } as const satisfies Record<SettingsPath, SettingsField>;
 
 /** All setting paths in declaration order. */
@@ -233,7 +242,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
     voiceCommands: false,
   },
   controls: { mouseSensitivity: 1, invertY: false, gamepadDeadzone: 0.15, bindings: cloneBindings(DEFAULT_BINDINGS) },
-  accessibility: { textScale: 1, colorblind: 'none', reducedFlash: false, subtitles: true, oneHanded: false },
+  accessibility: { textScale: 1, colorblind: 'none', reducedFlash: false, subtitles: true, oneHanded: 'off' },
 };
 
 // --- Pure helpers -------------------------------------------------------------
@@ -343,7 +352,18 @@ export function serializeSettings(settings: Readonly<Settings>): SerializedSetti
 export type SettingsMigration = (data: AnyRecord) => AnyRecord;
 export type SettingsMigrationTable = Readonly<Record<number, SettingsMigration>>;
 
-export const SETTINGS_MIGRATIONS: SettingsMigrationTable = {};
+/**
+ * v1 -> v2 (Phase 8): `accessibility.oneHanded` was an unimplemented boolean, now a layout id. `true` becomes
+ * `'left'` (the old flag had no side); anything else becomes `'off'`.
+ */
+export function migrateSettingsV1ToV2(data: AnyRecord): AnyRecord {
+  const accessibility = data['accessibility'];
+  if (!isRecord(accessibility)) return data;
+  const oneHanded: OneHandedLayout = accessibility['oneHanded'] === true ? 'left' : 'off';
+  return { ...data, accessibility: { ...accessibility, oneHanded } };
+}
+
+export const SETTINGS_MIGRATIONS: SettingsMigrationTable = { 1: migrateSettingsV1ToV2 };
 
 /**
  * Applies migrations from the blob's `version` up to `SETTINGS_VERSION`. A

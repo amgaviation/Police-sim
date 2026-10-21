@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { PALETTES, setPaletteMode } from '../../src/a11y';
 import { CadState } from '../../src/cad/cadState';
+import { priorityColor, unitStatusColor } from '../../src/ui/mdt/map';
 import { clampView, fitScale, MAP_MAX_SCALE, mapToWorld, pickCall, worldToMap, zoomView, panView, type MapView } from '../../src/ui/mdt';
 import { WORLD_HALF_SIZE } from '../../src/world/constants';
 import { addCall, addRoster, at, location } from './helpers';
@@ -60,5 +62,25 @@ describe('pickCall', () => {
     expect(pickCall(v, cad.calls(), 100, 113)).toBeNull();
     // The closed call sits at (0, -100) and is never picked.
     expect(pickCall(v, cad.calls(), 100, 0)).toBeNull();
+  });
+});
+
+describe('palette-driven marker colours', () => {
+  afterEach(() => {
+    setPaletteMode('none');
+  });
+
+  it('take the call priority and unit status colours from the active colour-vision palette', () => {
+    expect(priorityColor(1)).toBe(PALETTES.none.colors.p1);
+    expect(priorityColor(4)).toBe(PALETTES.none.colors.p4);
+    expect(priorityColor(9)).toBe(PALETTES.none.colors.p4);
+    expect(unitStatusColor('available')).toBe(PALETTES.none.colors.ok);
+    expect(unitStatusColor('busy')).toBe(PALETTES.none.colors.unitBusy);
+    expect(unitStatusColor('outOfService')).toBe('#8e8e93');
+    setPaletteMode('tritanopia');
+    expect(priorityColor(1)).toBe(PALETTES.tritanopia.colors.p1);
+    expect(unitStatusColor('enRoute')).toBe(PALETTES.tritanopia.colors.caution);
+    setPaletteMode('protanopia');
+    expect(unitStatusColor('available')).toBe(PALETTES.protanopia.colors.ok);
   });
 });

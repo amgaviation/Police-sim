@@ -65,7 +65,7 @@ function setup(withBoard = true): { f: Fixture; feed: Feed; mdt: MdtOverlay } {
 
 describe('tabs', () => {
   it('appends Resources and Command, reachable with the arrows only', () => {
-    expect(MDT_TABS.slice(-2)).toEqual(['resources', 'command']);
+    expect(MDT_TABS.slice(-3)).toEqual(['resources', 'command', 'cases']); // Phase 8 appends Cases
     expect(MDT_TAB_LABELS.resources).toBe('Resources');
     expect(MDT_TAB_LABELS.command).toBe('Command');
     expect(tabKeyLabel('resources')).toBe('');

@@ -1,0 +1,29 @@
+{
+  "format": "patrol-mod",
+  "version": 1,
+  "id": "example-folder",
+  "name": "Example folder mod",
+  "author": "Example author",
+  "description": "Folder form of a mod: mod.json lists the content files by kind.",
+  "modVersion": "1.0.0",
+  "files": {
+    "callTypes": [
+      "calls/noise.json"
+    ],
+    "rulesets": [
+      "laws/example-city.json"
+    ],
+    "dispatchScripts": [
+      "scripts/quiet-harbor.json"
+    ],
+    "voicePacks": [
+      "voices/steady.json"
+    ],
+    "uniforms": [
+      "uniforms/colors.json"
+    ],
+    "districts": [
+      "districts/table.json"
+    ]
+  }
+}

@@ -1,3 +1,4 @@
+import { LAYOUT_NAMES, isOneHandedLayout, layoutBindings } from '../a11y/layouts';
 import { ACTIONS, ACTION_IDS, actionKind, type ActionId } from '../input/actions';
 import { DEFAULT_BINDINGS, bindingSign, cloneBindings, withBindingSign, type Binding, type BindingMap } from '../input/bindings';
 import type { InputManager } from '../input/input';
@@ -35,6 +36,20 @@ export function describeBinding(binding: Binding): string {
     return code + sign;
   }
   return code.replace(/^(Key|Digit)/, '').replace(/^Arrow/, 'Arrow ') + sign;
+}
+
+/** Semantic colours previewed under the colour-vision select (CSS variables `--c-<tone>` in styles.css). */
+export const SWATCH_TONES = ['unit', 'emergency', 'suspect', 'ok', 'caution', 'alert'] as const;
+
+/** Hint shown after a one-handed layout replaced the key bindings. */
+export function layoutHint(name: string): string {
+  return `Key bindings replaced by the ${name} layout (rebind any key below)`;
+}
+
+function createSwatches(): HTMLElement {
+  const row = el('div', { class: 'swatches', 'aria-hidden': 'true' });
+  for (const tone of SWATCH_TONES) row.appendChild(el('span', { class: 'swatch', dataset: { tone } }));
+  return row;
 }
 
 interface Control {
@@ -129,6 +144,7 @@ export class SettingsMenu implements Menu {
   private readonly body: HTMLElement;
   private readonly controls = new Map<SettingsPath, Control>();
   private readonly bindingsTable = el('div', { class: 'stack bindings' });
+  private readonly layoutNote = el('p', { class: 'hint', role: 'status' });
   private section: SettingsSection = 'graphics';
   private cancelCapture: (() => void) | null = null;
   private pendingFocusKey: string | null = null;
@@ -179,6 +195,7 @@ export class SettingsMenu implements Menu {
       }
       if (change.path === 'controls.bindings') this.renderBindings(undefined, this.takePendingFocus());
       else this.controls.get(change.path)?.refresh();
+      if (change.path === 'accessibility.oneHanded') this.applyLayout(change.value);
     });
     this.refreshAll();
   }
@@ -207,12 +224,15 @@ export class SettingsMenu implements Menu {
     }
     clearChildren(this.body);
     this.controls.clear();
+    this.layoutNote.textContent = '';
     for (const path of fieldsOfSection(section)) {
       if (!isImplemented(path)) continue;
       const control = createControl(path, settingsField(path), this.store);
       if (!control) continue;
       this.controls.set(path, control);
       this.body.appendChild(control.element);
+      if (path === 'accessibility.colorblind') this.body.appendChild(createSwatches());
+      if (path === 'accessibility.oneHanded') this.body.appendChild(this.layoutNote);
     }
     if (section === 'controls') {
       this.body.append(
@@ -227,6 +247,16 @@ export class SettingsMenu implements Menu {
   private refreshAll(): void {
     for (const control of this.controls.values()) control.refresh();
     if (this.section === 'controls') this.renderBindings();
+  }
+
+  /** Replaces `controls.bindings` with the preset of the chosen one-handed layout and says so. */
+  private applyLayout(value: unknown): void {
+    if (!isOneHandedLayout(value)) return;
+    this.stopCapture();
+    const map = layoutBindings(value);
+    this.input.setBindings(map);
+    this.store.set('controls.bindings', map);
+    this.layoutNote.textContent = layoutHint(LAYOUT_NAMES[value]);
   }
 
   private resetToDefaults(): void {

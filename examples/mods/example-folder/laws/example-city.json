@@ -1,0 +1,725 @@
+{
+  "version": 1,
+  "id": "example-city",
+  "name": "Example City",
+  "description": "Example ruleset: the generic rules with a shorter pursuit limit.",
+  "rules": [
+    {
+      "id": "GS-1.1",
+      "doctrine": "detention",
+      "title": "Investigative detention",
+      "cite": "Gen. Crim. Proc. § 1.1",
+      "text": "An officer may briefly detain a person only when specific facts add up to reasonable suspicion of an offense."
+    },
+    {
+      "id": "GS-2.1",
+      "doctrine": "frisk",
+      "title": "Frisk for weapons",
+      "cite": "Gen. Crim. Proc. § 2.1",
+      "text": "A pat-down of a lawfully stopped person is allowed only when the officer reasonably believes the person is armed."
+    },
+    {
+      "id": "GS-2.2",
+      "doctrine": "friskScope",
+      "title": "Frisk scope",
+      "cite": "Gen. Crim. Proc. § 2.2",
+      "text": "A frisk is limited to weapons, plus items whose contraband nature is immediately apparent by touch."
+    },
+    {
+      "id": "GS-3.1",
+      "doctrine": "arrest",
+      "title": "Arrest on probable cause",
+      "cite": "Gen. Crim. Proc. § 3.1",
+      "text": "An arrest requires probable cause that the person committed an arrestable offense."
+    },
+    {
+      "id": "GS-3.2",
+      "doctrine": "arrest",
+      "title": "Arrest on a warrant",
+      "cite": "Gen. Crim. Proc. § 3.2",
+      "text": "An outstanding arrest warrant authorizes the arrest of the named person."
+    },
+    {
+      "id": "GS-4.1",
+      "doctrine": "search",
+      "title": "Search incident to arrest",
+      "cite": "Gen. Crim. Proc. § 4.1",
+      "text": "After a lawful arrest the officer may search the arrestee within 600 seconds, or up to 60 seconds before it when probable cause already existed."
+    },
+    {
+      "id": "GS-4.2",
+      "doctrine": "search",
+      "title": "Vehicle search incident to arrest",
+      "cite": "Gen. Crim. Proc. § 4.2",
+      "text": "A vehicle the arrestee occupied may be searched incident to a lawful arrest."
+    },
+    {
+      "id": "GS-4.3",
+      "doctrine": "search",
+      "title": "Automobile exception",
+      "cite": "Gen. Crim. Proc. § 4.3",
+      "text": "A vehicle may be searched without a warrant when probable cause points to evidence of an offense inside it."
+    },
+    {
+      "id": "GS-5.1",
+      "doctrine": "consent",
+      "title": "Consent",
+      "cite": "Gen. Crim. Proc. § 5.1",
+      "text": "A search is lawful when a person with authority freely and validly consents to it."
+    },
+    {
+      "id": "GS-5.2",
+      "doctrine": "consent",
+      "title": "Scope of consent",
+      "cite": "Gen. Crim. Proc. § 5.2",
+      "text": "A consent search may not go beyond what the person agreed to."
+    },
+    {
+      "id": "GS-5.3",
+      "doctrine": "consent",
+      "title": "Voluntariness of consent",
+      "cite": "Gen. Crim. Proc. § 5.3",
+      "text": "Consent given at gunpoint or after sustained pressure is not voluntary."
+    },
+    {
+      "id": "GS-6.1",
+      "doctrine": "exigency",
+      "title": "Exigent circumstances",
+      "cite": "Gen. Crim. Proc. § 6.1",
+      "text": "An emergency threatening life or the loss of evidence may justify acting without a warrant or consent."
+    },
+    {
+      "id": "GS-6.2",
+      "doctrine": "entry",
+      "title": "Entry into premises",
+      "cite": "Gen. Crim. Proc. § 6.2",
+      "text": "Officers may enter a non-public building only with consent, a warrant or exigent circumstances."
+    },
+    {
+      "id": "GS-6.3",
+      "doctrine": "search",
+      "title": "Protective sweep",
+      "cite": "Gen. Crim. Proc. § 6.3",
+      "text": "After an arrest inside a building, officers may look in places where a person posing a danger could hide."
+    },
+    {
+      "id": "GS-6.4",
+      "doctrine": "search",
+      "title": "Plain view",
+      "cite": "Gen. Crim. Proc. § 6.4",
+      "text": "Items in plain view are seizable only when the officer is lawfully in the place from which they are seen."
+    },
+    {
+      "id": "GS-7.1",
+      "doctrine": "miranda",
+      "title": "Warnings before custodial questioning",
+      "cite": "Gen. Crim. Proc. § 7.1",
+      "text": "A person in custody must be warned of their rights before incriminating questions."
+    },
+    {
+      "id": "GS-7.2",
+      "doctrine": "miranda",
+      "title": "Invocation of rights",
+      "cite": "Gen. Crim. Proc. § 7.2",
+      "text": "Once a person invokes the right to silence or counsel, questioning about the offense must stop."
+    },
+    {
+      "id": "GS-7.3",
+      "doctrine": "test",
+      "title": "Breath and sobriety tests",
+      "cite": "Gen. Crim. Proc. § 7.3",
+      "text": "Preliminary breath and field sobriety tests require consent, which is implied after a lawful arrest."
+    },
+    {
+      "id": "GS-8.1",
+      "doctrine": "force",
+      "title": "Force continuum",
+      "cite": "Gen. Crim. Proc. § 8.1",
+      "text": "The force used may not exceed what the subject's level of resistance justifies."
+    },
+    {
+      "id": "GS-8.2",
+      "doctrine": "force",
+      "title": "Force on a restrained subject",
+      "cite": "Gen. Crim. Proc. § 8.2",
+      "text": "Once a subject is restrained, only minimal control force is allowed."
+    },
+    {
+      "id": "GS-8.3",
+      "doctrine": "force",
+      "title": "TASER cycles",
+      "cite": "Gen. Crim. Proc. § 8.3",
+      "text": "A TASER may not be cycled more than 3 times against one subject."
+    },
+    {
+      "id": "GS-8.4",
+      "doctrine": "force",
+      "title": "TASER risk factors",
+      "cite": "Gen. Crim. Proc. § 8.4",
+      "text": "A TASER should not be used on a subject with a known risk factor unless the subject poses a lethal threat."
+    },
+    {
+      "id": "GS-8.5",
+      "doctrine": "force",
+      "title": "Lethal force",
+      "cite": "Gen. Crim. Proc. § 8.5",
+      "text": "Firearm force is justified only against a subject posing a lethal threat."
+    },
+    {
+      "id": "GS-8.6",
+      "doctrine": "force",
+      "title": "Firearm display",
+      "cite": "Gen. Crim. Proc. § 8.6",
+      "text": "Drawing and pointing a firearm is a show of force that must be explained in the report."
+    },
+    {
+      "id": "GS-9.1",
+      "doctrine": "intervene",
+      "title": "Duty to intervene",
+      "cite": "Gen. Crim. Proc. § 9.1",
+      "text": "An officer who sees a fellow officer use excessive force within reach must intervene."
+    },
+    {
+      "id": "GS-10.1",
+      "doctrine": "pursuit",
+      "title": "Pursuit initiation",
+      "cite": "Gen. Crim. Proc. § 10.1",
+      "text": "A vehicle pursuit may begin only for the offenses listed in policy."
+    },
+    {
+      "id": "GS-10.2",
+      "doctrine": "pursuit",
+      "title": "Pursuit termination",
+      "cite": "Gen. Crim. Proc. § 10.2",
+      "text": "A pursuit must be terminated when told to, or when it runs past the policy time limit."
+    },
+    {
+      "id": "GS-10.3",
+      "doctrine": "pursuit",
+      "title": "Pursuit speed",
+      "cite": "Gen. Crim. Proc. § 10.3",
+      "text": "Pursuit speed may not stay above the allowed margin over the limit for long."
+    },
+    {
+      "id": "GS-10.4",
+      "doctrine": "pursuit",
+      "title": "Pursuit equipment",
+      "cite": "Gen. Crim. Proc. § 10.4",
+      "text": "Emergency lights and siren must be active throughout a pursuit."
+    },
+    {
+      "id": "GS-11.1",
+      "doctrine": "recording",
+      "title": "Body camera activation",
+      "cite": "Gen. Crim. Proc. § 11.1",
+      "text": "The body camera must be recording during enforcement contacts after a short activation grace period."
+    },
+    {
+      "id": "GS-11.2",
+      "doctrine": "recording",
+      "title": "Muting the recording",
+      "cite": "Gen. Crim. Proc. § 11.2",
+      "text": "The recording may not be muted during an enforcement contact."
+    },
+    {
+      "id": "GS-12.1",
+      "doctrine": "evidence",
+      "title": "Exclusion of evidence",
+      "cite": "Gen. Crim. Proc. § 12.1",
+      "text": "Evidence obtained through an unlawful act may not be used."
+    },
+    {
+      "id": "GS-12.2",
+      "doctrine": "evidence",
+      "title": "Fruit of the poisonous tree",
+      "cite": "Gen. Crim. Proc. § 12.2",
+      "text": "Evidence derived from an earlier illegality is excluded along with it."
+    },
+    {
+      "id": "GS-12.3",
+      "doctrine": "evidence",
+      "title": "Inevitable discovery",
+      "cite": "Gen. Crim. Proc. § 12.3",
+      "text": "Evidence that would have been found lawfully anyway remains admissible."
+    }
+  ],
+  "indicators": {
+    "trafficViolation": {
+      "label": "Observed traffic violation",
+      "offense": "traffic",
+      "rs": 1,
+      "pc": 2,
+      "armed": 0
+    },
+    "speeding": {
+      "label": "Observed speeding",
+      "offense": "traffic",
+      "rs": 1,
+      "pc": 2,
+      "armed": 0
+    },
+    "weaving": {
+      "label": "Weaving within the lane",
+      "offense": "dui",
+      "rs": 1,
+      "pc": 0.4,
+      "armed": 0
+    },
+    "expiredRegistration": {
+      "label": "Expired registration",
+      "offense": "traffic",
+      "rs": 1,
+      "pc": 2,
+      "armed": 0
+    },
+    "licenseInvalid": {
+      "label": "Invalid driver license",
+      "offense": "traffic",
+      "rs": 0.5,
+      "pc": 2,
+      "armed": 0
+    },
+    "stolenVehicle": {
+      "label": "Vehicle reported stolen",
+      "offense": "felonyVehicle",
+      "rs": 1,
+      "pc": 1.5,
+      "armed": 0.3
+    },
+    "stolenPlate": {
+      "label": "Plate reported stolen",
+      "offense": "felonyVehicle",
+      "rs": 1,
+      "pc": 1,
+      "armed": 0
+    },
+    "plateMismatch": {
+      "label": "Plate does not match vehicle",
+      "offense": "felonyVehicle",
+      "rs": 0.6,
+      "pc": 0.5,
+      "armed": 0
+    },
+    "ownerWarrant": {
+      "label": "Registered owner has a warrant",
+      "offense": "warrant",
+      "rs": 0.6,
+      "pc": 0,
+      "armed": 0.2
+    },
+    "warrantHit": {
+      "label": "Outstanding warrant",
+      "offense": "warrant",
+      "rs": 1,
+      "pc": 2,
+      "armed": 0.3
+    },
+    "boloMatch": {
+      "label": "Matches a lookout broadcast",
+      "offense": "property",
+      "rs": 1,
+      "pc": 1,
+      "armed": 0.3
+    },
+    "odorAlcohol": {
+      "label": "Odor of alcohol",
+      "offense": "dui",
+      "rs": 0.6,
+      "pc": 0.6,
+      "armed": 0
+    },
+    "admissionDrinking": {
+      "label": "Admission to drinking",
+      "offense": "dui",
+      "rs": 0.4,
+      "pc": 0.5,
+      "armed": 0
+    },
+    "sfstFail": {
+      "label": "Failed field sobriety test",
+      "offense": "dui",
+      "rs": 1,
+      "pc": 1,
+      "armed": 0
+    },
+    "bacOver": {
+      "label": "Breath test over the limit",
+      "offense": "dui",
+      "rs": 1,
+      "pc": 1.5,
+      "armed": 0
+    },
+    "odorCannabis": {
+      "label": "Odor of cannabis",
+      "offense": "drugs",
+      "rs": 0.6,
+      "pc": 1,
+      "armed": 0
+    },
+    "contrabandPlainView": {
+      "label": "Contraband in plain view",
+      "offense": "drugs",
+      "rs": 1,
+      "pc": 2,
+      "armed": 0
+    },
+    "contrabandFound": {
+      "label": "Contraband found",
+      "offense": "drugs",
+      "rs": 1,
+      "pc": 2,
+      "armed": 0
+    },
+    "weaponSeen": {
+      "label": "Weapon seen",
+      "offense": "weapons",
+      "rs": 1,
+      "pc": 1,
+      "armed": 1
+    },
+    "weaponFound": {
+      "label": "Weapon found",
+      "offense": "weapons",
+      "rs": 1,
+      "pc": 1.5,
+      "armed": 1
+    },
+    "weaponCall": {
+      "label": "Dispatch reported a weapon",
+      "offense": "weapons",
+      "rs": 0.5,
+      "pc": 0,
+      "armed": 1
+    },
+    "callSuspect": {
+      "label": "Matches the call suspect",
+      "offense": "property",
+      "rs": 1,
+      "pc": 0.8,
+      "armed": 0
+    },
+    "victimInjury": {
+      "label": "Victim reports injury",
+      "offense": "violent",
+      "rs": 0.6,
+      "pc": 1,
+      "armed": 0
+    },
+    "assaultOnOfficer": {
+      "label": "Assault on an officer",
+      "offense": "violent",
+      "rs": 2,
+      "pc": 2,
+      "armed": 1
+    },
+    "flight": {
+      "label": "Fled from the officer",
+      "offense": "obstruction",
+      "rs": 0.5,
+      "pc": 0.5,
+      "armed": 0
+    },
+    "falseIdentity": {
+      "label": "Gave a false identity",
+      "offense": "obstruction",
+      "rs": 0.5,
+      "pc": 1,
+      "armed": 0
+    }
+  },
+  "offenses": {
+    "traffic": {
+      "label": "Traffic offense",
+      "severity": 1,
+      "arrestable": true,
+      "vehicleEvidence": false
+    },
+    "obstruction": {
+      "label": "Obstruction",
+      "severity": 2,
+      "arrestable": true,
+      "vehicleEvidence": false
+    },
+    "property": {
+      "label": "Property offense",
+      "severity": 3,
+      "arrestable": true,
+      "vehicleEvidence": true
+    },
+    "dui": {
+      "label": "Impaired driving",
+      "severity": 3,
+      "arrestable": true,
+      "vehicleEvidence": true
+    },
+    "drugs": {
+      "label": "Drug offense",
+      "severity": 3,
+      "arrestable": true,
+      "vehicleEvidence": true
+    },
+    "warrant": {
+      "label": "Outstanding warrant",
+      "severity": 4,
+      "arrestable": true,
+      "vehicleEvidence": false
+    },
+    "felonyVehicle": {
+      "label": "Felony vehicle offense",
+      "severity": 4,
+      "arrestable": true,
+      "vehicleEvidence": true
+    },
+    "weapons": {
+      "label": "Weapons offense",
+      "severity": 5,
+      "arrestable": true,
+      "vehicleEvidence": true
+    },
+    "violent": {
+      "label": "Violent offense",
+      "severity": 6,
+      "arrestable": true,
+      "vehicleEvidence": false
+    }
+  },
+  "familyOffense": {
+    "trafficStop": "traffic",
+    "dui": "dui",
+    "collision": "traffic",
+    "disturbance": "obstruction",
+    "domestic": "violent",
+    "crisis": "obstruction",
+    "property": "property",
+    "retail": "property",
+    "trespass": "property",
+    "inProgress": "property",
+    "violent": "violent",
+    "weapons": "weapons",
+    "activeAssailant": "violent",
+    "barricade": "violent",
+    "wanted": "warrant",
+    "vehicleWanted": "felonyVehicle",
+    "pursuit": "felonyVehicle",
+    "crowd": "obstruction",
+    "investigation": "property"
+  },
+  "statuteOffense": {
+    "TR-301": "traffic",
+    "TR-302": "traffic",
+    "TR-303": "traffic",
+    "TR-310": "traffic",
+    "TR-320": "traffic",
+    "TR-321": "traffic",
+    "TR-325": "traffic",
+    "TR-330": "traffic",
+    "TR-331": "traffic",
+    "TR-350": "traffic",
+    "TR-360": "dui",
+    "TR-361": "dui",
+    "TR-370": "traffic",
+    "TR-371": "violent",
+    "TR-380": "obstruction",
+    "TR-390": "traffic",
+    "TR-391": "traffic",
+    "TR-392": "traffic",
+    "PC-210": "felonyVehicle",
+    "PC-211": "felonyVehicle",
+    "PC-220": "warrant",
+    "PC-221": "obstruction",
+    "PC-230": "obstruction",
+    "PC-231": "obstruction",
+    "PC-240": "property",
+    "PC-250": "property",
+    "PC-251": "property",
+    "PC-252": "violent",
+    "PC-253": "property",
+    "PC-254": "property",
+    "PC-255": "property",
+    "PC-260": "drugs",
+    "PC-261": "drugs",
+    "PC-262": "weapons",
+    "PC-263": "weapons",
+    "PC-270": "violent",
+    "PC-271": "violent",
+    "PC-272": "violent",
+    "PC-273": "violent",
+    "PC-274": "violent",
+    "PC-280": "obstruction",
+    "PC-281": "dui",
+    "PC-282": "violent",
+    "PC-283": "violent",
+    "PC-284": "violent",
+    "PC-290": "obstruction",
+    "PC-291": "property"
+  },
+  "thresholds": {
+    "rs": 1,
+    "pc": 2,
+    "armed": 1
+  },
+  "detention": {
+    "ruleId": "GS-1.1",
+    "attenuating": [
+      "warrantHit"
+    ]
+  },
+  "frisk": {
+    "ruleId": "GS-2.1",
+    "scopeRuleId": "GS-2.2",
+    "plainFeel": true,
+    "plainFeelCategories": [
+      "drugs"
+    ]
+  },
+  "arrest": {
+    "ruleId": "GS-3.1",
+    "warrantRuleId": "GS-3.2"
+  },
+  "sita": {
+    "ruleId": "GS-4.1",
+    "vehicleRuleId": "GS-4.2",
+    "windowS": 600,
+    "preArrestS": 60,
+    "vehicle": "broad"
+  },
+  "automobile": {
+    "enabled": true,
+    "ruleId": "GS-4.3"
+  },
+  "consent": {
+    "ruleId": "GS-5.1",
+    "scopeRuleId": "GS-5.2",
+    "coercionRuleId": "GS-5.3",
+    "coercedByWeaponDrawn": true,
+    "maxAggressiveLines": 3
+  },
+  "exigency": {
+    "ruleId": "GS-6.1",
+    "windowS": 1800
+  },
+  "entry": {
+    "ruleId": "GS-6.2"
+  },
+  "premises": {
+    "protectiveSweepRuleId": "GS-6.3",
+    "plainViewRuleId": "GS-6.4"
+  },
+  "test": {
+    "ruleId": "GS-7.3",
+    "impliedAfterArrest": true
+  },
+  "miranda": {
+    "ruleId": "GS-7.1",
+    "invocationRuleId": "GS-7.2",
+    "custodyIncludesGunpoint": false,
+    "incriminatingFacts": [
+      "account",
+      "drinking",
+      "drugs",
+      "weapons",
+      "vehicleContents",
+      "suspectWhereabouts",
+      "origin",
+      "destination",
+      "vehicleOwner"
+    ],
+    "responseWindowS": 30
+  },
+  "force": {
+    "ruleId": "GS-8.1",
+    "restrainedRuleId": "GS-8.2",
+    "lethalRuleId": "GS-8.5",
+    "displayRuleId": "GS-8.6",
+    "levels": {
+      "presence": 0,
+      "verbal": 1,
+      "softHands": 2,
+      "hardHands": 3,
+      "ocSpray": 3,
+      "baton": 4,
+      "taser": 4,
+      "k9": 4,
+      "lessLethal": 5,
+      "firearm": 6
+    },
+    "maxByResistance": {
+      "compliant": 2,
+      "passive": 2,
+      "active": 4,
+      "assaultive": 5,
+      "lethal": 6
+    },
+    "displayFirearmMin": "compliant",
+    "taser": {
+      "maxCycles": 3,
+      "cycleRuleId": "GS-8.3",
+      "riskFactors": [
+        "elderly",
+        "pregnant",
+        "elevated",
+        "running",
+        "restrained",
+        "juvenile"
+      ],
+      "riskAllowedAt": "lethal",
+      "riskRuleId": "GS-8.4"
+    }
+  },
+  "intervene": {
+    "ruleId": "GS-9.1",
+    "windowS": 5,
+    "radiusM": 15
+  },
+  "pursuit": {
+    "ruleId": "GS-10.1",
+    "speedRuleId": "GS-10.3",
+    "terminateRuleId": "GS-10.2",
+    "equipmentRuleId": "GS-10.4",
+    "allowedOffenses": [
+      "violent",
+      "felonyVehicle",
+      "dui",
+      "warrant",
+      "weapons"
+    ],
+    "maxOverLimitMph": {
+      "default": 40,
+      "downtown": 25,
+      "suburbs": 25,
+      "campus": 20,
+      "hospital": 20,
+      "park": 20
+    },
+    "maxOverS": 20,
+    "wetFactor": 0.75,
+    "nightFactor": 0.9,
+    "requireLightsSiren": true,
+    "maxDurationS": 300,
+    "terminateGraceS": 15
+  },
+  "recording": {
+    "ruleId": "GS-11.1",
+    "muteRuleId": "GS-11.2",
+    "activationGraceS": 10,
+    "requiredFor": [
+      "detention",
+      "frisk",
+      "search",
+      "arrest",
+      "force",
+      "consent",
+      "question"
+    ],
+    "dashCounts": [
+      "detention",
+      "pursuitSample"
+    ]
+  },
+  "evidence": {
+    "exclusionRuleId": "GS-12.1",
+    "fruitRuleId": "GS-12.2",
+    "inevitableDiscovery": true,
+    "inevitableRuleId": "GS-12.3"
+  }
+}

@@ -1,4 +1,5 @@
 import { hashString } from '../core/rng';
+import { modOverlay } from '../mods/registry';
 
 /** Per-speaker TTS voice profile (design §10.4): a pure, deterministic hash of the speaker key. */
 
@@ -19,12 +20,34 @@ interface Range {
   readonly rate: readonly [number, number];
 }
 
-const RANGES: Readonly<Record<VoiceKind, Range>> = {
+const BASE_RANGES: Readonly<Record<VoiceKind, Range>> = {
   dispatcher: { pitch: [0.95, 1.1], rate: [1.05, 1.05] },
   officer: { pitch: [0.8, 1.2], rate: [0.95, 1.15] },
   player: { pitch: [0.8, 1.2], rate: [0.95, 1.15] },
   agency: { pitch: [0.9, 1.1], rate: [0.95, 1.1] },
 };
+
+/** The ranges with the active voice pack's `voices` entries applied (design Phase 8 §10.5). */
+function packRanges(): Readonly<Record<VoiceKind, Range>> {
+  const voices = modOverlay().voicePack?.voices;
+  if (!voices) return BASE_RANGES;
+  const out = { ...BASE_RANGES };
+  for (const kind of Object.keys(BASE_RANGES) as VoiceKind[]) {
+    const v = voices[kind];
+    if (v) out[kind] = { pitch: v.pitch, rate: v.rate };
+  }
+  return out;
+}
+
+const RANGES: Readonly<Record<VoiceKind, Range>> = packRanges();
+
+const NO_PREFERENCE: readonly string[] = [];
+
+/** Substrings of a voice name / language the active voice pack prefers for `kind`; [] when there is no preference. */
+export function preferredVoices(kind: VoiceKind): readonly string[] {
+  return modOverlay().voicePack?.voices[kind]?.prefer ?? NO_PREFERENCE;
+}
+
 
 function lerp(range: readonly [number, number], u: number): number {
   return Math.round((range[0] + (range[1] - range[0]) * u) * 1000) / 1000;

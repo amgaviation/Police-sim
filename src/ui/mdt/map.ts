@@ -3,11 +3,13 @@
  * canvas (by road class, as the minimap), blitted under a dynamic layer of units and calls that is
  * redrawn at most 4 Hz and only when something changed. The projection helpers are pure.
  */
+import { revision as paletteRevision, semanticColor, type SemanticColor } from '../../a11y/palette';
 import type { CadState } from '../../cad/cadState';
 import type { CadCall, UnitStatus } from '../../cad/types';
 import { WORLD_HALF_SIZE } from '../../world/constants';
 import { ROAD_CLASS } from '../../world/ids';
 import type { RoadEdge, RoadGraph } from '../../world/roadGraph';
+import type { RemoteUnit } from '../hud/types';
 
 /** Map viewport: centre in world metres, scale in CSS px per metre, size in CSS px. North (-Z) is up. */
 export interface MapView {
@@ -125,16 +127,28 @@ const DRAW_ORDER = [
   ROAD_CLASS.collector, ROAD_CLASS.arterial, ROAD_CLASS.highway,
 ] as const;
 
-export const STATUS_COLOR: Readonly<Record<UnitStatus, string>> = {
-  available: '#4cd964',
-  enRoute: '#ffcc00',
-  onScene: '#ff9500',
-  busy: '#bf5af2',
-  outOfService: '#8e8e93',
-  transporting: '#5ac8fa',
+/** Unit status -> semantic colour key; `outOfService` is a neutral grey (not a status colour). */
+const STATUS_KEY: Readonly<Record<UnitStatus, SemanticColor | null>> = {
+  available: 'ok',
+  enRoute: 'caution',
+  onScene: 'p2',
+  busy: 'unitBusy',
+  outOfService: null,
+  transporting: 'unit',
 };
+const OUT_OF_SERVICE_GREY = '#8e8e93';
+const PRIORITY_KEYS: readonly SemanticColor[] = ['p1', 'p2', 'p3', 'p4'];
 
-export const PRIORITY_COLOR: readonly string[] = ['#ff3b30', '#ff9500', '#ffd60a', '#64d2ff'];
+/** Map colour of a unit status in the active colour-vision palette. */
+export function unitStatusColor(status: UnitStatus): string {
+  const key = STATUS_KEY[status];
+  return key === null ? OUT_OF_SERVICE_GREY : semanticColor(key);
+}
+
+/** Map colour of a call priority (1..4) in the active colour-vision palette. */
+export function priorityColor(priority: number): string {
+  return semanticColor(PRIORITY_KEYS[priority - 1] ?? 'p4');
+}
 
 type Ctx2D = CanvasRenderingContext2D;
 
@@ -210,6 +224,11 @@ export class MdtMap {
   private lastAvl = -1;
   private lastFlash = -1;
   private lastSelected: number | null = null;
+  /** Palette revision the last paint used (a colour-vision mode change repaints). */
+  private lastPaletteRev = -1;
+  /** Co-op teammates (reused objects; `remoteCount` of them are live). */
+  private readonly remote: RemoteUnit[] = [];
+  private remoteCount = 0;
   private readonly p: MapPoint = { x: 0, y: 0 };
   private readonly edges: number[] = [];
   private drag: { id: number; x: number; y: number; moved: boolean } | null = null;
@@ -233,6 +252,32 @@ export class MdtMap {
 
   invalidate(): void {
     this.dirty = true;
+  }
+
+  /**
+   * Co-op teammates drawn with their callsign. Copies into reused objects and marks the map dirty only when something
+   * changed, so the overlay may call it every frame. null or [] clears them.
+   */
+  setRemoteUnits(units: readonly RemoteUnit[] | null): void {
+    const n = units?.length ?? 0;
+    let changed = n !== this.remoteCount;
+    for (let i = 0; i < n; i++) {
+      const src = units?.[i] as RemoteUnit;
+      let dst = this.remote[i];
+      if (!dst) {
+        dst = { callsign: '', x: 0, z: 0 };
+        this.remote[i] = dst;
+        changed = true;
+      }
+      if (dst.callsign !== src.callsign || dst.x !== src.x || dst.z !== src.z) {
+        dst.callsign = src.callsign;
+        dst.x = src.x;
+        dst.z = src.z;
+        changed = true;
+      }
+    }
+    this.remoteCount = n;
+    if (changed) this.dirty = true;
   }
 
   /** The view changed (pan, zoom, drag, resize) and has not been repainted yet. */
@@ -285,13 +330,15 @@ export class MdtMap {
       clampView(this.view);
       this.dirty = true;
     }
+    const paletteRev = paletteRevision();
     if (
       !this.dirty && cad.revision === this.lastRev && cad.avlRevision === this.lastAvl &&
-      flash === this.lastFlash && s.selectedCallId === this.lastSelected
+      flash === this.lastFlash && s.selectedCallId === this.lastSelected && paletteRev === this.lastPaletteRev
     ) {
       return;
     }
     this.dirty = false;
+    this.lastPaletteRev = paletteRev;
     this.lastRev = cad.revision;
     this.lastAvl = cad.avlRevision;
     this.lastFlash = flash;
@@ -349,7 +396,7 @@ export class MdtMap {
       ctx.lineTo(p.x, p.y + r);
       ctx.lineTo(p.x - r, p.y);
       ctx.closePath();
-      ctx.fillStyle = PRIORITY_COLOR[c.priority - 1] ?? '#ffffff';
+      ctx.fillStyle = priorityColor(c.priority);
       ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#000000';
@@ -377,7 +424,7 @@ export class MdtMap {
       const r = mine ? 7 : 5;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = STATUS_COLOR[u.status];
+      ctx.fillStyle = unitStatusColor(u.status);
       ctx.fill();
       ctx.lineWidth = mine ? 2.5 : 1;
       ctx.strokeStyle = mine ? '#ffffff' : '#000000';
@@ -386,11 +433,27 @@ export class MdtMap {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
         ctx.lineWidth = 3;
-        ctx.strokeStyle = '#ff3b30';
+        ctx.strokeStyle = semanticColor('emergency');
         ctx.stroke();
       }
       ctx.fillStyle = mine ? '#ffffff' : '#c8d3de';
       ctx.fillText(u.callsign, p.x + r + 4, p.y);
+    }
+    // Co-op teammates: the unit colour, the callsign beside the dot.
+    for (let i = 0; i < this.remoteCount; i++) {
+      const u = this.remote[i];
+      if (!u) continue;
+      worldToMap(this.view, u.x, u.z, p);
+      if (p.x < -20 || p.y < -20 || p.x > this.view.width + 20 || p.y > this.view.height + 20) continue;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = semanticColor('unit');
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+      ctx.fillStyle = '#c8d3de';
+      ctx.fillText(u.callsign, p.x + 10, p.y);
     }
   }
 

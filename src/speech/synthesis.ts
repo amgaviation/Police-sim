@@ -1,6 +1,6 @@
 import voicesJson from '../data/audio/voices.json';
 import { readArray, readObject, readString, readVersion } from '../vehicles/json';
-import type { VoiceProfile } from './profile';
+import { preferredVoices, type VoiceKind, type VoiceProfile } from './profile';
 
 /** Parses `voices.json`: names (lower case) of novelty voices kept out of the speaker pool (singing, whispering...). */
 export function parseExcludedVoices(json: unknown, file = 'voices.json'): ReadonlySet<string> {
@@ -16,6 +16,23 @@ const EXCLUDED_VOICES = parseExcludedVoices(voicesJson);
 export function isExcludedVoice(name: string, excluded: ReadonlySet<string> = EXCLUDED_VOICES): boolean {
   return excluded.has(name.replace(/\s*\(.*\)\s*$/, '').trim().toLowerCase());
 }
+
+/**
+ * Narrows `pool` to the voices whose name or language contains one of `prefer` (case-insensitive); the whole pool
+ * when `prefer` is empty or nothing matches (voice packs, design Phase 8 §10.5).
+ */
+export function narrowPool<T extends { readonly name: string; readonly lang: string }>(pool: readonly T[], prefer: readonly string[]): readonly T[] {
+  if (prefer.length === 0) return pool;
+  const wanted = prefer.map((p) => p.toLowerCase());
+  const hits = pool.filter((v) => {
+    const name = v.name.toLowerCase();
+    const lang = v.lang.toLowerCase();
+    return wanted.some((w) => name.includes(w) || lang.includes(w));
+  });
+  return hits.length > 0 ? hits : pool;
+}
+
+const POOL_KIND: VoiceKind = 'officer';
 
 /**
  * Text-to-speech wrapper over `speechSynthesis` (design §10.4). Feature-detected: without
@@ -100,6 +117,7 @@ export class SpeechOut {
   private readonly makeUtterance: ((text: string) => UtteranceLike) | null;
   private voices: readonly VoiceLike[] = [];
   private pool: readonly VoiceLike[] = [];
+  private dispatcherPool: readonly VoiceLike[] = [];
   /** Keeps pending utterances reachable (some engines drop `end` for collected ones). */
   private readonly pending = new Set<UtteranceLike>();
   private readonly onVoicesChanged = (): void => this.refreshVoices();
@@ -219,7 +237,7 @@ export class SpeechOut {
       const preferred = this.voices.find((v) => v.name === name);
       if (preferred) return preferred;
     }
-    const pool = this.pool;
+    const pool = dispatcher ? this.dispatcherPool : this.pool;
     if (pool.length === 0) return null;
     return pool[profile.voiceIndex % pool.length] ?? null;
   }
@@ -236,7 +254,9 @@ export class SpeechOut {
     const base = english.length > 0 ? english : this.voices;
     // Novelty voices stay selectable as the dispatcher voice (`voiceNames`), never assigned to speakers.
     const usable = base.filter((v) => !isExcludedVoice(v.name));
-    this.pool = [...(usable.length > 0 ? usable : base)].sort(byLocalThenName);
+    const sorted = [...(usable.length > 0 ? usable : base)].sort(byLocalThenName);
+    this.pool = narrowPool(sorted, preferredVoices(POOL_KIND));
+    this.dispatcherPool = narrowPool(sorted, preferredVoices('dispatcher'));
   }
 
   private call(fn: (s: SpeechSynthesisLike) => void): void {

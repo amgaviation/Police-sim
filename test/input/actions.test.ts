@@ -90,7 +90,7 @@ describe('actions', () => {
       expect(actionKind(id)).toBe('button');
     }
     // Appended after the Phase 3 actions, in the design's order (the Phase 5 actions follow them).
-    const tail = ACTION_IDS.slice(-18, -9);
+    const tail = ACTION_IDS.slice(-21, -12);
     expect(tail).toEqual(Object.keys(expected));
   });
 
@@ -99,7 +99,7 @@ describe('actions', () => {
     expect(ACTIONS['officer.bodycamMute']).toEqual({ kind: 'button', label: 'Bodycam mute' });
     expect(actionKind('officer.intervene')).toBe('button');
     expect(actionKind('officer.bodycamMute')).toBe('button');
-    expect(ACTION_IDS.slice(-9, -7)).toEqual(['officer.intervene', 'officer.bodycamMute']);
+    expect(ACTION_IDS.slice(-12, -10)).toEqual(['officer.intervene', 'officer.bodycamMute']);
     // Same id and binding as before; only the label changes.
     expect(ACTIONS['officer.weapon'].label).toBe('Cycle force tool');
     expect(isActionId('officer.weapon')).toBe(true);
@@ -118,17 +118,25 @@ describe('actions', () => {
       expect(ACTIONS[id]).toEqual({ kind: 'button', label });
       expect(actionKind(id)).toBe('button');
     }
-    expect(ACTION_IDS.slice(-7, -3)).toEqual(Object.keys(expected));
+    expect(ACTION_IDS.slice(-10, -6)).toEqual(Object.keys(expected));
   });
 
   it('appends the three Phase 7 actions: the aircraft lift axis, the fleet panel and the drone toggle', () => {
-    expect(ACTION_IDS.slice(-3)).toEqual(['vehicle.lift', 'fleet.menu', 'drone.toggle']);
+    expect(ACTION_IDS.slice(-6, -3)).toEqual(['vehicle.lift', 'fleet.menu', 'drone.toggle']);
     expect(ACTIONS['vehicle.lift']).toEqual({ kind: 'axis', label: 'Climb / descend (aircraft)', bipolar: true });
     expect(ACTIONS['fleet.menu']).toEqual({ kind: 'button', label: 'Fleet / garage panel' });
     expect(ACTIONS['drone.toggle']).toEqual({ kind: 'button', label: 'Deploy / recall drone' });
     expect(actionKind('vehicle.lift')).toBe('axis');
     expect(actionKind('fleet.menu')).toBe('button');
     expect(actionKind('drone.toggle')).toBe('button');
+  });
+
+  it('appends the three Phase 8 button actions: career, co-op and dispatch console', () => {
+    expect(ACTION_IDS.slice(-3)).toEqual(['career.menu', 'coop.menu', 'dispatch.console']);
+    expect(ACTIONS['career.menu']).toEqual({ kind: 'button', label: 'Career / schedule' });
+    expect(ACTIONS['coop.menu']).toEqual({ kind: 'button', label: 'Co-op panel' });
+    expect(ACTIONS['dispatch.console']).toEqual({ kind: 'button', label: 'Dispatch console' });
+    for (const id of ['career.menu', 'coop.menu', 'dispatch.console'] as const) expect(actionKind(id)).toBe('button');
   });
 
   it('has a distinct non-empty label for every action', () => {

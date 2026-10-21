@@ -28,6 +28,61 @@ export interface MainMenuCallbacks {
   deleteSave?(slot: string): void;
   /** The Jurisdiction select changed (the app may remember it in the settings). */
   jurisdictionChanged?(id: string): void;
+  /**
+   * Phase 8: "New career" (starts in the academy). Same arguments as `newGame`: the seed box, the picked jurisdiction and
+   * the created officer when there is one. Absent: the Career section is hidden.
+   */
+  newCareer?(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter): void;
+  /**
+   * Phase 8: a Training button. `drills` = academy drills, `report` = report writing, `driving` = driving academy,
+   * `dispatch` = dispatch-only (`option` = the chosen script id, absent for "no script"), `sandbox` = scenario editor.
+   * Absent: the Training section is hidden.
+   */
+  training?(kind: TrainingKind, option?: string): void;
+  /** Phase 8: opens the co-op lobby. Absent: the Multiplayer section is hidden. */
+  openCoop?(): void;
+  /** Phase 8: opens the mod manager. Absent: the Mods section is hidden. */
+  openMods?(): void;
+  /** Phase 8: dispatch scripts for the dispatch-only picker (built-in and mod scripts). Absent: no picker. */
+  scripts?(): readonly ScriptOption[];
+  /** Phase 8: the line under the Mods button ('2 mods active'). */
+  modSummary?(): string;
+}
+
+/** The Training buttons (`MainMenuCallbacks.training`). */
+export const TRAINING_KINDS = ['drills', 'report', 'driving', 'dispatch', 'sandbox'] as const;
+export type TrainingKind = (typeof TRAINING_KINDS)[number];
+
+export const TRAINING_LABELS: Readonly<Record<TrainingKind, string>> = {
+  drills: 'Academy drills',
+  report: 'Report writing',
+  driving: 'Driving academy',
+  dispatch: 'Dispatch-only',
+  sandbox: 'Scenario editor',
+};
+
+/** One dispatch script for the picker. */
+export interface ScriptOption {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** The title-screen sections, in display order, that a given set of callbacks shows. */
+export type MainMenuSection = 'setup' | 'career' | 'freePatrol' | 'training' | 'multiplayer' | 'mods' | 'continue' | 'settings';
+
+/** Label of the "no script" entry of the dispatch-only picker. */
+export const NO_SCRIPT_LABEL = 'No script (random calls)';
+
+/** The sections `callbacks` shows: Career, Training, Multiplayer and Mods only when their callbacks exist. */
+export function visibleSections(callbacks: Readonly<MainMenuCallbacks>): MainMenuSection[] {
+  const out: MainMenuSection[] = ['setup'];
+  if (callbacks.newCareer) out.push('career');
+  out.push('freePatrol');
+  if (callbacks.training) out.push('training');
+  if (callbacks.openCoop) out.push('multiplayer');
+  if (callbacks.openMods) out.push('mods');
+  out.push('continue', 'settings');
+  return out;
 }
 
 /** One entry of the Jurisdiction select. */
@@ -78,7 +133,10 @@ export class MainMenu implements Menu {
   private readonly saveList: HTMLElement | null;
   private readonly status: HTMLElement | null;
   private readonly officerLine: HTMLElement | null;
+  private readonly scriptSelect: HTMLSelectElement | null;
+  private readonly modLine: HTMLElement | null;
   private seedText = '';
+  private scriptId = '';
   private chosen: MainMenuCharacter | null = null;
   private jurisdictionId = DEFAULT_JURISDICTION;
   private statusText = '';
@@ -94,6 +152,8 @@ export class MainMenu implements Menu {
       this.saveList = null;
       this.status = null;
       this.officerLine = null;
+      this.scriptSelect = null;
+      this.modLine = null;
       this.element = HEADLESS_ELEMENT;
       return;
     }
@@ -118,24 +178,48 @@ export class MainMenu implements Menu {
     this.status = el('p', { class: 'hint', role: 'status' });
     this.officerLine = el('p', { class: 'hint officer-line', role: 'status' });
     this.officerLine.hidden = true;
+    this.scriptSelect = callbacks.scripts
+      ? el('select', { id: 'dispatch-script', 'aria-label': 'Dispatch script', onchange: () => this.pickScript(this.scriptSelect?.value ?? '') })
+      : null;
+    this.modLine = callbacks.openMods ? el('p', { class: 'hint', role: 'status' }) : null;
+    this.refreshExtras();
     this.element = el(
       'div',
       { class: 'panel main-menu', role: 'dialog', 'aria-label': 'Main menu' },
       el('h1', null, 'Patrol'),
       el('p', { class: 'hint' }, 'Browser police patrol simulator'),
-      el('h2', null, 'New shift'),
+      el('h2', null, 'Setup'),
       el(
         'div',
         { class: 'row' },
         el('label', { for: 'seed' }, 'Seed'),
         this.seedInput,
-        el('button', { class: 'primary', autofocus: true, onclick: () => this.startNewGame() }, 'New game'),
         el('button', { onclick: () => this.createOfficer() }, 'Create officer\u2026'),
       ),
       this.officerLine,
       el('p', { class: 'hint' }, 'Same seed, same shift. Leave blank for a random one.'),
       el('div', { class: 'row' }, el('label', { for: 'jurisdiction' }, 'Jurisdiction'), this.jurisdictionSelect),
       this.jurisdictionHint,
+      callbacks.newCareer
+        ? [
+            el('h2', null, 'Career'),
+            el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => this.startNewCareer() }, 'New career')),
+            el('p', { class: 'hint' }, 'Start in the academy, pass probation and build a career over many shifts.'),
+          ]
+        : null,
+      el('h2', null, 'Free patrol'),
+      el('div', { class: 'row' }, el('button', { class: 'primary', autofocus: true, onclick: () => this.startNewGame() }, 'New game')),
+      callbacks.training ? this.trainingSection() : null,
+      callbacks.openCoop
+        ? [
+            el('h2', null, 'Multiplayer (optional)'),
+            el('div', { class: 'row' }, el('button', { onclick: () => this.openMultiplayer() }, 'Co-op lobby\u2026')),
+            el('p', { class: 'hint' }, 'Play with others on your own network. Nothing happens unless you open the lobby.'),
+          ]
+        : null,
+      callbacks.openMods
+        ? [el('h2', null, 'Mods'), el('div', { class: 'row' }, el('button', { onclick: () => this.openModManager() }, 'Manage mods\u2026')), this.modLine]
+        : null,
       el('h2', null, 'Continue'),
       this.saveList,
       this.status,
@@ -181,6 +265,7 @@ export class MainMenu implements Menu {
 
   open(): void {
     this.setStatus('');
+    this.refreshExtras();
     this.ui?.push(this);
   }
 
@@ -234,6 +319,98 @@ export class MainMenu implements Menu {
     const seed = parseSeedInput(this.seed);
     if (this.chosen) this.callbacks.newGame(seed, this.jurisdictionId, this.chosen);
     else this.callbacks.newGame(seed, this.jurisdictionId);
+  }
+
+  /** The sections this menu shows (see `visibleSections`). */
+  get sections(): MainMenuSection[] {
+    return visibleSections(this.callbacks);
+  }
+
+  /** The Training buttons shown: all of them when a `training` callback exists, else none. */
+  get trainingKinds(): TrainingKind[] {
+    return this.callbacks.training ? [...TRAINING_KINDS] : [];
+  }
+
+  /** The dispatch scripts offered (from `scripts()`); [] without the callback. */
+  get scriptOptions(): ScriptOption[] {
+    return this.callbacks.scripts ? [...this.callbacks.scripts()] : [];
+  }
+
+  /** The picked dispatch script id; '' = no script. */
+  get script(): string {
+    return this.scriptId;
+  }
+
+  set script(id: string) {
+    this.pickScript(id);
+  }
+
+  /** The line under the Mods button ('' without the callback). */
+  get modSummaryText(): string {
+    return this.callbacks.modSummary?.() ?? '';
+  }
+
+  /** Starts a new career with the seed box, the picked jurisdiction and the created officer; false when the callback is absent. */
+  startNewCareer(): boolean {
+    const cb = this.callbacks;
+    if (!cb.newCareer) return false;
+    const seed = parseSeedInput(this.seed);
+    if (this.chosen) cb.newCareer(seed, this.jurisdictionId, this.chosen);
+    else cb.newCareer(seed, this.jurisdictionId);
+    return true;
+  }
+
+  /** Runs a Training button; `dispatch` passes the picked script (nothing for "no script"). False when the callback is absent. */
+  startTraining(kind: TrainingKind, option?: string): boolean {
+    const cb = this.callbacks;
+    if (!cb.training) return false;
+    const chosen = option ?? (kind === 'dispatch' && this.scriptId !== '' ? this.scriptId : undefined);
+    if (chosen === undefined) cb.training(kind);
+    else cb.training(kind, chosen);
+    return true;
+  }
+
+  openMultiplayer(): boolean {
+    if (!this.callbacks.openCoop) return false;
+    this.callbacks.openCoop();
+    return true;
+  }
+
+  openModManager(): boolean {
+    if (!this.callbacks.openMods) return false;
+    this.callbacks.openMods();
+    return true;
+  }
+
+  private pickScript(id: string): void {
+    const known = id === '' || this.scriptOptions.some((o) => o.id === id);
+    this.scriptId = known ? id : '';
+    if (this.scriptSelect) this.scriptSelect.value = this.scriptId;
+  }
+
+  /** Re-reads the script list and the mod summary (they can change while the title screen is closed). */
+  private refreshExtras(): void {
+    const select = this.scriptSelect;
+    if (select) {
+      clearChildren(select);
+      select.appendChild(el('option', { value: '' }, NO_SCRIPT_LABEL));
+      for (const o of this.scriptOptions) select.appendChild(el('option', { value: o.id }, o.name));
+      this.pickScript(this.scriptId);
+    }
+    if (this.modLine) this.modLine.textContent = this.modSummaryText;
+  }
+
+  private trainingSection(): HTMLElement[] {
+    const button = (kind: TrainingKind): HTMLElement => el('button', { onclick: () => this.startTraining(kind) }, TRAINING_LABELS[kind]);
+    const dispatchRow: HTMLElement[] = [];
+    if (this.scriptSelect) dispatchRow.push(el('label', { for: 'dispatch-script' }, 'Script'), this.scriptSelect);
+    dispatchRow.push(el('button', { onclick: () => this.startTraining('dispatch') }, TRAINING_LABELS.dispatch));
+    return [
+      el('h2', null, 'Training'),
+      el('div', { class: 'row' }, button('drills'), button('report'), button('driving'), button('sandbox')),
+      el('div', { class: 'row' }, ...dispatchRow),
+      el('p', { class: 'hint' }, 'Practice without a full shift: drills, report writing, a cone course, dispatching AI units, or building your own scenario.'),
+    ];
   }
 
   private setJurisdiction(id: string): void {

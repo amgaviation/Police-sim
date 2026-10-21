@@ -113,6 +113,10 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'vehicle.lift': [key('Space'), key('ShiftLeft', -1)],
   'fleet.menu': [key('Quote')],
   'drone.toggle': [key('Equal')],
+  // Phase 8 (design §9.3): Minus, Digit0 and Home collide with no other default.
+  'career.menu': [key('Minus')],
+  'coop.menu': [key('Digit0')],
+  'dispatch.console': [key('Home')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

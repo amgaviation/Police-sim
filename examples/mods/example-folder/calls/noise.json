@@ -1,0 +1,16 @@
+{
+  "family": "disturbance",
+  "types": [
+    {
+      "id": "loudGeneratorComplaint",
+      "label": "Loud generator complaint",
+      "category": "disturbance",
+      "generated": true,
+      "weight": 0.15,
+      "narratives": [
+        "Neighbor reports a generator running loudly at {address}.",
+        "Caller complains about a loud generator near {near}."
+      ]
+    }
+  ]
+}

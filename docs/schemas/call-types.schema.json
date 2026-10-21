@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/call-types.schema.json",
+  "title": "Call types of one family",
+  "description": "One entry of content.callTypes: the shape of src/data/calls/types/*.json without \"version\". New ids only; every other field falls back to the family defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "family",
+    "types"
+  ],
+  "properties": {
+    "family": {
+      "type": "string",
+      "description": "An existing call family id (src/data/calls/families.json)."
+    },
+    "types": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "category",
+          "generated",
+          "weight",
+          "narratives"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "codeKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "description": "One of the crime categories of src/environment/crime.ts."
+          },
+          "generated": {
+            "type": "boolean"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "object",
+            "description": "Weights per priority 1..4.",
+            "propertyNames": {
+              "enum": [
+                "1",
+                "2",
+                "3",
+                "4"
+              ]
+            },
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "location": {
+            "type": "string",
+            "description": "road, block, intersection or poi:<kind>."
+          },
+          "districts": {
+            "type": "object",
+            "description": "Weight multiplier per district.",
+            "propertyNames": {
+              "enum": [
+                "downtown",
+                "suburbs",
+                "industrial",
+                "highway",
+                "rural",
+                "campus",
+                "hospital",
+                "airport",
+                "harbor",
+                "park",
+                "water"
+              ]
+            },
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "onSceneS": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "callers": {
+            "type": "object",
+            "propertyNames": {
+              "enum": [
+                "citizen",
+                "anonymous",
+                "alarm",
+                "business",
+                "officer"
+              ]
+            },
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "narratives": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "fill": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "dispositions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "branchWeights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "variants": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

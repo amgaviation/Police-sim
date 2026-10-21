@@ -1,4 +1,5 @@
 import { emptyBackupSave } from '../backup/save';
+import { legacyCareerSave } from '../career/save';
 import { emptyCadSave } from '../cad/cadState';
 import { emptyCommandSave } from '../command/save';
 import { newConductSave } from '../conduct/save';
@@ -13,6 +14,7 @@ import { emptyResourceSave } from '../resources/save';
 import { emptyRosterSave } from '../units/roster';
 import { createRng } from '../core/rng';
 import { MAX_TIME_SCALE } from '../core/time';
+import { gameSecondsAt } from '../environment/time';
 import { CAMERA_MODE } from '../player/cameraRig';
 import { emptyInteriorSave } from '../indoors/save';
 import { emptyInvestigationSave } from '../investigation/save';
@@ -24,7 +26,9 @@ import { emptyRecordsSave } from '../records/db';
 import { emptySceneSave } from '../scene/save';
 import { migratedStationSave } from '../station/stationState';
 import { defaultTacticalSave } from '../tactical/save';
+import { newModeSave } from '../training/mode';
 import { characterFromLegacy } from '../uniform';
+import { newWorldStateSave } from '../worldstate/save';
 import {
   CURRENT_SAVE_VERSION,
   isSaveGame,
@@ -36,6 +40,7 @@ import {
   isSaveGameV6,
   isSaveGameV7,
   isSaveGameV8,
+  isSaveGameV9,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
@@ -46,6 +51,7 @@ import {
   type SaveGameV7,
   type SaveGameV8,
   type SaveGameV9,
+  type SaveGameV10,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -221,6 +227,25 @@ export function migrateV8ToV9(data: unknown): unknown {
   return v9;
 }
 
+/**
+ * v9 -> v10: a Phase 7 shift becomes a Phase 8 free patrol. Everything is kept; the career is a patrol officer with the
+ * academy grandfathered (on duty from the save's game time), the world remembers nothing yet (both on the seed's own 'career'
+ * and 'worldstate' streams), the mode is free patrol and no mods were active.
+ */
+export function migrateV9ToV10(data: unknown): unknown {
+  if (!isSaveGameV9(data)) return data;
+  const stream = (name: string) => createRng(data.seed).stream(name).state();
+  const nowGame = gameSecondsAt(data.clock.simTime, data.environment.timeOffset);
+  const v10: SaveGameV10 = {
+    ...data,
+    career: legacyCareerSave(stream('career'), nowGame),
+    worldState: newWorldStateSave(stream('worldstate')),
+    mode: newModeSave('freePatrol'),
+    mods: [],
+  };
+  return v10;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
 export const migrations: MigrationTable = {
   1: migrateV1ToV2,
@@ -231,6 +256,7 @@ export const migrations: MigrationTable = {
   6: migrateV6ToV7,
   7: migrateV7ToV8,
   8: migrateV8ToV9,
+  9: migrateV9ToV10,
 };
 
 export const MIGRATION_FAILURES = {

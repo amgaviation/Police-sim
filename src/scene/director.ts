@@ -215,6 +215,12 @@ const SELF_FAR_CLEAR_S = 60;
 /** ...or this long after a pursuit ended without a stop (sim s). */
 const SELF_PURSUIT_OVER_S = 20;
 
+/**
+ * Phase 8 persistent-world hook: a designated person for a risk / warrant role of call `callId` in `district`, or -1.
+ * `fits` tests a candidate against the role's constraint; `draw` is the scenario stream's next draw.
+ */
+export type PersonBias = (callId: number, district: string, fits: (personId: number) => boolean, draw: () => number) => number;
+
 export class SceneDirector implements IncidentResolver {
   private readonly deps: SceneDeps;
   private readonly cfg: SceneConfig;
@@ -225,6 +231,7 @@ export class SceneDirector implements IncidentResolver {
   private readonly commandFlags: ReadonlySet<string>;
   /** Phase 6: dispatches real units for the scene's services (the resources module); null = the scene's own timers. */
   private serviceProvider: ((callId: number, kind: string) => boolean) | null = null;
+  private personBias: PersonBias | null = null;
   private readonly seed: number;
   private readonly rng: Rng;
   private readonly pc: string;
@@ -853,7 +860,8 @@ export class SceneDirector implements IncidentResolver {
     if (forced) rng = new ScriptedRng(rng, scriptFor(forced, type?.variants ?? family.variants));
     const busy = this.busyPersons();
     const districtOf = (x: number, z: number): string => DISTRICT_NAMES[city.districtAt(x, z)] ?? '';
-    const pick = (c: PersonConstraint, r: Rng): number => this.pickPersonFor(c, r, busy);
+    const district = districtOf(call.location.x, call.location.z);
+    const pick = (c: PersonConstraint, r: Rng): number => this.pickPersonFor(c, r, busy, call.id, district);
     const input: ScenarioInput = {
       seed: this.seed,
       callId: call.id,
@@ -946,25 +954,19 @@ export class SceneDirector implements IncidentResolver {
    * A person satisfying `c`, not busy: a bounded random search over the cheap record view (no identity is
    * generated until a person is picked); `risk` relaxes first, then the age window, when nothing fits.
    */
-  private pickPersonFor(c: PersonConstraint, rng: Rng, busy: ReadonlySet<number>): number {
+  private pickPersonFor(c: PersonConstraint, rng: Rng, busy: ReadonlySet<number>, callId = -1, district = ''): number {
     const { people, records } = this.deps;
     const today = epochDayOfGameSeconds(this.time.game);
+    // Phase 8: a persistent-world bias (recidivists, follow-up suspects) for risk / warrant roles.
+    if (this.personBias !== null && (c.risk === true || c.warrant === true)) {
+      const id = this.personBias(callId, district, (pid) => this.fitsConstraint(pid, c, busy, today), () => rng.next());
+      if (id >= 0 && this.fitsConstraint(id, c, busy, today)) return id;
+    }
     let fallback = -1;
     for (let tries = 0; tries < this.cfg.people.pickTries; tries++) {
       const id = rng.nextInt(0, PERSON_POPULATION - 1);
-      if (busy.has(id)) continue;
+      if (!this.fitsConstraint(id, c, busy, today)) continue;
       const rec = records.peekPerson(id);
-      if (c.warrant === true && rec.warrants.length === 0) continue;
-      const age = ageOn(rec.dob, today);
-      if (c.minAge !== undefined && age < c.minAge) continue;
-      if (c.maxAge !== undefined && age > c.maxAge) continue;
-      if (c.sex !== undefined && rec.sex !== c.sex) continue;
-      if (c.mentalHealth === true && rec.mentalHealth === null) continue;
-      if (c.dementia === true && !people.identity(id).dementia) continue;
-      if (people.isTouched(id)) {
-        const state = people.state(id);
-        if (state.deceased || state.missing || (state.custody !== 'none' && state.custody !== 'released')) continue;
-      }
       if (c.risk === true && riskOf(rec) < this.cfg.people.riskMin) {
         if (fallback < 0) fallback = id;
         continue;
@@ -978,6 +980,28 @@ export class SceneDirector implements IncidentResolver {
       if ((c.minAge === undefined || age >= c.minAge) && (c.maxAge === undefined || age <= c.maxAge) && (c.dementia !== true || people.identity(id).dementia)) return id;
     }
     return rng.nextInt(0, PERSON_POPULATION - 1);
+  }
+
+  /**
+   * Per-candidate checks of `pickPersonFor` (everything except `risk`, which is not required of a known offender):
+   * not busy, warrant, age window, sex, mental health, dementia, and a touched person still available.
+   */
+  private fitsConstraint(id: number, c: PersonConstraint, busy: ReadonlySet<number>, today: number): boolean {
+    if (!Number.isInteger(id) || id < 0 || id >= PERSON_POPULATION || busy.has(id)) return false;
+    const { people, records } = this.deps;
+    const rec = records.peekPerson(id);
+    if (c.warrant === true && rec.warrants.length === 0) return false;
+    const age = ageOn(rec.dob, today);
+    if (c.minAge !== undefined && age < c.minAge) return false;
+    if (c.maxAge !== undefined && age > c.maxAge) return false;
+    if (c.sex !== undefined && rec.sex !== c.sex) return false;
+    if (c.mentalHealth === true && rec.mentalHealth === null) return false;
+    if (c.dementia === true && !people.identity(id).dementia) return false;
+    if (people.isTouched(id)) {
+      const state = people.state(id);
+      if (state.deceased || state.missing || (state.custody !== 'none' && state.custody !== 'released')) return false;
+    }
+    return true;
   }
 
   private pickVehicleFor(rng: Rng): number {
@@ -1428,6 +1452,14 @@ export class SceneDirector implements IncidentResolver {
    */
   setServiceProvider(fn: ((callId: number, kind: string) => boolean) | null): void {
     this.serviceProvider = fn;
+  }
+
+  /**
+   * Phase 8: the persistent world designates people for risk / warrant roles (recidivists, follow-up suspects). `fn`
+   * gets the call id, its district, a fit test and the scenario stream's draw; a result >= 0 that fits is used.
+   */
+  setPersonBias(fn: PersonBias | null): void {
+    this.personBias = fn;
   }
 
   /** Phase 6: true when service `kind` was requested (or arrived) on `callId`. */

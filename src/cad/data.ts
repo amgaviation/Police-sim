@@ -8,6 +8,8 @@ import dispositionsJson from '../data/cad/dispositions.json';
 import statutesJson from '../data/cad/statutes.json';
 import tenCodesJson from '../data/cad/tenCodes.json';
 import { catalogCadRows } from '../calls/cadRows';
+import { mergeStatutes } from '../mods/combine';
+import { modOverlay } from '../mods/registry';
 import { CRIME_CATEGORIES } from '../environment/crime';
 import {
   fail,
@@ -368,7 +370,7 @@ function mergeCallTypes(base: readonly CallType[], catalog: readonly CallType[])
 
 export const DISPOSITIONS: readonly Disposition[] = validateDispositions(dispositionsJson);
 export const TEN_CODES: TenCodeTable = validateTenCodes(tenCodesJson);
-const STATUTE_TABLE = validateStatutes(statutesJson);
+const STATUTE_TABLE = validateStatutes(mergeStatutes(statutesJson, modOverlay().statutes));
 export const STATUTES: readonly Statute[] = STATUTE_TABLE.statutes;
 export const VIOLATION_MAP: Readonly<Record<string, string>> = STATUTE_TABLE.violationMap;
 export const PLATE_MAP: Readonly<Record<PlateIssue, string>> = STATUTE_TABLE.plateMap;

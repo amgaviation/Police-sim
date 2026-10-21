@@ -1,4 +1,5 @@
 import { isBackupSave, type BackupSave } from '../backup/save';
+import { isCareerSave, type CareerSave } from '../career/save';
 import { isCadSave, type CadSave } from '../cad/cadState';
 import { isCommandSave, type CommandSave } from '../command/save';
 import { isConductSave, type ConductSave } from '../conduct/save';
@@ -7,6 +8,7 @@ import { isFleetSave, type FleetSave } from '../fleet/save';
 import { isForceSave, type ForceSave } from '../force/save';
 import { isGearSave, type GearSave } from '../gear';
 import { isIncidentsSave, type IncidentsSave } from '../incidents/save';
+import type { ModRef } from '../mods/types';
 import { isPursuitSave, type PursuitSave } from '../pursuit/save';
 import { isResourceSave, type ResourceSave } from '../resources/save';
 import { isRosterSave } from '../units/roster';
@@ -32,13 +34,15 @@ import { isRecordsSave, type RecordsSave } from '../records/db';
 import { isSceneSave, type SceneSave } from '../scene/save';
 import { isStationSave, type StationSave } from '../station/stationState';
 import { isTacticalSave, type TacticalSave } from '../tactical/save';
+import { isModeSave, type ModeSave } from '../training/mode';
+import { isWorldStateSave, type WorldStateSave } from '../worldstate/save';
 import type { TrafficViolationKind } from '../traffic/events';
 import { isTrafficSnapshot, type TrafficSnapshot } from '../traffic/trafficSystem';
 import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 9;
+export const CURRENT_SAVE_VERSION = 10;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -219,8 +223,21 @@ export interface SaveGameV9 extends SaveGameV8 {
   fleet: FleetSave;
 }
 
+/**
+ * v10 (Phase 8): career, persistent world, mode and mods. `career` holds the stage, rank, academy records, wellbeing, money,
+ * the shift clock, bids, pay and the trainee, `worldState` the premises, cases, offenders, witnesses and neighborhoods that
+ * outlive a shift, `mode` the game mode and its state (course run, dispatch script and score, sandbox scenario) and `mods` the
+ * identity of the mods that were active when the save was written.
+ */
+export interface SaveGameV10 extends SaveGameV9 {
+  career: CareerSave;
+  worldState: WorldStateSave;
+  mode: ModeSave;
+  mods: ModRef[];
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV9;
+export type SaveGame = SaveGameV10;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -470,8 +487,39 @@ export function isSaveGameV9(x: unknown): x is SaveGameV9 {
   return isCharacterSave(v9['character']) && isGearSave(v9['gear']) && isFleetSave(v9['fleet']);
 }
 
+const MAX_MOD_REFS = 64;
+
+/** One `{ id, modVersion, hash }` mod reference. */
+export function isModRef(x: unknown): x is ModRef {
+  return (
+    isRecord(x) &&
+    typeof x['id'] === 'string' &&
+    x['id'].length > 0 &&
+    x['id'].length <= 64 &&
+    typeof x['modVersion'] === 'string' &&
+    x['modVersion'].length <= 32 &&
+    typeof x['hash'] === 'string' &&
+    /^[0-9a-f]{8}$/.test(x['hash'])
+  );
+}
+
+/** Structural check for the v10 payload: v9 plus the Phase 8 blocks (each module's own validator). */
+export function isSaveGameV10(x: unknown): x is SaveGameV10 {
+  if (!isSaveGameV9(x)) return false;
+  const v10 = x as unknown as Record<string, unknown>;
+  const mods = v10['mods'];
+  return (
+    isCareerSave(v10['career']) &&
+    isWorldStateSave(v10['worldState']) &&
+    isModeSave(v10['mode']) &&
+    Array.isArray(mods) &&
+    mods.length <= MAX_MOD_REFS &&
+    mods.every(isModRef)
+  );
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV9;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV10;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

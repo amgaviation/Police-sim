@@ -99,9 +99,11 @@ describe('MdtOverlay (headless)', () => {
     expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
     expect(mdt.tab).toBe('command');
     expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
+    expect(mdt.tab).toBe('cases'); // Phase 8 tab follows Command (arrows only)
+    expect(mdt.onKeyDown(key('ArrowRight'))).toBe(true);
     expect(mdt.tab).toBe('queue');
     expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);
-    expect(mdt.tab).toBe('command');
+    expect(mdt.tab).toBe('cases');
     expect(mdt.onKeyDown(key('0'))).toBe(true);
     expect(mdt.tab).toBe('career');
     expect(mdt.onKeyDown(key('ArrowLeft'))).toBe(true);

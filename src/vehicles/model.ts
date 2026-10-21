@@ -1,3 +1,4 @@
+import { modOverlay } from '../mods/registry';
 import type { VehicleEquipmentSpec } from '../police/equipment';
 import {
   fail,
@@ -579,8 +580,11 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
   };
 }
 
-/** Parses a glob result (`path -> json`) into models sorted by `(listOrder, id)`; `index` is the sorted position. */
-export function loadVehicleModels(files: Record<string, unknown>): VehicleModel[] {
+/**
+ * Parses a glob result (`path -> json`) into models sorted by `(listOrder, id)`; `index` is `firstIndex` plus the sorted
+ * position (mod models continue after the base table, so base indices never change).
+ */
+export function loadVehicleModels(files: Record<string, unknown>, firstIndex = 0): VehicleModel[] {
   const parsed = Object.entries(files).map(([path, json]) => {
     const source = path.slice(path.lastIndexOf('/') + 1);
     const model = parseVehicleModel(json, source);
@@ -588,14 +592,28 @@ export function loadVehicleModels(files: Record<string, unknown>): VehicleModel[
     return model;
   });
   parsed.sort((a, b) => a.listOrder - b.listOrder || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (parsed.length > 255) throw new Error(`Too many vehicle models (${parsed.length}); VehicleLook.model is a Uint8`);
-  return parsed.map((model, index) => ({ ...model, index }));
+  if (firstIndex + parsed.length > 255) throw new Error(`Too many vehicle models (${firstIndex + parsed.length}); VehicleLook.model is a Uint8`);
+  return parsed.map((model, index) => ({ ...model, index: firstIndex + index }));
+}
+
+/** The shipped models followed by the active mods' models (`<id>.json` files; a duplicate id throws). */
+function loadAllVehicleModels(): VehicleModel[] {
+  const base = loadVehicleModels(import.meta.glob<unknown>('../data/vehicles/*.json', { eager: true, import: 'default' }));
+  const mods = modOverlay().vehicles;
+  if (mods.length === 0) return base;
+  const files: Record<string, unknown> = {};
+  for (const { file, json } of mods) files[file] = json;
+  const extra = loadVehicleModels(files, base.length);
+  const ids = new Set(base.map((m) => m.id));
+  for (const m of extra) {
+    if (ids.has(m.id)) fail(`${m.id}.json`, 'id', `duplicates the vehicle model ${JSON.stringify(m.id)}`);
+    ids.add(m.id);
+  }
+  return [...base, ...extra];
 }
 
 /** Every shipped model, sorted by `(listOrder, id)`. Adding a JSON file adds a model; no code change needed. */
-export const VEHICLE_MODELS: readonly VehicleModel[] = loadVehicleModels(
-  import.meta.glob<unknown>('../data/vehicles/*.json', { eager: true, import: 'default' }),
-);
+export const VEHICLE_MODELS: readonly VehicleModel[] = loadAllVehicleModels();
 
 /** Models that appear in ambient traffic (`trafficWeight > 0`), in `VEHICLE_MODELS` order. */
 export const TRAFFIC_MODELS: readonly VehicleModel[] = VEHICLE_MODELS.filter((m) => m.trafficWeight > 0);

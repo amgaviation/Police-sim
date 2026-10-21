@@ -1,17 +1,21 @@
 import { emptyBackupSave } from '../../src/backup/save';
+import { legacyCareerSave } from '../../src/career/save';
 import { CadState } from '../../src/cad/cadState';
 import { emptyCommandSave } from '../../src/command/save';
 import { newConductSave } from '../../src/conduct/save';
 import { emptyCourtSave } from '../../src/court/save';
 import { migratedFleetSave } from '../../src/fleet/save';
 import { defaultGearSave } from '../../src/gear';
+import { newModeSave } from '../../src/training/mode';
 import { characterFromLegacy } from '../../src/uniform';
+import { newWorldStateSave } from '../../src/worldstate/save';
 import { defaultForceSave } from '../../src/force/save';
 import { emptyIncidentsSave } from '../../src/incidents/save';
 import { emptyPursuitSave } from '../../src/pursuit/save';
 import { emptyResourceSave } from '../../src/resources/save';
 import { emptyRosterSave } from '../../src/units/roster';
 import { createRng } from '../../src/core/rng';
+import { gameSecondsAt } from '../../src/environment/time';
 import type { DispatchSave } from '../../src/dispatch/save';
 import { CAMERA_MODE } from '../../src/player/cameraRig';
 import { PatrolEquipment } from '../../src/police/equipment';
@@ -26,7 +30,7 @@ import { migratedStationSave, newShiftStationSave } from '../../src/station/stat
 import { defaultTacticalSave } from '../../src/tactical/save';
 import { Population } from '../../src/people/population';
 import { emptySceneSave } from '../../src/scene/save';
-import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SaveGameV7, SaveGameV8, SavedVehicle } from '../../src/save/schema';
+import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SaveGameV7, SaveGameV8, SaveGameV9, SavedVehicle } from '../../src/save/schema';
 import type { TrafficSnapshot } from '../../src/traffic/trafficSystem';
 import { vehicleModel } from '../../src/vehicles/model';
 
@@ -293,8 +297,8 @@ export function makeSaveGameV8(overrides: Partial<SaveGameV8> = {}): SaveGameV8 
   };
 }
 
-/** A complete current-version (v9) payload: the v8 fixture plus the character, gear and fleet blocks. */
-export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+/** A complete v9 payload: the v8 fixture plus the character, gear and fleet blocks. */
+export function makeSaveGameV9(overrides: Partial<SaveGameV9> = {}): SaveGameV9 {
   const v8 = makeSaveGameV8();
   return {
     ...v8,
@@ -304,6 +308,19 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
       createRng(42).stream('fleet').state(),
       v8.vehicles.map((v) => v.modelId),
     ),
+    ...overrides,
+  };
+}
+
+/** A complete current-version (v10) payload: the v9 fixture plus the career, world, mode and mods blocks. */
+export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  const v9 = makeSaveGameV9();
+  return {
+    ...v9,
+    career: legacyCareerSave(createRng(42).stream('career').state(), gameSecondsAt(v9.clock.simTime, v9.environment.timeOffset)),
+    worldState: newWorldStateSave(createRng(42).stream('worldstate').state()),
+    mode: newModeSave('freePatrol'),
+    mods: [],
     ...overrides,
   };
 }

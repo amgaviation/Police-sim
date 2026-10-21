@@ -1,0 +1,50 @@
+{
+  "format": "patrol-scenario",
+  "version": 1,
+  "id": "abandoned-car",
+  "name": "Abandoned car",
+  "description": "A car left at the curb with the engine cold; a wallet and a pipe are inside and a nervous man watches from a distance.",
+  "anchor": {
+    "x": 0,
+    "z": 0
+  },
+  "call": {
+    "typeId": "abandonedVehicle",
+    "priority": 4
+  },
+  "npcs": [
+    {
+      "x": 25,
+      "z": 10,
+      "yaw": 3.14,
+      "profile": "suspectNervous",
+      "role": "subject",
+      "weapon": null,
+      "hidden": true
+    }
+  ],
+  "vehicles": [
+    {
+      "modelId": "compact",
+      "x": 0,
+      "z": 0,
+      "yaw": 1.57
+    }
+  ],
+  "evidence": [
+    {
+      "item": "wallet",
+      "x": 0.5,
+      "z": 0.5,
+      "concealed": true
+    },
+    {
+      "item": "pipe",
+      "x": -0.5,
+      "z": 0.3,
+      "concealed": true
+    }
+  ],
+  "timeOfDay": null,
+  "weather": null
+}

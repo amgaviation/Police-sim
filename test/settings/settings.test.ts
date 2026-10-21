@@ -9,6 +9,7 @@ import { readSettingsBlob } from '../../src/save/saveManager';
 import {
   DEFAULT_SETTINGS,
   SETTINGS_FIELDS,
+  SETTINGS_MIGRATIONS,
   SETTINGS_PATHS,
   SETTINGS_SECTIONS,
   SETTINGS_VERSION,
@@ -152,7 +153,7 @@ describe('parseSettings', () => {
       graphics: { fov: 100, frameCap: 120 },
       audio: { ttsVoice: 'Daniel' },
       controls: { invertY: true, bindings: { interact: [{ device: 'keyboard', code: 'KeyF' }] } },
-      accessibility: { colorblind: 'protanopia', textScale: 1.4 },
+      accessibility: { colorblind: 'protanopia', textScale: 1.4, oneHanded: 'right' },
     });
     const blob = JSON.parse(JSON.stringify(serializeSettings(settings))) as unknown;
     expect(parseSettings(blob)).toEqual(settings);
@@ -162,9 +163,9 @@ describe('parseSettings', () => {
 
 describe('migrateSettings', () => {
   it('applies steps from the blob version up to the current version', () => {
-    const table = { 0: (d: Record<string, unknown>) => ({ ...d, graphics: { fov: 90 } }) };
+    const table = { 0: (d: Record<string, unknown>) => ({ ...d, graphics: { fov: 90 } }), 1: (d: Record<string, unknown>) => d };
     const out = migrateSettings({ version: 0, graphics: { oldFov: 90 } }, table);
-    expect(out).toEqual({ version: 1, graphics: { fov: 90 } });
+    expect(out).toEqual({ version: SETTINGS_VERSION, graphics: { fov: 90 } });
     expect(parseSettings({ version: 0 }, table).graphics.fov).toBe(90);
   });
 
@@ -177,13 +178,73 @@ describe('migrateSettings', () => {
   });
 });
 
+describe('settings v1 -> v2 (one-handed layout, Phase 8)', () => {
+  const v1 = (oneHanded: unknown): Record<string, unknown> => ({
+    version: 1,
+    graphics: { fov: 85 },
+    accessibility: { textScale: 1.2, colorblind: 'tritanopia', reducedFlash: true, subtitles: false, oneHanded },
+  });
+
+  it('is version 2 and keeps a migration step for version 1', () => {
+    expect(SETTINGS_VERSION).toBe(2);
+    expect(SETTINGS_MIGRATIONS[1]).toBeTypeOf('function');
+  });
+
+  it('maps the old boolean true to the left-hand layout and everything else to off', () => {
+    expect(parseSettings(v1(true)).accessibility.oneHanded).toBe('left');
+    for (const old of [false, undefined, null, 'yes', 1, 'right']) {
+      expect(parseSettings(v1(old)).accessibility.oneHanded, String(old)).toBe('off');
+    }
+  });
+
+  it('keeps every other field and logs nothing', () => {
+    const parsed = parseSettings(v1(true));
+    expect(parsed.graphics.fov).toBe(85);
+    expect(parsed.accessibility).toEqual({
+      textScale: 1.2,
+      colorblind: 'tritanopia',
+      reducedFlash: true,
+      subtitles: false,
+      oneHanded: 'left',
+    });
+    expect(parsed.version).toBe(SETTINGS_VERSION);
+    expect(log.entries().filter((e) => e.level === 'warn')).toHaveLength(0);
+  });
+
+  it('migrates a blob without an accessibility group untouched', () => {
+    const migrated = migrateSettings({ version: 1, graphics: { fov: 70 } });
+    expect(migrated).toEqual({ version: 2, graphics: { fov: 70 } });
+    expect(parseSettings({ version: 1 }).accessibility.oneHanded).toBe('off');
+  });
+
+  it('accepts only the three layout ids for the enum field', () => {
+    expect(SETTINGS_FIELDS['accessibility.oneHanded'].label).toBe('One-handed layout');
+    expect(SETTINGS_FIELDS['accessibility.oneHanded'].options.map((o) => o.label)).toEqual(['Off', 'Left hand', 'Right hand']);
+    for (const ok of ['off', 'left', 'right']) expect(coerceSetting('accessibility.oneHanded', ok)).toBe(ok);
+    for (const bad of [true, false, 'both', 'Left', 0, null]) expect(coerceSetting('accessibility.oneHanded', bad)).toBeUndefined();
+    expect(DEFAULT_SETTINGS.accessibility.oneHanded).toBe('off');
+  });
+
+  it('round-trips a v2 blob and a layout survives serialization', () => {
+    const settings = parseSettings({ accessibility: { oneHanded: 'right', colorblind: 'deuteranopia' } });
+    const blob = JSON.parse(JSON.stringify(serializeSettings(settings))) as { version: number };
+    expect(blob.version).toBe(2);
+    expect(parseSettings(blob)).toEqual(settings);
+  });
+
+  it('does not rewrite a stored left-hand v2 value', () => {
+    expect(parseSettings({ version: 2, accessibility: { oneHanded: 'left' } }).accessibility.oneHanded).toBe('left');
+  });
+});
+
 describe('implemented settings', () => {
   it('hides settings nothing consumes yet, and sections left empty by that', () => {
     expect(isImplemented('graphics.frameCap')).toBe(true);
     expect(isImplemented('graphics.drawDistance')).toBe(true);
     expect(isImplemented('controls.gamepadDeadzone')).toBe(true);
     expect(isImplemented('audio.music')).toBe(false);
-    expect(isImplemented('accessibility.colorblind')).toBe(false);
+    expect(isImplemented('accessibility.colorblind')).toBe(true);
+    expect(isImplemented('accessibility.oneHanded')).toBe(true);
     expect(visibleSections()).toEqual(['graphics', 'audio', 'controls', 'accessibility']);
   });
 
@@ -221,7 +282,7 @@ describe('audio and radio settings', () => {
       radioMode: 'tenCode',
       voiceCommands: false,
     });
-    expect(SETTINGS_VERSION).toBe(1);
+    expect(SETTINGS_VERSION).toBe(2);
   });
 
   it('coerces radioMode to the two known modes only', () => {

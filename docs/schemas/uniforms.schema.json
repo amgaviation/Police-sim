@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/uniforms.schema.json",
+  "title": "Uniform patch",
+  "description": "content.uniforms: patches over src/data/uniform/uniforms.json. Classes are patch-only (the id must exist); a patched class replaces the listed keys; department is merged (patch and badge key by key).",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "classes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "classA",
+              "classB",
+              "tactical",
+              "bike",
+              "motor",
+              "swat",
+              "detective"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "top": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "bottom": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "accent": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "sleeves": {
+            "enum": [
+              "long",
+              "short"
+            ]
+          },
+          "tie": {
+            "type": "boolean"
+          },
+          "jacket": {
+            "type": "boolean"
+          },
+          "hat": {
+            "type": "string"
+          },
+          "carrier": {
+            "enum": [
+              "none",
+              "internal",
+              "external",
+              "plateCarrier"
+            ]
+          },
+          "belt": {
+            "enum": [
+              "dress",
+              "duty",
+              "plain"
+            ]
+          },
+          "shorts": {
+            "type": "boolean"
+          },
+          "tallBoots": {
+            "type": "boolean"
+          },
+          "badgeOnBelt": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "department": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "initials": {
+          "type": "string",
+          "maxLength": 4
+        },
+        "patch": {
+          "type": "object"
+        },
+        "badge": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

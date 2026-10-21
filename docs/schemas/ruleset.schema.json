@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/ruleset.schema.json",
+  "title": "Jurisdiction ruleset",
+  "description": "One entry of content.rulesets: a full document like src/data/legal/rulesets/generic.json. Top-level structure only; src/legal/ruleset.ts (parseRuleset) checks every field.",
+  "type": "object",
+  "required": [
+    "version",
+    "id",
+    "name",
+    "description",
+    "rules",
+    "indicators",
+    "offenses",
+    "familyOffense",
+    "statuteOffense",
+    "thresholds",
+    "detention",
+    "frisk",
+    "arrest",
+    "sita",
+    "automobile",
+    "consent",
+    "exigency",
+    "entry",
+    "premises",
+    "test",
+    "miranda",
+    "force",
+    "intervene",
+    "pursuit",
+    "recording",
+    "evidence"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,39}$",
+      "description": "Also the file name of the ruleset."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "doctrine",
+          "title",
+          "cite",
+          "text"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "doctrine": {
+            "enum": [
+              "detention",
+              "frisk",
+              "friskScope",
+              "search",
+              "arrest",
+              "consent",
+              "exigency",
+              "entry",
+              "miranda",
+              "test",
+              "force",
+              "intervene",
+              "pursuit",
+              "recording",
+              "evidence"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cite": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "indicators": {
+      "type": "object"
+    },
+    "offenses": {
+      "type": "object"
+    },
+    "familyOffense": {
+      "type": "object"
+    },
+    "statuteOffense": {
+      "type": "object"
+    },
+    "thresholds": {
+      "type": "object"
+    },
+    "detention": {
+      "type": "object"
+    },
+    "frisk": {
+      "type": "object"
+    },
+    "arrest": {
+      "type": "object"
+    },
+    "sita": {
+      "type": "object"
+    },
+    "automobile": {
+      "type": "object"
+    },
+    "consent": {
+      "type": "object"
+    },
+    "exigency": {
+      "type": "object"
+    },
+    "entry": {
+      "type": "object"
+    },
+    "premises": {
+      "type": "object"
+    },
+    "test": {
+      "type": "object"
+    },
+    "miranda": {
+      "type": "object"
+    },
+    "force": {
+      "type": "object"
+    },
+    "intervene": {
+      "type": "object"
+    },
+    "pursuit": {
+      "type": "object"
+    },
+    "recording": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "object"
+    }
+  }
+}

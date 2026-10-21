@@ -1,0 +1,91 @@
+{
+  "format": "patrol-dispatch-script",
+  "version": 1,
+  "id": "quiet-weekday",
+  "name": "Quiet weekday",
+  "description": "A slow weekday shift: eight routine calls over twenty minutes while the random generator keeps adding background calls.",
+  "generator": "on",
+  "durationS": 1200,
+  "steps": [
+    {
+      "atS": 60,
+      "typeId": "parkingComplaint",
+      "priority": 4,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 210,
+      "typeId": "noiseComplaint",
+      "priority": 4,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": "Neighbor reports loud music for the last hour.",
+      "radio": null
+    },
+    {
+      "atS": 400,
+      "typeId": "welfareCheck",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 560,
+      "typeId": "minorCollision",
+      "priority": 3,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": "Units, minor collision with no injuries reported."
+    },
+    {
+      "atS": 720,
+      "typeId": "alarm",
+      "priority": 3,
+      "near": {
+        "district": "downtown"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 860,
+      "typeId": "suspiciousPerson",
+      "priority": 3,
+      "near": {
+        "poi": "fuel"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1020,
+      "typeId": "trafficHazard",
+      "priority": 3,
+      "near": {
+        "district": "highway"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 1150,
+      "typeId": "abandonedVehicle",
+      "priority": 4,
+      "near": {
+        "district": "industrial"
+      },
+      "narrative": null,
+      "radio": null
+    }
+  ]
+}

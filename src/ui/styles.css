@@ -11,6 +11,48 @@
   --font-ui: system-ui, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
   --radius: 4px;
+  /* Semantic status colours (Phase 8): the values of src/data/a11y/palettes.json "none"; use these instead of literal reds/greens. */
+  --c-unit: #4f8cff;
+  --c-unit-busy: #2a4f8f;
+  --c-emergency: #ff3b3b;
+  --c-suspect: #ff3b3b;
+  --c-pursuit: #ff7a1a;
+  --c-ok: #5fd35f;
+  --c-caution: #ffcc66;
+  --c-alert: #ff5a5a;
+  --c-p1: #ff5a5a;
+  --c-p2: #ff9f40;
+  --c-p3: #ffcc66;
+  --c-p4: #8fa3b5;
+}
+
+/* Colour-vision palettes: set on <html> from accessibility.colorblind (ui.bindSettings); same values as palettes.json. */
+:root[data-colorblind="protanopia"], :root[data-colorblind="deuteranopia"] {
+  --c-unit: #0072b2;
+  --c-unit-busy: #004466;
+  --c-emergency: #ffb000;
+  --c-suspect: #e69f00;
+  --c-pursuit: #f0e442;
+  --c-ok: #56b4e9;
+  --c-caution: #f0e442;
+  --c-alert: #ffb000;
+  --c-p1: #ffb000;
+  --c-p2: #f0e442;
+  --c-p3: #56b4e9;
+  --c-p4: #8fa3b5;
+  --danger: #ffb000;
+  --accent-2: #ffb000;
+}
+:root[data-colorblind="tritanopia"] {
+  --c-suspect: #ff3b8a;
+  --c-ok: #00c2a0;
+  --c-caution: #ffd0e0;
+  --c-alert: #ff2e2e;
+  --c-p1: #ff2e2e;
+  --c-p2: #ff8fb0;
+  --c-p3: #00c2a0;
+  --danger: #ff2e2e;
+  --accent-2: #ff3b5c;
 }
 
 * { box-sizing: border-box; }
@@ -156,6 +198,16 @@ input[type="checkbox"] { accent-color: var(--accent); width: 1.1em; height: 1.1e
 .chip .x { font: inherit; color: var(--fg-dim); background: none; border: none; cursor: pointer; padding: 0 2px; }
 .chip .x:hover { color: var(--danger); }
 @keyframes blink { 50% { opacity: 0.4; } }
+
+/* Colour-vision preview in the settings menu: six swatches that follow the variables above. */
+.swatches { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
+.swatches .swatch { width: 2.2em; height: 1.2em; border-radius: var(--radius); border: 1px solid var(--panel-border); }
+.swatch[data-tone="unit"] { background: var(--c-unit); }
+.swatch[data-tone="emergency"] { background: var(--c-emergency); }
+.swatch[data-tone="suspect"] { background: var(--c-suspect); }
+.swatch[data-tone="ok"] { background: var(--c-ok); }
+.swatch[data-tone="caution"] { background: var(--c-caution); }
+.swatch[data-tone="alert"] { background: var(--c-alert); }
 
 .save-list { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
 .save-list .empty { color: var(--fg-dim); font-style: italic; }

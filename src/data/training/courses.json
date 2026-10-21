@@ -1,0 +1,400 @@
+{
+  "version": 1,
+  "courses": [
+    {
+      "id": "basic",
+      "label": "Basic handling",
+      "parTimeS": 45,
+      "gates": [
+        {
+          "s": 30,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 60,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 90,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 120,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 150,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 180,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 210,
+          "offset": 0,
+          "width": 4.0
+        },
+        {
+          "s": 240,
+          "offset": 0,
+          "width": 4.0
+        }
+      ],
+      "cones": [
+        {
+          "s": 60,
+          "offset": -2.4
+        },
+        {
+          "s": 60,
+          "offset": 2.4
+        },
+        {
+          "s": 90,
+          "offset": -2.4
+        },
+        {
+          "s": 90,
+          "offset": 2.4
+        },
+        {
+          "s": 120,
+          "offset": -2.4
+        },
+        {
+          "s": 120,
+          "offset": 2.4
+        },
+        {
+          "s": 150,
+          "offset": -2.4
+        },
+        {
+          "s": 150,
+          "offset": 2.4
+        },
+        {
+          "s": 180,
+          "offset": -2.4
+        },
+        {
+          "s": 180,
+          "offset": 2.4
+        },
+        {
+          "s": 210,
+          "offset": -2.4
+        },
+        {
+          "s": 210,
+          "offset": 2.4
+        }
+      ],
+      "stopBox": null,
+      "penalties": {
+        "cone": 2,
+        "missedGate": 5,
+        "stopBox": 5,
+        "perSecondOver": 1
+      }
+    },
+    {
+      "id": "slalom",
+      "label": "Slalom",
+      "parTimeS": 50,
+      "gates": [
+        {
+          "s": 25,
+          "offset": 2,
+          "width": 3.0
+        },
+        {
+          "s": 50,
+          "offset": -2,
+          "width": 3.0
+        },
+        {
+          "s": 75,
+          "offset": 2,
+          "width": 3.0
+        },
+        {
+          "s": 100,
+          "offset": -2,
+          "width": 3.0
+        },
+        {
+          "s": 125,
+          "offset": 2,
+          "width": 3.0
+        },
+        {
+          "s": 150,
+          "offset": -2,
+          "width": 3.0
+        },
+        {
+          "s": 175,
+          "offset": 2,
+          "width": 3.0
+        },
+        {
+          "s": 200,
+          "offset": -2,
+          "width": 3.0
+        },
+        {
+          "s": 225,
+          "offset": 2,
+          "width": 3.0
+        },
+        {
+          "s": 250,
+          "offset": -2,
+          "width": 3.0
+        }
+      ],
+      "cones": [
+        {
+          "s": 25,
+          "offset": 0.2
+        },
+        {
+          "s": 25,
+          "offset": 3.8
+        },
+        {
+          "s": 50,
+          "offset": -3.8
+        },
+        {
+          "s": 50,
+          "offset": -0.2
+        },
+        {
+          "s": 75,
+          "offset": 0.2
+        },
+        {
+          "s": 75,
+          "offset": 3.8
+        },
+        {
+          "s": 100,
+          "offset": -3.8
+        },
+        {
+          "s": 100,
+          "offset": -0.2
+        },
+        {
+          "s": 125,
+          "offset": 0.2
+        },
+        {
+          "s": 125,
+          "offset": 3.8
+        },
+        {
+          "s": 150,
+          "offset": -3.8
+        },
+        {
+          "s": 150,
+          "offset": -0.2
+        },
+        {
+          "s": 175,
+          "offset": 0.2
+        },
+        {
+          "s": 175,
+          "offset": 3.8
+        },
+        {
+          "s": 200,
+          "offset": -3.8
+        },
+        {
+          "s": 200,
+          "offset": -0.2
+        },
+        {
+          "s": 225,
+          "offset": 0.2
+        },
+        {
+          "s": 225,
+          "offset": 3.8
+        },
+        {
+          "s": 250,
+          "offset": -3.8
+        },
+        {
+          "s": 250,
+          "offset": -0.2
+        }
+      ],
+      "stopBox": null,
+      "penalties": {
+        "cone": 2,
+        "missedGate": 5,
+        "stopBox": 5,
+        "perSecondOver": 1
+      }
+    },
+    {
+      "id": "precision",
+      "label": "Precision and stop",
+      "parTimeS": 60,
+      "gates": [
+        {
+          "s": 40,
+          "offset": 0,
+          "width": 2.8
+        },
+        {
+          "s": 70,
+          "offset": 0.8,
+          "width": 2.8
+        },
+        {
+          "s": 100,
+          "offset": -0.8,
+          "width": 2.8
+        },
+        {
+          "s": 130,
+          "offset": 0.8,
+          "width": 2.8
+        },
+        {
+          "s": 160,
+          "offset": -0.8,
+          "width": 2.8
+        },
+        {
+          "s": 190,
+          "offset": 0,
+          "width": 2.8
+        }
+      ],
+      "cones": [
+        {
+          "s": 37,
+          "offset": -1.8
+        },
+        {
+          "s": 37,
+          "offset": 1.8
+        },
+        {
+          "s": 43,
+          "offset": -1.8
+        },
+        {
+          "s": 43,
+          "offset": 1.8
+        },
+        {
+          "s": 67,
+          "offset": -1.0
+        },
+        {
+          "s": 67,
+          "offset": 2.6
+        },
+        {
+          "s": 73,
+          "offset": -1.0
+        },
+        {
+          "s": 73,
+          "offset": 2.6
+        },
+        {
+          "s": 97,
+          "offset": -2.6
+        },
+        {
+          "s": 97,
+          "offset": 1.0
+        },
+        {
+          "s": 103,
+          "offset": -2.6
+        },
+        {
+          "s": 103,
+          "offset": 1.0
+        },
+        {
+          "s": 127,
+          "offset": -1.0
+        },
+        {
+          "s": 127,
+          "offset": 2.6
+        },
+        {
+          "s": 133,
+          "offset": -1.0
+        },
+        {
+          "s": 133,
+          "offset": 2.6
+        },
+        {
+          "s": 157,
+          "offset": -2.6
+        },
+        {
+          "s": 157,
+          "offset": 1.0
+        },
+        {
+          "s": 163,
+          "offset": -2.6
+        },
+        {
+          "s": 163,
+          "offset": 1.0
+        },
+        {
+          "s": 187,
+          "offset": -1.8
+        },
+        {
+          "s": 187,
+          "offset": 1.8
+        },
+        {
+          "s": 193,
+          "offset": -1.8
+        },
+        {
+          "s": 193,
+          "offset": 1.8
+        }
+      ],
+      "stopBox": {
+        "s": 215,
+        "length": 12
+      },
+      "penalties": {
+        "cone": 2,
+        "missedGate": 5,
+        "stopBox": 5,
+        "perSecondOver": 1
+      }
+    }
+  ]
+}

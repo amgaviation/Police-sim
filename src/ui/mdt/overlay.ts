@@ -35,7 +35,7 @@ import { clearChildren, el, type Menu, type UIRoot } from '../ui';
 import { ListView, button, renderSections, selectField, setText, textField, type Field } from './dom';
 import { buildDocForm, showErrors, type DocFormView, type FormOptions } from './forms';
 import { MAP_ZOOM_STEP, MdtMap, type MapDrawState } from './map';
-import { careerModel, communityModel, renderCareer, renderCommunity, type CareerModel, type CommunityRow } from './career';
+import { careerModel, careerSummarySection, communityModel, renderCareer, renderCommunity, type CareerModel, type CommunityRow } from './career';
 import { commandTabModel, renderCommandTab, type CommandTabModel } from './commandTab';
 import {
   EtaBoardState,
@@ -66,6 +66,7 @@ import {
   type UnitRow,
 } from './model';
 import { MDT_TABS, MDT_TAB_LABELS, tabKeyLabel, type MdtDeps, type MdtTab } from './types';
+import { casesModel, premiseModel, renderNoCases, renderPremise, type CaseRow, type CasesModel, type PremiseModel } from './world';
 
 /** Minimum time between refreshes of the visible tab (4 Hz). */
 export const MDT_REFRESH_MS = 250;
@@ -187,6 +188,9 @@ interface Dom {
   readonly resourceBoard: HTMLElement;
   readonly resourceHint: HTMLElement;
   readonly commandBody: HTMLElement;
+  // cases (Phase 8)
+  readonly cases: ListView<CaseRow>;
+  readonly casesNote: HTMLElement;
   // stop
   readonly stopBody: HTMLElement;
   readonly stopButtons: { readonly run: HTMLButtonElement; readonly wants: HTMLButtonElement; readonly cite: HTMLButtonElement; readonly release: HTMLButtonElement };
@@ -282,6 +286,10 @@ export class MdtOverlay implements Menu {
   private commandShown: CommandTabModel | null = null;
   /** `deps.command.revision()` last rendered, -1 before the first render (or after the feed changed). */
   private renderedCommandRev = -1;
+  private casesShown: CasesModel | null = null;
+  /** `deps.cases.revision()` last rendered, -1 before the first render. */
+  private renderedCasesRev = -1;
+  private premiseShown: PremiseModel | null = null;
 
   constructor(ui: UIRoot | null, deps: MdtDeps) {
     this.ui = ui;
@@ -396,7 +404,8 @@ export class MdtOverlay implements Menu {
       this.current === 'career' ||
       this.current === 'community' ||
       this.current === 'resources' ||
-      this.current === 'command';
+      this.current === 'command' ||
+      this.current === 'cases';
     const extKey = extTab ? this.externalKey() : this.lastExtKey;
     const changed =
       this.dirty ||
@@ -429,7 +438,11 @@ export class MdtOverlay implements Menu {
    */
   private externalKey(): number {
     const d = this.deps;
-    if (this.current === 'career') return d.career ? d.career.revision() * 100000 + (Math.floor(d.career.now().game / 60) % 100000) : 0;
+    if (this.current === 'career') {
+      // The CAREER summary (Phase 8) has no revision of its own: it refreshes with the game minute.
+      return (d.career ? d.career.revision() * 100000 : 0) + (Math.floor((d.career ? d.career.now() : d.now()).game / 60) % 100000);
+    }
+    if (this.current === 'cases') return d.cases ? d.cases.revision() : 0;
     if (this.current === 'community') return d.community ? d.community.revision() : 0;
     if (this.current === 'resources') return d.resources ? d.resources.revision() * 4096 + (this.etaBoardState.revision & 4095) : 0;
     if (this.current === 'command') return d.command ? d.command.revision() : 0;
@@ -453,6 +466,7 @@ export class MdtOverlay implements Menu {
     st.playerCallsign = this.deps.callsign;
     st.nowMs = nowMs;
     st.reducedFlash = document.documentElement.dataset['reducedFlash'] === 'true';
+    dom.map.setRemoteUnits(this.deps.remoteUnits?.() ?? null);
     dom.map.draw(this.deps.cad, st);
   }
 
@@ -548,6 +562,7 @@ export class MdtOverlay implements Menu {
       bolo: [dom.bolos, dom.history],
       reports: [dom.docs],
       resources: [dom.resourceTypes, dom.resourceUnits],
+      cases: [dom.cases],
     };
     const candidates = lists[this.current] ?? [];
     return candidates.find((l) => l.contains(target)) ?? candidates[0] ?? null;
@@ -1077,7 +1092,46 @@ export class MdtOverlay implements Menu {
       case 'command':
         this.renderCommandTab();
         break;
+      case 'cases':
+        this.renderCasesTab();
+        break;
     }
+  }
+
+  // --- Cases (Phase 8 §11.4) ----------------------------------------------------------------------
+
+  /** The Cases tab's model as last built (null before the tab was shown or without `deps.cases`). */
+  get casesModelShown(): CasesModel | null {
+    return this.casesShown;
+  }
+
+  /** The premise block of the call tab as last built (null without `deps.premise` or before the Call tab was shown). */
+  get premiseModelShown(): PremiseModel | null {
+    return this.premiseShown;
+  }
+
+  private renderCasesTab(): void {
+    const feed = this.deps.cases;
+    const dom = this.dom;
+    if (!feed) {
+      this.casesShown = null;
+      this.renderedCasesRev = -1;
+      if (dom) {
+        dom.cases.element.hidden = true;
+        dom.casesNote.hidden = false;
+        renderNoCases(dom.casesNote);
+      }
+      return;
+    }
+    const rev = feed.revision();
+    // The register changes rarely: rebuild the rows only for a new revision (or the first render).
+    if (rev === this.renderedCasesRev && this.casesShown !== null) return;
+    this.renderedCasesRev = rev;
+    this.casesShown = casesModel(feed.rows());
+    if (!dom) return;
+    dom.cases.element.hidden = false;
+    dom.casesNote.hidden = true;
+    dom.cases.render(this.casesShown.rows);
   }
 
   // --- Resources and Command (design phase 6 §12.3) -------------------------------------------------
@@ -1242,10 +1296,12 @@ export class MdtOverlay implements Menu {
   private renderCareerTab(): void {
     const career = this.deps.career;
     const dom = this.dom;
+    const summary = this.deps.careerSummary?.();
     if (!career) {
-      this.careerShown = null;
+      this.careerShown = summary ? { sections: [careerSummarySection(summary)] } : null;
       if (dom) {
-        clearChildren(dom.careerBody);
+        if (this.careerShown) renderCareer(dom.careerBody, this.careerShown, { attend: () => undefined, review: () => undefined });
+        else clearChildren(dom.careerBody);
         dom.careerBody.appendChild(el('p', { class: 'mdt-hint' }, 'No career data in this session.'));
       }
       return;
@@ -1253,6 +1309,7 @@ export class MdtOverlay implements Menu {
     const model = careerModel(career.view(), career.cases(), career.now(), {
       canAttend: (id) => career.canAttend(id),
       jurisdiction: career.jurisdiction(),
+      ...(summary ? { summary } : {}),
       ...(this.deps.fleet ? { fleet: this.deps.fleet } : {}),
       ...(career.incidents && career.openReview ? { incidents: career.incidents() } : {}),
       ...(career.canReview && career.openReview ? { canReview: (key: string) => career.canReview?.(key) === true } : {}),
@@ -1363,14 +1420,17 @@ export class MdtOverlay implements Menu {
 
   private renderCall(): void {
     const dom = this.dom;
-    if (!dom) return;
     const call = this.selectedCall !== null ? this.deps.cad.call(this.selectedCall) : this.playerCall();
+    // The premise model is kept headless too (tests and the integrator read `premiseModelShown`).
+    const premise = call && this.deps.premise ? premiseModel(this.deps.premise(call.id)) : null;
+    this.premiseShown = premise;
+    if (!dom) return;
     dom.narrative.control.disabled = !call || call.status === 'closed';
     dom.callButtons.add.disabled = dom.narrative.control.disabled;
     dom.callButtons.report.disabled = !call;
     const lines = call ? callDetailLines(call, this.etaFeed) : [];
     // Rebuilt only when what it shows changed (any CAD revision bumps the refresh; a rebuild drops focus).
-    const key = call ? `${call.id}|${call.priority}|${lines.map(callLineKey).join('\n')}` : 'none';
+    const key = call ? `${call.id}|${call.priority}|${lines.map(callLineKey).join('\n')}|${premise?.key ?? ''}` : 'none';
     if (key === this.renderedCallKey) return;
     this.renderedCallKey = key;
     clearChildren(dom.callDetail);
@@ -1393,7 +1453,7 @@ export class MdtOverlay implements Menu {
         dl.append(el('dt', null, l.label), el('dd', null, l.text));
       }
     }
-    dom.callDetail.append(title ?? '', dl, el('h3', null, 'Narrative'), narrative);
+    dom.callDetail.append(title ?? '', dl, el('h3', null, 'Narrative'), narrative, premise ? renderPremise(premise) : '');
   }
 
   private renderMapSelection(): void {
@@ -1900,6 +1960,28 @@ export class MdtOverlay implements Menu {
     const commandBody = el('div', { class: 'mdt-scroll mdt-record mdt-command' });
     panels.command.appendChild(commandBody);
 
+    // Cases (Phase 8 §11.4)
+    const cases = new ListView<CaseRow>('Cases', [
+      { label: 'Case', cls: 'mdt-c-num', text: (r) => r.id },
+      { label: 'Status', text: (r) => r.statusLabel },
+      { label: 'Nature', text: (r) => r.nature },
+      { label: 'Opened', text: (r) => r.opened },
+      { label: 'Location', text: (r) => r.location },
+      { label: 'Suspects', text: (r) => r.suspects },
+      { label: 'Witnesses', text: (r) => r.witnesses },
+    ], {
+      key: (r) => r.id,
+      rowClass: (r) => `mdt-case-${r.status} mdt-sev-${r.severity}`,
+      empty: 'No cases on file',
+    });
+    const casesNote = el('div', { class: 'mdt-scroll' });
+    casesNote.hidden = true;
+    panels.cases.append(
+      el('p', { class: 'mdt-hint' }, 'Open and follow-up cases first. A case goes cold when nothing new turns up.'),
+      el('div', { class: 'mdt-scroll' }, cases.element),
+      casesNote,
+    );
+
     const unitInfo = el('span', { class: 'mdt-unit' });
     const clock = el('span', { class: 'mdt-clock' });
     const message = el('div', { class: 'mdt-message', role: 'status', 'aria-live': 'polite' });
@@ -1924,6 +2006,7 @@ export class MdtOverlay implements Menu {
       kindButtons, newDoc, docs, docPane,
       careerBody, communityBody,
       resourceTypes, resourceUnits, resourceRequest, resourceEta, resourceFooter, resourceBoard, resourceHint, commandBody,
+      cases, casesNote,
       stopBody, stopButtons,
     };
   }

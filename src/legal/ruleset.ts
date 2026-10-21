@@ -1,3 +1,4 @@
+import { modOverlay } from '../mods/registry';
 import {
   DOCTRINES,
   FORCE_LEVELS,
@@ -295,6 +296,11 @@ function loadRulesets(): Map<string, Ruleset> {
     const rs = parseRuleset(files[path], file);
     const stem = file.replace(/\.json$/, '');
     if (rs.id !== stem) fail(file, 'id', `must equal the file name ${show(stem)}, got ${show(rs.id)}`);
+    map.set(rs.id, rs);
+  }
+  for (const { file, json } of modOverlay().rulesets) {
+    const rs = parseRuleset(json, file);
+    if (map.has(rs.id)) fail(file, 'id', `duplicates the ruleset ${show(rs.id)}`);
     map.set(rs.id, rs);
   }
   if (!map.has(DEFAULT_RULESET_ID)) throw new Error(`rulesets: missing the default ruleset ${DEFAULT_RULESET_ID}`);

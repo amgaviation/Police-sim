@@ -14,11 +14,11 @@ import { formatMoney, formatPoints } from '../fleet/format';
 import { trustBand, type TrustBand } from '../hud/law';
 import { button } from './dom';
 import type { LineSeverity } from './model';
-import type { MdtDeps } from './types';
+import type { MdtCareerSummaryLine, MdtDeps } from './types';
 
 const MINUTE = 60;
 
-export type CareerSectionId = 'duty' | 'stats' | 'calendar' | 'cases' | 'incidents' | 'ia' | 'commendations' | 'discipline' | 'reports' | 'fleet';
+export type CareerSectionId = 'career' | 'duty' | 'stats' | 'calendar' | 'cases' | 'incidents' | 'ia' | 'commendations' | 'discipline' | 'reports' | 'fleet';
 
 /** The fleet's career summary (Phase 7 §12.6). */
 export interface MdtFleetSummary {
@@ -79,6 +79,8 @@ export interface CareerOptions {
   jurisdiction?: { readonly id: string; readonly name: string };
   /** A Fleet block (points, department cost, unreported damage, the last charges); absent = no block. */
   fleet?: MdtFleetDeps;
+  /** Phase 8: the CAREER section at the top (stage, rank, shift, wellbeing); absent = no section. */
+  summary?: readonly MdtCareerSummaryLine[];
 }
 
 /** One recorded incident of the Career tab's list. */
@@ -280,9 +282,20 @@ function newestFirst<T>(list: readonly T[], map: (item: T) => CareerLine): Caree
  * The Career tab's sections (design 12.1): duty, record, court calendar, cases, internal affairs, commendations,
  * discipline and the last graded reports. Lists are newest first (the calendar soonest first) and capped.
  */
+/** The CAREER section of the Career tab from the Phase 8 career summary lines. */
+export function careerSummarySection(lines: readonly MdtCareerSummaryLine[]): CareerSection {
+  return {
+    id: 'career',
+    title: 'CAREER',
+    empty: 'No career data',
+    lines: lines.map((l) => line(l.label, l.text)),
+  };
+}
+
 export function careerModel(view: CareerView, cases: readonly CourtCase[], now: CadTime, opts: CareerOptions = {}): CareerModel {
   return {
     sections: [
+      ...(opts.summary ? [careerSummarySection(opts.summary)] : []),
       dutySection(view, opts),
       calendarSection(cases, now, opts),
       casesSection(cases, opts),

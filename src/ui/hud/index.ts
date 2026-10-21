@@ -78,7 +78,7 @@ export {
   tacticalChipsText,
   visibilityText,
 } from './tactical';
-export type { FloorPlan, HudBodycam, HudLocation, HudTactical } from './types';
+export type { FloorPlan, HudBodycam, HudLocation, HudTactical, RemoteUnit } from './types';
 export {
   BACKUP_HUD_LINES,
   PURSUIT_VERDICT_MS,
@@ -122,3 +122,14 @@ export {
   tyresWornFlag,
   type HudWear,
 } from './phase7';
+export {
+  WELLBEING_ALERT_FROM,
+  WELLBEING_CHIP_FROM,
+  coopChip,
+  courseLine,
+  shiftLine,
+  vignetteOpacity,
+  wellbeingChip,
+  type ChipSeverity,
+  type HudCareer,
+} from './phase8';

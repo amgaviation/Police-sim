@@ -1,0 +1,50 @@
+/* Dispatch console (Phase 8 design 12.1). Sizes in em so --text-scale applies; status colours come from the --c-* variables; no animations. */
+.dispatch-console { width: min(96vw, 78em); max-height: 94vh; gap: 0.6em; }
+.dispatch-console .dc-head { justify-content: space-between; flex-wrap: nowrap; }
+.dispatch-console .dc-heading { margin: 0; font-size: 1.2em; }
+.dispatch-console .dc-score { font-family: var(--font-mono); color: var(--c-ok); }
+.dispatch-console .dc-grid { display: grid; grid-template-columns: minmax(12em, 1fr) minmax(0, 2.2fr) minmax(12em, 1fr); gap: 0.6em; min-height: 0; }
+.dispatch-console .dc-col { display: flex; flex-direction: column; gap: 0.3em; min-width: 0; }
+.dispatch-console .dc-col h2 { margin: 0; }
+.dispatch-console .dc-list { display: flex; flex-direction: column; gap: 0.2em; max-height: 24em; overflow: auto; }
+.dispatch-console .dc-row {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 0.1em 0.5em; align-items: center;
+  text-align: left; width: 100%; padding: 0.3em 0.5em; font-size: 0.9em;
+}
+.dispatch-console .dc-row.dc-selected { border-color: var(--accent); background: #22344a; }
+.dispatch-console .dc-row .dc-state { color: var(--fg-dim); font-size: 0.85em; grid-column: 2 / 4; }
+.dispatch-console .dc-unit { grid-template-columns: 4em 1fr auto; }
+.dispatch-console .dc-unit .dc-state { grid-column: auto; }
+.dispatch-console .dc-callsign { font-family: var(--font-mono); font-weight: 600; }
+.dispatch-console .dc-age { font-family: var(--font-mono); color: var(--fg-dim); font-size: 0.85em; }
+.dispatch-console .dc-chip, .dispatch-console button.dc-p1, .dispatch-console button.dc-p2, .dispatch-console button.dc-p3, .dispatch-console button.dc-p4 {
+  color: #0b0f14; font-weight: 700; min-width: 2em; text-align: center; border-radius: var(--radius);
+}
+.dispatch-console .dc-chip { padding: 0 0.4em; font-size: 0.85em; }
+.dispatch-console .dc-p1 { background: var(--c-p1); border-color: var(--c-p1); }
+.dispatch-console .dc-p2 { background: var(--c-p2); border-color: var(--c-p2); }
+.dispatch-console .dc-p3 { background: var(--c-p3); border-color: var(--c-p3); }
+.dispatch-console .dc-p4 { background: var(--c-p4); border-color: var(--c-p4); }
+.dispatch-console button[aria-pressed="true"].dc-p1, .dispatch-console button[aria-pressed="true"].dc-p2,
+.dispatch-console button[aria-pressed="true"].dc-p3, .dispatch-console button[aria-pressed="true"].dc-p4 { outline: 2px solid var(--fg); outline-offset: 1px; }
+.dispatch-console .dc-s-available .dc-callsign { color: var(--c-ok); }
+.dispatch-console .dc-s-enRoute .dc-callsign { color: var(--c-caution); }
+.dispatch-console .dc-s-onScene .dc-callsign { color: var(--c-unit); }
+.dispatch-console .dc-s-outOfService .dc-callsign { color: var(--fg-dim); }
+.dispatch-console .dc-center { align-items: stretch; }
+.dispatch-console .dc-map { width: 100%; height: auto; border: 1px solid var(--panel-border); border-radius: var(--radius); background: #0e151d; touch-action: none; }
+.dispatch-console .dc-maptools { gap: 0.3em; }
+.dispatch-console .dc-detail { display: flex; flex-direction: column; gap: 0.4em; border-top: 1px solid var(--panel-border); padding-top: 0.5em; }
+.dispatch-console .dc-title { font-weight: 600; }
+.dispatch-console .dc-meta, .dispatch-console .dc-line { color: var(--fg-dim); font-size: 0.9em; }
+.dispatch-console .dc-line { font-family: var(--font-mono); }
+.dispatch-console .dc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6em; }
+.dispatch-console .dc-cols h3 { margin: 0 0 0.2em; font-size: 0.85em; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.dispatch-console .dc-label { color: var(--fg-dim); font-size: 0.85em; }
+.dispatch-console .dc-empty { color: var(--fg-dim); font-style: italic; font-size: 0.9em; }
+.dispatch-console .dc-note-input { flex: 1 1 14em; min-width: 8em; }
+.dispatch-console .dc-status { min-height: 1.4em; margin: 0; }
+@media (max-width: 60em) {
+  .dispatch-console .dc-grid { grid-template-columns: 1fr; }
+  .dispatch-console .dc-cols { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "steady-desk",
+  "name": "Steady desk",
+  "voices": {
+    "dispatcher": {
+      "pitch": [
+        0.95,
+        1.05
+      ],
+      "rate": [
+        1.0,
+        1.05
+      ],
+      "prefer": []
+    }
+  }
+}

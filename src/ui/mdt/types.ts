@@ -8,6 +8,7 @@ import type { ObservedVehicle } from '../../records/vehicle';
 import type { ResourceUnitView } from '../../resources/types';
 import type { RoadGraph } from '../../world/roadGraph';
 import type { MdtFleetDeps } from './career';
+import type { RemoteUnit } from '../hud/types';
 import type { ChoiceInfo, ReportGradeView } from './statements';
 
 /** Career tab feed (design phase 5 §12.1): conduct and court, read on demand. */
@@ -64,6 +65,39 @@ export interface MdtResourcesDeps {
   request(typeId: string): void;
   /** Presentation-only ETA board from the worker: rows for `callId` (empty when the worker is unavailable). */
   etaBoard?(callId: number): Promise<readonly MdtEtaRow[]>;
+}
+
+/** Premise history of a call's address (Phase 8 §11.4); `when` is formatted by the integrator's feed (`formatStamp`). */
+export interface PremiseView {
+  readonly address: string;
+  readonly flags: readonly string[];
+  /** Newest first. */
+  readonly entries: readonly { readonly when: string; readonly text: string }[];
+}
+
+/** One row of the Cases tab (Phase 8 §11.4); the strings are formatted by the integrator's feed. */
+export interface MdtCaseRow {
+  readonly id: string;
+  /** 'open' | 'followUp' | 'cold' | 'cleared'. */
+  readonly status: string;
+  readonly nature: string;
+  readonly opened: string;
+  readonly location: string;
+  readonly suspects: string;
+  readonly witnesses: string;
+}
+
+/** Cases tab feed (Phase 8 §11.4). */
+export interface MdtCasesDeps {
+  /** Changes whenever the case register changes (`WorldState.revision`). */
+  revision(): number;
+  rows(): readonly MdtCaseRow[];
+}
+
+/** One line of the CAREER section of the Career tab (Phase 8 §11.4). */
+export interface MdtCareerSummaryLine {
+  readonly label: string;
+  readonly text: string;
 }
 
 /** Command tab feed (design phase 6 §12.3). */
@@ -126,10 +160,19 @@ export interface MdtDeps {
   resources?: MdtResourcesDeps;
   /** Command tab. Without it the tab explains that no incident command exists. */
   command?: MdtCommandDeps;
+  // Phase 8 (design §11.4): all optional too.
+  /** Premise history of the call's address (Call tab); absent = no block, null = no data for this call. */
+  premise?(callId: number): PremiseView | null;
+  /** Cases tab. Without it the tab explains that no case data exists. */
+  cases?: MdtCasesDeps;
+  /** The CAREER section at the top of the Career tab (stage, rank, shift, wellbeing, ...). */
+  careerSummary?(): readonly MdtCareerSummaryLine[];
+  /** Co-op teammates drawn on the MDT map with their callsigns. */
+  remoteUnits?(): readonly RemoteUnit[];
 }
 
-/** Digits 1-9 reach the first nine tabs, 0 the Career tab, and the arrows all of them (Community, Resources, Command). */
-export const MDT_TABS = ['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community', 'resources', 'command'] as const;
+/** Digits 1-9 reach the first nine tabs, 0 the Career tab, and the arrows all of them (Community, Resources, Command, Cases). */
+export const MDT_TABS = ['queue', 'call', 'units', 'map', 'person', 'vehicle', 'bolo', 'reports', 'stop', 'career', 'community', 'resources', 'command', 'cases'] as const;
 export type MdtTab = (typeof MDT_TABS)[number];
 
 export const MDT_TAB_LABELS: Readonly<Record<MdtTab, string>> = {
@@ -146,6 +189,7 @@ export const MDT_TAB_LABELS: Readonly<Record<MdtTab, string>> = {
   community: 'Community',
   resources: 'Resources',
   command: 'Command',
+  cases: 'Cases',
 };
 
 /** The key shown on a tab button: 1-9, then 0 for Career; '' for tabs reached with the arrows only. */

@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrol.invalid/schemas/voice-pack.schema.json",
+  "title": "Voice pack",
+  "description": "One entry of content.voicePacks: text-to-speech pitch / rate ranges and voice preferences per speaker kind, plus radio phrase replacements. The last enabled pack wins.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "voices"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,39}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "voices": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dispatcher": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pitch",
+            "rate",
+            "prefer"
+          ],
+          "properties": {
+            "pitch": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "rate": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "prefer": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            }
+          }
+        },
+        "officer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pitch",
+            "rate",
+            "prefer"
+          ],
+          "properties": {
+            "pitch": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "rate": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "prefer": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            }
+          }
+        },
+        "agency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pitch",
+            "rate",
+            "prefer"
+          ],
+          "properties": {
+            "pitch": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "rate": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "prefer": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            }
+          }
+        },
+        "player": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pitch",
+            "rate",
+            "prefer"
+          ],
+          "properties": {
+            "pitch": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "rate": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0.5,
+                "maximum": 2
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "prefer": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              }
+            }
+          }
+        }
+      }
+    },
+    "phrases": {
+      "type": "object",
+      "description": "Keys are radio phrase kinds (src/radio/data.ts PHRASE_KINDS).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "tenCode": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            }
+          },
+          "plain": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            }
+          }
+        }
+      }
+    }
+  }
+}

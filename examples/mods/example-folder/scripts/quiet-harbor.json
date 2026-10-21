@@ -1,0 +1,51 @@
+{
+  "format": "patrol-dispatch-script",
+  "version": 1,
+  "id": "quiet-harbor",
+  "name": "Quiet harbor",
+  "description": "Four calm calls in eight minutes using the folder mod's own call type.",
+  "generator": "on",
+  "durationS": 480,
+  "steps": [
+    {
+      "atS": 45,
+      "typeId": "loudGeneratorComplaint",
+      "priority": 4,
+      "near": {
+        "district": "harbor"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 150,
+      "typeId": "parkingComplaint",
+      "priority": 4,
+      "near": {
+        "district": "harbor"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 260,
+      "typeId": "loudGeneratorComplaint",
+      "priority": 4,
+      "near": {
+        "district": "suburbs"
+      },
+      "narrative": null,
+      "radio": null
+    },
+    {
+      "atS": 390,
+      "typeId": "welfareCheck",
+      "priority": 3,
+      "near": {
+        "district": "harbor"
+      },
+      "narrative": null,
+      "radio": null
+    }
+  ]
+}
