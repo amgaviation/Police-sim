@@ -7,12 +7,11 @@ import { defaultLivery } from '../../src/livery/defaults';
 import type { Canvas2DLike } from '../../src/livery/painter';
 import type { LiveryDoc } from '../../src/livery/types';
 import { LiveryRenderer, type LiveryCanvas } from '../../src/render/livery/liveryRenderer';
-import { vehicleRenderBasis } from '../../src/render/vehicles/carRenderer';
-import { attachVehicleLook, VehicleLook } from '../../src/vehicles/components';
+import { attachVehicleLook } from '../../src/vehicles/components';
 import { vehicleModel } from '../../src/vehicles/model';
 
 const SEDAN = vehicleModel('patrol_sedan');
-const MOTO = vehicleModel('police_motorcycle');
+const PICKUP = vehicleModel('pickup');
 const DOC = defaultLivery('patrolMarked');
 
 /** A recording 2D context: counts atlas clears (one per paint) and keeps the fill / text calls. */
@@ -216,19 +215,15 @@ describe('LiveryRenderer placement', () => {
     renderer.dispose();
   });
 
-  it('follows the leaned transform of a two-wheeler through vehicleRenderBasis', () => {
+  it('gives no shell to thin-framed styles (a two-wheeler, the ATV, the boat, aircraft stay visible)', () => {
     const { scene, world, renderer } = setup();
-    const eid = addCar(world, MOTO.index, 3, -4);
-    VehicleLook.lean[eid] = 0.35;
-    renderer.set(eid, MOTO, defaultLivery('motorMarked'), '7', 'City Police');
+    for (const id of ['police_motorcycle', 'police_bicycle', 'police_atv', 'patrol_boat', 'police_helicopter', 'police_drone']) {
+      const eid = addCar(world, vehicleModel(id).index, 3, -4);
+      renderer.set(eid, vehicleModel(id), defaultLivery('motorMarked'), '7', 'City Police');
+    }
+    expect(renderer.size).toBe(0);
     renderer.update(1, 0, 0, 0);
-    const mesh = visibleShells(scene)[0] as THREE.Mesh;
-    const pos = new THREE.Vector3();
-    const quat = new THREE.Quaternion();
-    vehicleRenderBasis(eid, 1, pos, quat);
-    expect(mesh.position.distanceTo(pos)).toBe(0);
-    expect(mesh.quaternion.angleTo(quat)).toBeLessThan(1e-9);
-    expect(mesh.quaternion.angleTo(new THREE.Quaternion())).toBeCloseTo(0.35, 6);
+    expect(visibleShells(scene).length).toBe(0);
     renderer.dispose();
   });
 
@@ -270,14 +265,14 @@ describe('LiveryRenderer placement', () => {
   it('swaps the shell geometry with the model of the vehicle it is assigned to', () => {
     const { scene, world, renderer } = setup({ maxVisible: 1 });
     const car = addCar(world, SEDAN.index, 5, 0);
-    const bike = addCar(world, MOTO.index, 50, 0);
+    const bike = addCar(world, PICKUP.index, 50, 0);
     renderer.set(car, SEDAN, DOC, '1', 'City Police');
-    renderer.set(bike, MOTO, defaultLivery('motorMarked'), '2', 'City Police');
+    renderer.set(bike, PICKUP, DOC, '2', 'City Police');
     renderer.update(1, 0, 0, 0);
     const mesh = visibleShells(scene)[0] as THREE.Mesh;
     expect(mesh.geometry.name).toBe('livery-shell:patrol_sedan');
     renderer.update(1, 60, 0, 0);
-    expect(mesh.geometry.name).toBe('livery-shell:police_motorcycle');
+    expect(mesh.geometry.name).toBe('livery-shell:pickup');
     expect(mesh.geometry.getAttribute('position').count).toBe(24);
     expect(mesh.geometry.getAttribute('uv').count).toBe(24);
     expect(mesh.geometry.index?.count).toBe(36);
@@ -287,8 +282,8 @@ describe('LiveryRenderer placement', () => {
   it('creates no objects per frame once the pool is warm', () => {
     const { scene, world, renderer } = setup({ maxVisible: 4 });
     for (let i = 0; i < 6; i++) {
-      const eid = addCar(world, i % 2 === 0 ? SEDAN.index : MOTO.index, i * 5, 0);
-      renderer.set(eid, i % 2 === 0 ? SEDAN : MOTO, DOC, String(i), 'City Police');
+      const eid = addCar(world, i % 2 === 0 ? SEDAN.index : PICKUP.index, i * 5, 0);
+      renderer.set(eid, i % 2 === 0 ? SEDAN : PICKUP, DOC, String(i), 'City Police');
     }
     renderer.update(0, 0, 0, 0.5);
     const group = scene.getObjectByName('livery-shells') as THREE.Object3D;
@@ -370,9 +365,9 @@ describe('LiveryRenderer headless', () => {
     const world = createGameWorld();
     const renderer = new LiveryRenderer(scene);
     const a = addCar(world, SEDAN.index, 5, 0);
-    const b = addCar(world, MOTO.index, 500, 0);
+    const b = addCar(world, PICKUP.index, 500, 0);
     renderer.set(a, SEDAN, DOC, '1', 'City Police');
-    renderer.set(b, MOTO, defaultLivery('motorMarked'), '2', 'City Police');
+    renderer.set(b, PICKUP, DOC, '2', 'City Police');
     renderer.update(1, 0, 0, 1);
     expect(renderer.size).toBe(2);
     expect(renderer.stats).toEqual({ shells: 1, drawCalls: 0, repaints: 0 });

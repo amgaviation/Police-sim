@@ -83,7 +83,7 @@ describe('buildOutfit', () => {
 
   it('detective has no name plate and the badge on the belt (pelvis frame)', () => {
     const o = build(defaultOutfitSpec('detective'));
-    expect(o.boxes.filter((b) => b.sx === 0.08 && b.sy === 0.02 && b.sz === 0.01)).toHaveLength(0);
+    expect(o.boxes.filter((b) => b.sy === 0.02 && b.sz === 0.01 && b.attach === ATTACH.torso)).toHaveLength(0);
     const badge = UNIFORM_DATA.department.badge.metal;
     const badges = o.boxes.filter((b) => b.color === badge && b.sx === 0.06 && b.sy === 0.07);
     expect(badges).toHaveLength(1);
@@ -91,10 +91,10 @@ describe('buildOutfit', () => {
     // Other classes: badge on the chest, plate present.
     const b = build(defaultOutfitSpec('classB'));
     expect(b.boxes.filter((x) => x.sx === 0.06 && x.sy === 0.07 && x.attach === ATTACH.torso)).toHaveLength(1);
-    expect(b.boxes.filter((x) => x.sx === 0.08 && x.sy === 0.02)).toHaveLength(1);
+    expect(b.boxes.filter((x) => x.sy === 0.02 && x.sz === 0.01 && x.attach === ATTACH.torso)).toHaveLength(1);
     const noPlate = defaultOutfitSpec('classB');
     noPlate.namePlate = false;
-    expect(build(noPlate).boxes.filter((x) => x.sx === 0.08 && x.sy === 0.02)).toHaveLength(0);
+    expect(build(noPlate).boxes.filter((x) => x.sy === 0.02 && x.sz === 0.01 && x.attach === ATTACH.torso)).toHaveLength(0);
   });
 
   it('bike shows bare shins, motor wears tall boots, others trousers', () => {

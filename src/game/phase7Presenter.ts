@@ -167,6 +167,7 @@ export class Phase7Presenter {
       atStation: session.atStation() || session.nearServicePoint(),
       driving,
       nearUnit: near,
+      inYard: (unitId) => session.unitInYard(unitId),
       expanded: this.expanded,
       incidents: session.fleet.incidents(),
     };
@@ -282,6 +283,14 @@ export class Phase7Presenter {
       case 'endShift':
         session.fleet.request({ kind: 'endShift' });
         return;
+      case 'finish': {
+        // The shift-end inspection of the unit the officer drives or stands by; with no unit near, the shift ends directly.
+        const ctx = this.context(session);
+        const unitId = ctx.driving ?? ctx.nearUnit;
+        if (unitId !== null) this.apply(session, { kind: 'inspect', unitId });
+        else session.fleet.request({ kind: 'endShift' });
+        return;
+      }
       case 'back':
         if (this.kind === 'summary') this.panel.close();
         else this.show('garage');
@@ -342,12 +351,10 @@ export class Phase7Presenter {
         set(doc);
       },
       save: (doc) => {
-        if (!session.fleet.setLivery(unitId, doc)) {
+        if (!session.assignLivery(unitId, doc)) {
           this.host.flash('The livery library is full');
           return;
         }
-        if (doc.loadout !== null) session.fleet.setLoadout(unitId, doc.loadout);
-        session.applyUnitLivery(unitId);
         const t = this.tracked.get(vehicle.eid);
         if (t) t.doc = null;
         this.host.flash(`${doc.name} saved to ${unitId}`);
@@ -401,7 +408,7 @@ export class Phase7Presenter {
         preview: (profile) => session.phase7.setProfile(profile),
         done: (profile, gear) => {
           session.setCharacter(profile);
-          session.gear.setLoadout(gear);
+          session.setGear(gear);
           session.gear.setExtraVestSlots(extraVestSlots(profile));
           this.creator = null;
           this.host.flash('Uniform and gear updated');

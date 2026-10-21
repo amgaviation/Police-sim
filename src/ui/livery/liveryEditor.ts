@@ -532,11 +532,11 @@ export class LiveryEditor implements Menu {
     const rows = view.rows.map((r) =>
       el(
         'div',
-        { class: 'livery-loadout-row' },
+        { class: 'livery-loadout-row', role: 'group', 'aria-label': `${r.label}: ${String(r.count)}` },
         el('span', { class: 'livery-loadout-name' }, r.label),
-        actionButton('−', () => this.apply({ kind: 'setLoadout', loadout: withTrunkCount(l, r.id, r.count - 1) }), 'small', r.count === 0),
+        actionButton('−', () => this.apply({ kind: 'setLoadout', loadout: withTrunkCount(l, r.id, r.count - 1) }), 'small', r.count === 0, `Remove one ${r.label} (${String(r.count)} now)`),
         el('span', { class: 'livery-value' }, String(r.count)),
-        actionButton('+', () => this.apply({ kind: 'setLoadout', loadout: withTrunkCount(l, r.id, r.count + 1) }), 'small'),
+        actionButton('+', () => this.apply({ kind: 'setLoadout', loadout: withTrunkCount(l, r.id, r.count + 1) }), 'small', false, `Add one ${r.label} (${String(r.count)} now)`),
       ),
     );
     const rack = view.rack.map((b) =>

@@ -3128,6 +3128,12 @@ async function phase7(page, hasRenderer) {
     const points0 = s.conduct.career.points;
     const id = s.fleet.incidents().find((i) => i.unitId === 'P-101').id;
     await app.console.execute(`fleet report ${id}`);
+    // Service happens in the yard only: the wreck is refused where it stands, then driven back to the garage exit.
+    const wasInYard = s.unitInYard('P-101');
+    await app.console.execute('fleet service all P-101');
+    const refused = wasInYard || s.fleet.ledger.departmentCost === 0;
+    s.teleport(s.yard.garage.x, s.yard.garage.z, 0);
+    for (let i = 0; i < 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     await app.console.execute('fleet service all P-101');
     const input = s.inspectionInput('P-101');
     s.fleet.request({ kind: 'inspect', unitId: 'P-101', input });
@@ -3138,6 +3144,8 @@ async function phase7(page, hasRenderer) {
     return {
       report: s.fleet.reports()[0]?.text ?? '',
       serviced: !s.unitVehicle('P-101').needsRepair,
+      refused,
+      inYard: s.unitInYard('P-101'),
       cost: s.fleet.ledger.departmentCost,
       rows: inspected?.rows.length ?? 0,
       points0,
@@ -3147,6 +3155,7 @@ async function phase7(page, hasRenderer) {
   });
   console.log('phase 7 shift end:', JSON.stringify({ ...flow, report: flow.report.slice(0, 80) }));
   check(flow.report.includes('Robin Vale') && flow.report.includes('they/them'), 'the damage report names the officer with their pronouns');
+  check(flow.refused && flow.inYard, 'a wreck outside the yard is not serviced; back in the yard it can be');
   check(flow.serviced && flow.cost > 0, `the station service repairs P-101 and the department ledger records $${flow.cost}`);
   check(flow.rows >= 8, `the inspection checklist runs (${flow.rows} checks)`);
   check(flow.points1 <= flow.points0 && flow.summary === 'summary', `End shift applies the career charge (${flow.points0} -> ${flow.points1}) and opens the shift summary`);

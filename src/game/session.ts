@@ -53,7 +53,7 @@ import { EXIT_MAX_SPEED, PLAYER_MODE, PLAYER_MODE_NAMES, PlayerModeMachine, driv
 import { attachPoliceLights } from '../police/components';
 import { PatrolEquipment, type EquipmentSave, type VehicleEquipmentSpec } from '../police/equipment';
 import { patternIndex } from '../police/lightbar';
-import { OfficerKit, type OfficerKitSave } from '../police/inventory';
+import { OfficerKit, TRUNK_ITEMS, type OfficerKitSave } from '../police/inventory';
 import { RadioSystem } from '../radio/radioSystem';
 import { epochDayOfGameSeconds } from '../records/calendar';
 import { RecordsDb, homeEdgesOf } from '../records/db';
@@ -716,7 +716,7 @@ export class GameSession {
     const offViolation = this.bus.on('traffic:violation', (e) => this.logViolation(e));
     // The prisoner is seated when the contact module cages them (the escort ends at a rear door), not on the arrest itself.
     const offCaged = this.bus.on('contact:caged', (e) => {
-      this.equipmentList[e.vehicleIndex]?.seatPrisoner(e.personId);
+      if (!this.equipmentList[e.vehicleIndex]?.seatPrisoner(e.personId)) this.phase5.flash('No free cage seat: the prisoner stays with you', 'warn');
     });
     // The scene's dispatch lines go out on the radio, from the dispatcher or (a request line) from the player.
     const offRadio = this.bus.on('scene:radio', (e) => {
@@ -867,6 +867,22 @@ export class GameSession {
   setCharacter(profile: CharacterProfile): void {
     this.phase7.setProfile(profile);
     this.officer = this.phase7.officerRecord();
+  }
+
+  /**
+   * Replaces the officer's loadout (the locker, the console) and carries the difference in kit items: what the new gear adds
+   * (naloxone, a Halligan, K9 treats...) is picked up, what it drops is put down, within each item's carry limit.
+   */
+  setGear(loadout: OfficerLoadout): void {
+    const before = this.phase7.gear.kitGrants();
+    this.phase7.gear.setLoadout(loadout);
+    const after = this.phase7.gear.kitGrants();
+    for (const item of TRUNK_ITEMS) {
+      const delta = (after[item.id] ?? 0) - (before[item.id] ?? 0);
+      if (delta === 0) continue;
+      const have = this.kit.carried(item.id);
+      this.kit.adjust(item.id, Math.min(item.carryMax, Math.max(0, have + delta)) - have);
+    }
   }
 
   /** The vehicle the officer drove last (or is driving); refuelling and the headlight spots use it. */
@@ -1142,7 +1158,8 @@ export class GameSession {
 
   /**
    * After the fleet's livery or loadout of `unitId` changed: the live vehicle takes the colour, trim, tone and pattern, and is
-   * rebuilt in place (same entity) when the push bar, spotlight or partition changed. The trunk contents stay.
+   * rebuilt in place (same entity) when the push bar, spotlight or partition changed. The trunk contents stay
+   * (`applyUnitLoadout` restocks them).
    */
   applyUnitLivery(unitId: string): void {
     const v = this.unitVehicle(unitId);
@@ -1158,6 +1175,31 @@ export class GameSession {
       this.rebuildVehicle(index, null, { pushBar: doc.equipment.pushBar }, this.setupOf(unitId));
     }
     this.applyLook(v, doc, true);
+  }
+
+  /**
+   * Gives unit `unitId` the livery `doc` (its colour, trim, lights) and the livery's own loadout: a loadout in the document
+   * replaces the unit's, none clears a custom one back to the default. When the effective loadout changed, the live vehicle's
+   * trunk and rack are restocked to it. False when the livery library is full.
+   */
+  assignLivery(unitId: string, doc: LiveryDoc): boolean {
+    const fleet = this.phase7.fleet;
+    if (!fleet.setLivery(unitId, doc)) return false;
+    const before = JSON.stringify(fleet.loadout(unitId));
+    if (doc.loadout !== null) fleet.setLoadout(unitId, doc.loadout);
+    else fleet.clearLoadout(unitId);
+    this.applyUnitLivery(unitId);
+    if (JSON.stringify(fleet.loadout(unitId)) !== before) this.applyUnitLoadout(unitId);
+    return true;
+  }
+
+  /** After the fleet loadout of `unitId` changed: its live vehicle's trunk and rack are restocked to the new loadout. */
+  applyUnitLoadout(unitId: string): void {
+    const v = this.unitVehicle(unitId);
+    const eq = v ? this.equipmentOf(v) : null;
+    if (!eq) return;
+    const want = this.phase7.fleet.loadout(unitId);
+    eq.setStock(want.trunk, want.rack, this.kit.longGun);
   }
 
   /** Rebuilds the chassis and equipment of vehicle `index` on the same entity (a build option changed); state is kept. */
@@ -1297,13 +1339,26 @@ export class GameSession {
     const index = this.vehicleList.indexOf(v);
     const eq = this.equipmentList[index];
     if (eq && eq.prisoner >= 0) return { ok: false, message: 'Book the prisoner first' };
-    const x = Transform.x[v.eid] ?? 0;
-    const z = Transform.z[v.eid] ?? 0;
-    const home = def.home === 'lot' ? null : this.homePose(def);
-    const inYard = def.home === 'lot' ? this.inStationRect(x, z) : home !== null && Math.hypot(x - home.x, z - home.z) <= HOME_REACH;
-    if (!inYard) return { ok: false, message: `Park ${unitId} ${def.home === 'lot' ? 'in the station yard' : 'at its pad'} to check it in` };
+    if (!this.parkedAtHome(def, v)) return { ok: false, message: `Park ${unitId} ${def.home === 'lot' ? 'in the station yard' : 'at its pad'} to check it in` };
     this.storeUnit(unitId, index);
     return { ok: true, message: `${unitId} checked in` };
+  }
+
+  /** Is `v` parked where `def`'s unit is kept: the station yard, or within `HOME_REACH` of its slip / pad? */
+  private parkedAtHome(def: FleetUnitDef, v: DrivableVehicle): boolean {
+    const x = Transform.x[v.eid] ?? 0;
+    const z = Transform.z[v.eid] ?? 0;
+    if (def.home === 'lot') return this.inStationRect(x, z);
+    const home = this.homePose(def);
+    return home !== null && Math.hypot(x - home.x, z - home.z) <= HOME_REACH;
+  }
+
+  /** Is the checked-out vehicle of `unitId` in its yard (service and repair happen only there)? A carried unit (the drone) always is. */
+  unitInYard(unitId: string): boolean {
+    const def = FLEET_DATA.units.find((u) => u.id === unitId);
+    const v = def ? this.unitVehicle(unitId) : null;
+    if (!def || !v) return false;
+    return def.home === 'carried' || this.parkedAtHome(def, v);
   }
 
   private inStationRect(x: number, z: number): boolean {
@@ -1557,7 +1612,7 @@ export class GameSession {
     if (Math.hypot(actor.x - at.x, actor.z - at.z) > CAGE_PRISONER_DISTANCE) return -1;
     for (let i = 0; i < this.vehicleList.length; i++) {
       const eq = this.equipmentList[i];
-      if (!eq || !eq.spec.partition || eq.prisoner >= 0) continue;
+      if (!eq || eq.cageFree() === 0) continue;
       const v = this.vehicleList[i] as DrivableVehicle;
       const eid = v.eid;
       const yaw = this.yawOf(eid);
@@ -1641,14 +1696,14 @@ export class GameSession {
   }
 
   /**
-   * The patrol car an arrested person is seated in: the last-driven car when its cage is free and it is
+   * The patrol car an arrested person is seated in: the last-driven car when its cage has a free seat and it is
    * within `ARREST_CAR_DISTANCE`, else the nearest such car; null when none.
    */
   arrestVehicle(): DrivableVehicle | null {
     const at = this.playerPosition(scratchPoint);
     const usable = (v: DrivableVehicle, i: number): number => {
       const eq = this.equipmentList[i];
-      if (!eq || !eq.spec.partition || eq.prisoner >= 0) return Infinity;
+      if (!eq || eq.cageFree() === 0) return Infinity;
       const d = Math.hypot((Transform.x[v.eid] ?? 0) - at.x, (Transform.z[v.eid] ?? 0) - at.z);
       return d <= ARREST_CAR_DISTANCE ? d : Infinity;
     };
@@ -1672,8 +1727,12 @@ export class GameSession {
     return this.equipmentOf(this.arrestVehicle())?.seatPrisoner(personId) ?? false;
   }
 
-  /** The person in a patrol car's cage (the last-driven car first), -1 when every cage is empty. */
-  prisoner(): number {
+  /**
+   * The person in a patrol car's cage (the last-driven car first), -1 when every cage is empty. With `preferId` >= 0, that
+   * person when they sit in any cage (a van holds several prisoners).
+   */
+  prisoner(preferId = -1): number {
+    if (preferId >= 0) for (const eq of this.equipmentList) if (eq?.hasPrisoner(preferId)) return preferId;
     const last = this.equipmentOf(this.lastVehicle);
     if (last && last.prisoner >= 0) return last.prisoner;
     for (const eq of this.equipmentList) if (eq && eq.prisoner >= 0) return eq.prisoner;
@@ -1684,7 +1743,10 @@ export class GameSession {
   releasePrisoner(personId = -1): number {
     for (const eq of this.equipmentList) {
       if (!eq || eq.prisoner < 0) continue;
-      if (personId >= 0 && eq.prisoner !== personId) continue;
+      if (personId >= 0) {
+        if (eq.release(personId)) return personId;
+        continue;
+      }
       return eq.releasePrisoner();
     }
     return -1;
@@ -2031,6 +2093,7 @@ export class GameSession {
       bus: this.bus,
       callsign,
       unitVehicle: (unitId) => this.unitVehicle(unitId),
+      unitInYard: (unitId) => this.unitInYard(unitId),
       damageContext: (eid) => {
         const v = this.vehicleOf(eid);
         const eq = this.equipmentOf(v);
@@ -2896,7 +2959,8 @@ export class GameSession {
 
   /**
    * What the pump the officer (on foot) stands at would do for the last-driven vehicle parked near it:
-   * repair (and refuel) a damaged car at the station's pump, refuel one that is not full, else nothing.
+   * repair (and refuel) a damaged non-fleet car at the station's pump, refuel one that is not full, else nothing. A fleet
+   * unit at the station pump goes to the fleet service counter instead (costs and the ledger).
    */
   private pumpService(): 'repair' | 'refuel' | null {
     const vehicle = this.lastVehicle;
@@ -2908,12 +2972,14 @@ export class GameSession {
     const vx = Transform.x[vehicle.eid] ?? 0;
     const vz = Transform.z[vehicle.eid] ?? 0;
     const pumps = this.pumps;
+    const fleetUnit = this.unitOf(vehicle) !== null;
     for (let i = 0; i + 1 < pumps.length; i += 2) {
       const px = pumps[i] ?? 0;
       const pz = pumps[i + 1] ?? 0;
       if (Math.hypot(at.x - px, at.z - pz) > REFUEL_PUMP_DISTANCE) continue;
       if (Math.hypot(vx - px, vz - pz) > REFUEL_VEHICLE_DISTANCE) continue;
-      if (repair && i < this.stationPumps * 2) return 'repair';
+      // A fleet unit is repaired (and charged) at the garage counter, not for free by the pump.
+      if (repair && !fleetUnit && i < this.stationPumps * 2) return 'repair';
       if (refuel) return 'refuel';
     }
     return null;

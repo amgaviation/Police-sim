@@ -747,7 +747,7 @@ export class MdtOverlay implements Menu {
         doc = cad.docs.create(kind, f, t, this.author());
       }
       if (finalize) {
-        if (doc.kind === 'booking' && !canCompleteBooking(doc, this.deps.prisoner(), this.deps.atStation())) {
+        if (doc.kind === 'booking' && !canCompleteBooking(doc, this.deps.prisoner(doc.personId), this.deps.atStation())) {
           return { doc, errors: ['Booking can only be completed at the station, for the prisoner in the car'] };
         }
         doc = cad.docs.finalize(doc.id, t);
@@ -1052,7 +1052,7 @@ export class MdtOverlay implements Menu {
             const personId = this.form.view ? (this.form.view.read() as { personId?: number }).personId ?? -1 : -1;
             this.formDom.complete.disabled = !canCompleteBooking(
               { personId, status: doc?.status ?? 'draft' },
-              this.deps.prisoner(),
+              this.deps.prisoner(personId),
               this.deps.atStation(),
             );
           } else if (!this.form && this.docPaneKey() !== this.renderedDocKey) {
@@ -1477,7 +1477,7 @@ export class MdtOverlay implements Menu {
     if (complete) {
       const doc = form.docId !== null ? this.deps.cad.docs.get(form.docId) : null;
       const personId = (form.init as { personId?: number }).personId ?? -1;
-      complete.disabled = !canCompleteBooking({ personId, status: doc?.status ?? 'draft' }, this.deps.prisoner(), this.deps.atStation());
+      complete.disabled = !canCompleteBooking({ personId, status: doc?.status ?? 'draft' }, this.deps.prisoner(personId), this.deps.atStation());
     }
     view.focus();
   }
@@ -1486,7 +1486,7 @@ export class MdtOverlay implements Menu {
   private docPaneKey(): string {
     const doc = this.viewDocId !== null ? this.deps.cad.docs.get(this.viewDocId) : null;
     if (!doc) return `none:${this.docKind}`;
-    const canComplete = doc.kind === 'booking' && canCompleteBooking(doc, this.deps.prisoner(), this.deps.atStation());
+    const canComplete = doc.kind === 'booking' && canCompleteBooking(doc, this.deps.prisoner(doc.personId), this.deps.atStation());
     const custody = doc.kind === 'evidence' ? doc.custody.length : 0;
     const grade = doc.kind === 'report' ? this.viewedGradeScore() : -1;
     return `${doc.id}:${doc.status}:${doc.updated.sim}:${custody}:${canComplete ? 1 : 0}:${grade}`;
@@ -1520,7 +1520,7 @@ export class MdtOverlay implements Menu {
       actions.appendChild(button('Edit', () => this.openForm(doc.kind, draftFieldsOf(doc), {}, doc.id)));
       if (doc.kind === 'booking') {
         const b = button('Complete booking', () => this.finalizeViewed(doc.id), 'primary');
-        b.disabled = !canCompleteBooking(doc, this.deps.prisoner(), this.deps.atStation());
+        b.disabled = !canCompleteBooking(doc, this.deps.prisoner(doc.personId), this.deps.atStation());
         actions.appendChild(b);
       } else {
         actions.appendChild(button(doc.kind === 'citation' ? 'Issue' : 'Finalize', () => this.finalizeViewed(doc.id), 'primary'));

@@ -70,12 +70,11 @@ export class FakePort implements FleetVehiclePort {
     this.cond.flats = [false, false, false, false];
   }
 
-  repair(): void {
+  repairBody(): void {
     this.calls.push('repair');
     this.cond.zones = [0, 0, 0, 0];
     this.cond.engineHealth = 1;
     this.cond.engineFailed = false;
-    this.cond.flats = [false, false, false, false];
   }
 }
 

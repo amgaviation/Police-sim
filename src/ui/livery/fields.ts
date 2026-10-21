@@ -126,8 +126,8 @@ export function textField(label: string, value: string, onInput: (v: string) => 
   return fieldRow(label, input);
 }
 
-export function actionButton(text: string, onClick: () => void, cls = '', disabled = false): HTMLButtonElement {
-  return el('button', { type: 'button', class: cls, disabled, onclick: onClick }, text);
+export function actionButton(text: string, onClick: () => void, cls = '', disabled = false, ariaLabel?: string): HTMLButtonElement {
+  return el('button', { type: 'button', class: cls, disabled, onclick: onClick, 'aria-label': ariaLabel }, text);
 }
 
 /** A bar `used / cap` with a text readout; `over` turns it red. */

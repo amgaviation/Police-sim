@@ -95,7 +95,7 @@ export function createPhase7Commands(deps: Phase7CommandDeps): Command[] {
         const id = args[1];
         const preset = id === undefined ? undefined : OFFICER_PRESETS[id];
         if (id === undefined || preset === undefined) return `Usage: gear preset <${Object.keys(OFFICER_PRESETS).join(' | ')}>`;
-        s.gear.setLoadout(preset);
+        s.setGear(preset);
         return gearShow(s);
       }
       if (sub === 'retention') {
@@ -103,7 +103,7 @@ export function createPhase7Commands(deps: Phase7CommandDeps): Command[] {
         if (level !== 1 && level !== 2 && level !== 3) return 'Usage: gear retention <1|2|3>';
         const cur = s.gear.loadout;
         if (!cur.items.some((i) => i.id === 'holster')) return 'The loadout has no holster';
-        s.gear.setLoadout({ assignment: cur.assignment, items: cur.items.map((i) => (i.id === 'holster' ? { ...i, retention: level } : { ...i })) });
+        s.setGear({ assignment: cur.assignment, items: cur.items.map((i) => (i.id === 'holster' ? { ...i, retention: level } : { ...i })) });
         return `Holster retention ${String(level)}`;
       }
       return 'Usage: gear [show | validate | preset <id> | retention <1-3>]';
@@ -133,6 +133,7 @@ export function createPhase7Commands(deps: Phase7CommandDeps): Command[] {
           const id = unitArg(s, args[2]);
           const quote = s.fleet.quote(id, kind);
           if (!quote) return `${id} is in the yard: check it out first`;
+          if (!s.unitInYard(id)) return `Bring ${id} to the yard to service it`;
           s.fleet.request({ kind: 'service', unitId: id, service: kind });
           return `Service ${kind} for ${id}: $${String(quote.total)}${quote.lines.length > 0 ? ` (${quote.lines.map((l) => l.label).join(', ')})` : ''}`;
         }
@@ -186,8 +187,7 @@ export function createPhase7Commands(deps: Phase7CommandDeps): Command[] {
           const doc = s.fleet.library().find((l) => l.id === id);
           if (!doc) return `No livery '${id}' (livery list)`;
           const unit = unitArg(s, args[2]);
-          if (!s.fleet.setLivery(unit, doc)) return 'The livery library is full';
-          s.applyUnitLivery(unit);
+          if (!s.assignLivery(unit, doc)) return 'The livery library is full';
           return `${unit} now wears ${doc.name}`;
         }
         if (sub === 'export') {
@@ -204,8 +204,7 @@ export function createPhase7Commands(deps: Phase7CommandDeps): Command[] {
           const taken = s.fleet.library().map((l) => l.id);
           const doc = taken.includes(result.livery.id) ? { ...result.livery, id: newLiveryId(result.livery.id, taken) } : result.livery;
           const unit = unitArg(s, args[2]);
-          if (!s.fleet.setLivery(unit, doc)) return 'The livery library is full';
-          s.applyUnitLivery(unit);
+          if (!s.assignLivery(unit, doc)) return 'The livery library is full';
           return `Imported '${doc.name}' (${doc.id}) onto ${unit}`;
         }
         return "Usage: livery [list | apply <id> [unit] | export [id] | import '<json>']";

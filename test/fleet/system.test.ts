@@ -928,3 +928,55 @@ describe('requests', () => {
     expect(r.fleet.unitOfEid(11)).toBe(P101);
   });
 });
+
+describe('review round 1: service', () => {
+  it('"repair" fixes the body and engine and leaves a flat tyre flat; "tires" fixes the flat and is the priced line', () => {
+    const r = rig();
+    const port = spawn(r, P101, 10, 'patrol_sedan', { zones: [0.5, 0, 0, 0], flats: [true, false, false, false] });
+    const repair = r.fleet.quote(P101, 'repair');
+    expect(repair?.lines.map((l) => l.kind)).not.toContain('tire');
+    r.fleet.request({ kind: 'service', unitId: P101, service: 'repair' });
+    r.fleet.step(1 / 60, time(0, 10));
+    expect(port.cond.zones).toEqual([0, 0, 0, 0]);
+    expect(port.cond.flats).toEqual([true, false, false, false]);
+    expect(r.fleet.ledger.entries().map((e) => e.kind)).toEqual(['repair']);
+    // The flat is still there to be replaced, and priced by the tyre line.
+    expect(r.fleet.quote(P101, 'tires')?.total).toBeGreaterThan(0);
+    r.fleet.request({ kind: 'service', unitId: P101, service: 'tires' });
+    r.fleet.step(1 / 60, time(1, 20));
+    expect(port.cond.flats).toEqual([false, false, false, false]);
+    expect(r.fleet.ledger.entries().map((e) => e.kind)).toEqual(['repair', 'tire']);
+  });
+
+  it('only services a unit that is in the yard', () => {
+    const r = rig();
+    const port = spawn(r, P101, 10, 'patrol_sedan', { oilFraction: 0.2 });
+    let inYard = false;
+    (r.deps as { inYard?: (id: string) => boolean }).inYard = () => inYard;
+    r.fleet.request({ kind: 'service', unitId: P101, service: 'oil' });
+    r.fleet.step(1 / 60, time(0, 10));
+    expect(port.calls).toEqual([]);
+    expect(topics(r, 'fleet:service')).toEqual([]);
+    expect(r.fleet.ledger.entries()).toHaveLength(0);
+    expect(topics(r, 'fleet:flash')).toEqual([{ text: 'Bring P-101 to the yard to service it' }]);
+    inYard = true;
+    r.fleet.request({ kind: 'service', unitId: P101, service: 'oil' });
+    r.fleet.step(1 / 60, time(1, 20));
+    expect(port.calls).toEqual(['oil']);
+  });
+
+  it('clearLoadout drops a custom loadout back to the default', () => {
+    const r = rig();
+    const def = r.fleet.loadout(P101);
+    const custom = { ...def, trunk: { ...def.trunk, flares: 5 } };
+    expect(r.fleet.setLoadout(P101, custom).ok).toBe(true);
+    expect(r.fleet.loadout(P101).trunk['flares']).toBe(5);
+    const rev = r.fleet.revision;
+    r.fleet.clearLoadout(P101);
+    expect(r.fleet.loadout(P101)).toEqual(def);
+    expect(r.fleet.revision).toBeGreaterThan(rev);
+    const again = r.fleet.revision;
+    r.fleet.clearLoadout(P101);
+    expect(r.fleet.revision).toBe(again);
+  });
+});

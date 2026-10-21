@@ -230,6 +230,52 @@ describe('CharacterCreator DOM', () => {
     expect(c.canDone).toBe(true);
   });
 
+  it('gear rows have accessible names for the item and its count', () => {
+    const c = new CharacterCreator(fakeUi() as unknown as UIRoot, creatorHost().host, start());
+    const root = c.element as unknown as FakeElement;
+    findButton(root, 'Gear').click();
+    const rows = findAll(root, (e) => e.className === 'livery-loadout-row');
+    expect(rows.length).toBeGreaterThan(10);
+    for (const row of rows) {
+      expect(row.attrs['role']).toBe('group');
+      expect(row.attrs['aria-label']).toMatch(/: \d+$/);
+      const buttons = findAll(row, (e) => e.tagName === 'button');
+      expect(buttons.map((b) => b.attrs['aria-label']?.split(' ')[0])).toEqual(['Remove', 'Add']);
+      expect(buttons.every((b) => /\(\d+ now\)$/.test(b.attrs['aria-label'] ?? ''))).toBe(true);
+    }
+  });
+
+  it('a rebuild after a control change puts the keyboard focus back on the same control', () => {
+    const c = new CharacterCreator(fakeUi() as unknown as UIRoot, creatorHost().host, start());
+    const root = c.element as unknown as FakeElement;
+    findButton(root, 'Gear').click();
+    const body = findAll(root, (e) => e.className === 'char-body')[0] as FakeElement;
+    const controls = (): FakeElement[] => findAll(body, (e) => ['button', 'input', 'select', 'textarea'].includes(e.tagName));
+    Object.assign(body, { querySelectorAll: controls, contains: (n: unknown) => controls().includes(n as FakeElement) });
+    const focused: FakeElement[] = [];
+    const proto = FakeElement.prototype;
+    const original = Object.getOwnPropertyDescriptor(proto, 'focus') as PropertyDescriptor;
+    proto.focus = function (this: FakeElement): void {
+      focused.push(this);
+    };
+    const doc = globalThis.document as unknown as { activeElement?: unknown };
+    try {
+      const add = controls().find((b) => b.attrs['aria-label']?.startsWith('Add one K9 reward treats') === true);
+      if (!add) throw new Error('no add button');
+      const label = (add.attrs['aria-label'] ?? '').split(' (')[0];
+      doc.activeElement = add;
+      add.click();
+      const again = focused[0];
+      expect(again).toBeDefined();
+      expect(again).not.toBe(add);
+      expect(again?.attrs['aria-label']?.startsWith(label ?? '')).toBe(true);
+      expect(again?.attrs['aria-label']).toContain('(1 now)');
+    } finally {
+      Object.defineProperty(proto, 'focus', original);
+      delete doc.activeElement;
+    }
+  });
+
   it('badge and patch tab draws both emblems and shows the polygon pad for a polygon badge', () => {
     const c = new CharacterCreator(fakeUi() as unknown as UIRoot, creatorHost().host, start());
     const root = c.element as unknown as FakeElement;

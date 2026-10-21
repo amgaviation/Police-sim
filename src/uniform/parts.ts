@@ -147,3 +147,71 @@ export const PART_COLORS = {
   helmetTactical: 0x3b4232,
   capPeak: 0x101010,
 } as const;
+
+/** Width / height of the bounding box of polygon `points` (1 without a usable polygon), clamped to 0.5..2. */
+function polygonAspect(points: readonly (readonly [number, number])[] | undefined): number {
+  if (!points || points.length < 3) return 1;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of points) {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  const w = maxX - minX;
+  const h = maxY - minY;
+  return w > 0 && h > 0 ? Math.min(2, Math.max(0.5, w / h)) : 1;
+}
+
+/**
+ * A patch box sized by its shape (the 3D figure shows the footprint, not the artwork): width along the chest `sz`, height `sy`.
+ * Shield 0.07 x 0.09, circle 0.08 x 0.08, rounded rectangle 0.09 x 0.07, arch 0.07 x 0.095, polygon by its bounds.
+ */
+export function shapedPatchBox(sign: -1 | 1, shape: 'shield' | 'circle' | 'roundedRect' | 'arch' | 'polygon', points?: readonly (readonly [number, number])[]): PartBox {
+  const base = patchBox(sign);
+  let w = base.sz;
+  let h = base.sy;
+  switch (shape) {
+    case 'circle':
+      w = 0.08;
+      h = 0.08;
+      break;
+    case 'roundedRect':
+      w = 0.09;
+      h = 0.07;
+      break;
+    case 'arch':
+      h = 0.095;
+      break;
+    case 'polygon':
+      w = Math.min(0.1, Math.max(0.05, 0.09 * polygonAspect(points)));
+      break;
+    case 'shield':
+      break;
+  }
+  return { ...base, sy: h, sz: w };
+}
+
+/** Width and height of a badge box by its shape (the department's star is the 0.06 x 0.07 default). */
+export function badgeSize(shape: 'star' | 'shield' | 'circle' | 'ellipse' | 'polygon', points?: readonly (readonly [number, number])[]): { w: number; h: number } {
+  switch (shape) {
+    case 'star':
+      return { w: 0.06, h: 0.07 };
+    case 'circle':
+      return { w: 0.065, h: 0.065 };
+    case 'ellipse':
+      return { w: 0.075, h: 0.055 };
+    case 'polygon':
+      return { w: Math.min(0.09, Math.max(0.045, 0.07 * polygonAspect(points))), h: 0.07 };
+    case 'shield':
+      return { w: 0.055, h: 0.075 };
+  }
+}
+
+/** The name plate sized to the name: 0.04 m plus 0.005 m per letter, at most 0.09 m. */
+export function namePlateBox(name: string): PartBox {
+  return { ...NAME_PLATE, sx: Math.min(0.09, 0.04 + 0.005 * Math.min(name.length, 12)) };
+}

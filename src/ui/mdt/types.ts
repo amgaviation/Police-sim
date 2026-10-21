@@ -93,7 +93,8 @@ export interface MdtDeps {
   /** Radar/pace reading for the car, null when none. */
   observedSpeed(vehicleId: number): { speedMph: number; limitMph: number } | null;
   /** Person id seated in the cage, -1 when empty. */
-  prisoner(): number;
+  /** The person in a cage (the last-driven car first), -1 when none; `preferId`: that person when they sit in any cage (a van holds several). */
+  prisoner(preferId?: number): number;
   atStation(): boolean;
   completeBooking(bookingId: string): void;
   /**

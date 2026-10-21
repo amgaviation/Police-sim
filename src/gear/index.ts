@@ -26,4 +26,4 @@ export {
   validateOfficerLoadout,
   validateVehicleLoadout,
 } from './validate';
-export { MAX_GEAR_PRESETS, OfficerGear, defaultGearSave, isGearSave, officerHit, type GearPreset, type GearSave } from './officerGear';
+export { MAX_GEAR_PRESETS, OfficerGear, defaultGearSave, startingGearSave, isGearSave, officerHit, type GearPreset, type GearSave } from './officerGear';

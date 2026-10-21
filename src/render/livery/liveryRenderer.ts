@@ -5,7 +5,7 @@ import { paintLivery, SHELL_ATLAS, type Canvas2DLike } from '../../livery/painte
 import type { VehicleModel } from '../../vehicles/model';
 import { disposeObject } from '../renderer';
 import { vehicleRenderBasis } from '../vehicles/carRenderer';
-import { shellGeometryData } from './shell';
+import { hasShell, shellGeometryData } from './shell';
 
 /** What the canvas factory returns: an object with a 2D context (a real `HTMLCanvasElement` satisfies it). */
 export interface LiveryCanvas {
@@ -100,11 +100,12 @@ export class LiveryRenderer {
   }
 
   /**
-   * Sets (or clears with null) the livery of vehicle `eid`; repaints its two canvases only when the document, the
+   * Sets (or clears with null, or for a style without a shell) the livery of vehicle `eid`; repaints its two canvases only when the document, the
    * unit number or the department changed (pass a new document object after an edit).
    */
   set(eid: EntityId, model: VehicleModel, doc: LiveryDoc | null, unit: string, dept: string): void {
-    if (doc === null) {
+    // Thin-framed styles (bikes, ATV, boat, aircraft, drone) get no shell: an opaque slab would hide the vehicle.
+    if (doc === null || !hasShell(model)) {
       this.remove(eid);
       return;
     }

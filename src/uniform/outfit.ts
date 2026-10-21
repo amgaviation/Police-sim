@@ -15,9 +15,10 @@ import {
   HAT_BOXES,
   HELMETS,
   JACKET_PARTS,
-  NAME_PLATE,
+  badgeSize,
+  namePlateBox,
   PART_COLORS,
-  patchBox,
+  shapedPatchBox,
   starBox,
   TIE_BOX,
   TORSO_DEPTH,
@@ -143,13 +144,16 @@ export function buildOutfit(spec: OutfitSpec, ctx: OutfitContext): OutfitDef {
   const frontDz = TORSO_DEPTH / 2 - torsoDepth / 2;
   if (cold === null && cls.tie) add(TIE_BOX, PART_COLORS.tie, frontDz);
   // patches
-  add(patchBox(-1), spec.patch.base);
-  add(patchBox(1), spec.patch.base);
+  // The figure shows the footprint of each emblem (its shape, a name plate as wide as the name), not the artwork.
+  add(shapedPatchBox(-1, spec.patch.shape, spec.patch.points), spec.patch.base);
+  add(shapedPatchBox(1, spec.patch.shape, spec.patch.points), spec.patch.base);
   // badge
-  if (cls.badgeOnBelt) add(BADGE_BELT, spec.badge.metal);
-  else add(BADGE_CHEST, spec.badge.metal, frontDz);
+  const badge = badgeSize(spec.badge.shape, spec.badge.points);
+  const badgeBox = { ...(cls.badgeOnBelt ? BADGE_BELT : BADGE_CHEST), sx: badge.w, sy: badge.h };
+  if (cls.badgeOnBelt) add(badgeBox, spec.badge.metal);
+  else add(badgeBox, spec.badge.metal, frontDz);
   // name plate
-  if (spec.namePlate && spec.uniform !== 'detective') add(NAME_PLATE, PART_COLORS.namePlate, frontDz);
+  if (spec.namePlate && spec.uniform !== 'detective') add(namePlateBox(ctx.lastName), PART_COLORS.namePlate, frontDz);
   // insignia
   rankDef(ctx.rank).insignia.forEach((kind, k) => {
     for (const sign of [-1, 1] as const) {

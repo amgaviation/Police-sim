@@ -136,6 +136,8 @@ export class CharacterCreator implements Menu {
   private st: CreatorState;
   private openFlag = false;
   private sampleEl: HTMLElement | null = null;
+  /** The tab the body was last built for (focus and scroll are kept across rebuilds of the same tab). */
+  private renderedTab: CreatorState['tab'] | null = null;
   private emblemCanvases: { badge: HTMLCanvasElement; patch: HTMLCanvasElement } | null = null;
 
   constructor(ui: UIRoot | null, host: CreatorHost, start: { profile: CharacterProfile; gear: OfficerLoadout }) {
@@ -258,6 +260,12 @@ export class CharacterCreator implements Menu {
     CREATOR_TABS.forEach((tab, i) => dom.tabs[i]?.setAttribute('aria-selected', tab === this.st.tab ? 'true' : 'false'));
     this.sampleEl = null;
     this.emblemCanvases = null;
+    // A rebuild of the same tab keeps the keyboard position: the focused control (by its place among the tab's controls)
+    // and the scroll offset come back.
+    const sameTab = this.renderedTab === this.st.tab;
+    const focusAt = sameTab ? focusIndex(dom.body) : -1;
+    const scroll = sameTab ? dom.body.scrollTop : 0;
+    this.renderedTab = this.st.tab;
     clearChildren(dom.body);
     switch (this.st.tab) {
       case 'identity':
@@ -275,6 +283,10 @@ export class CharacterCreator implements Menu {
       case 'gear':
         dom.body.append(this.gearTab());
         break;
+    }
+    if (sameTab) {
+      dom.body.scrollTop = scroll;
+      if (focusAt >= 0) restoreFocus(dom.body, focusAt);
     }
     this.refreshChrome();
   }
@@ -539,12 +551,12 @@ export class CharacterCreator implements Menu {
       if (retention && item) retention.value = String(item.retention ?? 2);
       return el(
         'div',
-        { class: 'livery-loadout-row' },
+        { class: 'livery-loadout-row', role: 'group', 'aria-label': `${def.label}: ${String(count)}` },
         el('span', { class: 'livery-loadout-name' }, def.label, el('span', { class: 'livery-hint' }, ` ${String(def.weightKg)} kg`)),
         retention,
-        actionButton('−', () => this.apply({ kind: 'setItem', id: def.id, count: count - 1 }), 'small', count === 0),
+        actionButton('−', () => this.apply({ kind: 'setItem', id: def.id, count: count - 1 }), 'small', count === 0, `Remove one ${def.label} (${String(count)} now)`),
         el('span', { class: 'livery-value' }, String(count)),
-        actionButton('+', () => this.apply({ kind: 'setItem', id: def.id, count: count + 1 }), 'small', count >= def.max),
+        actionButton('+', () => this.apply({ kind: 'setItem', id: def.id, count: count + 1 }), 'small', count >= def.max, `Add one ${def.label} (${String(count)} now)`),
       );
     });
     const bars: HTMLElement[] = [];
@@ -572,4 +584,21 @@ export class CharacterCreator implements Menu {
       this.section('Items', ...rows),
     );
   }
+}
+
+const FOCUSABLE = 'button, input, select, textarea';
+
+/** Place of the focused control among the controls of `root`, -1 when focus is elsewhere. */
+function focusIndex(root: HTMLElement): number {
+  const active = typeof document === 'undefined' ? null : document.activeElement;
+  if (!active || !root.contains(active)) return -1;
+  return Array.from(root.querySelectorAll(FOCUSABLE)).indexOf(active);
+}
+
+/** Focuses control `index` of the rebuilt `root`; when it is disabled now (a "-" at zero) the next enabled control, else the previous one. */
+function restoreFocus(root: HTMLElement, index: number): void {
+  const controls = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE));
+  const enabled = (c: HTMLElement | undefined): c is HTMLElement => c !== undefined && !(c as HTMLButtonElement).disabled;
+  const pick = [controls[index], controls[index + 1], controls[index - 1]].find(enabled);
+  pick?.focus({ preventScroll: true });
 }

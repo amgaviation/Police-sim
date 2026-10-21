@@ -20,6 +20,12 @@ export interface ShellGeometryData {
 /** A face corner in the vehicle frame. */
 type Corner = readonly [x: number, y: number, z: number];
 
+/** True for the body styles that get a decal shell (a shell around a thin-framed vehicle would hide it). */
+export function hasShell(model: VehicleModel): boolean {
+  const style = model.body.style;
+  return style === 'sedan' || style === 'hatchback' || style === 'suv' || style === 'pickup' || style === 'van' || style === 'truck' || style === 'bus';
+}
+
 /**
  * Shell quads around `model` (design §10.3), inflated by `SHELL_INFLATE`, with UVs into `SHELL_ATLAS` following the
  * §6.5 orientation: every face is mapped as seen from outside, canvas x left to right as the viewer sees it, canvas
@@ -31,9 +37,9 @@ type Corner = readonly [x: number, y: number, z: number];
  * hood = the front half of the top, roof = the rear half).
  */
 export function shellGeometryData(model: VehicleModel): ShellGeometryData {
-  const { width: w, height: h, length: l, style } = model.body;
+  const { width: w, height: h, length: l } = model.body;
   const e = SHELL_INFLATE;
-  const car = style === 'sedan' || style === 'hatchback' || style === 'suv' || style === 'pickup' || style === 'van' || style === 'truck' || style === 'bus';
+  const car = hasShell(model);
   let zF: number;
   let zR: number;
   const yBottom = -h / 2;

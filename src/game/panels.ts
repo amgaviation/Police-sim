@@ -64,7 +64,7 @@ export function equipmentPanelModel(eq: PatrolEquipment, kit: OfficerKit, prison
   options.push({ label: eq.spotOn ? 'Spotlight off' : 'Spotlight on', detail: spec.spotlight ? (eq.spotOn ? 'On' : 'Off') : 'None', enabled: spec.spotlight });
   options.push({
     label: 'Rear seat',
-    detail: !spec.partition ? 'No partition' : eq.prisoner >= 0 ? prisonerName : 'Empty',
+    detail: !spec.partition ? 'No partition' : eq.prisoner >= 0 ? (eq.cageSeats - eq.cageFree() > 1 ? `${String(eq.cageSeats - eq.cageFree())} prisoners` : prisonerName) : 'Empty',
     enabled: false,
   });
   return {

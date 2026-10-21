@@ -286,6 +286,21 @@ export class PatrolEquipment {
     return true;
   }
 
+  /**
+   * Resets the trunk to `trunk` and the rack to `rack` (a changed vehicle loadout). The rack lock stays; a long gun the
+   * officer has checked out (`keepOut`) is not put back into its slot.
+   */
+  setStock(trunk: Readonly<Record<string, number>>, rack: readonly string[], keepOut: string | null): void {
+    TRUNK_ITEMS.forEach((it, i) => {
+      const c = trunk[it.id];
+      this.trunk[i] = typeof c === 'number' && Number.isInteger(c) && c > 0 ? Math.min(c, 0xffff) : 0;
+    });
+    if (!this.spec.rack) return;
+    RACK_ITEMS.forEach((r, i) => {
+      this.racked[i] = rack.includes(r.id) && r.id !== keepOut ? 1 : 0;
+    });
+  }
+
   // --- cage ----------------------------------------------------------------------
 
   /** Number of cage seats (0 without a partition). */
@@ -319,6 +334,19 @@ export class PatrolEquipment {
     const seat = this.cage.indexOf(-1);
     if (seat < 0) return false;
     this.cage[seat] = personId;
+    return true;
+  }
+
+  /** True when `personId` sits in a cage seat. */
+  hasPrisoner(personId: number): boolean {
+    return personId >= 0 && this.cage.includes(personId);
+  }
+
+  /** Empties the seat of `personId`; false when they are not in the cage. */
+  release(personId: number): boolean {
+    const i = personId >= 0 ? this.cage.indexOf(personId) : -1;
+    if (i < 0) return false;
+    this.cage[i] = -1;
     return true;
   }
 

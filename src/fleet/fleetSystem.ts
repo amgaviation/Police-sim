@@ -34,7 +34,8 @@ export interface FleetVehiclePort {
   refuel(liters?: number): void;
   changeOil(): void;
   replaceTires(wheels?: readonly number[]): void;
-  repair(): void;
+  /** Body zones and engine only: flat tyres stay flat (they are priced and fixed by `replaceTires`). */
+  repairBody(): void;
 }
 
 export interface FleetDeps {
@@ -43,6 +44,8 @@ export interface FleetDeps {
   readonly rng: Rng;
   /** The spawned vehicle of a unit. */
   vehicleOf(unitId: string): FleetVehiclePort | null;
+  /** Is the unit's vehicle in the yard (service happens only there)? Absent: always. */
+  inYard?(unitId: string): boolean;
   damageContext(eid: number): { pursuit: boolean; emergency: boolean; callId: number };
   officer(): { name: string; badge: string; pronouns: PronounSet };
   readonly config?: Partial<FleetConfigs>;
@@ -362,6 +365,14 @@ export class FleetSystem {
     return def;
   }
 
+  /** Drops the unit's custom loadout: the shipped default applies again. */
+  clearLoadout(unitId: string): void {
+    const u = this.unit(unitId);
+    if (u.loadout === null) return;
+    u.loadout = null;
+    this.rev++;
+  }
+
   /** Validates against the vehicle's cargo and the class; the loadout is stored only when valid. */
   setLoadout(unitId: string, l: VehicleLoadout): LoadoutValidation {
     const u = this.unit(unitId);
@@ -563,12 +574,16 @@ export class FleetSystem {
     const u = this.unitById.get(unitId);
     const port = u === undefined || u.eid < 0 ? null : this.deps.vehicleOf(unitId);
     if (u === undefined || port === null) return;
+    if (this.deps.inYard && !this.deps.inYard(unitId)) {
+      this.deps.bus.emit('fleet:flash', { text: `Bring ${unitId} to the yard to service it` });
+      return;
+    }
     const quote = serviceQuote(service, port.condition(this.scratch), port.model.fuel.capacityL, u.def.cls, this.cfg.maintenance);
     const all = service === 'all';
     if (all || service === 'refuel') port.refuel();
     if (all || service === 'oil') port.changeOil();
     if (all || service === 'tires') port.replaceTires();
-    if (all || service === 'repair') port.repair();
+    if (all || service === 'repair') port.repairBody();
     const kinds: LedgerKind[] = [];
     const costs: number[] = [];
     const notes: string[] = [];

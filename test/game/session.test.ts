@@ -420,10 +420,11 @@ describe('GameSession (city)', () => {
     for (let i = 2; i < MAX_PARKED_OBSTACLES; i++) expect(d2(i)).toBeGreaterThanOrEqual(d2(i - 1));
   });
 
-  it('repairs and refuels the last-driven car at the station pump', () => {
+  it('does not repair a wrecked fleet unit at the station pump: that is the fleet counter (cost, ledger)', () => {
     const h = fresh();
     const session = h.start(SEED);
     const car = vehicle(session, 0);
+    expect(session.unitOf(car)).not.toBeNull();
     expect(session.enterVehicle(car)).toBe(true);
     expect(session.exitVehicle()).toBe('exited');
     const pump = stationPump();
@@ -435,20 +436,14 @@ describe('GameSession (city)', () => {
     damage.engineHealth = 0;
     damage.engineFailed = true;
     damage.tireFlat[0] = 1;
-    const wrecked = car;
     h.step(session, 2);
-    expect(wrecked.telemetry.fuelFraction).toBe(1);
-    expect(wrecked.needsRepair).toBe(true);
+    expect(car.telemetry.fuelFraction).toBe(1);
+    expect(car.needsRepair).toBe(true);
     placeOfficer(session, pump.x - 2, pump.z);
-    expect(session.interactHint()).toBe('repair');
-    expect(session.interact()).toBe('repaired');
-    expect(wrecked.needsRepair).toBe(false);
-    h.step(session, 1);
-    expect(wrecked.telemetry.damage).toEqual([0, 0, 0, 0]);
-    expect(wrecked.telemetry.tireFlat).toEqual([false, false, false, false]);
-    expect(wrecked.telemetry.engineHealth).toBe(1);
-    // The station pump is also the fleet's service point.
     expect(session.interactHint()).toBe('fleet');
+    expect(session.interact()).toBe('fleet');
+    expect(car.needsRepair).toBe(true);
+    expect(session.fleet.ledger.entries()).toHaveLength(0);
   });
 
   it('stops the officer at the station building instead of walking through it', () => {

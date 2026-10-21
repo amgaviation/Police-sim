@@ -60,7 +60,9 @@ describe('garage panel', () => {
     const m = garagePanelModel(units, ctx());
     expect(m.title).toBe('Fleet');
     expect(m.subtitle).toBe('City Police · yard');
-    expect(m.options).toHaveLength(3);
+    expect(m.options).toHaveLength(4);
+    expect(m.options[3]).toMatchObject({ label: 'End shift' });
+    expect(garagePanelPick(3, units, ctx())).toEqual({ kind: 'finish' });
     expect(m.options[0]).toMatchObject({ label: 'P-101 Patrol sedan', detail: 'READY · fuel 80 % · in yard', enabled: true });
     expect(m.options[1]?.detail).toBe('OUT · fuel 80 %');
     expect(m.options[2]?.detail).toBe('DAMAGED · fuel 80 % · in yard');
@@ -86,7 +88,7 @@ describe('garage panel', () => {
     const c = ctx({ expanded: 'P-101' });
     const m = garagePanelModel(units, c);
     expect(m.options.map((o) => o.label)).toEqual([
-      'P-101 Patrol sedan', '› Check out', '› Return', '› Customize…', '› Service…', '› Inspect', 'P-102 Patrol SUV', 'M-601 Police motorcycle',
+      'P-101 Patrol sedan', '› Check out', '› Return', '› Customize…', '› Service…', '› Inspect', 'P-102 Patrol SUV', 'M-601 Police motorcycle', 'End shift',
     ]);
     expect(m.options.slice(1, 6).map((o) => o.enabled)).toEqual([true, false, false, false, false]);
     expect(garagePanelPick(1, units, c)).toEqual({ kind: 'checkout', unitId: 'P-101' });
@@ -107,6 +109,13 @@ describe('garage panel', () => {
     expect(driving.options.slice(2, 7).map((o) => o.enabled)).toEqual([false, true, true, true, true]);
   });
 
+  it('Service needs the unit in the yard', () => {
+    const c = ctx({ expanded: 'P-102', nearUnit: 'P-102', inYard: () => false });
+    const service = garagePanelModel(units, c).options[5];
+    expect(service).toMatchObject({ label: '› Service…', detail: 'Bring it to the yard', enabled: false });
+    expect(garagePanelModel(units, ctx({ expanded: 'P-102', inYard: (id) => id === 'P-102' })).options[5]?.enabled).toBe(true);
+  });
+
   it('away from the station the units are read-only and unreported damage can be filed', () => {
     const c = ctx({ atStation: false, expanded: 'P-101', incidents: [incident(), incident({ id: 8, reported: true })] });
     const m = garagePanelModel(units, c);
@@ -120,8 +129,9 @@ describe('garage panel', () => {
 
   it('handles an empty fleet', () => {
     const m = garagePanelModel([], ctx());
-    expect(m.options).toEqual([]);
-    expect(garagePanelPick(0, [], ctx())).toBeNull();
+    expect(m.options.map((o) => o.label)).toEqual(['End shift']);
+    expect(garagePanelPick(1, [], ctx())).toBeNull();
+    expect(garagePanelModel([], ctx({ atStation: false })).options).toEqual([]);
   });
 });
 

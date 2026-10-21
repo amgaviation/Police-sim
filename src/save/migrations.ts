@@ -6,7 +6,7 @@ import { emptyContactSave } from '../contact/save';
 import { emptyCourtSave } from '../court/save';
 import { defaultForceSave } from '../force/save';
 import { migratedFleetSave } from '../fleet/save';
-import { defaultGearSave } from '../gear';
+import { startingGearSave } from '../gear';
 import { emptyIncidentsSave } from '../incidents/save';
 import { emptyPursuitSave } from '../pursuit/save';
 import { emptyResourceSave } from '../resources/save';
@@ -204,7 +204,7 @@ export function migrateV7ToV8(data: unknown): unknown {
 
 /**
  * v8 -> v9: a Phase 6 shift gets its officer profile, loadout and fleet. Everything is kept; the character is the legacy
- * name and badge in the default uniform, the gear the default patrol loadout and the fleet binds each saved vehicle to
+ * name and badge in the default uniform, the gear the starting loadout (patrol standard plus the evidence kit) and the fleet binds each saved vehicle to
  * the first unit of its model on the seed's own 'fleet' stream. Saved vehicles without wear start with full oil and new tyres.
  */
 export function migrateV8ToV9(data: unknown): unknown {
@@ -212,7 +212,7 @@ export function migrateV8ToV9(data: unknown): unknown {
   const v9: SaveGameV9 = {
     ...data,
     character: { version: 1, profile: characterFromLegacy(data.officer.name, data.officer.badge) },
-    gear: defaultGearSave(),
+    gear: startingGearSave(),
     fleet: migratedFleetSave(
       createRng(data.seed).stream('fleet').state(),
       data.vehicles.map((v) => v.modelId),

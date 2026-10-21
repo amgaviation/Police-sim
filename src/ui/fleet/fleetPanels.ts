@@ -21,6 +21,8 @@ export type FleetIntent =
   /** A unit row was picked: the presenter opens (or closes) its action rows (`GarageContext.expanded`). */
   | { kind: 'select'; unitId: string }
   | { kind: 'endShift' }
+  /** The garage's "End shift" row: inspect the unit the officer drives or stands next to, else end the shift directly. */
+  | { kind: 'finish' }
   | { kind: 'back' };
 
 export interface GarageContext {
@@ -32,6 +34,8 @@ export interface GarageContext {
   nearUnit: string | null;
   /** The unit whose action rows are shown (null / absent: none). */
   expanded?: string | null;
+  /** Is the spawned unit parked in its yard (service happens only there)? Absent: yes. */
+  inYard?: (unitId: string) => boolean;
   /** Damage incidents (any unit): unreported ones get a "File damage report" row. */
   incidents?: readonly DamageIncident[];
 }
@@ -88,6 +92,7 @@ function garageRows(units: readonly FleetUnitView[], ctx: GarageContext): Row[] 
     });
     if (!ctx.atStation || ctx.expanded !== u.id) continue;
     const here = ctx.driving === u.id || ctx.nearUnit === u.id;
+    const yard = u.spawned && (ctx.inYard === undefined || ctx.inYard(u.id));
     rows.push(
       {
         option: { label: '› Check out', detail: u.spawned ? 'Already out' : '', enabled: !u.spawned },
@@ -102,7 +107,7 @@ function garageRows(units: readonly FleetUnitView[], ctx: GarageContext): Row[] 
         intent: { kind: 'customize', unitId: u.id },
       },
       {
-        option: { label: '› Service…', detail: u.spawned ? '' : 'Check it out first', enabled: u.spawned },
+        option: { label: '› Service…', detail: !u.spawned ? 'Check it out first' : yard ? '' : 'Bring it to the yard', enabled: yard },
         intent: { kind: 'service', unitId: u.id },
       },
       {
@@ -112,13 +117,14 @@ function garageRows(units: readonly FleetUnitView[], ctx: GarageContext): Row[] 
     );
   }
   rows.push(...reportRows(incidents, null));
+  if (ctx.atStation) rows.push({ option: { label: 'End shift', detail: 'Inspect, then close the shift' }, intent: { kind: 'finish' } });
   return rows;
 }
 
 /**
  * The garage ("Fleet", "City Police · yard"): one row per unit; at the station a unit row opens its actions (Check out,
- * Return, Customize, Service, Inspect). Away from the station the units are listed read-only, followed by a
- * "File damage report" row per unreported incident.
+ * Return, Customize, Service, Inspect), then the "End shift" row. Away from the station the units are listed
+ * read-only, followed by a "File damage report" row per unreported incident.
  */
 export function garagePanelModel(units: readonly FleetUnitView[], ctx: GarageContext): ActionPanelModel {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { GEAR_POLICY } from '../../src/gear/data';
-import { MAX_GEAR_PRESETS, OfficerGear, defaultGearSave, isGearSave, officerHit, type GearSave } from '../../src/gear/officerGear';
+import { MAX_GEAR_PRESETS, OfficerGear, defaultGearSave, isGearSave, officerHit, startingGearSave, type GearSave } from '../../src/gear/officerGear';
 import { officerPreset } from '../../src/gear/validate';
 
 describe('OfficerGear', () => {
@@ -195,5 +195,17 @@ describe('officerHit', () => {
   it('limb hits wound regardless of the vest', () => {
     expect(officerHit(0.1, 0.7, 1, 10)).toBe('wounded');
     expect(officerHit(0.1, 0.99, 0.85, 10)).toBe('wounded');
+  });
+});
+
+describe('startingGearSave', () => {
+  it('is the standard patrol loadout plus the evidence field kit, valid, and its grants include the kit items', () => {
+    const save = startingGearSave();
+    expect(save.loadout.items.map((i) => i.id)).toEqual([...defaultGearSave().loadout.items.map((i) => i.id), 'evidenceKit']);
+    const gear = OfficerGear.restore(save);
+    expect(gear.validation.ok).toBe(true);
+    const grants = gear.kitGrants();
+    for (const item of ['evidenceBags', 'evidenceMarkers', 'camera', 'fingerprintKit', 'sceneTape']) expect(grants[item]).toBeGreaterThan(0);
+    expect(OfficerGear.restore(defaultGearSave()).kitGrants()['evidenceBags']).toBeUndefined();
   });
 });

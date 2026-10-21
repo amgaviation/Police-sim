@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { migratedFleetSave } from '../../src/fleet/save';
-import { defaultGearSave } from '../../src/gear';
+import { startingGearSave } from '../../src/gear';
 import { characterFromLegacy } from '../../src/uniform';
 import { emptyBackupSave } from '../../src/backup/save';
 import { emptyCadSave } from '../../src/cad/cadState';
@@ -143,7 +143,7 @@ function v8Defaults(seed: number): Partial<SaveGame> {
 function v9Defaults(seed: number, officer: { name: string; badge: string }, models: readonly string[]): Partial<SaveGame> {
   return {
     character: { version: 1, profile: characterFromLegacy(officer.name, officer.badge) },
-    gear: defaultGearSave(),
+    gear: startingGearSave(),
     fleet: migratedFleetSave(createRng(seed).stream('fleet').state(), models),
   };
 }
@@ -303,6 +303,8 @@ describe('migrateEnvelope', () => {
     expect(out.data).toEqual({ ...v8, ...v9Defaults(42, v8.officer, ['patrol_sedan', 'patrol_suv']) });
     expect(out.data.character.profile.badge).toBe('4471');
     expect(out.data.character.profile.lastName).toBe('Vance');
+    // The migrated officer keeps the evidence field kit the earlier phases always gave.
+    expect(out.data.gear.loadout.items.some((i) => i.id === 'evidenceKit')).toBe(true);
     expect(out.data.fleet.rng).toEqual(createRng(42).stream('fleet').state());
     expect(out.data.fleet.units.find((u) => u.id === 'P-101')?.vehicleIndex).toBe(0);
     expect(out.data.fleet.units.find((u) => u.id === 'P-102')?.vehicleIndex).toBe(1);

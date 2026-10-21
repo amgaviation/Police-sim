@@ -42,7 +42,7 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
     observed: (id) => (id >= 0 && id < REGISTRY_POPULATION && !isFleetVehicleId(id) ? observedVehicle(session.seed, id) : null),
     observedViolations: (id) => session.observedViolations(id),
     observedSpeed: (id) => session.observedSpeed(id),
-    prisoner: () => session.prisoner(),
+    prisoner: (preferId) => session.prisoner(preferId),
     atStation: () => session.atStation(),
     completeBooking: (id) => {
       const doc = session.cad.docs.get(id);

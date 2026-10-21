@@ -41,6 +41,8 @@ describe('MainMenu "Create officer..." (DOM double)', () => {
     expect(started[0]?.slice(0, 2)).toEqual([12, 'generic']);
     expect(chosen?.profile.firstName).toBe('Casey');
     expect(chosen?.gear.assignment).toBe('patrol');
+    // The creator starts from the new-game loadout, so the evidence field kit is not lost.
+    expect(chosen?.gear.items.some((i) => i.id === 'evidenceKit')).toBe(true);
 
     // Reopening starts from the chosen officer; cancelling keeps it.
     findButton(root, 'Create officer…').click();

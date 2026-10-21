@@ -5,7 +5,7 @@ import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
 import type { Rng } from '../core/rng';
 import { FleetSystem, type FleetSave, type FleetVehiclePort } from '../fleet';
-import { GEAR_POLICY, OfficerGear, defaultGearSave, officerHit, validateOfficerLoadout, type GearSave } from '../gear';
+import { GEAR_POLICY, OfficerGear, officerHit, startingGearSave, type GearSave } from '../gear';
 import type { LiveryDoc } from '../livery';
 import type { PatrolEquipmentOptions, VehicleEquipmentSpec } from '../police/equipment';
 import {
@@ -34,21 +34,58 @@ export type OfficerHitOutcome = 'miss' | 'stopped' | 'wounded';
  * (no accessories). Outfits are keyed by id, colours and shin colour, so two figures in the same uniform share a row.
  */
 export class OutfitTable {
-  /** Table rows; index 0 is null. Replaced (not mutated) when a row is added so a renderer can compare references. */
+  /** Table rows; index 0 is null. Replaced (not mutated) when a row is added or freed so a renderer can compare references. */
   defs: readonly (OutfitDef | null)[] = [null];
   private readonly index = new Map<string, number>();
+  private readonly keys: (string | null)[] = [null];
+  /** Interns minus releases per row. */
+  private readonly refs: number[] = [0];
+  private readonly free: number[] = [];
 
-  /** The row of `def`, added when new. */
+  /** The row of `def`, added when new (a freed row is reused). Pair every call that keeps the row with a later `release`. */
   intern(def: OutfitDef): number {
-    const key = `${def.id}|${String(def.top)}|${String(def.bottom)}|${String(def.shins)}|${def.hideHair ? 1 : 0}`;
+    const key = outfitKey(def);
     let i = this.index.get(key);
     if (i === undefined) {
-      i = this.defs.length;
-      this.defs = [...this.defs, def];
+      const reuse = this.free.pop();
+      const next = [...this.defs];
+      if (reuse === undefined) {
+        i = next.length;
+        next.push(def);
+      } else {
+        i = reuse;
+        next[i] = def;
+      }
+      this.defs = next;
+      this.keys[i] = key;
+      this.refs[i] = 0;
       this.index.set(key, i);
     }
+    this.refs[i] = (this.refs[i] ?? 0) + 1;
     return i;
   }
+
+  /** Gives a row back (the officer's previous look after an edit); the row is freed when nobody holds it any more. */
+  release(i: number): void {
+    const n = (this.refs[i] ?? 0) - 1;
+    if (i <= 0 || n < 0) return;
+    this.refs[i] = n;
+    if (n > 0) return;
+    const key = this.keys[i];
+    if (key !== null && key !== undefined) this.index.delete(key);
+    this.keys[i] = null;
+    const next = [...this.defs];
+    next[i] = null;
+    this.defs = next;
+    this.free.push(i);
+  }
+}
+
+/** Dedupe key of an outfit: its identity plus everything that is drawn (every box with its colour), so a new patch, badge or hair colour is a new row. */
+export function outfitKey(def: OutfitDef): string {
+  let key = `${def.id}|${String(def.top)}|${String(def.bottom)}|${String(def.shins)}|${def.hideHair ? 1 : 0}`;
+  for (const b of def.boxes) key += `|${String(b.attach)},${String(b.x)},${String(b.y)},${String(b.z)},${String(b.sx)},${String(b.sy)},${String(b.sz)},${String(b.color)}`;
+  return key;
 }
 
 /** The reads and effects Phase 7 needs of the session. */
@@ -58,6 +95,8 @@ export interface Phase7Host {
   readonly bus: EventBus<EventMap>;
   /** The spawned vehicle of a fleet unit (a `FleetVehiclePort`). */
   unitVehicle(unitId: string): FleetVehiclePort | null;
+  /** Is the unit's vehicle parked in its yard? */
+  unitInYard(unitId: string): boolean;
   /** Pursuit / emergency state of the vehicle `eid` for the damage charge. */
   damageContext(eid: number): { pursuit: boolean; emergency: boolean; callId: number };
   /** Outdoor temperature (C) for AI cold-weather gear. */
@@ -82,16 +121,6 @@ export interface Phase7Host {
 export interface GearWarning {
   text: string;
   severity: 'error' | 'warning';
-}
-
-/**
- * The gear a new game starts with: the standard patrol loadout plus the evidence kit (the scene kit the Phase 4 work needs),
- * or the plain standard loadout when the kit does not fit.
- */
-export function startingGear(): GearSave {
-  const save = defaultGearSave();
-  const withKit = { assignment: save.loadout.assignment, items: [...save.loadout.items, { id: 'evidenceKit', count: 1 }] };
-  return validateOfficerLoadout(withKit, {}).ok ? { ...save, loadout: withKit } : save;
 }
 
 /** Livery equipment flags applied to a model's equipment spec: a spotlight or partition the livery leaves off is removed. */
@@ -140,7 +169,7 @@ export class Phase7 {
     this.host = host;
     this.gearRng = host.rng.stream('gear');
     this.fleetRng = host.rng.stream('fleet');
-    this.gearValue = OfficerGear.restore(gear ?? startingGear());
+    this.gearValue = OfficerGear.restore(gear ?? startingGearSave());
     this.profileValue = character;
     this.fleet = this.buildFleet(fleet);
     this.refreshCharacter();
@@ -179,7 +208,10 @@ export class Phase7 {
   refreshCharacter(): void {
     const p = this.profileValue;
     const def = buildOutfit(p.outfit, { lastName: p.lastName, rank: p.rank });
+    const previous = this.playerOutfit;
     this.playerOutfit = this.outfits.intern(def);
+    // The old look's row is freed once nobody else shows it, so the locker's live preview does not grow the table.
+    if (previous > 0) this.outfits.release(previous);
     this.playerAppearance = figureAppearance(p, def);
     this.gear.setExtraVestSlots(extraVestSlots(p));
     this.characterRevision++;
@@ -304,6 +336,7 @@ export class Phase7 {
         bus: this.host.bus,
         rng: this.fleetRng,
         vehicleOf: (unitId) => this.host.unitVehicle(unitId),
+        inYard: (unitId) => this.host.unitInYard(unitId),
         damageContext: (eid) => this.host.damageContext(eid),
         officer: () => ({ name: displayName(this.profileValue), badge: this.profileValue.badge, pronouns: this.profileValue.pronouns }),
       },

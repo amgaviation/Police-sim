@@ -32,6 +32,16 @@ export function defaultGearSave(): GearSave {
   return { version: 1, loadout: officerPreset('patrolStandard'), presets: [] };
 }
 
+/**
+ * The gear a new game starts with: the standard patrol loadout plus the evidence kit (the field kit the Phase 4 work needs),
+ * or the plain standard loadout when the kit does not fit. The main-menu creator and the v8 migration start from it too.
+ */
+export function startingGearSave(): GearSave {
+  const save = defaultGearSave();
+  const withKit = { assignment: save.loadout.assignment, items: [...save.loadout.items, { id: 'evidenceKit', count: 1 }] };
+  return validateOfficerLoadout(withKit, {}).ok ? { ...save, loadout: withKit } : save;
+}
+
 function isLoadoutItem(x: unknown): x is OfficerLoadoutItem {
   if (typeof x !== 'object' || x === null) return false;
   const o = x as Record<string, unknown>;

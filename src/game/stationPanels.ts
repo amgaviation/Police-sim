@@ -30,14 +30,15 @@ export function buildingLabel(kind: string): string {
   return KIND_LABEL[kind] ?? 'Building';
 }
 
-/** Door panel for `t`: Knock, Announce, Open / Close, Kick, Ram (needs the ram), Lock / Unlock, Knock (canvass), Enter. */
+/** Door panel for `t`: Knock, Announce, Open / Close, Kick, Force entry (needs the ram or a Halligan), Lock / Unlock, Knock (canvass), Enter. */
 export function doorPanelModel(session: GameSession, t: DoorTarget): ActionPanelModel {
   const layout = session.interiors.layout(t.buildingId);
   const d = layout?.doors[t.door];
   const state = session.interiors.doorState(t.buildingId, t.door);
   const closed = state === 'closed' || state === 'locked';
   const wide = d?.kind === 'wide';
-  const hasRam = session.officerKit.carried('ram') > 0;
+  // The ram or a Halligan bar forces a door (`InteriorSystem.breach`).
+  const hasTool = session.officerKit.carried('ram') > 0 || session.officerKit.carried('halligan') > 0;
   const canvass = t.outdoors && session.canvassAllowed(t.buildingId);
   return {
     title: wide ? 'Opening' : 'Door',
@@ -47,7 +48,7 @@ export function doorPanelModel(session: GameSession, t: DoorTarget): ActionPanel
       { label: 'Announce "Police!"', enabled: !wide },
       { label: state === 'open' ? 'Close' : 'Open', detail: state === 'locked' ? 'Locked' : state === 'broken' ? 'Broken' : '', enabled: !wide && (state === 'open' || state === 'closed') },
       { label: 'Kick', detail: d && d.strength >= 0.95 ? 'Unbreachable' : '', enabled: !wide && closed && (d?.strength ?? 0) < 0.95 },
-      { label: 'Ram', detail: hasRam ? '' : 'No ram (trunk)', enabled: !wide && hasRam && closed && (d?.strength ?? 0) < 0.95 },
+      { label: 'Force entry', detail: hasTool ? '' : 'No ram or Halligan (trunk)', enabled: !wide && hasTool && closed && (d?.strength ?? 0) < 0.95 },
       { label: state === 'locked' ? 'Unlock' : 'Lock', detail: d?.lockable ? '' : 'No lock', enabled: !wide && d?.lockable === true && state !== 'broken' && state !== 'open' },
       { label: 'Knock (canvass)', detail: t.outdoors ? (canvass ? 'Neighbour' : 'No call nearby') : 'Outside only', enabled: canvass },
       { label: 'Enter', detail: !t.outdoors ? 'From outside' : state === 'locked' ? 'Locked' : '', enabled: t.outdoors && state !== 'locked' },

@@ -1,4 +1,4 @@
-import { officerPreset, validateOfficerLoadout, type OfficerLoadout } from '../gear';
+import { startingGearSave, validateOfficerLoadout, type OfficerLoadout } from '../gear';
 import { DEFAULT_RULESET_ID, getRuleset, rulesetIds } from '../legal';
 import type { SaveSummary } from '../save/saveManager';
 import { defaultCharacter, pronounLabel, type CharacterProfile } from '../uniform';
@@ -214,7 +214,7 @@ export class MainMenu implements Menu {
   createOfficer(): CharacterCreator | null {
     const ui = this.ui;
     if (ui === null || typeof document === 'undefined') return null;
-    const start = this.chosen ?? { profile: defaultCharacter(), gear: officerPreset('patrolStandard') };
+    const start = this.chosen ?? { profile: defaultCharacter(), gear: startingGearSave().loadout };
     const creator = new CharacterCreator(
       ui,
       {
