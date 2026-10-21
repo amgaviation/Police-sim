@@ -26,6 +26,7 @@ import './force/events';
 import './incidents/events';
 import './conduct/events';
 import './court/events';
+import './fleet/events';
 import { SystemRegistry, copyPrevTransform, integrateVelocity, type System } from './ecs/systems';
 import { clearWorld, createGameWorld, entityCount, type GameWorld } from './ecs/world';
 import { EnvironmentRenderer } from './environment/render/environmentRenderer';
@@ -33,6 +34,8 @@ import { createCommands } from './game/commands';
 import { HudFeed, interactPrompt, keyLabel } from './game/hudFeed';
 import { createMdtDeps } from './game/mdtDeps';
 import { Phase6Presenter } from './game/phase6Presenter';
+import { Phase7Presenter } from './game/phase7Presenter';
+import { createPhase7Commands } from './game/phase7Commands';
 import { radioRequestTypeList } from './game/phase6';
 import { createPhase6Commands } from './game/phase6Commands';
 import { setRadioRequestTypes } from './radio/requestTypes';
@@ -93,7 +96,7 @@ import { PULLOVER } from './traffic/data';
 import { vehicleIdFromPlate, vehicleRecord } from './traffic/registry';
 import { Hud } from './ui/hud/hud';
 import { createMinimapMarkers, type TrafficDots } from './ui/hud/minimap';
-import { MainMenu } from './ui/mainMenu';
+import { MainMenu, type MainMenuCharacter } from './ui/mainMenu';
 import { MdtOverlay } from './ui/mdt/overlay';
 import { ActionPanel } from './ui/panels/actionPanel';
 import { RadioMenuView } from './ui/panels/radioMenuView';
@@ -138,6 +141,8 @@ const CAPTION_LINGER_MS = 1500;
 /** Radio log lines shown again after a load. */
 const RADIO_LOG_RESTORE = 6;
 
+/** Body styles with a cockpit interior (the Phase 1-6 cars). */
+const CAR_STYLES: readonly string[] = ['sedan', 'hatchback', 'suv'];
 const scratchPos = new THREE.Vector3();
 const scratchQuat = new THREE.Quaternion();
 const scratchDir = new THREE.Vector3();
@@ -212,6 +217,8 @@ export class App {
   readonly phase5: Phase5Presenter;
   /** Phase 6 presentation: backup / pursuit / command panels, negotiation, FLIR, helicopter and spike strips, HUD additions. */
   readonly phase6: Phase6Presenter;
+  /** Phase 7 presentation: fleet panels, livery editor and shells, character creator, drone camera. */
+  readonly phase7: Phase7Presenter;
   /** Jurisdiction chosen on the title screen for the next new game. */
   private jurisdiction = 'generic';
 
@@ -362,6 +369,10 @@ export class App {
         const session = this.sessionValue;
         if (session) this.phase4.openCaseFile(session);
       },
+      openCharacter: () => {
+        const session = this.sessionValue;
+        if (session) this.phase7.openCharacter(session);
+      },
     });
     this.phase4 = new Phase4Presenter(this.renderer ? this.scene : null, this.renderer, this.envRenderer, this.ui, this.ui.hud, {
       session: () => this.sessionValue,
@@ -375,6 +386,12 @@ export class App {
       closePatrolPanels: () => this.panels.close(),
       baseFov: () => settings.get('graphics.fov'),
     });
+    this.phase7 = new Phase7Presenter(this.renderer ? this.scene : null, this.ui, {
+      session: () => this.sessionValue,
+      flash: (text) => this.flash(text),
+      closePatrolPanels: () => this.panels.close(),
+    });
+    this.phase7.setDrivableSink((eid, vehicle) => this.carRenderer?.setDrivable(eid, vehicle));
     // The radio menu and the voice grammar request any unit type (design 14).
     setRadioRequestTypes(radioRequestTypeList());
     this.presenter = new PeoplePresenter(
@@ -402,16 +419,17 @@ export class App {
     })) {
       this.console.register(command);
     }
+    for (const command of createPhase7Commands({ session: () => this.sessionValue })) this.console.register(command);
 
     this.saves = new SaveManager({ bus: this.bus });
     this.settingsMenu = new SettingsMenu(this.ui, settings, this.input);
     this.mainMenu = new MainMenu(this.ui, {
-      newGame: (seed, jurisdiction) => {
+      newGame: (seed, jurisdiction, character) => {
         // Generating the city blocks the main thread for a moment: show why first.
         this.mainMenu.setStatus('Generating city...');
         afterPaint(() => {
           try {
-            this.newGame(seed, jurisdiction);
+            this.newGame(seed, jurisdiction, character);
           } catch (error) {
             log.error('New game failed:', error);
             this.mainMenu.setStatus('Could not start a new shift; see console');
@@ -541,11 +559,14 @@ export class App {
   }
 
   /** Replaces the running session with a fresh shift in the city of `seed`. */
-  newGame(seed: number | string, jurisdiction?: string): GameSession {
+  newGame(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter): GameSession {
     this.endSession();
     this.resetSimulation();
     if (jurisdiction !== undefined) this.jurisdiction = jurisdiction;
-    const session = startNewGame(this.context(normalizeSeed(seed)), seed, { jurisdiction: this.jurisdiction });
+    const session = startNewGame(this.context(normalizeSeed(seed)), seed, {
+      jurisdiction: this.jurisdiction,
+      ...(character ? { character: { profile: character.profile, gear: character.gear } } : {}),
+    });
     this.beginSession(session, newMediaTag());
     log.info(`New game, seed ${String(session.seed)}`);
     return session;
@@ -648,6 +669,7 @@ export class App {
     this.phase4.dispose();
     this.phase5.dispose();
     this.phase6.dispose();
+    this.phase7.dispose();
     this.hud.dispose();
     this.console.dispose();
     this.perf.dispose();
@@ -708,6 +730,7 @@ export class App {
     this.phase4.updatePanels(session, now, dt);
     this.phase5.updatePanels(session, now);
     this.phase6.updatePanels(session, now);
+    this.phase7.updatePanels(session, now);
     this.presenter.updateMenus(now);
     this.updateWorld(session, dt, alpha);
     this.updateCockpit(session, alpha, now);
@@ -776,6 +799,10 @@ export class App {
     if (input.wasPressed('command.menu')) this.phase6.openCommand();
     if (input.wasPressed('pursuit.menu')) this.phase6.openPursuit();
     if (input.wasPressed('air.flir')) this.phase6.toggleFlir();
+    // Phase 7: the fleet panel (') and the camera drone (=).
+    if (input.wasPressed('fleet.menu')) this.phase7.openGarage();
+    if (input.wasPressed('drone.toggle')) this.toggleDrone(session);
+    if (session.remote) return;
     if (!session.driving) {
       if (input.wasPressed('camera.toggle')) this.phase4.toggleView();
       this.handleOfficerActions(session);
@@ -800,6 +827,15 @@ export class App {
     if (p.cyclePattern) eq.cyclePattern();
     if (p.toggleSpot) eq.toggleSpot();
     if (p.equipmentPanel) this.panels.openEquipment();
+  }
+
+  /** `=`: launches the camera drone from a trunk (or the kit) and pilots it, or recalls it; the camera follows the drone. */
+  private toggleDrone(session: GameSession): void {
+    const result = session.toggleDrone();
+    this.flash(result.message);
+    if (!result.ok) return;
+    this.rig.setVehicle(session.droneVehicle?.model.body ?? null);
+    this.rig.snap();
   }
 
   /** On foot: force tool (C), apply (mouse 0, only with a tool selected), intervene (H), bodycam mute (J), tackle and shout. */
@@ -900,6 +936,7 @@ export class App {
     const result = session.interact();
     if (result === 'entered') this.rig.setVehicle(session.drivenVehicle?.model.body ?? null);
     else if (result === 'exited') this.rig.setVehicle(null);
+    else if (result === 'fleet') this.phase7.openGarage();
     else if (result === 'trunk') {
       const car = session.trunkVehicle();
       if (car) this.panels.openTrunk(car);
@@ -911,7 +948,8 @@ export class App {
     else if (result === 'briefing') this.phase4.openBriefing(session);
     else if (result === 'reportDesk') this.mdtValue?.open();
     else if (result === 'cell') this.flash(session.contact.escorting() > 0 ? 'Placing the prisoner in a cell' : 'Holding cell');
-    const flash = INTERACT_FLASH[result];
+    const kind = session.drivenVehicle?.model.control;
+    const flash = result === 'exitBlocked' && kind === 'boat' ? 'Dock first' : result === 'exitBlocked' && kind === 'helicopter' ? 'Land first' : INTERACT_FLASH[result];
     if (flash !== undefined) this.flash(flash);
   }
 
@@ -938,11 +976,16 @@ export class App {
     const drive = session.driverInput;
     const eq = session.drivenEquipment;
     const police = this.policeInput;
+    drive.lift = 0;
     // Held this frame; the session applies them to the driven patrol car in the next fixed steps.
     session.sirenHeld.horn = active && eq !== null && police.horn;
     session.sirenHeld.manual = active && eq !== null && police.manual;
-    if (active && session.driving) {
+    if (active && (session.driving || session.remote)) {
       readDriverInput(this.input, drive);
+      // Space and Shift climb only in an aircraft or the drone: elsewhere they are the handbrake and the sprint.
+      const craft = session.controlledVehicle?.model.control;
+      if (craft === 'helicopter' || craft === 'drone') drive.handbrake = false;
+      else drive.lift = 0;
       if (eq && police.spotAim) {
         // Mouse right turns the beam right (yaw + is left), mouse up raises it.
         const mouse = this.input.mouseDelta();
@@ -971,7 +1014,15 @@ export class App {
   private updateCamera(session: GameSession, camera: THREE.PerspectiveCamera, dt: number, alpha: number, lookActive: boolean): void {
     // FLIR: the air unit's camera replaces the rig while it is on (and the air unit is up).
     if (this.phase6.flirOn && this.phase6.updateFlirCamera(session, camera)) return;
-    const vehicle = session.drivenVehicle;
+    // The livery editor orbits the unit's real vehicle in the station lot.
+    const orbit = this.phase7.editorPose(session, alpha);
+    if (orbit) {
+      camera.position.set(orbit.x, orbit.y, orbit.z);
+      camera.lookAt(orbit.lookX, orbit.lookY, orbit.lookZ);
+      return;
+    }
+    // Driving, or piloting the drone: the rig follows the controlled vehicle.
+    const vehicle = session.controlledVehicle;
     if (!vehicle) {
       if (session.player === 0) return;
       interpolateTransform(session.player, alpha, scratchPos, scratchQuat);
@@ -1032,12 +1083,19 @@ export class App {
     }
     this.phase6.updateRender(session, alpha);
     const cars = this.carRenderer;
-    if (!cars) return;
-    const ownCar = session.drivenVehicle?.eid ?? session.lastVehicle?.eid ?? 0;
-    cars.setHeadlightTarget(ownCar);
-    // The one police spotlight follows the driven (else last driven) car; it shines only when that car has one switched on.
-    cars.setSpotlightTarget(ownCar);
-    cars.update(alpha, lighting.nightFactor, this.renderTime, this.reducedFlash);
+    if (cars) {
+      const ownCar = session.drivenVehicle?.eid ?? session.lastVehicle?.eid ?? 0;
+      cars.setHeadlightTarget(ownCar);
+      // The one police spotlight follows the driven (else last driven) car; it shines only when that car has one switched on.
+      cars.setSpotlightTarget(ownCar);
+      // Phase 7: vehicles that appeared or left since the last frame are handed over first (check-out, drone).
+      this.phase7.syncVehicles(session);
+      cars.update(alpha, lighting.nightFactor, this.renderTime, this.reducedFlash);
+      const cam = renderer?.activeCamera.position;
+      this.phase7.updateShells(alpha, cam?.x ?? 0, cam?.z ?? 0, lighting.nightFactor);
+    } else {
+      this.phase7.syncVehicles(session);
+    }
   }
 
   /** Radio keys (only while gameplay controls are active), the radio menu display and one-off hints. */
@@ -1093,7 +1151,7 @@ export class App {
       dx = -Math.sin(yaw);
       dz = -Math.cos(yaw);
     }
-    targets.update(session.traffic.view, ox, oz, dx, dz, now);
+    targets.update(session.traffic.view, ox, oz, dx, dz, now, session.radarFactor);
   }
 
   /** Cockpit interior and the laptop screen, in cockpit view of a patrol car only. */
@@ -1101,13 +1159,15 @@ export class App {
     const cockpit = this.cockpit;
     const feed = this.policeFeedValue;
     if (!cockpit || !feed) return;
+    // The cockpit interior exists for the car styles only (bikes, boats and aircraft have none).
     const driven = session.drivenVehicle;
-    const eid = driven?.eid ?? 0;
+    const carStyle = driven !== null && CAR_STYLES.includes(driven.model.body.style);
+    const eid = carStyle ? (driven?.eid ?? 0) : 0;
     if (eid !== this.cockpitEid) {
       this.cockpitEid = eid;
-      cockpit.setVehicle(eid, driven?.model ?? null);
+      cockpit.setVehicle(eid, carStyle ? (driven?.model ?? null) : null);
     }
-    const visible = this.rig.mode === CAMERA_MODE.cockpit && session.inPatrolCar;
+    const visible = this.rig.mode === CAMERA_MODE.cockpit && session.inPatrolCar && carStyle;
     cockpit.update(alpha, visible, feed.cockpitState(visible));
     if (visible && this.mdtScreen.paint(feed.screenModel(now), now)) cockpit.markScreenDirty();
   }
@@ -1303,6 +1363,12 @@ export class App {
     this.perf.setExtra('interior draw', idraw > 0 ? `${String(idraw)} draw calls` : undefined);
     const cockpit = this.cockpit?.stats.drawCalls ?? 0;
     this.perf.setExtra('cockpit', cockpit > 0 ? `${String(cockpit)} draw calls` : undefined);
+    // Phase 7: open damage incidents, livery shells (draw calls, repaints) and the accessory boxes drawn on figures.
+    const open = session?.fleet.incidents().filter((i) => !i.closed).length ?? 0;
+    this.perf.setExtra('fleet', session ? `${String(session.fleet.units().filter((u) => u.spawned).length)} out, ${String(open)} open incidents, ${String(session.fleet.openReports())} unreported` : undefined);
+    const shells = this.phase7.liveries?.stats;
+    this.perf.setExtra('liveries', shells && session ? `${String(shells.shells)} shells, ${String(shells.drawCalls)} draw calls, ${String(shells.repaints)} repaints` : undefined);
+    this.perf.setExtra('gear', this.presenter.renderer && session ? `${String(this.presenter.renderer.stats.gearBoxes)} boxes drawn` : undefined);
   }
 
   /** Replaces the prompt line with `text` for a moment. */
@@ -1361,6 +1427,7 @@ export class App {
     this.beginPatrol(session);
     this.phase5.begin(session, mediaTag);
     this.phase6.begin();
+    this.phase7.begin(session);
     this.route = null;
     this.flashUntilMs = 0;
     this.hazeWarm = false;
@@ -1384,6 +1451,7 @@ export class App {
       this.endPatrol();
       this.phase5.end();
       this.phase6.end();
+      this.phase7.end();
       for (const vehicle of session.vehicles) this.carRenderer?.setDrivable(vehicle.eid, null);
       this.carRenderer?.setHeadlightTarget(0);
       this.carRenderer?.setSpotlightTarget(0);

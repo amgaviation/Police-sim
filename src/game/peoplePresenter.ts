@@ -14,7 +14,7 @@ import {
   createPropSource,
   type HumanoidSource,
 } from '../render/people';
-import { stationStaff, uniformColors } from '../station';
+import { createStaffFigures, stationStaff } from '../station';
 import type { SpeechOut } from '../speech/synthesis';
 import { voiceProfileFor } from '../speech/profile';
 import { DialoguePanel, SfstPanel, SubtitleBar, type DialogueView, type SfstView } from '../ui/dialogue';
@@ -45,9 +45,6 @@ const MERGED_PROP_CAPACITY = 1024;
 const CHIP_RANGE_M = 8;
 /** Roles drawn as suspects (red) on the minimap. */
 const SUSPECT_ROLES = new Set(['suspect', 'assailant', 'agitator', 'ambusher', 'subject']);
-
-const OFFICER_SKIN = 0xd9a77c;
-const OFFICER_HAIR = 0x2e2118;
 
 /** What the presenter needs from the app. */
 export interface PresenterHost {
@@ -81,7 +78,7 @@ export class PeoplePresenter {
   private readonly host: PresenterHost;
   private readonly speech: SpeechOut;
   private readonly officerFigure = createHumanoidSource(1);
-  private readonly staff = createHumanoidSource(8);
+  private readonly staff = createStaffFigures(8);
   private readonly mergedProps = createPropSource(MERGED_PROP_CAPACITY);
   private readonly sources: HumanoidSource[] = [createHumanoidSource(0), this.officerFigure, createHumanoidSource(0), createHumanoidSource(0), this.staff, createHumanoidSource(0), createHumanoidSource(0)];
   /** The camera is at the officer's eyes: the officer's own figure is hidden. */
@@ -89,6 +86,7 @@ export class PeoplePresenter {
   private readonly offs: (() => void)[] = [];
   private session: GameSession | null = null;
   private lastRevision = -1;
+  private outfitDefs: unknown = null;
   private nextDialogueMs = 0;
   private nextSfstMs = 0;
   /** Contact whose panel the user closed: not reopened until another contact is active. */
@@ -190,6 +188,14 @@ export class PeoplePresenter {
     this.fillOfficer(session, dt);
     this.sources[0] = session.npc.view;
     this.sources[2] = session.tactical.partner.view;
+    const partnerOutfit = session.tactical.partner.view.outfit;
+    if (partnerOutfit) partnerOutfit[0] = session.phase7.aiOutfit('partner', 'patrol');
+    // Phase 7: the outfit table (officer, backup, partner, staff) goes to the renderer when it grows.
+    const defs = session.phase7.outfits.defs;
+    if (defs !== this.outfitDefs) {
+      this.outfitDefs = defs;
+      r?.setOutfits(defs);
+    }
     this.sources[3] = session.investigation.dog;
     // Phase 6: the backup officers and SWAT operators, and the crews of the service vehicles.
     this.sources[5] = session.phase6.backup.view;
@@ -229,6 +235,8 @@ export class PeoplePresenter {
     if (!loaded) return;
     const layout = session.interiors.layout(buildingId);
     if (layout) stationStaff(layout, this.staff);
+    // The staff wear the department's uniform (deterministic outfit from the seed).
+    this.staff.setOutfit(session.phase7.aiOutfit('staff', 'supervisor'));
   }
 
   /** Draw calls of the people and prop meshes, and the figures drawn (perf overlay). */
@@ -397,12 +405,34 @@ export class PeoplePresenter {
   private fillOfficer(session: GameSession, dt: number): void {
     const f = this.officerFigure;
     const eid = session.player;
-    if (session.driving || eid === 0) {
+    // Phase 7: the officer shows on an open vehicle (bike, ATV, boat) as its rider; in a car they are hidden.
+    const rider = session.drivenVehicle?.model.rider ?? null;
+    if (eid === 0 || (session.driving && rider === null)) {
       f.count = 1;
       f.flags[0] = FIGURE_FLAG.hidden;
       return;
     }
     f.count = 1;
+    this.fillAppearance(session, f);
+    if (rider !== null) {
+      const vehicle = session.drivenVehicle;
+      const vx = rider.x;
+      f.x[0] = vx;
+      f.y[0] = rider.y;
+      f.z[0] = rider.z;
+      f.prevX[0] = vx;
+      f.prevY[0] = rider.y;
+      f.prevZ[0] = rider.z;
+      f.yaw[0] = 0;
+      f.prevYaw[0] = 0;
+      f.anchor[0] = vehicle?.eid ?? 0;
+      f.speed[0] = 0;
+      f.gait[0] = 0;
+      f.held[0] = HELD.none;
+      f.pose[0] = rider.pose === 'seated' ? POSE.seated : POSE.stand;
+      f.flags[0] = this.firstPerson ? FIGURE_FLAG.hidden : 0;
+      return;
+    }
     const x = Transform.x[eid] ?? 0;
     const z = Transform.z[eid] ?? 0;
     const feet = PLAYER_SIZE.y / 2;
@@ -430,14 +460,23 @@ export class PeoplePresenter {
     const weapon = session.scene.officerWeapon;
     f.held[0] = weapon === 'sidearm' ? HELD.sidearm : weapon === 'taser' ? HELD.taser : HELD.none;
     f.pose[0] = weapon !== 'none' ? POSE.aim : session.tactical.stance.crouched ? POSE.crouch : speed > RUN_SPEED ? POSE.run : speed > WALK_SPEED ? POSE.walk : POSE.stand;
-    f.height[0] = 1.78;
-    f.build[0] = 1;
-    f.skin[0] = OFFICER_SKIN;
-    f.hair[0] = OFFICER_HAIR;
-    const colors = uniformColors(session.station.loadout);
-    f.top[0] = colors.top;
-    f.bottom[0] = colors.bottom;
     f.body[0] = 0;
     f.flags[0] = this.firstPerson ? FIGURE_FLAG.hidden : 0;
+  }
+
+  /** The officer's colours, body shape and outfit from the character profile (Phase 7). */
+  private fillAppearance(session: GameSession, f: HumanoidSource & { outfit: Uint16Array; shoulders: Float32Array; hips: Float32Array }): void {
+    const a = session.phase7.playerAppearance;
+    if (!a) return;
+    f.height[0] = a.height;
+    f.build[0] = a.build;
+    f.skin[0] = a.skin;
+    f.hair[0] = a.hair;
+    f.top[0] = a.top;
+    f.bottom[0] = a.bottom;
+    f.shoulders[0] = a.shoulders;
+    f.hips[0] = a.hips;
+    f.outfit[0] = session.phase7.playerOutfit;
+    f.body[0] = 0;
   }
 }

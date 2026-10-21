@@ -896,7 +896,9 @@ export class MdtOverlay implements Menu {
     const call = this.current === 'call' && selected ? selected : this.playerCall();
     switch (kind) {
       case 'report': {
-        if (!call) return { callId: null, location: this.playerLocation(), occurredGame: now.game };
+        // Phase 7: the reporting officer's line (name, pronouns, badge) opens every report narrative.
+        const header = this.deps.reportHeader?.() ?? '';
+        if (!call) return { callId: null, location: this.playerLocation(), occurredGame: now.game, ...(header ? { narrative: `${header}\n` } : {}) };
         const persons: { personId: number; role: 'reportingParty' | 'involved' }[] = [];
         if (call.caller.personId >= 0) persons.push({ personId: call.caller.personId, role: 'reportingParty' });
         for (const p of call.persons) if (!persons.some((x) => x.personId === p)) persons.push({ personId: p, role: 'involved' });
@@ -905,7 +907,7 @@ export class MdtOverlay implements Menu {
           plate: isRegistryId(v) ? mountedPlate(records.seed, v).plate : '',
           role: 'involved',
         }));
-        return { callId: call.id, title: call.nature, location: call.location.text, occurredGame: call.created.game, persons, vehicles };
+        return { callId: call.id, title: call.nature, location: call.location.text, occurredGame: call.created.game, persons, vehicles, ...(header ? { narrative: `${header}\n` } : {}) };
       }
       case 'citation': {
         if (!stop) return { callId: call?.id ?? null, location: call?.location.text ?? this.playerLocation() };
@@ -1251,6 +1253,7 @@ export class MdtOverlay implements Menu {
     const model = careerModel(career.view(), career.cases(), career.now(), {
       canAttend: (id) => career.canAttend(id),
       jurisdiction: career.jurisdiction(),
+      ...(this.deps.fleet ? { fleet: this.deps.fleet } : {}),
       ...(career.incidents && career.openReview ? { incidents: career.incidents() } : {}),
       ...(career.canReview && career.openReview ? { canReview: (key: string) => career.canReview?.(key) === true } : {}),
     });

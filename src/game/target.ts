@@ -3,7 +3,7 @@ import { pickTrafficCar, type PickResult } from '../traffic/pick';
 import { REGISTRY_POPULATION } from '../traffic/registry';
 import { isFleetVehicleId, type TrafficView } from '../traffic/trafficSystem';
 
-/** Reticle reach (m) and how much larger than its body a car's pick box is (m) (design §7.5). */
+/** Reticle reach (m; a traffic-enforcement unit's radar doubles it) and how much larger than its body a car's pick box is (m) (design §7.5). */
 export const TARGET_RANGE_M = 60;
 export const TARGET_ASSIST_M = 1;
 /** A target stays locked this long after the reticle left it (ms), so the HUD line does not flicker. */
@@ -48,8 +48,8 @@ export class TargetTracker {
   }
 
   /** Casts the 2D ray from (ox, oz) along (dx, dz) through the traffic view; returns the locked target. */
-  update(view: TrafficView, ox: number, oz: number, dx: number, dz: number, nowMs: number): TargetInfo | null {
-    const hit = pickTrafficCar(view, ox, oz, dx, dz, TARGET_RANGE_M, TARGET_ASSIST_M, this.hit);
+  update(view: TrafficView, ox: number, oz: number, dx: number, dz: number, nowMs: number, rangeScale = 1): TargetInfo | null {
+    const hit = pickTrafficCar(view, ox, oz, dx, dz, TARGET_RANGE_M * rangeScale, TARGET_ASSIST_M, this.hit);
     if (hit && hit.vehicleId >= 0 && hit.vehicleId < REGISTRY_POPULATION && !isFleetVehicleId(hit.vehicleId)) {
       if (this.current?.vehicleId !== hit.vehicleId) this.current = describeTarget(this.seed, hit.vehicleId, hit.eid);
       else this.current.eid = hit.eid;

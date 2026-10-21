@@ -7,6 +7,7 @@ import type { PlateSummary, RecordsDb } from '../../records/db';
 import type { ObservedVehicle } from '../../records/vehicle';
 import type { ResourceUnitView } from '../../resources/types';
 import type { RoadGraph } from '../../world/roadGraph';
+import type { MdtFleetDeps } from './career';
 import type { ChoiceInfo, ReportGradeView } from './statements';
 
 /** Career tab feed (design phase 5 §12.1): conduct and court, read on demand. */
@@ -105,6 +106,10 @@ export interface MdtDeps {
   // Phase 5 (design §12.1): all optional, so Phase 1-4 callers and headless tests keep working.
   /** Career tab. Without it the tab explains that no career data exists. */
   career?: MdtCareerDeps;
+  /** Phase 7: the fleet's charges and damage summary on the Career tab. */
+  fleet?: MdtFleetDeps;
+  /** Phase 7: the reporting-officer line that opens a report narrative ('Reporting officer: ... (they/them), badge 4071.'). */
+  reportHeader?(): string;
   /** Community tab. */
   community?: MdtCommunityDeps;
   /** The statements of fact the officer may assert for the incident of `callId` (hidden `truth` stripped); [] when none. */

@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Transform } from '../../src/ecs/components';
 import { FLEET_DATA } from '../../src/fleet';
-import { defaultGearSave } from '../../src/gear';
+import { officerPreset } from '../../src/gear';
 import { headingOf, PLAYER_SIZE, serializeGame, startNewGame, type GameSession } from '../../src/game/session';
 import { initRapier } from '../../src/physics/physics';
 import { PLAYER_MODE } from '../../src/player/mode';
@@ -69,7 +69,7 @@ describe('Phase 7: fleet, uniforms, customization', () => {
     const h = new Harness(city);
     live.push(h);
     const session = h.attach(
-      startNewGame(h.ctx, SEED, { inStation: false, character: { profile: customCharacter(), gear: defaultGearSave() } }),
+      startNewGame(h.ctx, SEED, { inStation: false, character: { profile: customCharacter(), gear: officerPreset('patrolStandard') } }),
     );
     return { h, session };
   }

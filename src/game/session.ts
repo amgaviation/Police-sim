@@ -10,7 +10,7 @@ import type { EventMap } from '../core/event-map';
 import { EventBus } from '../core/events';
 import { createRng, normalizeSeed, rngFromState, type Rng } from '../core/rng';
 import { FLEET_DATA, fleetYard, type FleetUnitDef, type YardLayout } from '../fleet';
-import { OfficerGear, type GearSave, type VehicleLoadout } from '../gear';
+import { OfficerGear, type OfficerLoadout, type VehicleLoadout } from '../gear';
 import { GameClock } from '../core/time';
 import { Dispatcher, type PlayerUnitState } from '../dispatch/dispatcher';
 import type { ConductState } from '../conduct';
@@ -187,7 +187,7 @@ export interface NewGameOptions {
   /** Ruleset id of the legal engine (main menu / console), `generic` by default (Phase 5). */
   jurisdiction?: string;
   /** Phase 7: the officer made in the character creator (profile and loadout); the default officer without it. */
-  character?: { profile: CharacterProfile; gear: GearSave };
+  character?: { profile: CharacterProfile; gear: OfficerLoadout };
 }
 
 /** One ambient traffic car for the `traffic list` command. */
@@ -835,6 +835,11 @@ export class GameSession {
   /** The vehicle the driver input controls: the driven vehicle or the drone; null on foot. */
   get controlledVehicle(): DrivableVehicle | null {
     return this.modes.mode === PLAYER_MODE.onFoot ? null : this.vehicleOf(this.modes.vehicle);
+  }
+
+  /** The speed-reading range factor of the driven unit: 2 in a traffic-enforcement unit with radar (design §20), else 1. */
+  get radarFactor(): number {
+    return this.drivenVehicle?.model.patrol.radar === true ? 2 : 1;
   }
 
   /** The officer's character (name, badge, pronouns, body, uniform). */
@@ -3353,7 +3358,7 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
     session.spawnPlayer({ x: spawnAt.x, y: PLAYER_SIZE.y / 2, z: spawnAt.z }, spawnAt.yaw);
     if (options.character) {
       session.setCharacter(options.character.profile);
-      session.phase7.restoreGear(options.character.gear);
+      session.phase7.restoreGear({ version: 1, loadout: options.character.gear, presets: [] });
     }
     session.parkFleet();
     session.primeColliders();

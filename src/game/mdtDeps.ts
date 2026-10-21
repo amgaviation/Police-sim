@@ -52,7 +52,7 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
     plateRun: (vehicleId, readback) => session.bus.emit('dispatch:plateResult', { callsign, via: 'mdt', vehicleId, readback }),
     // Phase 5 (design 12.1): career, community and the report statements checklist.
     career: {
-      revision: () => session.conduct.revision * 4096 + session.court.revision + session.incidents.revision * 16_777_216,
+      revision: () => session.conduct.revision * 4096 + session.court.revision + session.incidents.revision * 16_777_216 + session.fleet.revision * 3,
       view: () => session.conduct.career,
       cases: () => session.court.cases(),
       canAttend: (id) => session.court.canAttend(id, session.env.time.totalSeconds),
@@ -67,6 +67,17 @@ export function createMdtDeps(session: GameSession, hooks: MdtHooks): MdtDeps {
       openReview: (key) => hooks.openReview?.(key),
       jurisdiction: () => ({ id: session.incidents.ruleset.id, name: session.incidents.ruleset.name }),
       now: () => session.now(),
+    },
+    reportHeader: () => session.phase7.reportHeader(),
+    // Phase 7: the fleet's damage charges and the shift's unreported damage on the Career tab.
+    fleet: {
+      summary: () => ({
+        points: session.fleet.ledger.officerPoints,
+        departmentCost: session.fleet.ledger.departmentCost,
+        incidents: session.fleet.incidents().length,
+        unreported: session.fleet.openReports(),
+      }),
+      charges: () => session.fleet.ledger.entries(),
     },
     community: { revision: () => session.conduct.revision, rows: () => session.conduct.trustRows() },
     // The hidden truth, key, person and event of a choice never reach the UI.

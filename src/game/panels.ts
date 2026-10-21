@@ -106,6 +106,8 @@ export interface PatrolPanelHost {
   /** Phase 4: the tools panel opens the evidence camera / the case file. */
   openCamera?(): void;
   openCaseFile?(): void;
+  /** Phase 7: the locker's 'Uniform & gear...' row opens the character creator. */
+  openCharacter?(): void;
 }
 
 /**
@@ -187,7 +189,7 @@ export class PatrolPanels {
 
   openArmory(): void {
     const session = this.host.session();
-    if (session) this.show('armory', session.station.armoryModel());
+    if (session) this.show('armory', session.station.armoryModel(session.gear.armoryItems()));
   }
 
   openInterview(): void {
@@ -256,7 +258,7 @@ export class PatrolPanels {
       case 'locker':
         return session.officerBuilding >= 0 ? session.station.lockerModel() : null;
       case 'armory':
-        return session.officerBuilding >= 0 ? session.station.armoryModel() : null;
+        return session.officerBuilding >= 0 ? session.station.armoryModel(session.gear.armoryItems()) : null;
       case 'interview':
         return session.officerBuilding >= 0 ? session.station.interviewModel((id) => personName(session.seed, id)) : null;
       case 'partner':
@@ -306,11 +308,14 @@ export class PatrolPanels {
         return;
       }
       case 'locker':
-        station.lockerSelect(index);
+        if (station.lockerSelect(index) === 'customize') {
+          this.panel.close();
+          this.host.openCharacter?.();
+        }
         if (index === 5) this.panel.close();
         return;
       case 'armory':
-        station.armorySelect(index);
+        station.armorySelect(index, session.gear.armoryItems());
         if (index === ARMORY_ITEMS.length && station.armory.has('sidearm')) this.panel.close();
         return;
       case 'interview': {

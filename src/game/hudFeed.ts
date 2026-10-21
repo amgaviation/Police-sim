@@ -3,6 +3,7 @@ import { createWeatherState } from '../environment/weather';
 import type { Binding } from '../input/bindings';
 import { PLAYER_MODE_NAMES } from '../player/mode';
 import type { HudSnapshot } from '../ui/hud/hud';
+import type { HudWear } from '../ui/hud/phase7';
 import { DISTRICT_NAMES, EDGE_FLAG } from '../world/ids';
 import type { RoadEdge, RoadGraph, RoadHit } from '../world/roadGraph';
 import type { GameSession, InteractHint } from './session';
@@ -68,6 +69,8 @@ export function interactPrompt(hint: InteractHint, key: string): string | null {
       return `${key}  Holding cell`;
     case 'collect':
       return `${key}  Collect evidence`;
+    case 'fleet':
+      return `${key}  Fleet garage`;
     default:
       return null;
   }
@@ -92,6 +95,7 @@ export class HudFeed {
     cameraMode: 'onFoot',
     headlights: false,
   };
+  private readonly wear: HudWear = { oil: 1, tread: 1 };
   private readonly hit: RoadHit = { edge: 0, s: 0, t: 0, x: 0, z: 0, distance: 0, side: 1 };
   private readonly at = { x: 0, z: 0 };
   /** The street shown last (-1 none) and its graph: kept while the player is still on it. */
@@ -101,9 +105,11 @@ export class HudFeed {
   fill(session: GameSession, cameraMode: string, prompt: string | null): HudSnapshot {
     const s = this.snapshot;
     const env = session.env;
-    const vehicle = session.drivenVehicle;
+    // The driven vehicle, or the drone while piloting it (the speed panel shows its telemetry).
+    const vehicle = session.controlledVehicle;
     s.mode = PLAYER_MODE_NAMES[session.modes.mode] ?? 'onFoot';
     s.telemetry = vehicle ? vehicle.telemetry : null;
+    this.fillPhase7(s, session, vehicle);
     s.time = env.time;
     s.weather = env.weather;
     s.prompt = prompt;
@@ -128,6 +134,26 @@ export class HudFeed {
     s.schoolZoneActive = graph.isSchoolZoneActive(edge.id, env.time);
     s.construction = (edge.flags & EDGE_FLAG.construction) !== 0;
     return s;
+  }
+
+  /** Phase 7 additions: wear chips, altitude, the drone battery, the fleet chip and the gear warning. */
+  private fillPhase7(s: HudSnapshot, session: GameSession, vehicle: GameSession['drivenVehicle']): void {
+    if (vehicle) {
+      const t = vehicle.telemetry;
+      this.wear.oil = t.oilFraction;
+      this.wear.tread = t.treadMin;
+      s.wear = this.wear;
+      const craft = vehicle.model.craft;
+      s.altitude = craft !== null && craft.maxAltitudeM > 0 ? t.altitudeM : null;
+      s.battery = session.remote ? t.fuelFraction : null;
+    } else {
+      s.wear = null;
+      s.altitude = null;
+      s.battery = null;
+    }
+    const open = session.fleet.incidents().find((i) => !i.reported && !i.charged);
+    s.fleet = open ? `${open.unitId} · damage report due` : session.remote ? 'DRONE · = recalls' : null;
+    s.gearWarning = session.phase7.gearWarning()?.text ?? null;
   }
 
   /**

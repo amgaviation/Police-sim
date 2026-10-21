@@ -28,6 +28,10 @@
  * `pursuit:order` in incidents/events.ts, `command:*` in command/events.ts (post, triage, negotiation, radio, flash),
  * `traffic:collision.fleeing` in traffic/events.ts, `unit:request` kind `resource` in cad/events.ts. The radio and flash
  * payloads are shared (`RadioLinePayload`, `FlashPayload` in units/types.ts); the session bridges them to the radio and HUD.
+ * Phase 7: `fleet:*` in fleet/events.ts (damage, incident, charge, service, inspection, shiftEnd, flash), `conduct:points`
+ * in conduct/events.ts, `player:mode` mode `remote` (the camera drone) in player/events.ts. The session bridges
+ * `fleet:charge` to the conduct points request, `fleet:flash` and `conduct:points` to the HUD flash line and
+ * `station:loadout` (vest) to the officer's gear; the presenter opens the shift summary on `fleet:shiftEnd`.
  */
 export interface EventMap {
   'app:ready': Record<string, never>;
