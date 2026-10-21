@@ -140,6 +140,7 @@ export class Phase7Presenter {
   openGarage(): void {
     this.host.closePatrolPanels();
     this.unit = null;
+    this.expanded = null;
     this.show('garage');
   }
 

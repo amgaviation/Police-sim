@@ -321,6 +321,39 @@ describe('Phase 7: fleet, uniforms, customization', () => {
     expect(FLEET_DATA.units.some((u) => u.id === 'D-1')).toBe(true);
   });
 
+  it('rolls rounds fired at the officer from the gear stream: deterministic, the vest stops torso hits, the radio calls officer down', () => {
+    const rolls = (protection: number): string[] => {
+      const { session } = begin();
+      const out: string[] = [];
+      for (let i = 0; i < 60; i++) out.push(session.phase7.hit(protection, 8));
+      return out;
+    };
+    const bare = rolls(0);
+    expect(rolls(0)).toEqual(bare);
+    expect(bare.some((o) => o === 'wounded')).toBe(true);
+    expect(bare.includes('stopped')).toBe(false);
+    const vest = rolls(1);
+    expect(vest.includes('stopped')).toBe(true);
+    // Beyond the maximum range every round misses.
+    const { session } = begin();
+    expect(session.phase7.hit(0, 5000)).toBe('miss');
+  });
+
+  it('doubles the target range in a radar unit and flashes the uniform policy for a unit class rule', () => {
+    const { session } = begin();
+    expect(session.radarFactor).toBe(1);
+    expect(session.checkOut('T-401').ok).toBe(true);
+    const flashes: string[] = [];
+    session.bus.on('fleet:flash', (e) => flashes.push(e.text));
+    const traffic = unit(session, 'T-401');
+    session.enterVehicle(traffic);
+    expect(session.radarFactor).toBe(2);
+    // The tactical uniform is allowed in a traffic unit (no rule); a bike unit wants the bike uniform.
+    expect(session.phase7.checkUniformPolicy('bicycle')).toBe(true);
+    expect(session.phase7.checkUniformPolicy('bicycle')).toBe(false);
+    expect(session.phase7.checkUniformPolicy('patrol')).toBe(false);
+  });
+
   it('keeps the officer record in sync with the character and carries the legacy name by default', () => {
     const h = new Harness(city);
     live.push(h);

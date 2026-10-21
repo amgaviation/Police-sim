@@ -487,3 +487,64 @@ All four panel keys can be rebound under *Settings > Controls*. The panels do no
 - Under software GL (SwiftShader) the game runs at about 1-5 fps; on a real GPU it runs at the display rate.
 - Integration fixes outside the integrator's own files: `ResourceSystem.leave` closes a call that a patrol unit worked and no unit is left on (a pending call would be offered again), `Dispatcher.closeOwnCall` lets resource units not hold a call open when the player clears it (supervisors and EMS are released with it), `SceneDirector.startPursuitOf` (console and tests), `src/data/records/vehicle.json` (colour names of the four service vehicles), `test/game/*` adapted to v8 (23 resource units in the CAD, the new systems in the step order, `phase5` waits for the sergeant), `test/save/*` for v8.
 
+
+## Phase 7 — Fleet, Uniforms, Customization
+
+Status: ✅ complete. Screenshots (taken by the smoke test): `docs/screenshots/phase7-character.png` (the character creator in the locker), `docs/screenshots/phase7-livery.png` (the livery editor orbiting the supervisor SUV) and `docs/screenshots/phase7-heli.png` (the patrol helicopter in the air). Design and module contracts: `docs/phase7-design.md`.
+
+### Completed
+- ✅ **Character creator** (`ui/character`, `uniform/character.ts`): "Create officer…" on the title screen (new game) and the locker's "Uniform & gear…" row (live 3D preview): first / last name, badge, pronouns (she, he, they or a custom set), height, build, shoulders, hips, skin tone, hair style and colour, rank, uniform class, hat, vest carrier, cold-weather layer, name plate, shoulder patch and badge designers (procedural shapes or a hand-drawn polygon) and the loadout. The pronouns are used in the officer-down and vest radio lines, damage reports and the MDT report header (`applyPronouns`, `data/uniform/lines.json`).
+- ✅ **Uniforms on the officer and on AI officers** (`uniform/`, `render/people`): 7 classes (class A, class B, tactical, bike, motor, SWAT, detective), 9 hats, 4 carriers, 4 cold-weather layers, 6 ranks with insignia; `buildOutfit` makes at most 24 accessory boxes drawn in one extra instanced mesh; backup officers, SWAT operators, the partner and the station staff wear deterministic outfits (`aiOutfitSpec(seed, callsign, role, temperature)`); a uniform that breaks a unit's class rule flashes a policy line.
+- ✅ **17 generic vehicles** (`data/vehicles`, `vehicles/`): patrol sedan and SUV, supervisor SUV, unmarked sedan, traffic-enforcement sedan (radar: twice the speed-reading range), K9 SUV, motorcycle, bicycle, ATV, SWAT truck, armored rescue vehicle, prisoner van (6 cage seats), command post bus, crime lab van, patrol boat, helicopter and camera drone — handling, cargo, rack slots and patrol extras are data. Cars and the ATV keep the ray-cast vehicle, the bikes add an upright assist and a visual lean, the boat, helicopter and drone are kinematic crafts.
+- ✅ **Fleet** (`fleet/`, `game/phase7*.ts`): 17 units with a unit number, livery and vehicle loadout; **'** (or E at the station pump) opens the fleet panel: check out (spawned at the garage exit, the harbor slip or the helipad), return (stored with its wear and damage), customize, service, inspect. P-101 / P-102 are in the lot at the start as before, MAR-1 at the harbor and AIR-2 on the helipad. A boat only lets you out onto the quay, a helicopter only on the ground, the camera drone (**=**, from a trunk that carries one) is flown by the driver input while the officer stands still, with a battery and a 350 m leash.
+- ✅ **Livery editor** (`livery/`, `ui/livery`, `render/livery`): a versioned, validated JSON document (`patrol-livery` v1): base paint and finish, wraps (solid, two tone, fade, pinstripe) for the unmarked units, up to 32 layers (stripes, ten procedural shapes including user-drawn polygons, text with the `{unit}` token, checker bands), reflective decals that glow at night, light bar style (roof, hidden, none) and pattern, siren tone, push bar, spotlight, partition and the vehicle loadout; painted on a 1024x512 atlas onto a shell around the vehicle; live preview with an orbit camera on the real vehicle; save to the fleet library (32 documents), export and import as `.json` with schema validation (`livery export` / `livery import` in the console).
+- ✅ **Equipment with weight, slots and policy** (`gear/`, `data/gear`): 20 officer items, 10 assignment policies (weight limit, slot capacity, required and forbidden items, minimum holster retention, long-gun limit) and vehicle loadouts validated against the vehicle's cargo. The items are used: naloxone and tourniquet / med kit on overdose and injury calls, ram and Halligan on breaches, K9 treats on K9 sweeps, the evidence kit (the scene kit), the armory's "Sign out my loadout", holster retention (draw time, weapon-grab resistance) and the ballistic vest, which stops rounds fired at the officer (`officerHit`, the `'gear'` stream).
+- ✅ **Maintenance** (`vehicles/wear.ts`, `fleet/`): oil (drains with engine work; an empty sump wears the engine), per-wheel tread (distance and slip; worn tyres lose grip, more in the wet), fuel and damage; service at the station (refuel, oil, tyres, repair, all) with a department ledger; **damage reports** for every crash (hits within 5 s merge), **career charges** (points deducted for at-fault damage: less in a pursuit or an emergency run, more for a wreck or unreported damage, bridged to `conduct`), and a **shift-end inspection** checklist (`data/fleet/inspection.json`) followed by End shift and a summary panel. The MDT Career tab shows the fleet's charges.
+- ✅ **Save schema v9** (`save/`): `character`, `gear` and `fleet` blocks (units, saved liveries, loadouts, stored condition, incidents, reports, ledger, inspection), optional `wear` / `craft` / `pushBar` on vehicles, `player.mode` `remote`, `extraPrisoners` on equipment; a tested v8 → v9 migration (a legacy character, the default gear, a fleet bound to the saved cars by model); every older version still migrates; each malformed block is rejected.
+- ✅ **Console**: `fleet list|checkout <unit>|spawn <type>|checkin|service <kind>|inspect|report <id>|endshift|ledger`, `livery list|apply <id>|export [id]|import '<json>'`, `gear show|validate|preset <id>|retention <1-3>` (alias `loadout`), `uniform <class> [hat] [cold]`, `char show|pronouns <she|he|they>`, `drone`, `wear oil|tread <0..1>`, `hit [m]`.
+- ✅ **Determinism** (`test/game/phase7.test.ts`): a custom character, a motorcycle slalom, a patrol-car wall crash with its damage report, station service, a helicopter climb and landing, the drone deployed and recalled, inspection and End shift charging career points replay to bit-identical v9 saves; a save made mid-shift continues exactly; a v8 save loads, checks out the motorcycle and flies the drone. Mandatory unit tests: livery schema and round trip (`test/livery`), loadout validation (`test/gear`), uniform determinism (`test/uniform`), maintenance accounting (`test/fleet`).
+- ✅ **End-to-end flows verified in the real game** (`npm run smoke`): Create officer (they/them) → New game, the locker's Uniform & gear (tactical, ball cap), Sign out my loadout, **'** → check out S-201 → Customize (a text decal, a polygon shape, the siren) → Save, export and re-import of the JSON, M-601 ridden, AIR-2 climbed with Space, **=** drone, a crash, the damage report, service, inspection and End shift, a v9 save / load, the Phase 7 console commands. Zero console errors and zero app warnings.
+- ✅ No third-party assets, no new dependencies; `docs/ASSETS.md` stays empty.
+
+### How to run
+```
+npm install
+npm run dev        # http://localhost:5173
+npm run check      # tsc + eslint + vitest
+npm run build      # production bundle in dist/
+npm run smoke      # headless browser test (Phases 0-7) + docs/screenshots/phase1*.png ... phase7*.png
+```
+
+### Controls (Phase 7 additions)
+| | Keyboard / mouse | Gamepad |
+|---|---|---|
+| Fleet panel (check out / return / customize / service / inspect / end shift) | ' (or E at the station pump) | |
+| Deploy / recall the camera drone | = | |
+| Climb / descend (helicopter, drone) | Space / Shift | |
+| Livery editor: orbit / zoom | drag / wheel | |
+
+The fleet key can be rebound under *Settings > Controls*. The fleet panel does not pause the game; the editors do.
+
+### Manual test checklist
+1. Title screen → *Create officer…*: set a name, they/them, sliders, uniform; *Done*, *New game*. `char show` lists the officer.
+2. Locker (**E**) → *Uniform & gear…* → tactical + ball cap; the officer figure changes. Armory → *Sign out my loadout*.
+3. Go outside, **'**: select S-201 → *Check out*; stand next to it, **'** → S-201 → *Customize…*: add a text decal and a polygon, change the siren, drag to orbit, *Save*; `livery export`, `livery import '<json>' U-301`.
+4. `fleet checkout M-601`, ride it (lean in corners); AIR-2 on the helipad: **E**, hold **Space** to climb, **Shift** to descend; try to leave it in the air; land and leave. MAR-1: drive off the slip and try **E** ("Dock first").
+5. Next to S-201 press **=**: the drone flies on W / A / S / D and Space / Shift; **=** recalls it.
+6. Crash P-101 into a wall, wait 5 s, **'** → *File damage report*; `wear oil 0.1` shows OIL LOW; **'** → *Service…* at the pump; *Inspect* → *End shift*: the summary shows the charge, `fleet ledger` lists it, the MDT Career tab lists the points.
+7. Quick save, quit, load: character, gear, liveries, checked-out units and wear are back; a v8 save loads with the legacy character.
+
+### Performance
+- Node (seed 42, fixed steps with the four-unit fleet parked): the fleet system costs about 0 ms per idle step (event driven; a request step ≤ 0.2 ms), crafts use the O(1) integrator plus one character-controller query each, wear is a few typed-array operations per vehicle (see the per-system timings in the smoke output below).
+- Headless Chromium with SwiftShader (1280x720, software GL, ~1 fps, so these are draw-call and sim counts, not frame rates): see `npm run smoke` output `perf phase 7`; the livery shells add at most 8 draw calls, the accessory mesh 1, each new vehicle model in view 2-3.
+- Save size: a v9 save adds the character (~1 KiB), the gear (~1 KiB), the fleet (17 units, a few KiB; 32 custom liveries at most 8 KiB each).
+
+### Known limitations
+- Motorcycles and bicycles are four-wheel ray-cast vehicles on a narrow virtual track with an upright assist; the lean is visual; they cannot wheelie or fall over.
+- The boat moves on a flat water plane (no waves, buoyancy or wake); the helicopter is an arcade model and collides with buildings only near the officer; the drone has a fixed 20-minute battery (recalled when empty).
+- Liveries are canvas decals on a box shell; damage does not bend them; at most 8 shells are drawn. Uniform accessories are boxes; badges and patches are detailed only in the 2D designers.
+- Checking a unit in restocks its trunk (the equipment state other than the loadout is not stored); the check-in condition (wear, damage, fuel) is stored.
+- The new vehicle archetypes are player-driven only; the AI resource units keep their Phase 6 models. Cuffs, radio and flashlight are policy requirements (validation); the systems that use them do not refuse when they are missing.
+- The fleet charges career points; it does not suspend officers for repeated wrecks. The default new-game officer keeps the Phase 1-6 name "Officer Doe" until a character is created or edited.
+- Under software GL (SwiftShader) the game runs at about 1-5 fps; on a real GPU it runs at the display rate.
+- Integration fixes outside the integrator's own files: `src/data/records/vehicle.json` (colour names), `src/ui/mdt` (`MdtDeps.fleet`, `reportHeader`), `game/target.ts` (radar range), `test/policerender/cockpitParts.test.ts` (the cockpit exists for the car styles), `test/game/*` and `test/save/*` adapted to the four-unit fleet and v9.

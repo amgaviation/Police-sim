@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Browser smoke test (Phases 0-6).
+ * Browser smoke test (Phases 0-7).
  *
  * Starts the Vite dev server (unless SMOKE_URL points at a running one), drives
  * the game in headless Chromium with SwiftShader: a new shift in the city, chunk
@@ -28,13 +28,18 @@
  * (HUD line, radio callout, the Backup panel on `,`), a pursuit with the tactics panel (`;`), the supervisor's termination
  * order, the air unit and its FLIR camera (`/`), a mass-casualty incident with the command post, triage, the command
  * panel (`.`) and the MDT Command tab, a barricade with the negotiator and the SWAT team, a v8 save/load and the Phase 6
+ * console commands. Phase 7: Create officer (they/them) and New game, the locker's Uniform & gear, the armory's Sign out my
+ * loadout, the fleet panel (') checking out S-201 and customizing its livery (a text decal, a polygon shape, the siren) with an
+ * export / import of the JSON, the motorcycle ridden, the helicopter climbed with Space, the camera drone (=), a crash with its
+ * damage report, the station service, the inspection and End shift charging career points, a v9 save/load and the Phase 7
  * console commands.
  * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
  * in-car MDT), phase2-mdt.png (the MDT overlay), phase3.png (a call scene with people),
  * phase3-dialogue.png (the dialogue panel), phase4.png (an interior with the flashlight and markers),
  * phase4-station.png (the roll-call briefing), phase4-case.png (the case file), phase5-mdt.png (the Career tab),
  * phase5-court.png (the courtroom), phase5-review.png (the evidence review), phase6-backup.png (the Backup panel with a
- * backup officer), phase6-flir.png (the air unit camera) and phase6-command.png (the command panel at a mass-casualty scene).
+ * backup officer), phase6-flir.png (the air unit camera), phase6-command.png (the command panel at a mass-casualty scene), phase7-character.png (the character creator),
+ * phase7-livery.png (the livery editor on S-201) and phase7-heli.png (the patrol helicopter in the air).
  *
  * Usage: npm run smoke  (or: node scripts/smoke.mjs)
  */
@@ -998,7 +1003,7 @@ async function phase2(page, hasRenderer) {
   });
   const same = (k) => saveLoad.before[k] === saveLoad.after[k];
   console.log('phase 2 save/load:', JSON.stringify({ slot: saveLoad.slot, calls: saveLoad.after.calls, docs: saveLoad.after.docs, radio: saveLoad.after.radio, units: saveLoad.after.units }));
-  check(saveLoad.slot === 8, `saved as v8 (${saveLoad.slot})`);
+  check(saveLoad.slot === 9, `saved as v9 (${saveLoad.slot})`);
   check(same('calls') && same('docs') && same('units'), 'save/load v6 keeps the CAD (calls, units, documents)');
   check(same('records'), 'save/load v6 keeps the records (touched persons and vehicles, contacts, query log)');
   check(same('radio'), `save/load v6 keeps the radio (${saveLoad.after.radio})`);
@@ -1427,7 +1432,7 @@ async function phase3(page, hasRenderer) {
     return { before, after, version: list.find((x) => x.slot === 'smoke-phase3')?.version ?? -1 };
   });
   console.log('phase 3 save/load:', JSON.stringify({ version: v5.version, people: v5.after.people.length, scenarios: v5.after.scenarios, closed: v5.after.closed.length, contacts: v5.after.contacts, peds: v5.after.peds }));
-  check(v5.version === 8, `saved as v8 (${v5.version})`);
+  check(v5.version === 9, `saved as v9 (${v5.version})`);
   check(v5.before.people.length > 0 && v5.before.people.every((id) => v5.after.people.includes(id)), `save/load v6 keeps the touched people (${v5.before.people.length} -> ${v5.after.people.length})`);
   check(JSON.stringify(v5.before.scenarios) === JSON.stringify(v5.after.scenarios) && v5.before.closed.length === v5.after.closed.length, `save/load v6 keeps the open scenarios (${v5.after.scenarios.length}) and the graded outcomes (${v5.after.closed.length})`);
   check(v5.before.contacts === v5.after.contacts && v5.after.npc, 'save/load v6 keeps the open contacts and the pedestrians/actors');
@@ -1892,7 +1897,7 @@ async function phase4(page, hasRenderer) {
     };
   });
   console.log('phase 4 save/load:', JSON.stringify(save));
-  check(save.version === 8, `the save is written as version 8 (${save.version})`);
+  check(save.version === 9, `the save is written as version 9 (${save.version})`);
   check(save.after.building === save.before.building && save.after.building >= 0, 'the officer is back inside the station after the load');
   check(save.after.files === save.before.files && save.after.ledger === save.before.ledger, `case files and the custody ledger survive (${save.after.files} files, ${save.after.ledger} entries)`);
   check(save.after.holding === save.before.holding && save.after.flow === save.before.flow, 'holding cells and the shift flow survive');
@@ -2369,7 +2374,7 @@ async function phase5(page, hasRenderer) {
     };
   });
   console.log('phase 5 save/load:', JSON.stringify(save));
-  check(save.version === 8, `the save is written as version 8 (${save.version})`);
+  check(save.version === 9, `the save is written as version 9 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'incident logs, court cases, IA cases, report grades and trust survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------
@@ -2766,7 +2771,7 @@ async function phase6(page, hasRenderer) {
     };
   });
   console.log('phase 6 save/load:', JSON.stringify(save));
-  check(save.version === 8, `the save is written as version 8 (${save.version})`);
+  check(save.version === 9, `the save is written as version 9 (${save.version})`);
   check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the roster, resource units, command post and victims survive the load');
 
   // --- Console commands -------------------------------------------------------------------------------------------------------------
@@ -2803,12 +2808,419 @@ async function phase6(page, hasRenderer) {
   return { perf, frame, extras };
 }
 
+/**
+ * Phase 7 checks (fleet, uniforms, customization): from the title screen "Create officer..." (they/them, body sliders) and
+ * New game, the locker's Uniform & gear (tactical, ball cap), the armory's Sign out my loadout, the fleet panel (') checking
+ * out S-201 and customizing its livery (a text decal, a polygon shape, the siren), the livery exported and imported again,
+ * the motorcycle ridden, the helicopter climbed with Space, the camera drone (=), a crash with its damage report, the station
+ * service, the inspection and End shift charging career points, a v9 save / load and the Phase 7 console commands.
+ * Writes docs/screenshots/phase7-character.png, phase7-livery.png and phase7-heli.png. Returns the perf numbers.
+ */
+async function phase7(page, hasRenderer) {
+  // --- Title screen: Create officer (they/them, body sliders), New game ------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.indoorScenes = true;
+    if (app.inGame) app.quitToTitle();
+  });
+  await waitFor(page, () => document.querySelector('#seed') !== null, null, 10000);
+  await page.getByRole('button', { name: /Create officer/ }).click();
+  const creatorOpen = await waitFor(page, () => window.patrol.ui.top?.id === 'character-creator', null, 10000);
+  check(creatorOpen, 'the title screen opens the character creator (Create officer)');
+  const made = await page.evaluate(() => {
+    const c = window.patrol.ui.top;
+    c.dispatch({ kind: 'setText', field: 'firstName', value: 'Robin' });
+    c.dispatch({ kind: 'setText', field: 'lastName', value: 'Vale' });
+    c.dispatch({ kind: 'setText', field: 'badge', value: '5203' });
+    c.dispatch({ kind: 'setPronounPreset', preset: 'they' });
+    c.dispatch({ kind: 'setBody', field: 'heightM', value: 1.66 });
+    c.dispatch({ kind: 'setBody', field: 'build', value: 1.12 });
+    c.dispatch({ kind: 'setHairStyle', style: 'bun' });
+    const ok = c.done();
+    return { ok, chosen: window.patrol.mainMenu.character?.profile.lastName ?? '' };
+  });
+  check(made.ok && made.chosen === 'Vale', `the creator makes Robin Vale (they/them) and Done keeps the officer (${made.chosen})`);
+  await page.fill('#seed', String(SEED));
+  await page.getByRole('button', { name: 'New game' }).click();
+  await waitFor(page, () => window.patrol.session !== null && (window.patrol.worldView?.streamer?.stats.inFlight ?? 0) === 0, null, 60000);
+  const first = await page.evaluate(() => {
+    const s = window.patrol.session;
+    return { name: s.officer.name, badge: s.officer.badge, pronouns: s.character.pronouns.id, height: s.character.body.heightM, inStation: s.officerBuilding >= 0 };
+  });
+  console.log('phase 7 new game:', JSON.stringify(first));
+  check(first.name === 'Officer Robin Vale' && first.badge === '5203' && first.pronouns === 'they' && first.height === 1.66, `New game starts as ${first.name} #${first.badge} (${first.pronouns}, ${first.height} m)`);
+  check(first.inStation, 'the shift starts in the station locker room');
+
+  // --- Locker: Uniform & gear (tactical, ball cap) ------------------------------------------------------------------------
+  await page.evaluate(async () => {
+    const app = window.patrol;
+    await app.console.execute('time 10:30');
+    await app.console.execute('weather clear');
+    app.panels.openLocker();
+  });
+  await waitFrames(page, 3);
+  await press(page, 'Digit7'); // the locker's seventh row: Uniform & gear...
+  const lockerCreator = await waitFor(page, () => window.patrol.ui.top?.id === 'character-creator', null, 10000);
+  check(lockerCreator, 'the locker row "Uniform & gear" opens the character creator');
+  await page.evaluate(() => {
+    const c = window.patrol.ui.top;
+    c.dispatch({ kind: 'tab', tab: 'uniform' });
+    c.dispatch({ kind: 'setUniform', uniform: 'tactical' });
+    c.dispatch({ kind: 'setHat', hat: 'ballCap' });
+  });
+  await waitFrames(page, 4);
+  if (hasRenderer) {
+    await page.screenshot({ path: path.join(SHOTS, 'phase7-character.png') });
+    console.log('screenshot: docs/screenshots/phase7-character.png');
+  }
+  const lockerDone = await page.evaluate(() => {
+    const c = window.patrol.ui.top;
+    const ok = c.done();
+    const s = window.patrol.session;
+    return { ok, uniform: s.character.outfit.uniform, hat: s.character.outfit.hat, outfits: s.phase7.outfits.defs.length };
+  });
+  check(lockerDone.ok && lockerDone.uniform === 'tactical' && lockerDone.hat === 'ballCap', `Done applies the tactical uniform with a ball cap (${lockerDone.uniform}, ${lockerDone.hat}; ${lockerDone.outfits} outfits in the table)`);
+
+  // --- Armory: Sign out my loadout -------------------------------------------------------------------------------------------
+  const armory = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    app.panels.openArmory();
+    const items = s.gear.armoryItems();
+    const model = s.station.armoryModel(items);
+    const row = model.options.findIndex((o) => o.label === 'Sign out my loadout');
+    app.panels.select('armory', row);
+    for (let i = 0; i < 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { row, items, out: s.station.armory.out().map((o) => (typeof o === 'string' ? o : (o.item ?? o.id))) };
+  });
+  console.log('phase 7 armory:', JSON.stringify(armory));
+  check(armory.row >= 0 && armory.items.length > 0 && armory.items.every((i) => armory.out.includes(i)), `Sign out my loadout signs out ${armory.items.join(', ')}`);
+  await page.evaluate(() => {
+    const app = window.patrol;
+    app.panels.close();
+    const s = app.session;
+    for (const step of ['locker', 'briefing', 'armory', 'garage']) s.station.request({ kind: 'complete', step });
+    for (let i = 0; i < 10; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.teleport(s.city.spawn.x, s.city.spawn.z, s.city.spawn.yaw);
+  });
+  await sleep(500);
+
+  // --- Fleet panel (') : check out S-201, customize its livery ------------------------------------------------------------
+  await press(page, 'Quote');
+  const garage = await page.evaluate(() => ({ kind: window.patrol.phase7.panelKind, text: document.querySelector('.panel-action')?.textContent ?? '' }));
+  check(garage.kind === 'garage' && garage.text.includes('S-201') && garage.text.includes('M-601') && garage.text.includes('AIR-2'), `' opens the fleet panel with every unit (${garage.kind})`);
+  const out = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const row = s.fleet.units().findIndex((u) => u.id === 'S-201');
+    app.phase7.pick(row); // opens the unit's rows; Check out is the next one
+    app.phase7.pick(row + 1);
+    for (let i = 0; i < 5; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const v = s.unitVehicle('S-201');
+    return { out: v !== null, model: v?.model.id ?? '' };
+  });
+  check(out.out && out.model === 'supervisor_suv', `the fleet panel checks out S-201 (${out.model})`);
+  const customize = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const t = s.physics.getBody(s.unitVehicle('S-201').eid).translation();
+    s.physics.getBody(s.player)?.setTranslation({ x: t.x - 4, y: 0.9, z: t.z }, true);
+    for (let i = 0; i < 3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    app.phase7.openGarage();
+    const row = s.fleet.units().findIndex((u) => u.id === 'S-201');
+    app.phase7.pick(row); // expand; the rows are Check out, Return, Customize, Service, Inspect
+    app.phase7.pick(row + 3);
+    return { editor: app.phase7.editorOpen, top: app.ui.top?.id ?? '' };
+  });
+  check(customize.editor && customize.top === 'livery-editor', `Customize opens the livery editor on the unit (${customize.top})`);
+  const edited = await page.evaluate(() => {
+    const ed = window.patrol.phase7.editor;
+    const before = ed.state.doc.layers.length;
+    ed.dispatch({ kind: 'addLayer', layer: 'text' });
+    ed.dispatch({ kind: 'updateLayer', index: ed.state.selected, patch: { text: 'SUPERVISOR {unit}' } });
+    ed.dispatch({ kind: 'addLayer', layer: 'shape' });
+    ed.dispatch({ kind: 'updateLayer', index: ed.state.selected, patch: { shape: 'polygon', points: [[-0.8, 0.8], [0.8, 0.8], [0, -0.9]] } });
+    ed.dispatch({ kind: 'setLights', patch: { siren: 'yelp' } });
+    ed.dispatch({ kind: 'rename', name: 'Smoke supervisor' });
+    return { before, after: ed.state.doc.layers.length, errors: ed.state.errors, canSave: ed.canSave, shape: ed.state.doc.layers.at(-1)?.shape };
+  });
+  console.log('phase 7 editor:', JSON.stringify(edited));
+  check(edited.after === edited.before + 2 && edited.errors.length === 0 && edited.canSave && edited.shape === 'polygon', `the editor adds a text decal and a polygon shape without errors (${edited.before} -> ${edited.after} layers)`);
+  await waitFrames(page, 8);
+  if (hasRenderer) {
+    await page.screenshot({ path: path.join(SHOTS, 'phase7-livery.png') });
+    console.log('screenshot: docs/screenshots/phase7-livery.png');
+  }
+  const saved = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const ed = app.phase7.editor;
+    const text = ed.exportText();
+    const ok = ed.save();
+    for (let i = 0; i < 3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const doc = s.fleet.livery('S-201');
+    const eq = s.equipmentOf(s.unitVehicle('S-201'));
+    return { ok, text, id: doc.id, layers: doc.layers.length, tone: eq?.tone, name: doc.name, library: s.fleet.library().length };
+  });
+  check(saved.ok && saved.layers >= 3 && saved.tone === 'yelp' && saved.name === 'Smoke supervisor', `Save stores the livery in the library and applies it (${saved.id}, ${saved.layers} layers, ${saved.tone})`);
+  const imported = await page.evaluate(async (text) => {
+    const app = window.patrol;
+    const s = app.session;
+    const c = app.console;
+    const before = c.lines.length;
+    await c.execute(`livery import '${text.replace(/'/g, '')}' U-301`);
+    const lines = c.lines.slice(before).map((l) => l.text);
+    return { lines, layers: s.fleet.livery('U-301').layers.length, name: s.fleet.livery('U-301').name };
+  }, saved.text);
+  check(imported.name === 'Smoke supervisor' && imported.layers >= 3, `the exported JSON imports again onto U-301 (${imported.lines.join(' / ').slice(0, 100)})`);
+  const bad = await page.evaluate(async () => {
+    const c = window.patrol.console;
+    const before = c.lines.length;
+    await c.execute(`livery import '{"format":"nope"}'`);
+    return c.lines.slice(before).map((l) => l.text).join(' | ');
+  });
+  check(/Rejected/.test(bad), `a malformed livery file is rejected with errors (${bad.slice(0, 80)})`);
+
+  // --- The motorcycle: check out and ride (the rider shows) -------------------------------------------------------------
+  const bike = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    await app.console.execute('fleet checkout M-601');
+    const v = s.unitVehicle('M-601');
+    const t = s.physics.getBody(v.eid).translation();
+    s.physics.getBody(s.player)?.setTranslation({ x: t.x - 1.5, y: 0.9, z: t.z }, true);
+    for (let i = 0; i < 3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const entered = app.enterVehicle(s.vehicles.indexOf(v));
+    s.driverInput.accelerate = 1;
+    for (let i = 0; i < 150; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const speed = v.telemetry.speed;
+    s.driverInput.accelerate = 0;
+    s.driverInput.brake = 1;
+    for (let i = 0; i < 240; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.driverInput.brake = 0;
+    return { entered, speed, lean: Math.abs(v.telemetry.lean), upright: v.telemetry.lean < 1 };
+  });
+  console.log('phase 7 motorcycle:', JSON.stringify(bike));
+  check(bike.entered && bike.speed > 8 && bike.upright, `M-601 is checked out and ridden (${bike.speed.toFixed(1)} m/s, lean ${bike.lean.toFixed(2)})`);
+  await waitFrames(page, 4);
+  const rider = await page.evaluate(() => {
+    const f = window.patrol.presenter.officerFigure;
+    return { anchor: f.anchor[0], eid: window.patrol.session.drivenVehicle?.eid ?? 0, flags: f.flags[0] };
+  });
+  check(rider.anchor === rider.eid && rider.anchor > 0 && (rider.flags & 2) === 0, 'the officer shows as the motorcycle rider (figure anchored to the bike)');
+  await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    app.input.update();
+    s.exitVehicle();
+    s.checkIn('M-601');
+  });
+
+  // --- The helicopter: Space climbs ---------------------------------------------------------------------------------------
+  const heli = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const v = s.unitVehicle('AIR-2');
+    const t = s.physics.getBody(v.eid).translation();
+    s.physics.getBody(s.player)?.setTranslation({ x: t.x - 3, y: 0.9, z: t.z }, true);
+    for (let i = 0; i < 3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { entered: app.enterVehicle(s.vehicles.indexOf(v)), parkedEngine: false };
+  });
+  check(heli.entered, 'the officer boards AIR-2 on the helipad');
+  await page.keyboard.down('Space');
+  await waitFrames(page, 6);
+  const lift = await page.evaluate(() => window.patrol.session.driverInput.lift ?? 0);
+  await page.keyboard.up('Space');
+  check(lift > 0.5, `Space is the climb control in the helicopter (lift ${lift})`);
+  const climb = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const v = s.drivenVehicle;
+    s.driverInput.lift = 1;
+    for (let i = 0; i < 300; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const alt = v.telemetry.altitudeM;
+    const exit = s.exitVehicle();
+    return { alt, exit };
+  });
+  await waitFrames(page, 4);
+  console.log('phase 7 helicopter:', JSON.stringify(climb));
+  check(climb.alt > 5 && climb.exit === 'exitBlocked', `AIR-2 climbs (${climb.alt.toFixed(1)} m) and the officer cannot leave it in the air`);
+  if (hasRenderer) {
+    await page.screenshot({ path: path.join(SHOTS, 'phase7-heli.png') });
+    console.log('screenshot: docs/screenshots/phase7-heli.png');
+  }
+  const landed = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const v = s.drivenVehicle;
+    // A gentle descent: a hard landing damages the helicopter (a fleet incident of its own).
+    s.driverInput.lift = -0.25;
+    for (let i = 0; i < 4000 && v.telemetry.altitudeM > 0.3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.driverInput.lift = 0;
+    for (let i = 0; i < 90; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    return { alt: v.telemetry.altitudeM, exit: s.exitVehicle() };
+  });
+  check(landed.alt < 0.5 && landed.exit === 'exited', `landed, the officer gets out (${landed.alt.toFixed(2)} m, ${landed.exit})`);
+
+  // --- The camera drone: = deploys from S-201's trunk, = recalls ---------------------------------------------------------
+  await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    // Checking out M-601 earlier stored S-201 (it stood at the garage exit); it comes back with its saved livery.
+    if (!s.unitVehicle('S-201')) await app.console.execute('fleet checkout S-201');
+    const v = s.unitVehicle('S-201');
+    const t = s.physics.getBody(v.eid).translation();
+    s.physics.getBody(s.player)?.setTranslation({ x: t.x - 4, y: 0.9, z: t.z }, true);
+    for (let i = 0; i < 3; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  await press(page, 'Equal');
+  const up = await page.evaluate(() => {
+    const s = window.patrol.session;
+    return { remote: s.remote, mode: s.modes.mode, model: s.droneVehicle?.model.id ?? '' };
+  });
+  check(up.remote && up.model === 'police_drone', `= launches the camera drone from the trunk (${up.model})`);
+  const flown = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const d = s.droneVehicle;
+    const at0 = s.physics.getBody(d.eid).translation();
+    s.driverInput.accelerate = 1;
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.driverInput.accelerate = 0;
+    const at1 = s.physics.getBody(d.eid).translation();
+    return { moved: Math.hypot(at1.x - at0.x, at1.z - at0.z), battery: d.telemetry.fuelFraction };
+  });
+  check(flown.moved > 3 && flown.battery < 1 && flown.battery > 0.9, `the drone flies on the driver input (${flown.moved.toFixed(1)} m, battery ${(flown.battery * 100).toFixed(0)} %)`);
+  await press(page, 'Equal');
+  const down = await page.evaluate(() => {
+    const s = window.patrol.session;
+    return { remote: s.remote, droneOut: s.unitVehicle('D-1') !== null, kit: s.officerKit.carried('drone') };
+  });
+  check(!down.remote && !down.droneOut && down.kit === 1, '= recalls the drone: the item is back in the officer kit');
+
+  // --- A crash with its damage report, service, inspection and End shift ---------------------------------------------------
+  const crash = await page.evaluate(() => {
+    const app = window.patrol;
+    const s = app.session;
+    const car = s.unitVehicle('P-101');
+    const tw = s.buildings.station();
+    app.enterVehicle(s.vehicles.indexOf(car));
+    s.teleport((tw.minX + tw.maxX) / 2, tw.minZ - 30, Math.PI);
+    for (let i = 0; i < 30; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.driverInput.accelerate = 1;
+    for (let i = 0; i < 360; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.driverInput.accelerate = 0;
+    s.driverInput.brake = 1;
+    for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    s.driverInput.brake = 0;
+    for (let i = 0; i < 600; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const incidents = s.fleet.incidents().filter((i) => i.unitId === 'P-101');
+    return { n: incidents.length, unit: incidents[0]?.unitId ?? '', closed: incidents[0]?.closed ?? false, cost: incidents[0]?.cost ?? 0, damaged: car.needsRepair, open: s.fleet.openReports() };
+  });
+  console.log('phase 7 crash:', JSON.stringify(crash));
+  check(crash.n > 0 && crash.unit === 'P-101' && crash.closed && crash.open > 0, `the crash is a damage incident of P-101 ($${crash.cost}, ${crash.open} unreported)`);
+  await waitFrames(page, 8);
+  const chip = await page.evaluate(() => document.querySelector('.hud')?.textContent ?? document.body.textContent ?? '');
+  check(chip.includes('damage report due'), 'the HUD fleet chip says a damage report is due');
+  const flow = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const points0 = s.conduct.career.points;
+    const id = s.fleet.incidents().find((i) => i.unitId === 'P-101').id;
+    await app.console.execute(`fleet report ${id}`);
+    await app.console.execute('fleet service all P-101');
+    const input = s.inspectionInput('P-101');
+    s.fleet.request({ kind: 'inspect', unitId: 'P-101', input });
+    for (let i = 0; i < 5; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    const inspected = s.fleet.lastInspection();
+    await app.console.execute('fleet endshift');
+    for (let i = 0; i < 5; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+    return {
+      report: s.fleet.reports()[0]?.text ?? '',
+      serviced: !s.unitVehicle('P-101').needsRepair,
+      cost: s.fleet.ledger.departmentCost,
+      rows: inspected?.rows.length ?? 0,
+      points0,
+      points1: s.conduct.career.points,
+      summary: app.phase7.panelKind,
+    };
+  });
+  console.log('phase 7 shift end:', JSON.stringify({ ...flow, report: flow.report.slice(0, 80) }));
+  check(flow.report.includes('Robin Vale') && flow.report.includes('they/them'), 'the damage report names the officer with their pronouns');
+  check(flow.serviced && flow.cost > 0, `the station service repairs P-101 and the department ledger records $${flow.cost}`);
+  check(flow.rows >= 8, `the inspection checklist runs (${flow.rows} checks)`);
+  check(flow.points1 <= flow.points0 && flow.summary === 'summary', `End shift applies the career charge (${flow.points0} -> ${flow.points1}) and opens the shift summary`);
+  await page.evaluate(() => window.patrol.phase7.panel.close());
+
+  // --- A v9 save / load round trip ---------------------------------------------------------------------------------------------
+  const save = await page.evaluate(async () => {
+    const app = window.patrol;
+    const s = app.session;
+    const snap = (x) => ({
+      name: x.officer.name,
+      uniform: x.character.outfit.uniform,
+      livery: x.fleet.livery('S-201').name,
+      layers: x.fleet.livery('S-201').layers.length,
+      library: x.fleet.library().length,
+      units: x.fleet.units().filter((u) => u.spawned).map((u) => u.id).join(','),
+      gear: x.gear.loadout.items.length,
+      ledger: x.fleet.ledger.entries().length,
+      points: x.conduct.career.points,
+    });
+    const before = snap(s);
+    await app.saveGame('p7');
+    const list = await app.saves.list();
+    await app.loadGame('p7');
+    await new Promise((r) => setTimeout(r, 800));
+    return { version: list.find((x) => x.slot === 'p7')?.version ?? 0, before, after: snap(app.session) };
+  });
+  console.log('phase 7 save/load:', JSON.stringify(save));
+  check(save.version === 9, `the save is written as version 9 (${save.version})`);
+  check(JSON.stringify(save.before) === JSON.stringify(save.after), 'the character, gear, saved liveries, checked-out units and ledger survive the load');
+
+  // --- Console commands ---------------------------------------------------------------------------------------------------------
+  const cmds = await page.evaluate(async () => {
+    const c = window.patrol.console;
+    const run = async (line) => {
+      const before = c.lines.length;
+      await c.execute(line);
+      return c.lines.slice(before).map((l) => `${l.kind}: ${l.text}`);
+    };
+    const out = [];
+    for (const line of ['fleet list', 'fleet spawn motor', 'fleet ledger', 'livery list', 'livery export patrolMarked', 'gear show', 'loadout show', 'gear validate', 'gear retention 3', 'uniform motor motorHelmet', 'char show', 'char pronouns she', 'wear oil 0.2', 'hit 20', 'fleet checkin M-601']) {
+      out.push(`> ${line}`, ...(await run(line)));
+    }
+    return out;
+  });
+  console.log('phase 7 console commands:\n  ' + cmds.map((l) => l.slice(0, 160)).join('\n  '));
+  check(!cmds.some((l) => l.startsWith('error:')), 'Phase 7 console commands ran without errors');
+
+  // --- Perf -----------------------------------------------------------------------------------------------------------------------
+  await page.evaluate(() => {
+    const app = window.patrol;
+    for (let i = 0; i < 60 * 10; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
+  });
+  const perf = await page.evaluate(perfSnapshot);
+  const extras = await page.evaluate(() => {
+    const out = {};
+    for (const [name, ms] of window.patrol.systems.timings) if (['fleet', 'vehicles.pre', 'vehicles.post', 'force', 'conduct'].includes(name)) out[name] = Number(ms.toFixed(4));
+    const l = window.patrol.phase7.liveries?.stats;
+    return { systems: out, liveries: l ? { ...l } : null, gearBoxes: window.patrol.presenter.renderer?.stats.gearBoxes ?? 0 };
+  });
+  const frame = await page.evaluate(frameBreakdown, BREAKDOWN_FRAMES);
+  console.log('perf phase 7:', JSON.stringify(perf));
+  console.log('phase 7 sim costs:', JSON.stringify(extras));
+  return { perf, frame, extras };
+}
+
 async function run() {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({
     args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
   });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  // SMOKE_SIZE=640x360 renders fewer pixels under software GL (a quicker loop while working on the checks).
+  const [vw, vh] = (process.env.SMOKE_SIZE ?? '1280x720').split('x').map(Number);
+  const page = await browser.newPage({ viewport: { width: vw ?? 1280, height: vh ?? 720 } });
 
   const consoleErrors = [];
   const consoleWarnings = [];
@@ -2832,6 +3244,18 @@ async function run() {
 
     const hasRenderer = await page.evaluate(() => window.patrol.renderer !== null);
     console.log(`renderer: ${hasRenderer ? 'WebGL available' : 'UNAVAILABLE (headless simulation only)'}`);
+
+    // SMOKE_ONLY=7 runs just the Phase 7 checks.
+    if (process.env.SMOKE_ONLY === '7') {
+      const only = await phase7(page, hasRenderer);
+      console.log('phase 7 frame:', JSON.stringify(only.frame));
+      check(only.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 7 within the cap (${only.perf.drawCalls})`);
+      check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
+      check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
+      console.log('--- browser console ---');
+      for (const line of consoleLines) console.log(line);
+      return;
+    }
 
     // SMOKE_ONLY=6 runs just the Phase 6 checks.
     if (process.env.SMOKE_ONLY === '6') {
@@ -2936,7 +3360,7 @@ async function run() {
     check(state.steps > 0 && !state.paused, `fixed steps advancing (${state.steps})`);
     check(!state.menuOpen, 'menus closed while playing');
     check(state.driving === false, 'officer starts on foot');
-    check(state.vehicles.join(',') === 'patrol_sedan,patrol_suv', `patrol cars parked at the station (${state.vehicles.join(', ')})`);
+    check(state.vehicles.join(',') === 'patrol_sedan,patrol_suv,patrol_boat,police_helicopter', `fleet parked at the station, the harbor slip and the helipad (${state.vehicles.join(', ')})`);
     check(state.chunks > 0, `city chunks loaded (${state.chunks})`);
     check(state.traffic > 0, `ambient traffic active (${state.traffic})`);
     check(state.hudVisible && state.minimap, 'HUD and minimap shown');
@@ -3085,7 +3509,7 @@ async function run() {
       };
     });
     console.log('save/load:', JSON.stringify(saveLoad));
-    check(saveLoad.slots.includes('smoke v8'), "slot 'smoke' listed as a v8 save");
+    check(saveLoad.slots.includes('smoke v9'), "slot 'smoke' listed as a v9 save");
     check(saveLoad.seed === SEED, `reloaded seed is ${SEED}`);
     check(saveLoad.after.mode === 1 && saveLoad.camera === 1, 'reloaded still driving, chase camera');
     check(saveLoad.after.vehicles === saveLoad.before.vehicles, `vehicles restored (${saveLoad.after.vehicles})`);
@@ -3158,6 +3582,7 @@ async function run() {
     const phase4Perf = await guarded('phase 4', () => phase4(page, hasRenderer));
     const phase5Perf = await guarded('phase 5', () => phase5(page, hasRenderer));
     const phase6Perf = await guarded('phase 6', () => phase6(page, hasRenderer));
+    const phase7Perf = await guarded('phase 7', () => phase7(page, hasRenderer));
 
     console.log('perf on foot:  ', JSON.stringify(perfOnFoot));
     console.log('perf driving:  ', JSON.stringify(perfDriving));
@@ -3197,6 +3622,12 @@ async function run() {
       console.log('perf phase 6:', JSON.stringify(phase6Perf.perf));
       console.log('phase 6 sim costs:', JSON.stringify(phase6Perf.extras));
       check(phase6Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 6 within the cap (${phase6Perf.perf.drawCalls})`);
+    }
+    if (phase7Perf) {
+      console.log(describe('Phase 7 patrol (fleet, liveries, outfits):', phase7Perf.frame));
+      console.log('perf phase 7:', JSON.stringify(phase7Perf.perf));
+      console.log('phase 7 sim costs:', JSON.stringify(phase7Perf.extras));
+      check(phase7Perf.perf.drawCalls <= DRAW_CALL_CAP, `draw calls in Phase 7 within the cap (${phase7Perf.perf.drawCalls})`);
     }
     check(consoleErrors.length === 0, `zero console errors (${consoleErrors.length})`);
     check(consoleWarnings.length === 0, `zero app console warnings (${consoleWarnings.length})`);
