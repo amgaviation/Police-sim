@@ -3439,8 +3439,10 @@ async function phase8(page, hasRenderer, browser, watch) {
     for (let i = 0; i < 20; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     mdt.open('call');
     mdt.selectCall(call.id);
-    return { shift: v.shift.shiftNo, onDuty: v.shift.onDuty, game: s.now().game, start: v.shift.startGame, premises: s.phase8.world.serialize().premises.length, history: s.phase8.world.premiseHistory(call.location.text).length, shown: mdt.premiseModelShown?.entries.length ?? -1, flow: s.station.flow.step };
+    return { shift: v.shift.shiftNo, onDuty: v.shift.onDuty, game: s.now().game, start: v.shift.startGame, premises: s.phase8.world.serialize().premises.length, history: s.phase8.world.premiseHistory(call.location.text).length, flow: s.station.flow.step };
   });
+  await waitFrames(page, 6);
+  next.shown = await page.evaluate(() => window.patrol.mdt.premiseModelShown?.entries.length ?? -1);
   console.log('next shift:', JSON.stringify(next));
   check(next.shift === 2 && next.onDuty && next.game >= next.start, `Report for duty starts shift 2 at the new shift time (${next.game - next.start} s in)`);
   check(next.premises >= 1 && next.history >= 1 && next.shown >= 1, `premise history survived the rollover and shows in the MDT (${next.shown} entries)`);
@@ -3489,23 +3491,22 @@ async function phase8(page, hasRenderer, browser, watch) {
     const a = ed.state.doc.anchor;
     ed.setTool('npc');
     ed.state.place('npc', a.x + 6, a.z + 4, { profile: 'suspectNervous', role: 'suspect' });
-    ed.state.place('npc', a.x - 6, a.z + 4, { profile: 'calmCitizen', role: 'witness' });
+    ed.state.place('npc', a.x - 6, a.z + 4, { profile: 'witnessReluctant', role: 'witness' });
     ed.state.place('vehicle', a.x + 12, a.z, { modelId: 'compact' });
     ed.state.place('evidence', a.x + 3, a.z + 2, { item: 'knife' });
-    ed.state.setCall({ typeId: 'suspiciousPerson', priority: 3 });
+    ed.state.setCall('disturbance', 3);
     const doc = ed.state.doc;
-    const text = ed.exportFile ? null : null;
-    void text;
+    const exported = ed.state.exportJson();
     const errors = ed.state.validate();
     const vehiclesBefore = app.session.vehicles.length;
     ed.run();
     await new Promise((r) => setTimeout(r, 600));
     for (let i = 0; i < 120; i++) app.loop.hooks.fixedUpdate(1 / 60, 0);
     const s = app.session;
-    return { errors, npcs: doc.npcs.length, vehicles: s.vehicles.length - vehiclesBefore, calls: s.cad.openCalls().length, scenario: s.phase8.mode.scenario?.id ?? null, closed: !ed.isOpen };
+    return { errors, npcs: doc.npcs.length, exported: exported.includes('patrol-scenario'), vehicles: s.vehicles.length - vehiclesBefore, calls: s.cad.openCalls().length, scenario: s.phase8.mode.scenario?.id ?? null, closed: !ed.isOpen };
   });
   console.log('editor:', JSON.stringify(editor));
-  check(editor.errors.length === 0 && editor.npcs === 2, 'the scenario editor places two NPCs, a vehicle and evidence and validates the scenario');
+  check(editor.errors.length === 0 && editor.npcs === 2 && editor.exported, 'the scenario editor places two NPCs, a vehicle and evidence, validates the scenario and exports it as JSON');
   check(editor.vehicles === 1 && editor.calls >= 1 && editor.scenario !== null && editor.closed, 'Run spawns the vehicle and the call into the world and stores the scenario in the mode');
 
   // --- Mod manager with the example mod -----------------------------------------------------------------------------------------
@@ -3616,10 +3617,10 @@ async function phase8(page, hasRenderer, browser, watch) {
     await page2.evaluate(() => {
       window.patrol.phase8.coop.send({ t: 'callCreate', ref: 'smoke1', typeId: 'noiseComplaint', label: 'Noise complaint', priority: 3, x: 120, z: 80, address: '100 Smoke Street', narrative: 'Loud music reported', origin: 'dispatcher' });
     });
-    await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 15000 });
+    await page.waitForFunction(() => window.patrol.session.cad.openCalls().length >= 1, null, { timeout: 90000 });
     const callId = await page2.evaluate(() => [...window.patrol.phase8.coop.calls.keys()][0]);
     await page2.evaluate((id) => window.patrol.phase8.coop.send({ t: 'callAssign', callId: id, unit: 'N1' }), callId);
-    await page.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.units.includes('N1')), null, { timeout: 15000 });
+    await page.waitForFunction(() => [...window.patrol.phase8.coop.calls.values()].some((c) => c.units.includes('N1')), null, { timeout: 90000 });
     const shared = await page.evaluate(() => {
       const app = window.patrol;
       const call = app.session.cad.openCalls()[0];

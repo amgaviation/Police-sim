@@ -35,9 +35,10 @@ src/
     actions.ts            action ids with kind and label
   save/
     db.ts                 IndexedDB wrapper (open, get, put, delete, list) with versioned object stores
-    schema.ts             SaveGame (v7) type, nested validators + CURRENT_SAVE_VERSION
+    schema.ts             SaveGame (v10) type, nested validators + CURRENT_SAVE_VERSION
     migrations.ts         ordered migration functions vN -> vN+1
-    saveManager.ts        save/load/list/delete slots, autosave, validates & migrates
+    saveManager.ts        save/load/list/delete slots, autosave, validates & migrates; `peek` reads unvalidated data
+    mods.ts               `describeModMismatch`: names the mods a save was made with when they differ from the active ones
   settings/
     settings.ts           Settings schema (graphics/audio/controls/accessibility), defaults, persistence
   render/
@@ -170,6 +171,16 @@ src/
     target.ts             TargetTracker: the 10 Hz reticle pick for plate runs
     mdtDeps.ts            what the MDT reads from the session; patrolCommands.ts: cad / lookup / lights / radio shortcuts
     commands.ts           Phase 0 console commands; pauseMenu.ts, playerController.ts, sceneLayout.ts, route.ts
+  career/ worldstate/ training/ net/ a11y/ mods/     Phase 8 modules (see "Career, persistence and multiplayer" below)
+  ui/career/ ui/dispatch/ ui/sandbox/ ui/mods/ ui/coop/   Phase 8 screens (academy, apartment, summary, dispatch console, scenario editor, mod manager, co-op lobby)
+  game/phase8.ts          Phase8: career, world, mode (training objects), the hooks and the bridges of design §14
+  game/rollover.ts        the pure shift rollover (`rolloverSave`) and `prepareRollover` / `beginRolledShift`
+  game/modes.ts           driving course start / leave, sandbox scenario run; game/courseSegments.ts (straight road chains)
+  game/coop.ts            CoopSession (client, mirror, presence, intents) and the console port over the room
+  game/consolePorts.ts    the dispatch console's port over the local CAD (dispatch-only)
+  game/phase8Presenter.ts Phase 8 presentation: screens, hosts, cones, console, editor, mod manager, lobby, HUD feed
+  game/phase8Commands.ts  career / world / course / dispatchmode / script / sandbox / scenario / mods / coop (mp)
+  server/                 the optional co-op server (Node 22, no dependencies): wsFrames.ts, wsServer.ts, main.ts
   data/                   JSON content: world/, environment/, crime/, vehicles/, physics/, traffic/, records/, cad/,
                           dispatch/, radio/, police/, audio/, people/, calls/, npc/, dialogue/, scene/, interior/, evidence/, tactics/, station/,
                           legal/rulesets, force/, incidents/, conduct/, court/, recording/,
@@ -183,6 +194,8 @@ docs/
   phase4-design.md        Phase 4 design (interiors, tactical movement, evidence and scene work, the station): data formats, module APIs, topics, save v6
   phase5-design.md        Phase 5 design (law, procedure, consequences): legal engine, force, recording, conduct, court, data formats, module APIs, topics, save v7
   phase6-design.md        Phase 6 design (backup, tactical, multi-agency): units, resources, backup, pursuit, command, UI, data formats, module APIs, topics, save v8
+  phase8-design.md        Phase 8 design (career, persistent world, training modes, co-op, mods, accessibility), save v10
+  MODDING.md, schemas/    the mod bundle format and its JSON schemas
   ASSETS.md               third-party asset license tracking
   PHASES.md               per-phase completion log: what was done, how to run, what to test
 ```
@@ -375,3 +388,20 @@ Protocol: `{ id, type, payload }` request/response with transferables where poss
 **Presentation (`game/phase7Presenter.ts`).** Fleet panels (garage, service, inspection, shift summary) are pure models over a non-pausing `ActionPanel` (`'` or E at the station pump); Customize opens the `LiveryEditor` (pausing; the camera orbits the live vehicle through `liveryPreviewPose`, edits are previewed through the spawn-apply path at 10 Hz, cancel restores); the locker's "Uniform & gear" row and the title screen's "Create officer" open the `CharacterCreator`. Each frame the presenter hands new vehicles to the car renderer and new fleet documents to the `LiveryRenderer`.
 
 **Save v9.** `character`, `gear` and `fleet` blocks; `vehicles[i]` may carry `wear`, `craft` and `pushBar`, `player.mode` may be `remote` (the drone's index) and `equipment[i]` `extraPrisoners`. `migrateV8ToV9` writes a legacy character, the default gear and a fleet that binds the saved cars by model. Load order: character -> gear -> fleet (so the vehicles are built from the units' liveries and loadouts) -> vehicles (each bound to its unit) -> ... -> radio.
+
+### Career, persistence and multiplayer (Phase 8)
+**Modules.** `src/career` (pure rules: wellbeing, bidding, progression, pay, academy grading; `CareerState` with a request queue), `src/worldstate` (premises, cases, offenders, witnesses, neighborhoods; `WorldState`), `src/training` (modes, the cone course, dispatch scripts and scoring, sandbox scenarios; hooks added to the dispatcher, scene director and force system), `src/net` and `server/` (protocol, `Room` authority, `CoopMirror`, `NetClient`, the Node server with a hand-written RFC 6455 codec), `src/a11y` (palettes, one-handed layouts, flash helpers), `src/mods` (bundle validation, IndexedDB store, boot, loader hooks in the data modules) and the screens in `src/ui/*`. Each owns its data in `src/data/<area>`.
+
+**Boot.** `main.ts` imports only `mods/boot` statically: `bootMods` reads the enabled mods from IndexedDB, resolves the load order, installs the overlay (`setActiveOverlay`) and only then imports `./app`, so every data loader merges the overlay while its module evaluates. A failed app import with mods active sets the safe-mode flag and reloads without them; `?nomods` skips them. Mods therefore apply at page load.
+
+**Session (`game/phase8.ts`).** `Phase8` constructs `CareerState` (stream `career`, fixed step -654), `WorldState` (stream `worldstate`, -653, base crime merged with the mod district table) and the mode block (training objects, step -652: the driving course run follows the driven vehicle, the script runner creates scripted calls). Hooks: `scene.setPersonBias` -> `world.pickPerson` (recidivists and follow-up suspects; no draw while the pool is empty), `dispatcher.setLocationBias` -> `world.pickRepeatLocation`, the dispatcher crime factor = the trust factor x `world.crimeFactor`, `setCategoryWeights` from the specialty, `force.setAccuracyFactor` -> `perf.aimSpread`, steering lag in `GameSession.laggedInput`. Bridges (design §14) enqueue requests only: force, pursuits, IA, commendations, court verdicts, bookings (arrest stat and world arrest), closed calls (premise history, case register, dispatch score), canvass witnesses, reports, trust and fleet charges feed the career stats, stress events and the world; `career:points` goes to the conduct points request and `career:stage` to the officer's rank, uniform class and call mix. With no hooks active Phase 1-7 runs stay bit-identical (the dispatcher, scene and force fixtures are regression tests).
+
+**Rollover (`game/rollover.ts`).** End shift -> `career:shiftSummary` -> summary screen -> apartment -> Report for duty: `prepareRollover` resolves bids when due, ends the off-duty period (`career.reportForDuty`), evolves the world over the gap (`world.evolve`: release, case aging and follow-ups, witness moves, neighborhood drift, trust deltas applied through conduct requests), serializes the session and runs the pure `rolloverSave`: time offset to the next shift start, traffic, pedestrians, dispatcher, scenes, contacts, backup, pursuit, command, resources, interiors, tactical, radio and the station flow reset, open CAD calls closed `handled` with a shift-change note, AI units removed, court hearings in the gap moved to start + 2 h; everything persistent (vehicles, fleet, people, records, investigation, incidents, conduct, court, roster, character, gear, career, world, mode) is kept. The app loads the result into a fresh session (`App.applyRollover`) and `beginRolledShift` starts it in the locker room and opens the follow-up warrant-service calls (`world.bindPerson`).
+
+**Modes.** `ModeSave.id` = freePatrol, career, drivingAcademy, dispatchOnly, sandbox, coop. Career opens the academy hub over the locker room (the driving module runs the cone course on a straight arterial / collector chain >= 320 m near the station: `straightSegments` + `pickCourseSegment`, the `ConeRenderer`, the officer seated in P-101). Dispatch-only turns manual dispatch on (`Dispatcher.setManualDispatch`, `assignUnit`, `createScriptedCall`), runs a `ScriptRunner` and scores with `DispatchTraining`; the console uses `LocalConsolePort`. The sandbox runs `planScenario` operations (environment, call, vehicles, actors, evidence) between steps. Co-op: see below.
+
+**Co-op (`game/coop.ts`).** The lobby connects a `NetClient` and the room's seed starts a new game with mode coop. `CoopSession.update` (once per frame) drains the client: the welcome snapshot and events go through `CoopMirror` into the local CAD (`MirrorPort`: mirrored calls are created with `createScriptedCall`, remote officers are CAD `resource` units whose positions follow presence) and into a plain room copy that the dispatcher / supervisor console reads (`NetConsolePort`); the local officer's status changes, self assignments and clears are sent as intents (`unitStatus`, `callAssign`, `callClose`), presence at 5 Hz, and the host patrol proposes generated calls (`callCreate` origin `generator` with `expectOwn`) only while no dispatcher is in the room. Manual dispatch is on in co-op. The server (`server/wsServer.ts` over `Room`) validates every message (schema, role, state transition, rate, plausibility) and broadcasts events; co-op sessions are not replay-deterministic and are not saved as co-op (a co-op save loads as free patrol).
+
+**Save v10.** `career` (`CareerSave`), `worldState` (`WorldStateSave`), `mode` (`ModeSave`: course run, dispatch script and score, sandbox scenario) and `mods` (`ModRef[]`). `migrateV9ToV10` writes a patrol-officer career from the save's game time, a blank world (both on the seed's own `career` / `worldstate` streams), free patrol and no mods. Load order: ... -> roster -> resources -> backup -> pursuit -> command -> radio -> **career -> world -> mode** (re-applies the dispatcher flags, script runner, course run and scoring). A save whose mods differ from the active ones still loads when it validates (a flash names the difference); one that fails validation reports "This save was made with mods: ...".
+
+**Frame and fixed-step order.** Fixed: ... fleet -655, **career -654, worldstate -653, training -652**, radio -650, ..., vehicles.pre 40 (steering lag in `laggedInput`). Frame: career / co-op / dispatch-console keys, `Phase8Presenter.update` (co-op drain, console refresh at 4 Hz, editor, course finish), HUD career feed at 10 Hz, `setPaletteMode` on settings change. No new worker: `evolve` (<= 5 ms) and the rollover (city regeneration + load, once per shift) run behind a status line.

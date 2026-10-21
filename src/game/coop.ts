@@ -16,7 +16,7 @@ export const PRESENCE_INTERVAL_MS = 200;
 /** The orders list keeps this many lines. */
 const ORDER_LOG = 6;
 /** The call type a mirrored call falls back to when this client lacks the sender's type (mods differ). */
-const FALLBACK_TYPE = 'suspiciousPerson';
+const FALLBACK_TYPE = 'disturbance';
 const NO_UNITS: readonly NetUnit[] = [];
 
 const clampPriority = (p: number): ConsolePriority => (p <= 1 ? 1 : p >= 4 ? 4 : (Math.round(p) as ConsolePriority));
