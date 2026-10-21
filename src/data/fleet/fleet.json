@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "units": [
+    { "id": "P-101", "model": "patrol_sedan", "class": "patrol", "livery": "patrolMarked", "trunk": "patrol" },
+    { "id": "P-102", "model": "patrol_suv", "class": "patrol", "livery": "patrolMarked", "trunk": "patrol" },
+    { "id": "S-201", "model": "supervisor_suv", "class": "supervisor", "livery": "supervisorMarked", "trunk": "supervisor" },
+    { "id": "U-301", "model": "unmarked_sedan", "class": "unmarked", "livery": "unmarkedGrey", "trunk": "unmarked" },
+    { "id": "T-401", "model": "traffic_sedan", "class": "traffic", "livery": "trafficMarked", "trunk": "traffic" },
+    { "id": "K-501", "model": "k9_suv", "class": "k9", "livery": "k9Marked", "trunk": "k9" },
+    { "id": "M-601", "model": "police_motorcycle", "class": "motor", "livery": "motorMarked", "trunk": "motor" },
+    { "id": "B-651", "model": "police_bicycle", "class": "bicycle", "livery": "bicyclePatrol", "trunk": "bicycle" },
+    { "id": "A-671", "model": "police_atv", "class": "atv", "livery": "atvPatrol", "trunk": "atv" },
+    { "id": "X-701", "model": "swat_truck", "class": "swat", "livery": "swatTactical", "trunk": "swat" },
+    { "id": "X-711", "model": "armored_truck", "class": "armored", "livery": "armoredRescue", "trunk": "armored" },
+    { "id": "J-801", "model": "prisoner_van", "class": "transport", "livery": "prisonerTransport", "trunk": "transport" },
+    { "id": "C-901", "model": "command_post", "class": "command", "livery": "commandPost", "trunk": "command" },
+    { "id": "L-951", "model": "crime_lab", "class": "lab", "livery": "crimeLab", "trunk": "lab" },
+    { "id": "MAR-1", "model": "patrol_boat", "class": "marine", "livery": "marinePatrol", "trunk": "marine", "home": "boatSlip" },
+    { "id": "AIR-2", "model": "police_helicopter", "class": "air", "livery": "airSupport", "trunk": "air", "home": "helipad" },
+    { "id": "D-1", "model": "police_drone", "class": "drone", "livery": "droneUnit", "trunk": null, "home": "carried" }
+  ],
+  "startParked": ["P-101", "P-102"],
+  "startHome": ["MAR-1", "AIR-2"],
+  "garageSlot": 2
+}

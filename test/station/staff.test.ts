@@ -3,7 +3,7 @@ import { generateInterior } from '../../src/interior/generate';
 import { roomAt } from '../../src/interior/nav';
 import { createHumanoidSource, POSE } from '../../src/render/people/pose';
 import { defaultLoadout, uniformColors } from '../../src/station/locker';
-import { stationStaff, type StaffLayout } from '../../src/station/staff';
+import { createStaffFigures, stationStaff, type StaffLayout } from '../../src/station/staff';
 import { handBuilding, indexFor } from '../interior/helpers';
 
 const points = [
@@ -103,5 +103,24 @@ describe('stationStaff', () => {
       }
     }
     expect(figures).toBeGreaterThan(30);
+  });
+
+  it('staff figures carry an outfit index per entry (default 0)', () => {
+    const out = createStaffFigures(8);
+    expect(out.outfit).toBeInstanceOf(Uint16Array);
+    expect(out.outfit).toHaveLength(8);
+    expect(Array.from(out.outfit)).toEqual(new Array<number>(8).fill(0));
+    expect(stationStaff(layout(points, 0), out)).toBe(5);
+    expect(Array.from(out.outfit)).toEqual(new Array<number>(8).fill(0));
+    out.setOutfit(3);
+    expect(Array.from(out.outfit)).toEqual(new Array<number>(8).fill(3));
+    stationStaff(layout(points, 0), out);
+    expect(out.outfit[0]).toBe(3); // writing the figures leaves the outfit alone
+    out.setOutfit(-4);
+    expect(out.outfit[4]).toBe(0);
+    out.setOutfit(1e9);
+    expect(out.outfit[0]).toBe(0xffff);
+    out.setOutfit(Number.NaN);
+    expect(out.outfit[0]).toBe(0);
   });
 });

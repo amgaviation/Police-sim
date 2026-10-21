@@ -24,6 +24,12 @@ export const PROP_BY_NAME: Readonly<Record<string, number>> = Object.freeze(Obje
  * relative to the vehicle instead. `gait` is the walk-cycle phase in cycles, `speed` m/s, `height` m (a dog's
  * `height` is its shoulder height, about 0.6), `build` a width multiplier (1 = average). Colours are 0xRRGGBB;
  * `hair` 0xFFFFFFFF means bald; for dogs `top` is the fur colour.
+ *
+ * Optional Phase 7 arrays (outfits and body shape; a missing array reads as the default). `outfit` is an index
+ * into the table given to `PeopleRenderer.setOutfits`: 0 or missing = no accessories and shins in the `bottom`
+ * colour. `shoulders` and `hips` multiply the shoulder / hip width (missing or <= 0 read as 1). `shins` overrides
+ * the shin colour (0xRRGGBB, or `SKIN_SHINS` 0x1000000 for bare skin) and is read only when `outfit[i] > 0`; 0
+ * keeps the outfit's own shin colour.
  */
 export interface HumanoidSource {
   readonly count: number;
@@ -48,6 +54,10 @@ export interface HumanoidSource {
   readonly held: Uint8Array;
   readonly body: Uint8Array;
   readonly flags: Uint8Array;
+  readonly outfit?: Uint16Array;
+  readonly shoulders?: Float32Array;
+  readonly hips?: Float32Array;
+  readonly shins?: Uint32Array;
 }
 
 /** Read-only view of the scene props to draw. */
@@ -253,8 +263,14 @@ function solve(pose: number, out: LimbPose): LimbPose {
   return out;
 }
 
-/** Mutable humanoid source with room for `capacity` figures (`count` starts at 0). */
-export function createHumanoidSource(capacity: number): HumanoidSource & { count: number } {
+/** Mutable humanoid source with room for `capacity` figures (`count` starts at 0; outfit 0, shoulders / hips 1, shins 0). */
+export function createHumanoidSource(capacity: number): HumanoidSource & {
+  count: number;
+  outfit: Uint16Array;
+  shoulders: Float32Array;
+  hips: Float32Array;
+  shins: Uint32Array;
+} {
   const n = Math.max(0, Math.floor(capacity));
   return {
     count: 0,
@@ -279,6 +295,10 @@ export function createHumanoidSource(capacity: number): HumanoidSource & { count
     held: new Uint8Array(n),
     body: new Uint8Array(n),
     flags: new Uint8Array(n),
+    outfit: new Uint16Array(n),
+    shoulders: new Float32Array(n).fill(1),
+    hips: new Float32Array(n).fill(1),
+    shins: new Uint32Array(n),
   };
 }
 

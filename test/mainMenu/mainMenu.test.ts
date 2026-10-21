@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { officerPreset } from '../../src/gear';
 import { getRuleset, rulesetIds } from '../../src/legal';
+import { PRONOUN_PRESETS, defaultCharacter } from '../../src/uniform';
 import {
   DEFAULT_JURISDICTION,
   MainMenu,
   jurisdictionOptions,
+  officerSummary,
   normalizeJurisdiction,
   parseSeedInput,
   type MainMenuCallbacks,
+  type MainMenuCharacter,
 } from '../../src/ui/mainMenu';
 
 interface Calls {
@@ -104,5 +108,55 @@ describe('parseSeedInput', () => {
     expect(parseSeedInput('-5')).toBe(-5);
     expect(parseSeedInput('abc')).toBe('abc');
     expect(typeof parseSeedInput('')).toBe('number');
+  });
+});
+
+describe('MainMenu officer (Phase 7)', () => {
+  const officer = (): MainMenuCharacter => ({ profile: defaultCharacter(), gear: officerPreset('patrolStandard') });
+
+  it('old callers that take two arguments keep working: no third argument without an officer', () => {
+    const seen: unknown[][] = [];
+    const callbacks: MainMenuCallbacks = {
+      newGame: (...args: unknown[]) => void seen.push(args),
+      continueGame: () => undefined,
+      openSettings: () => undefined,
+    };
+    const m = new MainMenu(null, callbacks);
+    m.seed = '5';
+    m.startNewGame();
+    expect(seen).toEqual([[5, 'generic']]);
+    expect(m.character).toBeNull();
+  });
+
+  it('passes the created officer as the third argument, until it is cleared', () => {
+    const seen: unknown[][] = [];
+    const callbacks: MainMenuCallbacks = {
+      newGame: (seed, jurisdiction, character) => void seen.push([seed, jurisdiction, character]),
+      continueGame: () => undefined,
+      openSettings: () => undefined,
+    };
+    const m = new MainMenu(null, callbacks);
+    const c = officer();
+    m.seed = '9';
+    m.setCharacter(c);
+    expect(m.character).toBe(c);
+    m.startNewGame();
+    expect(seen).toEqual([[9, 'generic', c]]);
+    m.setCharacter(null);
+    m.startNewGame();
+    expect(seen[1]).toEqual([9, 'generic', undefined]);
+  });
+
+  it('summarises the officer with name and pronouns', () => {
+    expect(officerSummary(officer())).toBe('Officer: Jordan Doe (they/them)');
+    const she = officer();
+    she.profile.firstName = 'Ana';
+    she.profile.pronouns = { ...PRONOUN_PRESETS.she };
+    expect(officerSummary(she)).toBe('Officer: Ana Doe (she/her)');
+  });
+
+  it('cannot open the creator headless', () => {
+    const { menu: m } = menu();
+    expect(m.createOfficer()).toBeNull();
   });
 });

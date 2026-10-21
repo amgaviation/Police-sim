@@ -1,19 +1,24 @@
 {
   "version": 1,
   "items": [
-    { "id": "cones", "label": "Traffic cones", "carryMax": 4, "deployable": true },
-    { "id": "flares", "label": "Road flares", "carryMax": 6, "deployable": true },
-    { "id": "firstAid", "label": "First aid kit", "carryMax": 1, "deployable": false },
-    { "id": "aed", "label": "Defibrillator (AED)", "carryMax": 1, "deployable": false },
-    { "id": "spikeStrip", "label": "Spike strip", "carryMax": 1, "deployable": true },
-    { "id": "evidenceKit", "label": "Evidence kit", "carryMax": 1, "deployable": false },
-    { "id": "fireExtinguisher", "label": "Fire extinguisher", "carryMax": 1, "deployable": false },
-    { "id": "trafficVest", "label": "Traffic vest", "carryMax": 1, "deployable": false },
-    { "id": "ram", "label": "Door ram", "carryMax": 1, "deployable": false },
-    { "id": "sceneTape", "label": "Scene tape roll", "carryMax": 1, "deployable": false },
-    { "id": "evidenceMarkers", "label": "Evidence marker tents", "carryMax": 20, "deployable": true },
-    { "id": "evidenceBags", "label": "Evidence bags", "carryMax": 20, "deployable": false },
-    { "id": "fingerprintKit", "label": "Fingerprint kit", "carryMax": 1, "deployable": false },
-    { "id": "camera", "label": "Evidence camera", "carryMax": 1, "deployable": false }
+    { "id": "cones", "label": "Traffic cones", "carryMax": 4, "deployable": true, "weightKg": 2.5, "size": 1 },
+    { "id": "flares", "label": "Road flares", "carryMax": 6, "deployable": true, "weightKg": 0.2, "size": 0 },
+    { "id": "firstAid", "label": "First aid kit", "carryMax": 1, "deployable": false, "weightKg": 1.5, "size": 1 },
+    { "id": "aed", "label": "Defibrillator (AED)", "carryMax": 1, "deployable": false, "weightKg": 2.5, "size": 2 },
+    { "id": "spikeStrip", "label": "Spike strip", "carryMax": 1, "deployable": true, "weightKg": 9, "size": 4 },
+    { "id": "evidenceKit", "label": "Evidence kit", "carryMax": 1, "deployable": false, "weightKg": 3, "size": 2 },
+    { "id": "fireExtinguisher", "label": "Fire extinguisher", "carryMax": 1, "deployable": false, "weightKg": 4.5, "size": 2 },
+    { "id": "trafficVest", "label": "Traffic vest", "carryMax": 1, "deployable": false, "weightKg": 0.3, "size": 0 },
+    { "id": "ram", "label": "Door ram", "carryMax": 1, "deployable": false, "weightKg": 16, "size": 4 },
+    { "id": "sceneTape", "label": "Scene tape roll", "carryMax": 1, "deployable": false, "weightKg": 1, "size": 1 },
+    { "id": "evidenceMarkers", "label": "Evidence marker tents", "carryMax": 20, "deployable": true, "weightKg": 0.05, "size": 0 },
+    { "id": "evidenceBags", "label": "Evidence bags", "carryMax": 20, "deployable": false, "weightKg": 0.02, "size": 0 },
+    { "id": "fingerprintKit", "label": "Fingerprint kit", "carryMax": 1, "deployable": false, "weightKg": 1, "size": 1 },
+    { "id": "camera", "label": "Evidence camera", "carryMax": 1, "deployable": false, "weightKg": 1, "size": 1 },
+    { "id": "naloxone", "label": "Naloxone nasal spray", "carryMax": 3, "deployable": false, "weightKg": 0.05, "size": 0 },
+    { "id": "tourniquet", "label": "Tourniquet", "carryMax": 2, "deployable": false, "weightKg": 0.1, "size": 0 },
+    { "id": "halligan", "label": "Halligan bar", "carryMax": 1, "deployable": false, "weightKg": 5, "size": 2 },
+    { "id": "k9Treats", "label": "K9 reward treats", "carryMax": 5, "deployable": false, "weightKg": 0.1, "size": 0 },
+    { "id": "drone", "label": "Camera drone", "carryMax": 1, "deployable": true, "weightKg": 3, "size": 3 }
   ]
 }

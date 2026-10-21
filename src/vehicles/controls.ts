@@ -4,6 +4,8 @@ export interface DriverInput {
   brake: number;
   steer: number;
   handbrake: boolean;
+  /** Aircraft climb (+) / descend (-), -1..1; absent = 0. */
+  lift?: number;
 }
 
 /** What the vehicle applies: `throttle` drives along the selected direction (backwards when `reverse`). */
@@ -13,6 +15,8 @@ export interface DriverControls {
   steer: number;
   handbrake: boolean;
   reverse: boolean;
+  /** Aircraft climb (+) / descend (-), -1..1; absent = 0. */
+  lift?: number;
 }
 
 /** Below this horizontal ground speed (m/s) the car counts as stopped for selecting reverse. */
@@ -39,6 +43,8 @@ export function mapDriverInput(
   const brake = clamp01(input.brake);
   out.steer = input.steer > 1 ? 1 : input.steer < -1 ? -1 : input.steer || 0;
   out.handbrake = input.handbrake;
+  const lift = input.lift ?? 0;
+  out.lift = lift > 1 ? 1 : lift < -1 ? -1 : lift || 0;
   let reverse = reversing;
   if (reverse && accelerate > 0 && forwardSpeed > -STOPPED_SPEED) reverse = false;
   else if (!reverse && brake > 0 && accelerate === 0 && groundSpeed < STOPPED_SPEED) reverse = true;

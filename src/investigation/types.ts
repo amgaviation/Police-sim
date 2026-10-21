@@ -101,6 +101,11 @@ export interface InvestigationPorts {
    * none. Without it the tools panel cannot offer to secure evidence in a trunk.
    */
   trunkLocker?(): string;
+  /**
+   * Optional (Phase 7): consumes one carried K9 treat; true when one was used. Called once when a K9 sweep starts;
+   * a rewarded dog alerts more reliably (`K9_TREAT_BONUS`).
+   */
+  k9Treat?(): boolean;
 }
 
 export interface PlaceItemSpec {

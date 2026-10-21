@@ -15,6 +15,7 @@ import {
   brush,
   canvassResult,
   canvassText,
+  K9_TREAT_BONUS,
   k9Sweep,
   lawfulPresence,
   lift,
@@ -568,11 +569,12 @@ export class InvestigationSystem {
       if (it.state !== 'inPlace' || !it.concealed || it.buildingId !== building) continue;
       targets.push({ kind: 'item', ref: it.id, room: layout !== null ? it.room : -1, x: it.x, z: it.z, scent: scentOf(it.item) });
     }
-    const alerts = k9Sweep(order, targets, (i) => unitHash(this.seed, HASH_K9, callId * 64 + i));
+    const rewarded = this.ports.k9Treat?.() === true;
+    const alerts = k9Sweep(order, targets, (i) => unitHash(this.seed, HASH_K9, callId * 64 + i), rewarded ? K9_TREAT_BONUS : 0);
     this.k9 = { callId, startedSim: this.lastSim, alerts, fired: 0, order };
     this.k9Building = building;
     this.k9Path = this.routeFor(this.k9, call, layout, o);
-    file.k9.push({ sim: this.lastSim, text: 'K9 unit arrived and started a sweep.' });
+    file.k9.push({ sim: this.lastSim, text: rewarded ? 'K9 unit arrived and started a sweep. (rewarded)' : 'K9 unit arrived and started a sweep.' });
     this.dogGait = 0;
     this.placeDog(0, true);
     this.dogBuf.count = 2;

@@ -5,6 +5,8 @@ import { newConductSave } from '../conduct/save';
 import { emptyContactSave } from '../contact/save';
 import { emptyCourtSave } from '../court/save';
 import { defaultForceSave } from '../force/save';
+import { migratedFleetSave } from '../fleet/save';
+import { defaultGearSave } from '../gear';
 import { emptyIncidentsSave } from '../incidents/save';
 import { emptyPursuitSave } from '../pursuit/save';
 import { emptyResourceSave } from '../resources/save';
@@ -22,6 +24,7 @@ import { emptyRecordsSave } from '../records/db';
 import { emptySceneSave } from '../scene/save';
 import { migratedStationSave } from '../station/stationState';
 import { defaultTacticalSave } from '../tactical/save';
+import { characterFromLegacy } from '../uniform';
 import {
   CURRENT_SAVE_VERSION,
   isSaveGame,
@@ -32,6 +35,7 @@ import {
   isSaveGameV5,
   isSaveGameV6,
   isSaveGameV7,
+  isSaveGameV8,
   type SaveEnvelope,
   type SaveGame,
   type SaveGameV2,
@@ -41,6 +45,7 @@ import {
   type SaveGameV6,
   type SaveGameV7,
   type SaveGameV8,
+  type SaveGameV9,
 } from './schema';
 
 /** Transforms a payload from version N (the table key) to version N + 1. */
@@ -197,6 +202,25 @@ export function migrateV7ToV8(data: unknown): unknown {
   return v8;
 }
 
+/**
+ * v8 -> v9: a Phase 6 shift gets its officer profile, loadout and fleet. Everything is kept; the character is the legacy
+ * name and badge in the default uniform, the gear the default patrol loadout and the fleet binds each saved vehicle to
+ * the first unit of its model on the seed's own 'fleet' stream. Saved vehicles without wear start with full oil and new tyres.
+ */
+export function migrateV8ToV9(data: unknown): unknown {
+  if (!isSaveGameV8(data)) return data;
+  const v9: SaveGameV9 = {
+    ...data,
+    character: { version: 1, profile: characterFromLegacy(data.officer.name, data.officer.badge) },
+    gear: defaultGearSave(),
+    fleet: migratedFleetSave(
+      createRng(data.seed).stream('fleet').state(),
+      data.vehicles.map((v) => v.modelId),
+    ),
+  };
+  return v9;
+}
+
 /** Forward migrations keyed by the version they migrate FROM. */
 export const migrations: MigrationTable = {
   1: migrateV1ToV2,
@@ -206,6 +230,7 @@ export const migrations: MigrationTable = {
   5: migrateV5ToV6,
   6: migrateV6ToV7,
   7: migrateV7ToV8,
+  8: migrateV8ToV9,
 };
 
 export const MIGRATION_FAILURES = {

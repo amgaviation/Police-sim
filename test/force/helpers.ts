@@ -5,6 +5,7 @@ import { createRng, type Rng, type RngState } from '../../src/core/rng';
 import { ForceSystem } from '../../src/force/forceSystem';
 import type { FellowOfficer, ForceDeps, ForceOfficer, Resistance } from '../../src/force/types';
 import '../../src/force/events';
+import '../../src/npc/events';
 import type { ActorInfo } from '../../src/npc/types';
 import { ACTOR_STATE } from '../../src/npc/types';
 import type { Population } from '../../src/people/population';
@@ -68,13 +69,16 @@ export class Rig {
   k9 = false;
   temp = 15;
   elevated = false;
+  /** Holster retention level answered by `holsterLevel()` (Phase 7). */
+  level = 1;
   /** When true `incapacitate` / `wound` / `taserCycle` set the actor's resistance to compliant (an effect). */
   effectsCalm = true;
   readonly sys: ForceSystem;
   readonly rng: Rng;
   t = 0;
 
-  constructor(rng: Rng = createRng(1).stream('force')) {
+  /** `holster` false leaves the optional `holsterLevel` dependency out (absent = level 1). */
+  constructor(rng: Rng = createRng(1).stream('force'), holster = true) {
     this.rng = rng;
     const people = {
       identity: (id: number) => {
@@ -129,6 +133,7 @@ export class Rig {
       temperatureC: () => this.temp,
       elevatedAt: () => this.elevated,
       fellows: () => this.fellowList,
+      ...(holster ? { holsterLevel: () => this.level } : {}),
     };
     this.sys = new ForceSystem(deps);
     this.bus.on('force:applied', (e) => void this.applied.push(e));
@@ -161,9 +166,16 @@ export class Rig {
     this.run(Math.ceil(seconds / DT), officer);
   }
 
+  /** A fight started by actor `actorId` (the npc system's `npc:attack`). */
+  attack(actorId: number, kind: 'fight' | 'fire' | 'brandish' = 'fight'): void {
+    this.bus.emit('npc:attack', { actorId, personId: actorId * 10, callId: 5, kind });
+  }
+
   select(tool: 'none' | 'hands' | 'ocSpray' | 'baton' | 'taser' | 'lessLethal' | 'firearm' | 'k9'): void {
     this.sys.request({ kind: 'selectTool', tool });
     this.run(1);
+    // Phase 7: drawing the sidearm takes drawS seconds (level 1: 0.25 s) before it can fire.
+    if (tool === 'firearm') this.runFor(0.3);
   }
 
   apply(dirX = 0, dirZ = -1, officer: ForceOfficer = OFFICER): void {

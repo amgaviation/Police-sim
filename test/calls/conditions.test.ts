@@ -87,9 +87,9 @@ describe('outcomeFor and objectivesFor', () => {
     expect(base[0]?.done).toBe(false);
     const shown = objectivesFor(domestic, flags('role:caller', 'role:victim', 'injury:victim', 'contacted:caller', 'custody:suspect'));
     expect(shown.map((o) => o.text)).toEqual([
-      'Contact the reporting party', 'Locate and separate the parties', 'Get a statement from the victim', 'Victim injured: request EMS',
+      'Contact the reporting party', 'Locate and separate the parties', 'Get a statement from the victim', 'Victim injured: request EMS', 'Control the bleeding',
     ]);
-    expect(shown.map((o) => o.done)).toEqual([true, true, false, false]);
+    expect(shown.map((o) => o.done)).toEqual([true, true, false, false, false]);
   });
 });
 

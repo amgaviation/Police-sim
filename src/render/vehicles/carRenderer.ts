@@ -5,13 +5,13 @@ import { MAX_ENTITIES, Transform } from '../../ecs/components';
 import type { GameWorld } from '../../ecs/world';
 import { hasPoliceLights, PoliceLights } from '../../police/components';
 import { LIGHTBAR_SEGMENTS, lightbarColors, REDUCED_FLASH, SEGMENT_COLOR } from '../../police/lightbar';
-import { FAULT, LIGHT, VehicleLook } from '../../vehicles/components';
+import { FAULT, LIGHT, TRIM, VehicleLook } from '../../vehicles/components';
 import type { WheelPose } from '../../vehicles/drivableVehicle';
-import { VEHICLE_MODELS, type VehicleModel } from '../../vehicles/model';
+import { VEHICLE_MODELS, wheelLayout, type VehicleModel } from '../../vehicles/model';
 import { interpolateTransform } from '../meshSync';
 import { spotlightMount, spotlightPose, type LocalPoint, type SpotlightPose } from '../police/spotlight';
 import { disposeObject } from '../renderer';
-import { buildCarParts, LENS_KINDS, wheelLocalPositions, type CarPart } from './carParts';
+import { buildCarParts, hiddenBarLens, LENS_KINDS, twoWheelPositions, wheelLocalPositions, type CarPart } from './carParts';
 import { damageTransform, type DamageTransform } from './damageVisual';
 
 /** Per-wheel poses from physics (`DrivableVehicle` satisfies it). */
@@ -21,7 +21,7 @@ export interface WheelSource {
 }
 
 export interface CarRendererOptions {
-  /** Instances per model (default 192); further cars of that model are not drawn. */
+  /** Instances per model (default 192); further cars of that model are not drawn. Fleet police models (`listOrder` >= 2) hold at most 16. */
   maxPerModel?: number;
   /** Whether car bodies and wheels cast/receive shadows. Default false. */
   shadows?: boolean;
@@ -33,6 +33,16 @@ const LENS_HEAD_LEFT = LENS_KINDS.indexOf('headLeft');
 const LENS_HEAD_RIGHT = LENS_KINDS.indexOf('headRight');
 const LENS_TAIL_LEFT = LENS_KINDS.indexOf('tailLeft');
 const LENS_TAIL_RIGHT = LENS_KINDS.indexOf('tailRight');
+
+/** Instances of one fleet police model (`listOrder` >= 2). */
+const FLEET_CAPACITY = 16;
+/** Rotor part instances (helicopter blades, drone discs) across all vehicles. */
+const ROTOR_CAPACITY = 64;
+/** Rotor spin at full `VehicleLook.rotor` (rad/s), and the longest frame step it integrates (s). */
+const ROTOR_RATE = 40;
+const MAX_FRAME_DT = 0.1;
+/** Rotor floats per entry: x, y, z, sx, sy, sz. */
+const ROTOR_STRIDE = 6;
 
 const HAZARD_HZ = 1.5;
 /** Unlit light-bar lenses (and the whole bar when off), as in Phase 1. */
@@ -76,6 +86,13 @@ const scratchQuat = new THREE.Quaternion();
 const scratchColor = new THREE.Color();
 /** Rotations of the car being drawn and of one wheel: 3x3 column-major, columns = local axes in world space. */
 const carBasis = new Float64Array(9);
+/** `carBasis` rolled about the ground contact when the vehicle leans. */
+const leanBasis = new Float64Array(9);
+const leanScratch = new Float64Array(9);
+const leanShift = new Float64Array(3);
+const leanQuat = new THREE.Quaternion();
+/** World position of the vehicle-frame origin of the car being drawn (lean moves it). */
+const origin = new Float64Array(3);
 const wheelRot = new Float64Array(9);
 const scratchDamage: DamageTransform = { scaleX: 1, scaleZ: 1, offsetX: 0, offsetZ: 0, tint: 0 };
 const scratchWheel: WheelPose = { x: 0, y: 0, z: 0, steer: 0, spin: 0, radius: 0, inContact: false };
@@ -92,8 +109,18 @@ interface ModelSlot {
   readonly model: VehicleModel;
   readonly body: THREE.InstancedMesh;
   readonly glass: THREE.InstancedMesh;
-  /** Push bumper and spotlight housing; null for models without patrol trim. */
+  /** Push bumper (drawn with `TRIM.pushBar`), spotlight housing (`TRIM.spotlight`) and other dark parts; null when the model has none. */
+  readonly trimBar: THREE.InstancedMesh | null;
+  readonly trimSpot: THREE.InstancedMesh | null;
   readonly trim: THREE.InstancedMesh | null;
+  /** Instance capacity of this model's meshes. */
+  readonly capacity: number;
+  /** 'four' | 'two' | 'none' as 4 / 2 / 0. */
+  readonly wheelN: number;
+  /** ROTOR_STRIDE floats per rotor part (drawn by the shared rotor mesh). */
+  readonly rotors: Float32Array;
+  /** The 8 hidden-bar lens entries (LENS_STRIDE floats each); empty without a light bar. */
+  readonly hidden: Float32Array;
   /** Spotlight lamp position in the vehicle frame. */
   readonly spotMount: LocalPoint;
   /** LENS_STRIDE floats per lens part. */
@@ -104,6 +131,9 @@ interface ModelSlot {
   readonly headX: number;
   readonly headY: number;
   count: number;
+  countBar: number;
+  countSpot: number;
+  countTrim: number;
 }
 
 function mergedBoxes(parts: readonly CarPart[]): THREE.BufferGeometry {
@@ -179,8 +209,26 @@ function wheelBasis(car: Float64Array, steer: number, spin: number, out: Float64
 }
 
 /**
+ * Rolls `car` by `-lean` about the vehicle's local +Z axis (so + lean puts the right side down) pivoting at the
+ * ground contact, local height `y0`: writes the rolled basis to `out` and the shift of the frame origin to
+ * `shift` (world metres). A local point p maps to `pos + shift + out x p`.
+ */
+function leanFrame(car: Float64Array, lean: number, y0: number, out: Float64Array, shift: Float64Array): void {
+  const c = Math.cos(lean);
+  const s = -Math.sin(lean);
+  for (let r = 0; r < 3; r++) {
+    const c0 = car[r] ?? 0;
+    const c1 = car[3 + r] ?? 0;
+    out[r] = c0 * c + c1 * s;
+    out[3 + r] = c1 * c - c0 * s;
+    out[6 + r] = car[6 + r] ?? 0;
+    shift[r] = c0 * (y0 * s) + c1 * (y0 * (1 - c));
+  }
+}
+
+/**
  * Writes instance `index` of `array`: rotation `rot` scaled by (sx, sy, sz), placed at the vehicle-frame
- * point (lx, ly, lz) of the current car (`scratchPos` + `place` x l; `place` defaults to `rot`).
+ * point (lx, ly, lz) of the current car (`origin` + `place` x l; `place` defaults to `rot`).
  */
 function putInstance(
   array: THREE.TypedArray,
@@ -207,9 +255,9 @@ function putInstance(
   array[o + 9] = (rot[7] ?? 0) * sz;
   array[o + 10] = (rot[8] ?? 0) * sz;
   array[o + 11] = 0;
-  array[o + 12] = scratchPos.x + (place[0] ?? 0) * lx + (place[3] ?? 0) * ly + (place[6] ?? 0) * lz;
-  array[o + 13] = scratchPos.y + (place[1] ?? 0) * lx + (place[4] ?? 0) * ly + (place[7] ?? 0) * lz;
-  array[o + 14] = scratchPos.z + (place[2] ?? 0) * lx + (place[5] ?? 0) * ly + (place[8] ?? 0) * lz;
+  array[o + 12] = (origin[0] ?? 0) + (place[0] ?? 0) * lx + (place[3] ?? 0) * ly + (place[6] ?? 0) * lz;
+  array[o + 13] = (origin[1] ?? 0) + (place[1] ?? 0) * lx + (place[4] ?? 0) * ly + (place[7] ?? 0) * lz;
+  array[o + 14] = (origin[2] ?? 0) + (place[2] ?? 0) * lx + (place[5] ?? 0) * ly + (place[8] ?? 0) * lz;
   array[o + 15] = 1;
 }
 
@@ -218,9 +266,34 @@ function frac(v: number): number {
 }
 
 /**
+ * The interpolated transform of vehicle `eid` as the renderer draws it: position and rotation of the vehicle
+ * frame (origin = body box centre) with the two-wheeler lean applied (a roll about the ground contact), so
+ * overlays such as the livery shell follow the body exactly. Allocation-free.
+ */
+export function vehicleRenderBasis(eid: EntityId, alpha: number, outPos: THREE.Vector3, outQuat: THREE.Quaternion): void {
+  interpolateTransform(eid, alpha, outPos, outQuat);
+  const lean = VehicleLook.lean[eid] ?? 0;
+  if (lean === 0) return;
+  const model = VEHICLE_MODELS[VehicleLook.model[eid] ?? 0];
+  if (!model) return;
+  const { height, groundClearance } = model.body;
+  setBasis(outQuat, leanScratch);
+  leanFrame(leanScratch, lean, -(height / 2 + groundClearance), leanBasis, leanShift);
+  outPos.x += leanShift[0] ?? 0;
+  outPos.y += leanShift[1] ?? 0;
+  outPos.z += leanShift[2] ?? 0;
+  // The rolled frame is the plain one turned by -lean about its own +Z.
+  leanQuat.set(0, 0, Math.sin(-lean / 2), Math.cos(-lean / 2));
+  outQuat.multiply(leanQuat);
+}
+
+/**
  * Instanced renderer for every `VehicleLook` entity: per model one body mesh (body colour with damage
- * tint), one glass mesh and, for patrol models, one trim mesh (push bumper, spotlight housing), plus
- * one shared wheel mesh and one shared lens mesh (lamps and light-bar segments). Two headlight spots
+ * tint), one glass mesh and, where the model has them, a push-bar, a spotlight-housing and an other-trim
+ * mesh (the first two per instance by `VehicleLook.trim`), plus one shared wheel mesh (four, two or no
+ * wheels per vehicle by `wheelLayout`), one shared lens mesh (lamps and light-bar segments, or the hidden
+ * bar lenses) and one shared rotor mesh (spinning helicopter blades and drone discs). Two-wheelers lean by
+ * `VehicleLook.lean`. Two headlight spots
  * and one police spotlight exist for the whole session so the shader light count never changes.
  */
 export class CarRenderer {
@@ -234,6 +307,7 @@ export class CarRenderer {
   private readonly maxPerModel: number;
   private readonly wheelMesh: THREE.InstancedMesh;
   private readonly lensMesh: THREE.InstancedMesh;
+  private readonly rotorMesh: THREE.InstancedMesh;
   private readonly spots: readonly [THREE.SpotLight, THREE.SpotLight];
   private readonly spotlight: THREE.SpotLight;
   private readonly sources = new Map<EntityId, WheelSource>();
@@ -241,6 +315,9 @@ export class CarRenderer {
   private readonly spin = new Float32Array(MAX_ENTITIES);
   private readonly lastX = new Float32Array(MAX_ENTITIES);
   private readonly lastZ = new Float32Array(MAX_ENTITIES);
+  /** Rotor angle per entity (presentation only; integrated from `VehicleLook.rotor`). */
+  private readonly rotorAngle = new Float32Array(MAX_ENTITIES);
+  private lastTime = Number.NaN;
   /** Linear body colour per entity, recomputed only when its look colour or damage tint changes. */
   private readonly colorHex = new Int32Array(MAX_ENTITIES).fill(-1);
   private readonly colorTint = new Float64Array(MAX_ENTITIES);
@@ -257,45 +334,69 @@ export class CarRenderer {
     const trimMaterial = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.85, metalness: 0.05 });
 
     let maxLenses = 0;
+    let totalCars = 0;
     this.slots = VEHICLE_MODELS.map((model) => {
       const parts = buildCarParts(model);
       const painted = parts.filter((p) => p.kind === 'body' || p.kind === 'cabin');
       const glass = parts.filter((p) => p.kind === 'glass');
+      const bar = parts.filter((p) => p.kind === 'pushBar');
+      const spot = parts.filter((p) => p.kind === 'spotHousing');
       const trim = parts.filter((p) => p.kind === 'trim');
+      const rotor = parts.filter((p) => p.kind === 'rotor');
       const lensParts = parts.filter((p) => LENS_KINDS.includes(p.kind));
       maxLenses = Math.max(maxLenses, lensParts.length);
+      const lensEntry = (p: CarPart, out: Float32Array, i: number): void => {
+        out.set([LENS_KINDS.indexOf(p.kind), p.x, p.y, p.z, p.sx, p.sy, p.sz, p.segment ?? -1], i * LENS_STRIDE);
+      };
       const lenses = new Float32Array(lensParts.length * LENS_STRIDE);
-      lensParts.forEach((p, i) => {
-        lenses.set([LENS_KINDS.indexOf(p.kind), p.x, p.y, p.z, p.sx, p.sy, p.sz, p.segment ?? -1], i * LENS_STRIDE);
-      });
+      lensParts.forEach((p, i) => lensEntry(p, lenses, i));
+      const hidden = new Float32Array(model.lightbar ? LIGHTBAR_SEGMENTS * LENS_STRIDE : 0);
+      if (model.lightbar) for (let s = 0; s < LIGHTBAR_SEGMENTS; s++) lensEntry(hiddenBarLens(model, s), hidden, s);
+      const rotors = new Float32Array(rotor.length * ROTOR_STRIDE);
+      rotor.forEach((p, i) => rotors.set([p.x, p.y, p.z, p.sx, p.sy, p.sz], i * ROTOR_STRIDE));
       const head = lensParts.find((p) => p.kind === 'headRight');
+      const layout = wheelLayout(model);
+      const wheels = new Float32Array(12);
+      if (layout === 'two') twoWheelPositions(model, wheels);
+      else if (layout === 'four') wheelLocalPositions(model, wheels);
+      const capacity = model.role === 'police' && model.listOrder >= 2 ? Math.min(FLEET_CAPACITY, this.maxPerModel) : this.maxPerModel;
+      totalCars += capacity;
+      const optional = (name: string, list: CarPart[], material: THREE.Material): THREE.InstancedMesh | null =>
+        list.length > 0 ? instanced(`${name}:${model.id}`, mergedBoxes(list), material, capacity, false) : null;
       const slot: ModelSlot = {
         model,
-        body: instanced(`car-body:${model.id}`, mergedBoxes(painted), bodyMaterial, this.maxPerModel, true),
-        glass: instanced(`car-glass:${model.id}`, mergedBoxes(glass), glassMaterial, this.maxPerModel, false),
-        trim:
-          trim.length > 0
-            ? instanced(`car-trim:${model.id}`, mergedBoxes(trim), trimMaterial, this.maxPerModel, false)
-            : null,
+        body: instanced(`car-body:${model.id}`, mergedBoxes(painted), bodyMaterial, capacity, true),
+        glass: instanced(`car-glass:${model.id}`, mergedBoxes(glass), glassMaterial, capacity, false),
+        trimBar: optional('car-trimbar', bar, trimMaterial),
+        trimSpot: optional('car-trimspot', spot, trimMaterial),
+        trim: optional('car-trim', trim, trimMaterial),
+        capacity,
+        wheelN: layout === 'four' ? 4 : layout === 'two' ? 2 : 0,
+        rotors,
+        hidden,
         spotMount: spotlightMount(model),
         lenses,
-        wheels: wheelLocalPositions(model, new Float32Array(12)),
+        wheels,
         headX: head?.x ?? 0,
         headY: head?.y ?? 0,
         count: 0,
+        countBar: 0,
+        countSpot: 0,
+        countTrim: 0,
       };
       this.group.add(slot.body, slot.glass);
-      if (slot.trim) this.group.add(slot.trim);
+      for (const m of [slot.trimBar, slot.trimSpot, slot.trim]) if (m) this.group.add(m);
       return slot;
     });
 
-    const totalCars = this.maxPerModel * Math.max(1, this.slots.length);
     const wheelGeometry = new THREE.CylinderGeometry(1, 1, 1, 12).rotateZ(Math.PI / 2);
     const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x1b1b1b, roughness: 0.9 });
     this.wheelMesh = instanced('car-wheels', wheelGeometry, wheelMaterial, totalCars * 4, false);
     const lensMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.lensMesh = instanced('car-lenses', new THREE.BoxGeometry(1, 1, 1), lensMaterial, totalCars * maxLenses, true);
-    this.group.add(this.wheelMesh, this.lensMesh);
+    const rotorMaterial = new THREE.MeshStandardMaterial({ color: 0x1c1c1c, roughness: 0.7, metalness: 0.1 });
+    this.rotorMesh = instanced('car-rotors', new THREE.BoxGeometry(1, 1, 1), rotorMaterial, ROTOR_CAPACITY, false);
+    this.group.add(this.wheelMesh, this.lensMesh, this.rotorMesh);
 
     const spot = (name: string): THREE.SpotLight => {
       const light = new THREE.SpotLight(0xfff2dc, 0, SPOT_DISTANCE, 0.5, 0.45, 2);
@@ -339,12 +440,14 @@ export class CarRenderer {
       slot.body.castShadow = enabled;
       slot.body.receiveShadow = enabled;
       slot.glass.castShadow = enabled;
-      if (slot.trim) {
-        slot.trim.castShadow = enabled;
-        slot.trim.receiveShadow = enabled;
+      for (const m of [slot.trimBar, slot.trimSpot, slot.trim]) {
+        if (!m) continue;
+        m.castShadow = enabled;
+        m.receiveShadow = enabled;
       }
     }
     this.wheelMesh.castShadow = enabled;
+    this.rotorMesh.castShadow = enabled;
   }
 
   /**
@@ -354,9 +457,15 @@ export class CarRenderer {
    */
   update(alpha: number, nightFactor: number, timeSec: number, reducedFlash: boolean): void {
     const slots = this.slots;
-    for (let m = 0; m < slots.length; m++) (slots[m] as ModelSlot).count = 0;
+    for (let m = 0; m < slots.length; m++) {
+      const slot = slots[m] as ModelSlot;
+      slot.count = slot.countBar = slot.countSpot = slot.countTrim = 0;
+    }
     let wheelCount = 0;
     let lensCount = 0;
+    let rotorCount = 0;
+    const frameDt = this.lastTime === this.lastTime ? Math.min(Math.max(timeSec - this.lastTime, 0), MAX_FRAME_DT) : 0;
+    this.lastTime = timeSec;
     let cars = 0;
     let target: ModelSlot | null = null;
     let targetFaults = 0;
@@ -376,9 +485,10 @@ export class CarRenderer {
     for (let e = 0; e < eids.length; e++) {
       const eid = eids[e] ?? 0;
       const slot = slots[VehicleLook.model[eid] ?? 0];
-      if (!slot || slot.count >= this.maxPerModel) continue;
+      if (!slot || slot.count >= slot.capacity) continue;
       const { body, tires } = slot.model;
       interpolateTransform(eid, alpha, scratchPos, scratchQuat);
+      const trimBits = VehicleLook.trim[eid] ?? 0;
 
       // Body and glass: the damage crumple is an axis-aligned scale + shift in the vehicle frame.
       const d = eid * 4;
@@ -392,13 +502,54 @@ export class CarRenderer {
         body.width,
       );
       setBasis(scratchQuat, carBasis);
+      // Two-wheelers lean: everything is rolled about the ground contact (lean 0 = the plain pose).
+      origin[0] = scratchPos.x;
+      origin[1] = scratchPos.y;
+      origin[2] = scratchPos.z;
+      let rot = carBasis;
+      const lean = VehicleLook.lean[eid] ?? 0;
+      if (lean !== 0) {
+        leanFrame(carBasis, lean, -(body.height / 2 + body.groundClearance), leanBasis, leanShift);
+        origin[0] += leanShift[0] ?? 0;
+        origin[1] += leanShift[1] ?? 0;
+        origin[2] += leanShift[2] ?? 0;
+        rot = leanBasis;
+      }
       const k = slot.count++;
-      putInstance(slot.body.instanceMatrix.array, k, carBasis, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
-      putInstance(slot.glass.instanceMatrix.array, k, carBasis, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      putInstance(slot.body.instanceMatrix.array, k, rot, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      putInstance(slot.glass.instanceMatrix.array, k, rot, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      if (slot.trimBar && (trimBits & TRIM.pushBar) !== 0) {
+        putInstance(slot.trimBar.instanceMatrix.array, slot.countBar++, rot, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      }
+      if (slot.trimSpot && (trimBits & TRIM.spotlight) !== 0) {
+        putInstance(slot.trimSpot.instanceMatrix.array, slot.countSpot++, rot, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+      }
       if (slot.trim) {
-        putInstance(slot.trim.instanceMatrix.array, k, carBasis, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
+        putInstance(slot.trim.instanceMatrix.array, slot.countTrim++, rot, dmg.offsetX, 0, dmg.offsetZ, dmg.scaleX, 1, dmg.scaleZ);
       }
       this.writeBodyColor(eid, dmg.tint, slot.body, k);
+
+      // Rotors: crossed blades / discs spin about their own vertical axis at the rotor speed.
+      const rotors = slot.rotors;
+      if (rotors.length > 0) {
+        const angle = ((this.rotorAngle[eid] ?? 0) + (VehicleLook.rotor[eid] ?? 0) * ROTOR_RATE * frameDt) % TWO_PI;
+        this.rotorAngle[eid] = angle;
+        wheelBasis(rot, angle, 0, wheelRot);
+        for (let i = 0; i < rotors.length && rotorCount < ROTOR_CAPACITY; i += ROTOR_STRIDE) {
+          putInstance(
+            this.rotorMesh.instanceMatrix.array,
+            rotorCount++,
+            wheelRot,
+            rotors[i] ?? 0,
+            rotors[i + 1] ?? 0,
+            rotors[i + 2] ?? 0,
+            rotors[i + 3] ?? 1,
+            rotors[i + 4] ?? 1,
+            rotors[i + 5] ?? 1,
+            rot,
+          );
+        }
+      }
 
       // Wheels: physics poses for drivable cars, otherwise spin from the distance rolled since last frame.
       const source = this.sources.get(eid);
@@ -414,10 +565,14 @@ export class CarRenderer {
       this.lastZ[eid] = scratchPos.z;
       let lastSteer = NaN;
       let lastSpin = NaN;
-      for (let w = 0; w < 4; w++) {
+      const wheelN = slot.wheelN;
+      for (let w = 0; w < wheelN; w++) {
         const pose = scratchWheel;
-        if (source && w < source.wheelCount) {
-          source.wheelPose(w, pose);
+        // Two-wheelers read the front (0) and rear (2) poses of the four-wheel source.
+        const si = wheelN === 2 ? w * 2 : w;
+        if (source && si < source.wheelCount) {
+          source.wheelPose(si, pose);
+          if (wheelN === 2) pose.x = 0;
         } else {
           pose.x = slot.wheels[w * 3] ?? 0;
           pose.y = slot.wheels[w * 3 + 1] ?? 0;
@@ -427,13 +582,13 @@ export class CarRenderer {
           pose.radius = tires.radius;
         }
         if (pose.steer !== lastSteer || pose.spin !== lastSpin) {
-          wheelBasis(carBasis, pose.steer, pose.spin, wheelRot);
+          wheelBasis(rot, pose.steer, pose.spin, wheelRot);
           lastSteer = pose.steer;
           lastSpin = pose.spin;
         }
         const r = pose.radius;
         const array = this.wheelMesh.instanceMatrix.array;
-        putInstance(array, wheelCount++, wheelRot, pose.x, pose.y, pose.z, tires.width, r, r, carBasis);
+        putInstance(array, wheelCount++, wheelRot, pose.x, pose.y, pose.z, tires.width, r, r, rot);
       }
 
       // Lenses follow the crumpled body.
@@ -446,24 +601,33 @@ export class CarRenderer {
         const phase = police ? (PoliceLights.phase[eid] ?? 0) : 0;
         lightbarColors(pattern, timeSec + phase, reducedFlash, barColors);
       }
-      const lenses = slot.lenses;
-      for (let i = 0; i < lenses.length; i += LENS_STRIDE) {
+      const hiddenBar = (trimBits & TRIM.hiddenBar) !== 0;
+      const noBar = (trimBits & TRIM.noBar) !== 0;
+      for (let i = 0; i < slot.lenses.length; i += LENS_STRIDE) {
+        const segment = slot.lenses[i + 7] ?? -1;
+        if (segment >= 0 && noBar) continue;
+        // A hidden bar swaps the roof lens for the matching grille / rear-window lens.
+        let lenses = slot.lenses;
+        let o = i;
+        if (segment >= 0 && hiddenBar) {
+          lenses = slot.hidden;
+          o = segment * LENS_STRIDE;
+        }
         putInstance(
           this.lensMesh.instanceMatrix.array,
           lensCount,
-          carBasis,
-          (lenses[i + 1] ?? 0) * dmg.scaleX + dmg.offsetX,
-          lenses[i + 2] ?? 0,
-          (lenses[i + 3] ?? 0) * dmg.scaleZ + dmg.offsetZ,
-          (lenses[i + 4] ?? 0) * dmg.scaleX,
-          lenses[i + 5] ?? 0,
-          (lenses[i + 6] ?? 0) * dmg.scaleZ,
+          rot,
+          (lenses[o + 1] ?? 0) * dmg.scaleX + dmg.offsetX,
+          lenses[o + 2] ?? 0,
+          (lenses[o + 3] ?? 0) * dmg.scaleZ + dmg.offsetZ,
+          (lenses[o + 4] ?? 0) * dmg.scaleX,
+          lenses[o + 5] ?? 0,
+          (lenses[o + 6] ?? 0) * dmg.scaleZ,
         );
-        const segment = lenses[i + 7] ?? -1;
         if (segment >= 0) {
           barLensColor(segment, barOn ? (barColors[segment] ?? 0) : SEGMENT_COLOR.off, barLevel, lensColors, lensCount * 3);
         } else {
-          lensColor(lenses[i] ?? 0, lights, faults, night, blink, lensColors, lensCount * 3);
+          lensColor(slot.lenses[i] ?? 0, lights, faults, night, blink, lensColors, lensCount * 3);
         }
         lensCount++;
       }
@@ -474,7 +638,7 @@ export class CarRenderer {
         spotPos.copy(scratchPos);
         spotQuat.copy(scratchQuat);
       }
-      if (eid === this.spotlightTarget && eid !== 0 && police && (PoliceLights.spot[eid] ?? 0) !== 0) {
+      if (eid === this.spotlightTarget && eid !== 0 && police && (trimBits & TRIM.spotlight) !== 0 && (PoliceLights.spot[eid] ?? 0) !== 0) {
         beamSlot = slot;
         beamPos.copy(scratchPos);
         beamQuat.copy(scratchQuat);
@@ -486,9 +650,12 @@ export class CarRenderer {
     for (let m = 0; m < slots.length; m++) {
       const slot = slots[m] as ModelSlot;
       drawCalls += this.finish(slot.body, slot.count, true) + this.finish(slot.glass, slot.count, false);
-      if (slot.trim) drawCalls += this.finish(slot.trim, slot.count, false);
+      if (slot.trimBar) drawCalls += this.finish(slot.trimBar, slot.countBar, false);
+      if (slot.trimSpot) drawCalls += this.finish(slot.trimSpot, slot.countSpot, false);
+      if (slot.trim) drawCalls += this.finish(slot.trim, slot.countTrim, false);
     }
     drawCalls += this.finish(this.wheelMesh, wheelCount, false) + this.finish(this.lensMesh, lensCount, true);
+    drawCalls += this.finish(this.rotorMesh, rotorCount, false);
     this.stats.cars = cars;
     this.stats.drawCalls = drawCalls;
     this.updateSpots(target, targetFaults, night);

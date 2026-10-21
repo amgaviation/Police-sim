@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "prices": { "fuelPerL": 2, "oilChange": 80, "tire": 180, "bodyPerZone": 2400, "enginePerHealth": 9000, "engineReplace": 14000 },
+  "classMultiplier": {
+    "patrol": 1, "supervisor": 1.1, "unmarked": 1, "traffic": 1.1, "k9": 1.2, "motor": 0.6, "bicycle": 0.05, "atv": 0.4,
+    "swat": 2.5, "armored": 4, "transport": 1.2, "command": 3, "lab": 1.5, "marine": 2, "air": 8, "drone": 0.3
+  },
+  "charges": { "pointsPer1000": 1, "wreckPoints": 10, "pursuitFactor": 0.25, "emergencyFactor": 0.5, "unreportedFactor": 2, "maxPointsPerIncident": 20 },
+  "wreck": { "zoneSum": 2.5, "engineFailed": true },
+  "incidentMergeS": 5,
+  "limits": { "incidents": 100, "reports": 50, "ledger": 200 }
+}

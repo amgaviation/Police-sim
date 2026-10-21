@@ -732,14 +732,20 @@ export class InteriorSystem implements InteriorQuery {
   private breach(buildingId: number, layout: InteriorLayout, d: InteriorDoor, s: DoorStateId, action: 'kick' | 'ram', officer: OfficerAt): void {
     if (s === DOOR_STATE.open || s === DOOR_STATE.broken || this.kickCooldown > 0) return;
     if (action === 'kick' && !officer.onFoot) return;
-    if (action === 'ram' && this.deps.kit().carried('ram') < 1) {
-      this.flash('No door ram');
+    const kit = this.deps.kit();
+    const hasRam = kit.carried('ram') >= 1, hasHalligan = kit.carried('halligan') >= 1;
+    if (action === 'ram' && !hasRam && !hasHalligan) {
+      this.flash('No forced-entry tool');
       return;
     }
     this.kickCooldown = KICK_COOLDOWN_S;
     let ok = false;
     if (d.strength < UNBREACHABLE) {
-      const p = action === 'kick' ? clamp(0.7 - 0.6 * d.strength, 0, 0.7) : clamp(1.1 - 0.8 * d.strength, 0, 0.95);
+      let p: number;
+      if (action === 'kick') p = clamp(0.7 - 0.6 * d.strength, 0, 0.7);
+      else if (hasRam && hasHalligan) p = clamp(1.25 - 0.8 * d.strength, 0, 0.98);
+      else if (hasRam) p = clamp(1.1 - 0.8 * d.strength, 0, 0.95);
+      else p = clamp(1.0 - 0.7 * d.strength, 0, 0.9);
       ok = this.deps.rng.chance(p);
     }
     this.emitDoor(buildingId, d, action, ok, 'officer');

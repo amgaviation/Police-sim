@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "classes": [
+    { "id": "classA", "label": "Class A (dress)", "top": "#1b2a44", "bottom": "#141c2b", "accent": "#c9a646", "sleeves": "long", "tie": true, "jacket": true, "hat": "peakedCap", "carrier": "internal", "belt": "dress" },
+    { "id": "classB", "label": "Class B (duty)", "top": "#24375a", "bottom": "#18202e", "accent": "#c9a646", "sleeves": "short", "tie": false, "jacket": false, "hat": "none", "carrier": "internal", "belt": "duty" },
+    { "id": "tactical", "label": "Tactical utility", "top": "#2a2f36", "bottom": "#2a2f36", "accent": "#9aa0a6", "sleeves": "long", "tie": false, "jacket": false, "hat": "ballCap", "carrier": "external", "belt": "duty" },
+    { "id": "bike", "label": "Bike patrol", "top": "#c8d43a", "bottom": "#1c1f24", "accent": "#1c1f24", "sleeves": "short", "tie": false, "jacket": false, "hat": "bikeHelmet", "carrier": "external", "belt": "duty", "shorts": true },
+    { "id": "motor", "label": "Motor", "top": "#24375a", "bottom": "#1c1f24", "accent": "#c9a646", "sleeves": "long", "tie": false, "jacket": true, "hat": "motorHelmet", "carrier": "internal", "belt": "duty", "tallBoots": true },
+    { "id": "swat", "label": "SWAT", "top": "#2e3527", "bottom": "#2e3527", "accent": "#7d8670", "sleeves": "long", "tie": false, "jacket": false, "hat": "tacticalHelmet", "carrier": "plateCarrier", "belt": "duty" },
+    { "id": "detective", "label": "Detective (plain clothes)", "top": "#6b6f78", "bottom": "#2b2d33", "accent": "#c9a646", "sleeves": "long", "tie": true, "jacket": true, "hat": "none", "carrier": "none", "belt": "plain", "badgeOnBelt": true }
+  ],
+  "ranks": [
+    { "id": "officer", "label": "Officer", "insignia": [] },
+    { "id": "corporal", "label": "Corporal", "insignia": ["chevron", "chevron"] },
+    { "id": "sergeant", "label": "Sergeant", "insignia": ["chevron", "chevron", "chevron"] },
+    { "id": "lieutenant", "label": "Lieutenant", "insignia": ["bar"] },
+    { "id": "captain", "label": "Captain", "insignia": ["bar", "bar"] },
+    { "id": "chief", "label": "Chief", "insignia": ["star", "star", "star"] }
+  ],
+  "skinTones": ["#f3d5bf", "#e8bf9f", "#d6a07c", "#c68e6b", "#a86d4c", "#8a5a3c", "#6e432a", "#4f2e1c", "#3a2014"],
+  "hairColors": ["#0f0d0b", "#2a1d14", "#4a3020", "#7a5230", "#b08a55", "#d9c08a", "#8a8a8a", "#d8d8d8", "#7a2e1e"],
+  "vehiclePolicy": { "motor": ["motor"], "bicycle": ["bike"], "swat": ["swat", "tactical"], "armored": ["swat", "tactical"] },
+  "department": {
+    "name": "City Police",
+    "initials": "CP",
+    "patch": { "shape": "shield", "base": "#1d3f8f", "border": "#c9a646", "accent": "#f2f2f2", "initials": "CP", "text": "CITY POLICE" },
+    "badge": { "shape": "star", "starPoints": 7, "metal": "#c9a646", "enamel": "#1d3f8f", "text": "CITY" }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "format": "patrol-livery",
+  "version": 1,
+  "id": "swatTactical",
+  "name": "SWAT tactical",
+  "author": "Default",
+  "base": {
+    "color": "#1c1f24",
+    "finish": "gloss"
+  },
+  "wrap": null,
+  "layers": [
+    {
+      "type": "text",
+      "face": "sides",
+      "text": "TACTICAL",
+      "u": 0.5,
+      "v": 0.35,
+      "size": 0.25,
+      "color": "#c9c9c9",
+      "outline": null,
+      "font": "sans",
+      "weight": "bold",
+      "italic": false,
+      "reflective": false
+    },
+    {
+      "type": "stripe",
+      "face": "sides",
+      "u0": 0.04,
+      "u1": 0.96,
+      "v": 0.7,
+      "height": 0.12,
+      "angleDeg": 0,
+      "color": "#c9c9c9",
+      "reflective": true
+    },
+    {
+      "type": "text",
+      "face": "roof",
+      "text": "{unit}",
+      "u": 0.5,
+      "v": 0.5,
+      "size": 0.7,
+      "color": "#c9c9c9",
+      "outline": null,
+      "font": "sans",
+      "weight": "bold",
+      "italic": false,
+      "reflective": false
+    }
+  ],
+  "lights": {
+    "style": "roof",
+    "pattern": "takedown",
+    "siren": "hilo"
+  },
+  "equipment": {
+    "pushBar": true,
+    "spotlight": true,
+    "partition": false
+  },
+  "loadout": null
+}

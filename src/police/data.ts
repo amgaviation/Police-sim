@@ -51,6 +51,10 @@ export interface TrunkItem {
   readonly carryMax: number;
   /** Can be placed in the world (Phase 3 hook; inventory only in Phase 2). */
   readonly deployable: boolean;
+  /** Mass of one item in kg (vehicle cargo weight). */
+  readonly weightKg: number;
+  /** Cargo slots one item takes (0: rides in a box). */
+  readonly size: number;
 }
 
 /** Items every `items.json` must define (the shipped loadout and UI rely on them). */
@@ -155,6 +159,8 @@ export function parseItems(json: unknown, source: string): TrunkItem[] {
       label: readString(o.label, source, `${path}.label`),
       carryMax: readInt(o.carryMax, source, `${path}.carryMax`, 1, 999),
       deployable: readBoolean(o.deployable, source, `${path}.deployable`),
+      weightKg: readNumber(o.weightKg, source, `${path}.weightKg`, 0, 1000),
+      size: readInt(o.size, source, `${path}.size`, 0, 999),
     };
   });
   checkUnique(

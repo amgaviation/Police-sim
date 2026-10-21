@@ -3,7 +3,9 @@ import { isCadSave, type CadSave } from '../cad/cadState';
 import { isCommandSave, type CommandSave } from '../command/save';
 import { isConductSave, type ConductSave } from '../conduct/save';
 import { isCourtSave, type CourtSave } from '../court/save';
+import { isFleetSave, type FleetSave } from '../fleet/save';
 import { isForceSave, type ForceSave } from '../force/save';
+import { isGearSave, type GearSave } from '../gear';
 import { isIncidentsSave, type IncidentsSave } from '../incidents/save';
 import { isPursuitSave, type PursuitSave } from '../pursuit/save';
 import { isResourceSave, type ResourceSave } from '../resources/save';
@@ -22,6 +24,7 @@ import type { NpcSave } from '../npc/types';
 import { isPeopleSave, type PeopleSave } from '../people';
 import { CAMERA_MODE } from '../player/cameraRig';
 import type { PlayerModeName } from '../player/events';
+import { isCharacterSave, type CharacterSave } from '../uniform';
 import { isEquipmentSave, type EquipmentSave } from '../police/equipment';
 import { isOfficerKitSave, type OfficerKitSave } from '../police/inventory';
 import { isRadioSave, type RadioSave } from '../radio/save';
@@ -35,7 +38,7 @@ import type { SerializedVehicle } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS } from '../vehicles/model';
 
 /** Version written by `SaveManager.save`; bump when `SaveGame` changes shape. */
-export const CURRENT_SAVE_VERSION = 8;
+export const CURRENT_SAVE_VERSION = 9;
 
 /** Persisted wrapper around a save payload. `slot` doubles as the store key. */
 export interface SaveEnvelope<T> {
@@ -203,8 +206,21 @@ export interface SaveGameV8 extends SaveGameV7 {
   command: CommandSave;
 }
 
+/**
+ * v9 (Phase 7): fleet, uniforms and customization. `character` holds the officer's profile (name, badge, pronouns, body,
+ * uniform), `gear` the officer loadout and presets and `fleet` the units (livery, loadout, spawned vehicle index, stored
+ * condition), the custom liveries, damage incidents and reports, the maintenance ledger and the shift-end inspection.
+ * `vehicles[i]` may carry `wear`, `craft` and `pushBar` (see `SerializedVehicle`), `player.mode` may be 'remote' (`vehicle`
+ * is then the drone's index) and `equipment[i]` may list `extraPrisoners`. `officer` stays equal to the profile's name and badge.
+ */
+export interface SaveGameV9 extends SaveGameV8 {
+  character: CharacterSave;
+  gear: GearSave;
+  fleet: FleetSave;
+}
+
 /** Alias for the current save shape. */
-export type SaveGame = SaveGameV8;
+export type SaveGame = SaveGameV9;
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null;
@@ -271,6 +287,16 @@ function isVehicleSimState(x: unknown): boolean {
   );
 }
 
+/** The optional Phase 7 `wear` block: oil, per-wheel tread (0..1) and odometer. */
+function isVehicleWear(x: unknown): boolean {
+  return x === undefined || (isRecord(x) && inRange(x['oilL'], 0, Number.MAX_VALUE) && isTuple(x['tread'], 4, isUnit) && inRange(x['odometerM'], 0, Number.MAX_VALUE));
+}
+
+/** The optional Phase 7 `craft` block (boats, helicopters, drones): integrator state. */
+function isVehicleCraft(x: unknown): boolean {
+  return x === undefined || (isRecord(x) && hasFiniteFields(x, ['speed', 'vy', 'yaw', 'pitch', 'roll']));
+}
+
 /** Structural check of one saved vehicle, including that its model still ships. */
 export function isSavedVehicle(x: unknown): x is SavedVehicle {
   if (!isRecord(x)) return false;
@@ -286,6 +312,9 @@ export function isSavedVehicle(x: unknown): x is SavedVehicle {
     isTuple(x['tireFlat'], 4, isBoolean) &&
     VEHICLE_FLAG_KEYS.every((key) => isBoolean(x[key])) &&
     (x['sim'] === undefined || isVehicleSimState(x['sim'])) &&
+    isVehicleWear(x['wear']) &&
+    isVehicleCraft(x['craft']) &&
+    (x['pushBar'] === undefined || isBoolean(x['pushBar'])) &&
     Number.isInteger(x['color']) &&
     inRange(x['color'], 0, 0xffffff) &&
     isRngState(x['rng'])
@@ -345,7 +374,9 @@ export function isSaveGameV3(x: unknown): x is SaveGameV3 {
   if (!isRecord(player) || !Number.isInteger(player['vehicle'])) return false;
   const index = player['vehicle'] as number;
   const playerValid =
-    player['mode'] === 'onFoot' ? index === -1 : player['mode'] === 'driving' && index >= 0 && index < vehicles.length;
+    player['mode'] === 'onFoot'
+      ? index === -1
+      : (player['mode'] === 'driving' || player['mode'] === 'remote') && index >= 0 && index < vehicles.length;
   const last = player['lastVehicle'];
   const lastValid = last === undefined || (Number.isInteger(last) && (last as number) >= -1 && (last as number) < vehicles.length);
   const violations = v3['violations'];
@@ -432,8 +463,15 @@ export function isSaveGameV8(x: unknown): x is SaveGameV8 {
   );
 }
 
+/** Structural check for the v9 payload: v8 plus the Phase 7 blocks (each module's own validator). */
+export function isSaveGameV9(x: unknown): x is SaveGameV9 {
+  if (!isSaveGameV8(x)) return false;
+  const v9 = x as unknown as Record<string, unknown>;
+  return isCharacterSave(v9['character']) && isGearSave(v9['gear']) && isFleetSave(v9['fleet']);
+}
+
 /** Validator for the current save shape; used after migration, on load and before every write. */
-export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV8;
+export const isSaveGame: (x: unknown) => x is SaveGame = isSaveGameV9;
 
 /** Checks the envelope metadata only; `data` is left for migration/validation. */
 export function isSaveEnvelope(x: unknown): x is SaveEnvelope<unknown> {

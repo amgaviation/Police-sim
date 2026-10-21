@@ -118,7 +118,9 @@ export type ConductRequest =
       readonly credibilityDelta: number; readonly impeached: boolean; readonly missed: boolean;
     }
   | { readonly kind: 'trust'; readonly district: string; readonly delta: number; readonly reason: string }
-  | { readonly kind: 'reinstate' };
+  | { readonly kind: 'reinstate' }
+  /** Phase 7: career points from outside the conduct rules (e.g. fleet damage charges); `key` names the source. */
+  | { readonly kind: 'points'; readonly delta: number; readonly reason: string; readonly key: string };
 
 /** Structural port to the incident recorder (design 4.4); the integrator wires `IncidentSystem`. */
 export interface IncidentSource {

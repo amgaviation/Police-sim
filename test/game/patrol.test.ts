@@ -385,7 +385,7 @@ describe('patrol presentation', () => {
     const ctx = feed.radioContext('plain', target);
     expect(ctx).toMatchObject({ mode: 'plain', hasTarget: true, onCall: true, fallbackPlate: target.plate, fallbackVehicleId: 1234 });
     const cockpit = feed.cockpitState();
-    expect(cockpit).toMatchObject({ sirenOn: true, lightsOn: true, radioChannel: 'DISP', racked: [true, true], caged: false });
+    expect(cockpit).toMatchObject({ sirenOn: true, lightsOn: true, radioChannel: 'DISP', racked: [true, true, false], caged: false });
     feed.dispose();
   });
 

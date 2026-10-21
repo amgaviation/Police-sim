@@ -17,7 +17,9 @@ import { VEHICLE_MODELS, vehicleModel } from '../../src/vehicles/model';
 import { cockpitState } from './helpers';
 
 const EPS = 1e-9;
-const PATROL = VEHICLE_MODELS.filter((m) => m.equipment !== null);
+/** The cockpit is drawn for the car styles; the fleet's other equipped models (bikes, boat, helicopter, vans, trucks) have none. */
+const CAR_STYLES: readonly string[] = ['sedan', 'hatchback', 'suv'];
+const PATROL = VEHICLE_MODELS.filter((m) => m.equipment?.partition === true && m.equipment.rack && m.equipment.mdt && CAR_STYLES.includes(m.body.style));
 
 /** World-axis bounds of a rotated part (YXZ Euler). */
 function bounds(p: CockpitPart): THREE.Box3 {
@@ -39,7 +41,7 @@ function normal(p: CockpitPart): THREE.Vector3 {
 
 describe('cockpitParts', () => {
   it('ships patrol models with equipment', () => {
-    expect(PATROL.map((m) => m.id).sort()).toEqual(['patrol_sedan', 'patrol_suv']);
+    expect(PATROL.map((m) => m.id).sort()).toEqual(['k9_suv', 'patrol_sedan', 'patrol_suv', 'traffic_sedan', 'unmarked_sedan']);
   });
 
   it('keeps every part inside the body box', () => {

@@ -1,13 +1,28 @@
+import { officerPreset, validateOfficerLoadout, type OfficerLoadout } from '../gear';
 import { DEFAULT_RULESET_ID, getRuleset, rulesetIds } from '../legal';
 import type { SaveSummary } from '../save/saveManager';
+import { defaultCharacter, pronounLabel, type CharacterProfile } from '../uniform';
+import { CharacterCreator } from './character/characterCreator';
 import { clearChildren, el, type Menu, type UIRoot } from './ui';
+
+/** The officer made in the character creator: the profile and the gear loadout (Phase 7 §12.5). */
+export interface MainMenuCharacter {
+  profile: CharacterProfile;
+  gear: OfficerLoadout;
+}
+
+/** 'Officer: Jordan Doe (they/them)'. */
+export function officerSummary(c: Readonly<MainMenuCharacter>): string {
+  return `Officer: ${c.profile.firstName} ${c.profile.lastName} (${pronounLabel(c.profile.pronouns)})`;
+}
 
 export interface MainMenuCallbacks {
   /**
    * Numeric seeds are passed as numbers; anything else as the raw text. `jurisdiction` is the ruleset id picked in the
-   * Jurisdiction select (default `generic`); callers written for the old one-argument shape keep working.
+   * Jurisdiction select (default `generic`); callers written for the old one-argument shape keep working. `character` is
+   * the officer made with "Create officer..." (absent: the game starts with the default officer).
    */
-  newGame(seed: number | string, jurisdiction?: string): void;
+  newGame(seed: number | string, jurisdiction?: string, character?: MainMenuCharacter): void;
   continueGame(slot: string): void;
   openSettings(): void;
   deleteSave?(slot: string): void;
@@ -62,7 +77,9 @@ export class MainMenu implements Menu {
   private readonly jurisdictionHint: HTMLElement | null;
   private readonly saveList: HTMLElement | null;
   private readonly status: HTMLElement | null;
+  private readonly officerLine: HTMLElement | null;
   private seedText = '';
+  private chosen: MainMenuCharacter | null = null;
   private jurisdictionId = DEFAULT_JURISDICTION;
   private statusText = '';
   private saves: readonly SaveSummary[] = [];
@@ -76,6 +93,7 @@ export class MainMenu implements Menu {
       this.jurisdictionHint = null;
       this.saveList = null;
       this.status = null;
+      this.officerLine = null;
       this.element = HEADLESS_ELEMENT;
       return;
     }
@@ -98,6 +116,8 @@ export class MainMenu implements Menu {
     this.jurisdictionHint = el('p', { class: 'hint' }, getRuleset(this.jurisdictionId).description);
     this.saveList = el('div', { class: 'save-list' });
     this.status = el('p', { class: 'hint', role: 'status' });
+    this.officerLine = el('p', { class: 'hint officer-line', role: 'status' });
+    this.officerLine.hidden = true;
     this.element = el(
       'div',
       { class: 'panel main-menu', role: 'dialog', 'aria-label': 'Main menu' },
@@ -110,7 +130,9 @@ export class MainMenu implements Menu {
         el('label', { for: 'seed' }, 'Seed'),
         this.seedInput,
         el('button', { class: 'primary', autofocus: true, onclick: () => this.startNewGame() }, 'New game'),
+        el('button', { onclick: () => this.createOfficer() }, 'Create officer\u2026'),
       ),
+      this.officerLine,
       el('p', { class: 'hint' }, 'Same seed, same shift. Leave blank for a random one.'),
       el('div', { class: 'row' }, el('label', { for: 'jurisdiction' }, 'Jurisdiction'), this.jurisdictionSelect),
       this.jurisdictionHint,
@@ -171,9 +193,47 @@ export class MainMenu implements Menu {
     return event.key === 'Escape';
   }
 
-  /** Starts a new game with the seed box and the picked jurisdiction. */
+  /** The officer made in the creator, null until one was made. */
+  get character(): MainMenuCharacter | null {
+    return this.chosen;
+  }
+
+  /** Sets (or clears) the officer the next new game starts with, and updates the summary line under the buttons. */
+  setCharacter(character: MainMenuCharacter | null): void {
+    this.chosen = character;
+    const line = this.officerLine;
+    if (!line) return;
+    line.textContent = character ? officerSummary(character) : '';
+    line.hidden = character === null;
+  }
+
+  /**
+   * Opens the character creator (mode `newGame`) on the menu stack; Done stores the officer. Returns the creator, or
+   * null headless (no `document` or no `UIRoot`).
+   */
+  createOfficer(): CharacterCreator | null {
+    const ui = this.ui;
+    if (ui === null || typeof document === 'undefined') return null;
+    const start = this.chosen ?? { profile: defaultCharacter(), gear: officerPreset('patrolStandard') };
+    const creator = new CharacterCreator(
+      ui,
+      {
+        mode: 'newGame',
+        validateGear: (l, extra) => validateOfficerLoadout(l, { extraVestSlots: extra }),
+        done: (profile, gear) => this.setCharacter({ profile, gear }),
+        cancel: () => undefined,
+      },
+      start,
+    );
+    creator.open();
+    return creator;
+  }
+
+  /** Starts a new game with the seed box, the picked jurisdiction and (when one was made) the created officer. */
   startNewGame(): void {
-    this.callbacks.newGame(parseSeedInput(this.seed), this.jurisdictionId);
+    const seed = parseSeedInput(this.seed);
+    if (this.chosen) this.callbacks.newGame(seed, this.jurisdictionId, this.chosen);
+    else this.callbacks.newGame(seed, this.jurisdictionId);
   }
 
   private setJurisdiction(id: string): void {

@@ -48,6 +48,13 @@ export interface ConductTrustEvent {
   reason: string;
 }
 
+/** Career points moved by a `points` request (Phase 7). */
+export interface ConductPointsEvent {
+  delta: number;
+  total: number;
+  reason: string;
+}
+
 declare module '../core/event-map' {
   interface EventMap {
     'conduct:ia': ConductIaEvent;
@@ -57,5 +64,6 @@ declare module '../core/event-map' {
     'conduct:discipline': ConductDisciplineEvent;
     'conduct:status': ConductStatusEvent;
     'conduct:trust': ConductTrustEvent;
+    'conduct:points': ConductPointsEvent;
   }
 }

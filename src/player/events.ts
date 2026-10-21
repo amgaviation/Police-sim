@@ -1,8 +1,11 @@
 /** Player and camera mode names as carried by events (and the v3 save). */
-export type PlayerModeName = 'onFoot' | 'driving';
+export type PlayerModeName = 'onFoot' | 'driving' | 'remote';
 export type CameraModeName = 'onFoot' | 'chase' | 'hood' | 'cockpit';
 
-/** The officer got into (`vehicle` = its eid) or out of (`vehicle` = 0) a vehicle. */
+/**
+ * The officer got into (`vehicle` = its eid) or out of (`vehicle` = 0) a vehicle, or started / ended piloting a drone
+ * from where they stand (`mode` 'remote', `vehicle` = the drone's eid).
+ */
 export interface PlayerModeEvent {
   mode: PlayerModeName;
   vehicle: number;

@@ -112,7 +112,7 @@ export interface Harness {
   step(game?: number): void;
 }
 
-const TOPICS = ['conduct:ia', 'conduct:iaResolved', 'conduct:report', 'conduct:commendation', 'conduct:discipline', 'conduct:status', 'conduct:trust'] as const;
+const TOPICS = ['conduct:ia', 'conduct:iaResolved', 'conduct:report', 'conduct:commendation', 'conduct:discipline', 'conduct:status', 'conduct:trust', 'conduct:points'] as const;
 
 export function harness(opts: { seed?: number; configs?: Partial<ConductConfigs>; district?: string } = {}): Harness {
   const bus = new EventBus<EventMap>();

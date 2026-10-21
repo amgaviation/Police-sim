@@ -21,6 +21,8 @@ export interface ForceSave {
   /** Tools whose armory item was held at the last step. */
   armorySeen: string[];
   queue: ForceRequest[];
+  /** Phase 7: seconds left of the sidearm draw (absent in older saves = 0). */
+  drawingS?: number;
 }
 
 /** A fresh shift: no tool, full ammo from the configuration, nothing attached or rolled. */
@@ -98,6 +100,7 @@ export function isForceSave(x: unknown): x is ForceSave {
     isIntList(x.violent) && isIntList(x.rolled) &&
     (e === null || (isRecord(e) && int(e.personId) && int(e.actorId) && int(e.callId) && typeof e.officer === 'string' && num(e.nextSim) && int(e.strikes) && int(e.firstSeq))) &&
     Array.isArray(x.armorySeen) && x.armorySeen.every((s) => typeof s === 'string') &&
-    Array.isArray(x.queue) && x.queue.every(isRequest)
+    Array.isArray(x.queue) && x.queue.every(isRequest) &&
+    (x.drawingS === undefined || (num(x.drawingS) && x.drawingS >= 0))
   );
 }

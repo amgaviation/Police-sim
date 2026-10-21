@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "lines": {
+    "officerDown": "{callsign}, shots fired! {name} is hit, {they} {are} down at {near}!",
+    "vestStopped": "{callsign}, I'm hit but the vest stopped it. I'm OK.",
+    "damageReport": "{name} ({pronouns}) reported that {they} {were} operating unit {unit} when it sustained {zone} damage at {speed} km/h{context}. {They} {have} filed this report.",
+    "reportHeader": "Reporting officer: {name} ({pronouns}), badge {badge}.",
+    "inspection": "{name} inspected unit {unit}: {result}."
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "format": "patrol-livery",
+  "version": 1,
+  "id": "atvPatrol",
+  "name": "ATV patrol",
+  "author": "Default",
+  "base": {
+    "color": "#2b2f36",
+    "finish": "gloss"
+  },
+  "wrap": null,
+  "layers": [
+    {
+      "type": "text",
+      "face": "sides",
+      "text": "POLICE",
+      "u": 0.5,
+      "v": 0.4,
+      "size": 0.4,
+      "color": "#f2f2f2",
+      "outline": null,
+      "font": "sans",
+      "weight": "bold",
+      "italic": false,
+      "reflective": true
+    },
+    {
+      "type": "stripe",
+      "face": "sides",
+      "u0": 0.04,
+      "u1": 0.96,
+      "v": 0.78,
+      "height": 0.1,
+      "angleDeg": 0,
+      "color": "#c9c9c9",
+      "reflective": true
+    },
+    {
+      "type": "text",
+      "face": "roof",
+      "text": "{unit}",
+      "u": 0.5,
+      "v": 0.5,
+      "size": 0.7,
+      "color": "#f2f2f2",
+      "outline": null,
+      "font": "sans",
+      "weight": "bold",
+      "italic": false,
+      "reflective": false
+    }
+  ],
+  "lights": {
+    "style": "roof",
+    "pattern": "alternate",
+    "siren": "wail"
+  },
+  "equipment": {
+    "pushBar": false,
+    "spotlight": false,
+    "partition": false
+  },
+  "loadout": null
+}

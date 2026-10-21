@@ -1,0 +1,30 @@
+{
+  "format": "patrol-livery",
+  "version": 1,
+  "id": "unmarkedGrey",
+  "name": "Unmarked grey",
+  "author": "Default",
+  "base": {
+    "color": "#3a3f47",
+    "finish": "gloss"
+  },
+  "wrap": {
+    "kind": "solid",
+    "colors": [
+      "#3a3f47"
+    ],
+    "split": 0.5
+  },
+  "layers": [],
+  "lights": {
+    "style": "hidden",
+    "pattern": "quad",
+    "siren": "yelp"
+  },
+  "equipment": {
+    "pushBar": false,
+    "spotlight": true,
+    "partition": true
+  },
+  "loadout": null
+}

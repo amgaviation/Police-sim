@@ -217,6 +217,14 @@ export class ConductState {
       case 'reinstate':
         this.setStatus('active', -1, '');
         break;
+      case 'points': {
+        const delta = Math.round(r.delta);
+        if (delta !== 0) {
+          this.points += delta;
+          this.deps.bus.emit('conduct:points', { delta, total: this.points, reason: r.reason });
+        }
+        break;
+      }
     }
     this.rev++;
   }

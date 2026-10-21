@@ -24,6 +24,8 @@ import { coverSpot, poorCoverSpot, positionQuality, yawToward, type SpotOut } fr
 import type { BackupOfficerSave, BackupPostSave, BackupSave, PendingCalloutSave } from './save';
 import { SwatTeam } from './swat';
 import type {
+  BackupAppearance,
+  BackupAppearanceRole,
   BackupConfig,
   BackupPort,
   BackupRequest,
@@ -78,6 +80,11 @@ export interface BackupDeps {
   swatOnScene(callId: number): number;
   /** The SWAT negotiation trust 0..1 of the call (command), 0 when none. */
   negotiationTrust(callId: number): number;
+  /**
+   * Phase 7: the outfit of an AI officer (`outfit` index into the renderer's table plus shirt / trousers colours);
+   * null or absent keeps the Phase 6 colours and outfit 0. Asked once per callsign (cached).
+   */
+  appearanceOf?(callsign: string, role: BackupAppearanceRole): BackupAppearance | null;
   readonly config?: BackupConfig;
   readonly swatConfig?: SwatConfig;
 }
@@ -250,7 +257,7 @@ function dist2(ax: number, az: number, bx: number, bz: number): number {
 /** The backup officers and the SWAT team of a session. */
 export class BackupSystem implements BackupPort {
   /** Officers (slots 0 .. maxOfficers - 1) followed by the SWAT operators. */
-  readonly view: HumanoidSource & { count: number };
+  readonly view: HumanoidSource & { count: number; outfit: Uint16Array };
   /** Bumped when the set of officers, a state or a post changes (UI refresh key). */
   revision = 0;
 
@@ -264,6 +271,8 @@ export class BackupSystem implements BackupPort {
   private requests: BackupRequest[] = [];
   private team: SwatTeam | null = null;
   private readonly unsub: (() => void)[] = [];
+  /** Appearance per callsign, asked once (null = the dependency has none). */
+  private readonly looks = new Map<string, BackupAppearance | null>();
 
   // scratch
   private readonly ids: number[] = [];
@@ -304,7 +313,10 @@ export class BackupSystem implements BackupPort {
     this.cfg = deps.config ?? BACKUP_CONFIG;
     this.swatCfg = deps.swatConfig ?? SWAT_CONFIG;
     const cap = this.cfg.spawn.maxOfficers + this.swatCfg.operators;
-    this.view = createHumanoidSource(cap);
+    // The outfit array is allocated here when the render module's source does not carry one, so wave order never matters.
+    const source = createHumanoidSource(cap);
+    const given: Partial<HumanoidSource> = source;
+    this.view = { ...source, outfit: given.outfit ?? new Uint16Array(cap) };
     this.slots = new Array<Officer | null>(this.cfg.spawn.maxOfficers).fill(null);
     for (let i = 0; i < cap; i++) this.view.flags[i] = FIGURE_FLAG.hidden;
     this.view.count = 0;
@@ -1034,6 +1046,15 @@ export class BackupSystem implements BackupPort {
     if (d - step <= this.cfg.move.arriveM * 0.5 && s !== 'chase' && s !== 'detain' && s !== 'returning') o.yaw = o.goalYaw;
   }
 
+  /** The officer's outfit from `deps.appearanceOf` (sergeants wear the supervisor uniform), cached per callsign. */
+  private lookOf(o: Officer): BackupAppearance | null {
+    const cached = this.looks.get(o.callsign);
+    if (cached !== undefined) return cached;
+    const look = this.deps.appearanceOf?.(o.callsign, o.rank === 'sergeant' ? 'supervisor' : 'patrol') ?? null;
+    this.looks.set(o.callsign, look);
+    return look;
+  }
+
   private writeOfficerView(o: Officer): void {
     const slot = o.slot;
     if (slot < 0) return;
@@ -1059,8 +1080,10 @@ export class BackupSystem implements BackupPort {
     v.held[slot] = held;
     v.skin[slot] = profile?.skin ?? 0xc68e6b;
     v.hair[slot] = profile?.hair ?? 0x2a1d14;
-    v.top[slot] = TACTICS.partner.colors.top;
-    v.bottom[slot] = TACTICS.partner.colors.bottom;
+    const look = this.lookOf(o);
+    v.outfit[slot] = look?.outfit ?? 0;
+    v.top[slot] = look?.top ?? TACTICS.partner.colors.top;
+    v.bottom[slot] = look?.bottom ?? TACTICS.partner.colors.bottom;
     v.height[slot] = profile?.height ?? 1.76;
     v.build[slot] = 1;
     v.anchor[slot] = 0;
@@ -1340,6 +1363,7 @@ export class BackupSystem implements BackupPort {
       doorRequest: (b, door, action) => d.doorRequest(b, door, action),
       building: (id) => d.building(id),
       negotiationTrust: (callId) => d.negotiationTrust(callId),
+      ...(d.appearanceOf ? { appearanceOf: (callsign: string, role: BackupAppearanceRole) => d.appearanceOf?.(callsign, role) ?? null } : {}),
       config: this.swatCfg,
     };
   }
@@ -1492,6 +1516,7 @@ export class BackupSystem implements BackupPort {
     this.pending.length = 0;
     this.requests = [];
     this.team = null;
+    this.looks.clear();
     this.view.count = 0;
   }
 }

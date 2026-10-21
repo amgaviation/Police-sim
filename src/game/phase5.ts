@@ -56,6 +56,8 @@ export interface Phase5Host {
   districtAt(x: number, z: number): string;
   dashProbe(out: DashProbe): void;
   pursuitProbe(out: PursuitProbe): boolean;
+  /** Phase 7: holster retention level 1..3 of the officer's gear (absent = 1). */
+  holsterLevel?(): number;
 }
 
 /** The HUD legal line: the latest force verdict, flash or court message, kept for `LEGAL_LINE_S` sim seconds. */
@@ -117,6 +119,7 @@ export class Phase5 {
       temperatureC: () => host.env.weather.temperatureC,
       elevatedAt: (building, x, z) => this.elevatedAt(building, x, z),
       fellows: () => this.fellows(),
+      ...(host.holsterLevel ? { holsterLevel: () => host.holsterLevel?.() ?? 1 } : {}),
     });
     this.incidents = new IncidentSystem({
       bus,

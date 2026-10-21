@@ -183,28 +183,68 @@ describe('StationState panels', () => {
   it('locker rows reflect the loadout and select requests', () => {
     const { s } = make();
     let m = s.lockerModel();
-    expect(m.options.map((o) => o.label)).toEqual(['Uniform', 'Vest', 'Bodycam mount', 'Radio audio', 'Flashlight', 'Done']);
-    expect(m.options.map((o) => o.detail)).toEqual(['Long sleeve', 'On', 'Chest', 'Speaker', 'Handheld', undefined]);
-    s.lockerSelect(0);
-    s.lockerSelect(1);
-    s.lockerSelect(2);
-    s.lockerSelect(3);
-    s.lockerSelect(4);
-    s.lockerSelect(99);
+    expect(m.options.map((o) => o.label)).toEqual(['Uniform', 'Vest', 'Bodycam mount', 'Radio audio', 'Flashlight', 'Done', 'Uniform & gear…']);
+    expect(m.options.map((o) => o.detail)).toEqual(['Long sleeve', 'On', 'Chest', 'Speaker', 'Handheld', undefined, 'Customize']);
+    expect([0, 1, 2, 3, 4, 99].map((i) => s.lockerSelect(i))).toEqual([null, null, null, null, null, null]);
     // Nothing changes until the step.
     expect(s.lockerModel()).toEqual(m);
     s.step(0.016, T);
     m = s.lockerModel();
-    expect(m.options.map((o) => o.detail)).toEqual(['Short sleeve', 'Off', 'Shoulder', 'Earpiece', 'Mounted', undefined]);
-    s.lockerSelect(5);
+    expect(m.options.map((o) => o.detail)).toEqual(['Short sleeve', 'Off', 'Shoulder', 'Earpiece', 'Mounted', undefined, 'Customize']);
+    expect(s.lockerSelect(5)).toBeNull();
     s.step(0.016, T);
     expect(s.flow.step).toBe('briefing');
+  });
+
+  it('the locker customize row returns \'customize\' and queues nothing', () => {
+    const { s } = make();
+    expect(s.lockerSelect(6)).toBe('customize');
+    expect(s.serialize().queue).toEqual([]);
+    expect(s.lockerSelect(7)).toBeNull();
+    expect(s.serialize().queue).toEqual([]);
+  });
+
+  it('the armory loadout row signs out the loadout items that are not out, in item order', () => {
+    const { s } = make();
+    const rows = ARMORY_ITEMS.length;
+    // Without loadout items the row is disabled and selecting it does nothing.
+    let m = s.armoryModel();
+    expect(m.options).toHaveLength(rows + 2);
+    expect(m.options[rows + 1]).toMatchObject({ label: 'Sign out my loadout', detail: 'Nothing to sign out', enabled: false });
+    s.armorySelect(rows + 1);
+    expect(s.serialize().queue).toEqual([]);
+
+    const mine = ['rifle', 'taser', 'sidearm', 'ghost'];
+    m = s.armoryModel(mine);
+    expect(m.options[rows + 1]).toMatchObject({ label: 'Sign out my loadout', detail: '3 items' });
+    expect(m.options[rows + 1]?.enabled).not.toBe(false);
+    expect(m.options[rows]).toMatchObject({ label: 'Done', enabled: false });
+    s.armorySelect(rows + 1, mine);
+    expect(s.serialize().queue).toEqual([
+      { kind: 'armory', item: 'sidearm', action: 'out' },
+      { kind: 'armory', item: 'taser', action: 'out' },
+      { kind: 'armory', item: 'rifle', action: 'out' },
+    ]);
+    s.step(0.016, T);
+    expect(s.armory.out()).toEqual(['sidearm', 'taser', 'rifle']);
+
+    // Everything is out now: nothing left to sign out.
+    m = s.armoryModel(mine);
+    expect(m.options[rows + 1]).toMatchObject({ detail: 'Nothing to sign out', enabled: false });
+    s.armorySelect(rows + 1, mine);
+    expect(s.serialize().queue).toEqual([]);
+    // Only the missing ones are signed out.
+    s.request({ kind: 'armory', item: 'taser', action: 'in' });
+    s.step(0.016, T);
+    expect(s.armoryModel(mine).options[rows + 1]?.detail).toBe('1 items');
+    s.armorySelect(rows + 1, mine);
+    expect(s.serialize().queue).toEqual([{ kind: 'armory', item: 'taser', action: 'out' }]);
   });
 
   it('armory rows show serials, sign out / return, and Done needs the sidearm', () => {
     const { s } = make();
     let m = s.armoryModel();
-    expect(m.options).toHaveLength(ARMORY_ITEMS.length + 1);
+    expect(m.options).toHaveLength(ARMORY_ITEMS.length + 2);
     expect(m.options[0]?.label).toBe(`Sign out Duty pistol (${s.armory.serial('sidearm')})`);
     expect(m.options[0]?.label).toMatch(/^Sign out Duty pistol \(SA-\d{4}\)$/);
     expect(m.options[ARMORY_ITEMS.length]).toMatchObject({ label: 'Done', enabled: false });

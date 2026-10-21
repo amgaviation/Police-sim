@@ -18,5 +18,6 @@
   "fuel": { "capacityL": 80, "idleLph": 1, "litersPerKWh": 0.31 },
   "damage": { "minImpactSpeed": 2, "zoneStrength": 16, "engineFrontShare": 0.65, "tireBurstSpeed": 9.5, "stallBelow": 0.3, "stallChancePerS": 0.04, "failBelow": 0.05 },
   "equipment": { "pushBumper": { "frontStrength": 1.8, "engineShare": 0.5 }, "partition": true, "rack": true, "spotlight": true, "mdt": true, "trunk": "patrol" },
+  "cargo": { "kg": 220, "slots": 34, "rackSlots": 2 },
   "traffic": { "maxAccel": 2, "comfortDecel": 2.5, "maxDecel": 7 }
 }

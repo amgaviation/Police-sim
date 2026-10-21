@@ -85,7 +85,7 @@ export function houseLayout(id = 900_000, cx = 100.013, cz = -200.027): Interior
   return l;
 }
 
-export function makeHarness(): Harness {
+export function makeHarness(extraPorts: Partial<InvestigationPorts> = {}): Harness {
   const layout = houseLayout();
   const neighbor = houseLayout(900_001, 140.013, -200.027);
   const bus = new EventBus<EventMap>();
@@ -163,6 +163,7 @@ export function makeHarness(): Harness {
     addressOf: (b) => (b >= 0 ? `${String(1400 + (b % 100))} Oak St` : ''),
     describeDirection: () => 'north on Elm St',
     describePerson: () => 'a tall man in a red jacket',
+    ...extraPorts,
   };
   const off: InvestigationOfficer = {
     x: 0, y: 0, z: 0, yaw: 0, pitch: 0, building: -1, room: -1, onFoot: true, badge: BADGE, flashlight: false,

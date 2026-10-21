@@ -16,5 +16,6 @@
   "lessLethal": { "sigmaDeg": 1.5, "torsoHalfWidthM": 0.25, "minSafeM": 6, "closeInjury": [0.4, 0.7] },
   "modifiers": { "officerMoving": 0.6, "targetRunning": 0.8, "crouched": -0.2 },
   "risk": { "elevatedRoomKinds": ["deck", "stairwell", "loading", "dock"], "pregnancyRate": 0.04, "pregnancyAge": [18, 42] },
+  "retention": { "drawS": [0.25, 0.45, 0.7], "grabChance": [0.15, 0.06, 0.02], "grabRangeM": 1.5 },
   "fellow": { "chance": 0.25, "delayS": [2, 4], "repeatS": 2, "maxStrikes": 3, "injury": 0.05, "interveneRadiusM": 15 }
 }

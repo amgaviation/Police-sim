@@ -10,7 +10,7 @@ import '../../src/backup/events';
 import '../../src/force/events';
 import '../../src/npc/events';
 import '../../src/scene/events';
-import type { BackupConfig, SwatConfig } from '../../src/backup/types';
+import type { BackupAppearance, BackupAppearanceRole, BackupConfig, SwatConfig } from '../../src/backup/types';
 import { mistakeChances, officerProfile, rollMistakes } from '../../src/units/personality';
 import { RosterState } from '../../src/units/roster';
 import { ROSTER_CONFIG } from '../../src/units/data';
@@ -171,6 +171,8 @@ export interface RigOptions {
   seed?: number;
   config?: BackupConfig;
   swatConfig?: SwatConfig;
+  /** Phase 7: the `appearanceOf` dependency. */
+  appearanceOf?: (callsign: string, role: BackupAppearanceRole) => BackupAppearance | null;
 }
 
 export interface Recorded {
@@ -236,6 +238,7 @@ export class Rig {
       negotiationTrust: () => this.trust,
       ...(opts.config ? { config: opts.config } : {}),
       ...(opts.swatConfig ? { swatConfig: opts.swatConfig } : {}),
+      ...(opts.appearanceOf ? { appearanceOf: opts.appearanceOf } : {}),
     };
     this.sys = new BackupSystem(deps);
     for (const topic of TOPICS) this.bus.on(topic, (payload: unknown) => this.events.push({ topic, payload, sim: this.sim }));

@@ -22,6 +22,7 @@ export {
   isEquipmentSave,
   isSirenTone,
   type EquipmentSave,
+  type PatrolEquipmentOptions,
   type RackItem,
   type SirenTone,
   type SpotlightSpec,

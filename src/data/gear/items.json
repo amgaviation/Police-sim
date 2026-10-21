@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "items": [
+    { "id": "radio", "label": "Portable radio", "slot": "belt", "size": 1, "weightKg": 0.5 },
+    { "id": "dutyBelt", "label": "Duty belt", "slot": "body", "size": 1, "weightKg": 0.7, "provides": { "belt": 12 } },
+    { "id": "holster", "label": "Duty holster", "slot": "belt", "size": 1, "weightKg": 0.4, "retention": true },
+    { "id": "sidearm", "label": "Duty pistol", "slot": "belt", "size": 0, "weightKg": 1.0, "armory": "sidearm", "requires": ["holster"] },
+    { "id": "taser", "label": "TASER", "slot": "belt", "size": 1, "weightKg": 0.45, "armory": "taser" },
+    { "id": "ocSpray", "label": "OC spray", "slot": "belt", "size": 1, "weightKg": 0.2, "armory": "ocSpray" },
+    { "id": "baton", "label": "Expandable baton", "slot": "belt", "size": 1, "weightKg": 0.6, "armory": "baton" },
+    { "id": "cuffs", "label": "Handcuffs", "slot": "belt", "size": 1, "weightKg": 0.3, "max": 2 },
+    { "id": "flashlight", "label": "Flashlight", "slot": "belt", "size": 1, "weightKg": 0.3 },
+    { "id": "medKit", "label": "Med kit", "slot": "belt", "size": 1, "weightKg": 0.6, "kit": { "firstAid": 1 } },
+    { "id": "naloxone", "label": "Naloxone nasal spray", "slot": "belt", "size": 1, "weightKg": 0.05, "max": 3, "kit": { "naloxone": 1 } },
+    { "id": "tourniquet", "label": "Tourniquet", "slot": "belt", "size": 1, "weightKg": 0.1, "max": 2, "kit": { "tourniquet": 1 } },
+    { "id": "ballisticVest", "label": "Ballistic vest", "slot": "body", "size": 1, "weightKg": 3.2, "provides": { "vest": 4 }, "protection": 0.85 },
+    { "id": "rifle", "label": "Patrol rifle", "slot": "longGun", "size": 1, "weightKg": 3.4, "armory": "rifle" },
+    { "id": "shotgun", "label": "Patrol shotgun", "slot": "longGun", "size": 1, "weightKg": 3.6 },
+    { "id": "lessLethalLauncher", "label": "Less-lethal launcher", "slot": "longGun", "size": 1, "weightKg": 3.2, "armory": "beanbag" },
+    { "id": "ram", "label": "Door ram", "slot": "carry", "size": 2, "weightKg": 16, "kit": { "ram": 1 } },
+    { "id": "halligan", "label": "Halligan bar", "slot": "carry", "size": 1, "weightKg": 5, "kit": { "halligan": 1 } },
+    { "id": "k9Treats", "label": "K9 reward treats", "slot": "vest", "size": 1, "weightKg": 0.1, "max": 5, "kit": { "k9Treats": 1 } },
+    { "id": "evidenceKit", "label": "Evidence kit", "slot": "vest", "size": 2, "weightKg": 1.5,
+      "kit": { "evidenceKit": 1, "evidenceBags": 8, "evidenceMarkers": 8, "camera": 1, "fingerprintKit": 1, "sceneTape": 1 } }
+  ]
+}

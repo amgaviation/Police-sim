@@ -1,0 +1,77 @@
+{
+  "format": "patrol-livery",
+  "version": 1,
+  "id": "commandPost",
+  "name": "Command post",
+  "author": "Default",
+  "base": {
+    "color": "#f2f2f2",
+    "finish": "gloss"
+  },
+  "wrap": null,
+  "layers": [
+    {
+      "type": "text",
+      "face": "sides",
+      "text": "MOBILE COMMAND",
+      "u": 0.5,
+      "v": 0.35,
+      "size": 0.25,
+      "color": "#1d3f8f",
+      "outline": null,
+      "font": "sans",
+      "weight": "bold",
+      "italic": false,
+      "reflective": false
+    },
+    {
+      "type": "checker",
+      "face": "sides",
+      "v": 0.62,
+      "height": 0.1,
+      "cells": 30,
+      "rows": 2,
+      "colors": [
+        "#1d3f8f",
+        "#f2f2f2"
+      ],
+      "reflective": true
+    },
+    {
+      "type": "stripe",
+      "face": "sides",
+      "u0": 0.04,
+      "u1": 0.96,
+      "v": 0.82,
+      "height": 0.08,
+      "angleDeg": 0,
+      "color": "#1d3f8f",
+      "reflective": true
+    },
+    {
+      "type": "text",
+      "face": "roof",
+      "text": "{unit}",
+      "u": 0.5,
+      "v": 0.5,
+      "size": 0.7,
+      "color": "#111111",
+      "outline": null,
+      "font": "sans",
+      "weight": "bold",
+      "italic": false,
+      "reflective": false
+    }
+  ],
+  "lights": {
+    "style": "roof",
+    "pattern": "cruise",
+    "siren": "hilo"
+  },
+  "equipment": {
+    "pushBar": false,
+    "spotlight": true,
+    "partition": false
+  },
+  "loadout": null
+}

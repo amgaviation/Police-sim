@@ -4,6 +4,8 @@ import { EventBus } from '../../src/core/events';
 import {
   ENTER_DISTANCE,
   EXIT_MAX_SPEED,
+  EXIT_OFFSET,
+  PLAYER_MODE_NAMES,
   PLAYER_MODE,
   PlayerModeMachine,
   driverDoorPoint,
@@ -37,6 +39,16 @@ describe('door and exit points', () => {
     const p = driverDoorPoint(car({ x: 10, z: 20, yaw: Math.PI / 2 }), pt());
     expect(p.x).toBeCloseTo(10 - 0.8);
     expect(p.z).toBeCloseTo(20 + 1.4);
+  });
+
+  it('exitPoint takes an optional offset (boats use a wider gap)', () => {
+    expect(EXIT_OFFSET).toBe(1);
+    expect(exitPoint(car(), -1, pt(), 2)).toMatchObject({ x: expect.closeTo(-3) as number, z: expect.closeTo(-0.8) as number });
+    expect(exitPoint(car(), 1, pt(), 0).x).toBeCloseTo(1);
+    expect(exitPoint(car(), 1, pt(), EXIT_OFFSET)).toEqual(exitPoint(car(), 1, pt()));
+    const r = exitPoint(car({ yaw: Math.PI, halfWidth: 1.3 }), -1, pt(), 2);
+    expect(r.x).toBeCloseTo(3.3);
+    expect(r.z).toBeCloseTo(0.8);
   });
 
   it('places exits 1 m clear on either side', () => {
@@ -109,5 +121,74 @@ describe('PlayerModeMachine', () => {
     const quiet = new PlayerModeMachine();
     expect(quiet.enter(2)).toBe(true);
     expect(quiet.enter(0)).toBe(false);
+  });
+});
+
+describe('PlayerModeMachine remote mode', () => {
+  function spy() {
+    const bus = new EventBus<EventMap>();
+    const events: EventMap['player:mode'][] = [];
+    bus.on('player:mode', (e) => events.push(e));
+    return { bus, events };
+  }
+
+  it('has the remote mode id and name', () => {
+    expect(PLAYER_MODE).toEqual({ onFoot: 0, driving: 1, remote: 2 });
+    expect(PLAYER_MODE_NAMES).toEqual(['onFoot', 'driving', 'remote']);
+  });
+
+  it('goes remote only from on foot and back with endRemote, emitting player:mode', () => {
+    const { bus, events } = spy();
+    const m = new PlayerModeMachine(bus);
+    expect(m.endRemote()).toBe(false);
+    expect(m.remote(0)).toBe(false);
+    expect(m.remote(-3)).toBe(false);
+    expect(m.remote(9)).toBe(true);
+    expect(m.mode).toBe(PLAYER_MODE.remote);
+    expect(m.vehicle).toBe(9);
+    expect(m.remote(10)).toBe(false);
+    expect(m.vehicle).toBe(9);
+    expect(m.endRemote()).toBe(true);
+    expect(m.mode).toBe(PLAYER_MODE.onFoot);
+    expect(m.vehicle).toBe(0);
+    expect(m.endRemote()).toBe(false);
+    expect(events).toEqual([
+      { mode: 'remote', vehicle: 9 },
+      { mode: 'onFoot', vehicle: 0 },
+    ]);
+  });
+
+  it('refuses enter and exit while remote, and remote while driving', () => {
+    const { bus, events } = spy();
+    const m = new PlayerModeMachine(bus);
+    m.remote(4);
+    expect(m.enter(5)).toBe(false);
+    expect(m.exit(0)).toBe(false);
+    expect(m.mode).toBe(PLAYER_MODE.remote);
+    expect(m.vehicle).toBe(4);
+    m.endRemote();
+    m.enter(5);
+    expect(m.remote(6)).toBe(false);
+    expect(m.endRemote()).toBe(false);
+    expect(m.mode).toBe(PLAYER_MODE.driving);
+    expect(events.map((e) => e.mode)).toEqual(['remote', 'onFoot', 'driving']);
+  });
+
+  it('reset accepts remote (keeping the vehicle), emits only on change, and clears the vehicle on foot', () => {
+    const { bus, events } = spy();
+    const m = new PlayerModeMachine(bus);
+    m.reset(PLAYER_MODE.remote, 12);
+    m.reset(PLAYER_MODE.remote, 12);
+    expect(m.mode).toBe(PLAYER_MODE.remote);
+    expect(m.vehicle).toBe(12);
+    m.reset(PLAYER_MODE.driving, 3);
+    expect(m.vehicle).toBe(3);
+    m.reset(PLAYER_MODE.onFoot, 3);
+    expect(m.vehicle).toBe(0);
+    expect(events).toEqual([
+      { mode: 'remote', vehicle: 12 },
+      { mode: 'driving', vehicle: 3 },
+      { mode: 'onFoot', vehicle: 0 },
+    ]);
   });
 });

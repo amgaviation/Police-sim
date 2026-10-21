@@ -142,12 +142,13 @@
       "variants": {"escalation": 0.3, "deescalation": 0.3, "false": 0.3, "duplicate": 2, "swatting": 0, "ambush": 0},
       "escalation": {"narratives": ["Caller now reports the drivers are arguing and one is shouting at the other."], "roleOverrides": {"driverB": {"profile": "suspectAgitated"}}},
       "deescalation": {"narratives": ["Caller advises the drivers have calmed down and are exchanging information."], "roleOverrides": {"driverB": {"profile": "driverCooperative"}}},
-      "actions": ["trafficControl", "requestEms", "requestTow", "requestFire", "photograph", "canvass", "writeReport"],
+      "actions": ["trafficControl", "firstAid", "tourniquet", "requestEms", "requestTow", "requestFire", "photograph", "canvass", "writeReport"],
       "objectives": [
         {"text": "Contact the drivers", "done": "contacted:driverA"},
         {"text": "Control traffic at the scene", "done": "trafficControl"},
         {"text": "Get a statement from the driver", "done": "statement:driverA"},
-        {"text": "Injuries reported: request EMS", "done": "service:ems", "show": "injury:driverB"}
+        {"text": "Injuries reported: request EMS", "done": "service:ems", "show": "injury:driverB"},
+        {"text": "Control the bleeding", "done": {"any": ["tourniquet", "firstAid"]}, "show": "injury:driverB"}
       ],
       "outcomes": [
         {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
@@ -225,12 +226,13 @@
       "variants": {"escalation": 1, "deescalation": 1, "false": 0.5, "duplicate": 1, "swatting": 0, "ambush": 0.2},
       "escalation": {"narratives": ["Caller now reports the suspect is breaking things inside."], "roleOverrides": {"suspect": {"profile": "suspectHostile"}}},
       "deescalation": {"narratives": ["Caller advises the suspect has calmed down and is sitting outside."], "roleOverrides": {"suspect": {"profile": "suspectCalm", "spot": "curb"}}},
-      "actions": ["knock", "separateParties", "requestEms", "photograph", "collectEvidence", "canvass", "requestInterpreter", "requestK9", "writeReport"],
+      "actions": ["knock", "separateParties", "firstAid", "tourniquet", "requestEms", "photograph", "collectEvidence", "canvass", "requestInterpreter", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
         {"text": "Locate and separate the parties", "done": {"any": ["separated", "custody:suspect"]}},
         {"text": "Get a statement from the victim", "done": "statement:victim", "show": "role:victim"},
-        {"text": "Victim injured: request EMS", "done": "service:ems", "show": "injury:victim"}
+        {"text": "Victim injured: request EMS", "done": "service:ems", "show": "injury:victim"},
+        {"text": "Control the bleeding", "done": {"any": ["tourniquet", "firstAid"]}, "show": "injury:victim"}
       ],
       "outcomes": [
         {"id": "ambushArrest", "when": {"all": ["variant:ambush", "custody:ambusher"]}, "disposition": "arrestMade", "grade": "good"},
@@ -268,11 +270,12 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.5, "duplicate": 0.5, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["knock", "requestEms", "requestCoroner", "notifyGuardian", "canvass", "requestK9", "writeReport"],
+      "actions": ["knock", "firstAid", "tourniquet", "requestEms", "requestCoroner", "notifyGuardian", "canvass", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:caller", "show": "role:caller"},
         {"text": "Check on the occupant", "done": {"any": ["contacted:subject", "found:subject"]}, "show": "role:subject"},
-        {"text": "Occupant needs medical help: request EMS", "done": "service:ems", "show": "injury:subject"}
+        {"text": "Occupant needs medical help: request EMS", "done": "service:ems", "show": "injury:subject"},
+        {"text": "Control the bleeding", "done": {"any": ["tourniquet", "firstAid"]}, "show": "injury:subject"}
       ],
       "outcomes": [
         {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
@@ -345,14 +348,16 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 1, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["firstAid", "requestEms", "requestFire", "canvass", "writeReport"],
+      "actions": ["firstAid", "naloxone", "requestEms", "requestFire", "canvass", "writeReport"],
       "objectives": [
         {"text": "Reach the patient", "done": {"any": ["contacted:patient", "found:patient"]}},
         {"text": "Render first aid", "done": "firstAid", "show": "injury:patient"},
+        {"text": "Administer naloxone", "done": "naloxone", "show": "branch:overdose"},
         {"text": "Request EMS", "done": "service:ems"}
       ],
       "outcomes": [
         {"id": "unfounded", "when": "variant:false", "disposition": "unfounded", "grade": "good"},
+        {"id": "overdoseUntreated", "when": {"all": ["branch:overdose", "!naloxone", "!variant:false"]}, "disposition": "handled", "grade": "bad"},
         {"id": "transported", "when": "transported:patient", "disposition": "transported", "grade": "good"},
         {"id": "firstAidOnly", "when": {"all": ["firstAid", "!service:ems"]}, "disposition": "handled", "grade": "bad"},
         {"id": "refused", "when": "branch:refuses", "disposition": "handled", "grade": "good"},
@@ -532,10 +537,11 @@
       "variants": {"escalation": 1, "deescalation": 0.5, "false": 0.3, "duplicate": 1.5, "swatting": 0.3, "ambush": 0.3},
       "escalation": {"narratives": ["Caller now reports the suspect has pulled a weapon."], "roleOverrides": {"suspect": {"weapon": "knife", "profile": "suspectArmedHostile"}}},
       "deescalation": {"narratives": ["Caller advises the suspect has run off and is no longer at the scene."], "remove": ["suspect"]},
-      "actions": ["perimeter", "searchArea", "requestK9", "requestEms", "canvass", "photograph", "collectEvidence", "writeReport"],
+      "actions": ["perimeter", "searchArea", "requestK9", "firstAid", "tourniquet", "requestEms", "canvass", "photograph", "collectEvidence", "writeReport"],
       "objectives": [
         {"text": "Contact the victim", "done": "contacted:victim"},
         {"text": "Victim injured: request EMS", "done": "service:ems", "show": "injury:victim"},
+        {"text": "Control the bleeding", "done": {"any": ["tourniquet", "firstAid"]}, "show": "injury:victim"},
         {"text": "Locate the suspect", "done": {"any": ["custody:suspect", "escaped:suspect", "areaSearched", "perimeter"]}},
         {"text": "Write the report", "done": "report"}
       ],
@@ -984,11 +990,12 @@
       "variants": {"escalation": 0, "deescalation": 0, "false": 0.3, "duplicate": 0.3, "swatting": 0, "ambush": 0},
       "escalation": null,
       "deescalation": null,
-      "actions": ["preserveScene", "perimeter", "photograph", "collectEvidence", "canvass", "requestEms", "requestCoroner", "requestSupervisor", "notifyGuardian", "requestK9", "writeReport"],
+      "actions": ["preserveScene", "perimeter", "photograph", "collectEvidence", "canvass", "firstAid", "tourniquet", "requestEms", "requestCoroner", "requestSupervisor", "notifyGuardian", "requestK9", "writeReport"],
       "objectives": [
         {"text": "Contact the reporting party", "done": "contacted:reporter"},
         {"text": "Preserve the scene", "done": "scenePreserved", "show": {"any": ["deceased:deceased", "sceneEvidence"]}},
         {"text": "Photograph and collect evidence", "done": "evidenceCollected"},
+        {"text": "Control the bleeding", "done": {"any": ["tourniquet", "firstAid"]}, "show": "injury:victim"},
         {"text": "Write the report", "done": "report"}
       ],
       "outcomes": [

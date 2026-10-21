@@ -108,6 +108,11 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'command.menu': [key('Period')],
   'pursuit.menu': [key('Semicolon')],
   'air.flir': [key('Slash')],
+  // Phase 7 (design §5.8): Space / ShiftLeft are shared with the handbrake / sprint (aircraft have no handbrake, a remote
+  // drone pilot does not walk); Quote and Equal collide with no other default.
+  'vehicle.lift': [key('Space'), key('ShiftLeft', -1)],
+  'fleet.menu': [key('Quote')],
+  'drone.toggle': [key('Equal')],
 };
 
 const MOUSE_CODE = /^Mouse(Button\d+|X|Y|Wheel)$/;

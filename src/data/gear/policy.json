@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "assignments": [
+    { "id": "patrol", "label": "Patrol", "maxKg": 14, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "flashlight", "ballisticVest"], "forbidden": [], "minRetention": 2, "maxLongGuns": 1 },
+    { "id": "traffic", "label": "Traffic", "maxKg": 14, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "flashlight", "ballisticVest"], "forbidden": ["ram"], "minRetention": 2, "maxLongGuns": 1 },
+    { "id": "k9", "label": "K9 handler", "maxKg": 14, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "flashlight", "ballisticVest", "k9Treats"], "forbidden": ["ram"], "minRetention": 2, "maxLongGuns": 1 },
+    { "id": "motor", "label": "Motor officer", "maxKg": 10, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "ballisticVest"], "forbidden": ["ram", "halligan", "rifle", "shotgun", "lessLethalLauncher"], "minRetention": 2, "maxLongGuns": 0 },
+    { "id": "bicycle", "label": "Bike officer", "maxKg": 10, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "flashlight", "ballisticVest"], "forbidden": ["ram", "halligan", "rifle", "shotgun", "lessLethalLauncher"], "minRetention": 2, "maxLongGuns": 0 },
+    { "id": "swat", "label": "SWAT operator", "maxKg": 24, "required": ["radio", "dutyBelt", "holster", "sidearm", "ballisticVest"], "forbidden": [], "minRetention": 3, "maxLongGuns": 1 },
+    { "id": "detective", "label": "Detective", "maxKg": 6, "required": ["radio", "holster", "sidearm", "cuffs"], "forbidden": ["rifle", "shotgun", "lessLethalLauncher", "ram", "halligan"], "minRetention": 1, "maxLongGuns": 0 },
+    { "id": "supervisor", "label": "Supervisor", "maxKg": 14, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "flashlight", "ballisticVest"], "forbidden": [], "minRetention": 2, "maxLongGuns": 1 },
+    { "id": "marine", "label": "Marine unit", "maxKg": 12, "required": ["radio", "dutyBelt", "holster", "sidearm", "cuffs", "flashlight"], "forbidden": ["ram", "halligan"], "minRetention": 2, "maxLongGuns": 1 },
+    { "id": "air", "label": "Air crew", "maxKg": 10, "required": ["radio", "holster", "sidearm"], "forbidden": ["ram", "halligan", "shotgun", "lessLethalLauncher"], "minRetention": 2, "maxLongGuns": 0 }
+  ],
+  "fleetAssignment": { "patrol": "patrol", "supervisor": "supervisor", "unmarked": "detective", "traffic": "traffic", "k9": "k9", "motor": "motor", "bicycle": "bicycle", "atv": "patrol", "swat": "swat", "armored": "swat", "transport": "patrol", "command": "supervisor", "lab": "detective", "marine": "marine", "air": "air", "drone": "patrol" },
+  "vehicleRequired": { "patrol": ["firstAid", "aed", "cones", "flares"], "supervisor": ["firstAid", "aed"], "traffic": ["firstAid", "cones", "flares"], "k9": ["firstAid", "k9Treats"], "swat": ["firstAid", "ram"], "transport": ["firstAid"] },
+  "ballistics": { "hitChance": 0.3, "torsoShare": 0.7, "maxRangeM": 30 }
+}

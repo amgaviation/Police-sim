@@ -146,6 +146,8 @@ function isRequest(v: unknown): boolean {
       return str(v.district) && num(v.delta) && str(v.reason);
     case 'reinstate':
       return true;
+    case 'points':
+      return num(v.delta) && str(v.reason) && str(v.key);
     default:
       return false;
   }

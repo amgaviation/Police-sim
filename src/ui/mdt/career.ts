@@ -6,16 +6,42 @@
 import type { CadTime } from '../../cad/types';
 import type { CareerView, DisciplineActionId, DutyStatus, IaCase, ReportLetter } from '../../conduct/types';
 import type { CourtCase } from '../../court/types';
+import type { LedgerEntry } from '../../fleet/types';
 import { formatStamp } from '../../records/calendar';
 import { ruleLabel } from '../../conduct/ia';
 import { clearChildren, el } from '../ui';
+import { formatMoney, formatPoints } from '../fleet/format';
 import { trustBand, type TrustBand } from '../hud/law';
 import { button } from './dom';
 import type { LineSeverity } from './model';
+import type { MdtDeps } from './types';
 
 const MINUTE = 60;
 
-export type CareerSectionId = 'duty' | 'stats' | 'calendar' | 'cases' | 'incidents' | 'ia' | 'commendations' | 'discipline' | 'reports';
+export type CareerSectionId = 'duty' | 'stats' | 'calendar' | 'cases' | 'incidents' | 'ia' | 'commendations' | 'discipline' | 'reports' | 'fleet';
+
+/** The fleet's career summary (Phase 7 §12.6). */
+export interface MdtFleetSummary {
+  /** Career points charged (<= 0). */
+  readonly points: number;
+  readonly departmentCost: number;
+  readonly incidents: number;
+  /** Damage incidents without a report. */
+  readonly unreported: number;
+}
+
+/** Fleet feed of the Career tab (Phase 7 §12.6): optional, absent in older sessions and tests. */
+export interface MdtFleetDeps {
+  summary(): MdtFleetSummary;
+  /** The ledger's career charges (any order; non-charge entries are ignored). */
+  charges(): readonly LedgerEntry[];
+}
+
+/**
+ * `MdtDeps` with the optional fleet feed. `MdtDeps` itself lives in `types.ts`; until that gains `fleet?: MdtFleetDeps`
+ * (integrator), sessions pass this type where they build the deps.
+ */
+export type MdtDepsWithFleet = MdtDeps & { readonly fleet?: MdtFleetDeps };
 
 /** What a button on a career line does. */
 export interface CareerAction {
@@ -51,6 +77,8 @@ export interface CareerOptions {
   /** REVIEW is offered on court cases whose incident this says is still on file (default: none). */
   canReview?(key: string): boolean;
   jurisdiction?: { readonly id: string; readonly name: string };
+  /** A Fleet block (points, department cost, unreported damage, the last charges); absent = no block. */
+  fleet?: MdtFleetDeps;
 }
 
 /** One recorded incident of the Career tab's list. */
@@ -64,6 +92,8 @@ export interface CareerIncident {
 
 /** Rows each list shows at most. */
 export const CAREER_LIST_MAX = 12;
+/** Fleet charges the Fleet block lists. */
+export const FLEET_CHARGES_MAX = 10;
 
 const DUTY_LABELS: Readonly<Record<DutyStatus, string>> = {
   active: 'ON DUTY',
@@ -219,6 +249,27 @@ function iaSection(view: CareerView): CareerSection {
   return { id: 'ia', title: 'Internal affairs', lines, empty: 'No internal affairs cases' };
 }
 
+/** The Fleet block: points charged, department cost, damage incidents, unreported damage and the last charges (newest first). */
+export function fleetSection(fleet: MdtFleetDeps): CareerSection {
+  const sum = fleet.summary();
+  const charges = fleet
+    .charges()
+    .filter((c) => c.kind === 'charge')
+    .sort((a, b) => b.game - a.game || b.seq - a.seq)
+    .slice(0, FLEET_CHARGES_MAX);
+  const lines: CareerLine[] = [
+    line('Points charged', formatPoints(sum.points), sum.points < 0 ? 'caution' : 'none'),
+    line('Department cost', formatMoney(sum.departmentCost)),
+    line('Damage incidents', String(sum.incidents)),
+    line('Unreported damage', String(sum.unreported), sum.unreported > 0 ? 'alert' : 'none'),
+  ];
+  if (charges.length === 0) lines.push(line('Charges', 'None'));
+  for (const c of charges) {
+    lines.push(line(formatStamp(c.game), `${c.unitId} \u00b7 ${c.note} \u00b7 ${formatMoney(c.cost)} \u00b7 ${formatPoints(c.points)} pts`, c.points < 0 ? 'caution' : 'none'));
+  }
+  return { id: 'fleet', title: 'Fleet', lines, empty: 'No fleet data' };
+}
+
 function newestFirst<T>(list: readonly T[], map: (item: T) => CareerLine): CareerLine[] {
   const out: CareerLine[] = [];
   for (let i = list.length - 1; i >= 0 && out.length < CAREER_LIST_MAX; i--) out.push(map(list[i] as T));
@@ -258,6 +309,7 @@ export function careerModel(view: CareerView, cases: readonly CourtCase[], now: 
         empty: 'No graded reports yet',
         lines: newestFirst(view.reports, (r) => line(r.docId, `${String(Math.round(r.score))} (${r.letter}) · ${r.key}`, letterSeverity(r.letter))),
       },
+      ...(opts.fleet ? [fleetSection(opts.fleet)] : []),
       statsSection(view),
     ],
   };

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ATTACH, SKIN_SHINS } from '../../uniform/types';
+import type { OutfitDef } from '../../uniform/types';
 import { interpolateTransform } from '../meshSync';
 import { disposeObject } from '../renderer';
 import { BODY, createLimbPose, FIGURE_FLAG, HELD, limbPoseAt, POSE, type HumanoidSource } from './pose';
@@ -9,6 +11,8 @@ export interface PeopleRendererOptions {
   capacity?: number;
   /** Whether figures cast shadows. Default false. */
   shadows?: boolean;
+  /** Most accessory boxes drawn per frame (default 2048); a figure whose outfit no longer fits is drawn without it. */
+  gearCapacity?: number;
 }
 
 // Proportions of the 1.75 m reference figure (metres, design §12.2). Parts hang from pivots at their top.
@@ -31,6 +35,13 @@ const HALF_PI = Math.PI / 2;
 const TWO_PI = Math.PI * 2;
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 1.6;
+/** Part frames an accessory box can attach to (`ATTACH` ids 0..8). */
+const ATTACH_COUNT = 9;
+/** Floats per accessory box in the grouped tables: x, y, z, sx, sy, sz, colour (0xRRGGBB). */
+const GEAR_STRIDE = 7;
+/** Table value of `OutfitDef.shins === null`: the trouser colour. */
+const SHINS_BOTTOM = -1;
+const EMPTY_BOXES = new Float32Array(0);
 
 /** Held item boxes in the hand frame (x, y = along the arm, z) in metres at 1.75 m, and their colours. */
 const HELD_BOX = new Float32Array([
@@ -60,10 +71,15 @@ const scratchPose = createLimbPose();
  * crossing a call that V8 does not inline is boxed (one heap allocation per call), which at 9 matrices per
  * figure adds up to megabytes per second. Translation, then scale, then the angle for `mulR*`.
  */
-const reg = new Float64Array(8);
+const reg = new Float64Array(16);
 const TX = 0;
 const SX = 3;
 const ANGLE = 6;
+/** Gear registers: the part pivot, then the figure scale along the part's x, y and z axes. */
+const GP = 8;
+const GS = 11;
+/** Small integer state: [0] accessory boxes written this frame. */
+const counters = new Int32Array(2);
 /** Row-major 3x3 rotations: the figure frame, the vehicle frame, body, upper body, head and the limb being placed. */
 const baseR = new Float64Array(9);
 const vehicleR = new Float64Array(9);
@@ -177,6 +193,37 @@ function putColor(out: THREE.TypedArray, o: number, hex: number, highlight: bool
   out[o + 2] = b + (1 - b) * lift;
 }
 
+/**
+ * Writes the accessory boxes `boxes` (GEAR_STRIDE floats each, in the part frame) of the part whose rotation is
+ * `rot` as instances of `matrices` / `colors`, from `counters[0]`: a box at part-frame (x, y, z) goes to the pivot
+ * reg[GP..] plus rot x (x * sx, y * sy, z * sz) with sx, sy, sz = reg[GS..], and is scaled by its size times them.
+ * Clobbers reg[TX..] and reg[SX..].
+ */
+function emitGear(boxes: Float32Array, rot: Float64Array, matrices: THREE.TypedArray, colors: THREE.TypedArray, highlight: boolean): void {
+  const px = reg[GP] ?? 0;
+  const py = reg[GP + 1] ?? 0;
+  const pz = reg[GP + 2] ?? 0;
+  const xs = reg[GS] ?? 1;
+  const ys = reg[GS + 1] ?? 1;
+  const zs = reg[GS + 2] ?? 1;
+  let n = counters[0] ?? 0;
+  for (let o = 0; o < boxes.length; o += GEAR_STRIDE) {
+    const cx = (boxes[o] ?? 0) * xs;
+    const cy = (boxes[o + 1] ?? 0) * ys;
+    const cz = (boxes[o + 2] ?? 0) * zs;
+    reg[TX] = px + (rot[0] ?? 0) * cx + (rot[1] ?? 0) * cy + (rot[2] ?? 0) * cz;
+    reg[TX + 1] = py + (rot[3] ?? 0) * cx + (rot[4] ?? 0) * cy + (rot[5] ?? 0) * cz;
+    reg[TX + 2] = pz + (rot[6] ?? 0) * cx + (rot[7] ?? 0) * cy + (rot[8] ?? 0) * cz;
+    reg[SX] = (boxes[o + 3] ?? 0) * xs;
+    reg[SX + 1] = (boxes[o + 4] ?? 0) * ys;
+    reg[SX + 2] = (boxes[o + 5] ?? 0) * zs;
+    putMatrix(matrices, n, rot);
+    putColor(colors, n * 3, boxes[o + 6] ?? 0, highlight);
+    n++;
+  }
+  counters[0] = n;
+}
+
 function instanced(name: string, geometry: THREE.BufferGeometry, material: THREE.Material, capacity: number): THREE.InstancedMesh {
   const mesh = new THREE.InstancedMesh(geometry, material, capacity);
   mesh.name = name;
@@ -217,10 +264,17 @@ function dogGeometry(): THREE.BufferGeometry {
  * matrices from `limbPose`; plus one mesh for dogs and one for held items. Seven meshes, so at most seven
  * draw calls. Colours come from the sources (skin, hair, top, bottom). Figures anchored to a vehicle are
  * placed in its interpolated frame. No allocation per frame; headless it only fills the instance buffers.
+ *
+ * Phase 7: figures with an outfit (`HumanoidSource.outfit` indexing the table of `setOutfits`) also get their
+ * accessory boxes (hats, vest carriers, belts, patches ...), drawn by an eighth instanced mesh, `people-gear`, in
+ * the frame of the part they are attached to, so a hat follows the head and a sleeve follows the arm. Shoulder
+ * and hip width sliders scale the torso / arms and the pelvis / legs.
  */
 export class PeopleRenderer {
-  readonly stats = { figures: 0, drawCalls: 0 };
+  /** `gearBoxes`: accessory boxes drawn in the last update. */
+  readonly stats = { figures: 0, drawCalls: 0, gearBoxes: 0 };
   private readonly capacity: number;
+  private readonly gearCapacity: number;
   private readonly group = new THREE.Group();
   private readonly head: THREE.InstancedMesh;
   private readonly hair: THREE.InstancedMesh;
@@ -229,10 +283,17 @@ export class PeopleRenderer {
   private readonly legs: THREE.InstancedMesh;
   private readonly dogs: THREE.InstancedMesh;
   private readonly held: THREE.InstancedMesh;
+  private readonly gear: THREE.InstancedMesh;
   private readonly meshes: readonly THREE.InstancedMesh[];
+  /** Outfit tables (index 0 = none): boxes per `outfit * ATTACH_COUNT + attach`, total boxes, hide-hair flag, shin colour. */
+  private outfitBoxes: readonly Float32Array[] = [];
+  private outfitTotal = new Uint16Array(0);
+  private outfitHideHair = new Uint8Array(0);
+  private outfitShins = new Int32Array(0);
 
   constructor(scene: THREE.Scene, options: PeopleRendererOptions = {}) {
     this.capacity = Math.max(1, Math.floor(options.capacity ?? 320));
+    this.gearCapacity = Math.max(1, Math.floor(options.gearCapacity ?? 2048));
     const n = this.capacity;
     this.group.name = 'people';
     const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
@@ -244,10 +305,47 @@ export class PeopleRenderer {
     this.legs = instanced('people-legs', box(0.15, LEG_SEGMENT, 0.16, 0, -LEG_SEGMENT / 2, 0), material, n * 4);
     this.dogs = instanced('people-dogs', dogGeometry(), material, n);
     this.held = instanced('people-held', new THREE.BoxGeometry(1, 1, 1), material, n);
-    this.meshes = [this.head, this.hair, this.torso, this.arms, this.legs, this.dogs, this.held];
+    this.gear = instanced('people-gear', new THREE.BoxGeometry(1, 1, 1), material, this.gearCapacity);
+    this.meshes = [this.head, this.hair, this.torso, this.arms, this.legs, this.dogs, this.held, this.gear];
     this.group.add(...this.meshes);
     this.setShadows(options.shadows ?? false);
     scene.add(this.group);
+  }
+
+  /**
+   * Sets the outfit table: `defs[i]` is what `HumanoidSource.outfit[k] === i` draws (index 0 and null entries =
+   * nothing). Converts every outfit once into per-part typed arrays (x, y, z, size, colour), so `update` does no
+   * conversion. At most 65535 outfits. Call when the set of outfits changes, not per frame.
+   */
+  setOutfits(defs: readonly (OutfitDef | null)[]): void {
+    const n = Math.min(defs.length, 0x10000);
+    const boxes: Float32Array[] = new Array<Float32Array>(n * ATTACH_COUNT).fill(EMPTY_BOXES);
+    const total = new Uint16Array(n);
+    const hide = new Uint8Array(n);
+    const shins = new Int32Array(n).fill(SHINS_BOTTOM);
+    for (let i = 1; i < n; i++) {
+      const def = defs[i];
+      if (!def) continue;
+      const lists: number[][] = Array.from({ length: ATTACH_COUNT }, () => []);
+      let count = 0;
+      for (const b of def.boxes) {
+        const list = lists[b.attach];
+        if (!list || count >= 0xffff) continue;
+        list.push(b.x, b.y, b.z, b.sx, b.sy, b.sz, b.color);
+        count++;
+      }
+      for (let a = 0; a < ATTACH_COUNT; a++) {
+        const list = lists[a] as number[];
+        if (list.length > 0) boxes[i * ATTACH_COUNT + a] = new Float32Array(list);
+      }
+      total[i] = count;
+      hide[i] = def.hideHair ? 1 : 0;
+      shins[i] = def.shins === null ? SHINS_BOTTOM : def.shins;
+    }
+    this.outfitBoxes = boxes;
+    this.outfitTotal = total;
+    this.outfitHideHair = hide;
+    this.outfitShins = shins;
   }
 
   setShadows(enabled: boolean): void {
@@ -270,6 +368,12 @@ export class PeopleRenderer {
     const legsA = this.legs.instanceMatrix.array;
     const dogsA = this.dogs.instanceMatrix.array;
     const heldA = this.held.instanceMatrix.array;
+    const gearA = this.gear.instanceMatrix.array;
+    const gearC = this.gear.instanceColor?.array;
+    const outfitBoxes = this.outfitBoxes;
+    const outfitTotal = this.outfitTotal;
+    const gearCap = this.gearCapacity;
+    counters[0] = 0;
     const headC = this.head.instanceColor?.array;
     const hairC = this.hair.instanceColor?.array;
     const torsoC = this.torso.instanceColor?.array;
@@ -277,7 +381,7 @@ export class PeopleRenderer {
     const legsC = this.legs.instanceColor?.array;
     const dogsC = this.dogs.instanceColor?.array;
     const heldC = this.held.instanceColor?.array;
-    if (!headC || !hairC || !torsoC || !armsC || !legsC || !dogsC || !heldC) return;
+    if (!headC || !hairC || !torsoC || !armsC || !legsC || !dogsC || !heldC || !gearC) return;
     let people = 0;
     let dogs = 0;
     let helds = 0;
@@ -287,6 +391,10 @@ export class PeopleRenderer {
       const src = sources[si];
       if (!src) continue;
       const n = Math.min(src.count, src.x.length, src.pose.length, src.anchor.length);
+      const srcOutfit = src.outfit;
+      const srcShoulders = src.shoulders;
+      const srcHips = src.hips;
+      const srcShins = src.shins;
       for (let i = 0; i < n; i++) {
         const flags = src.flags[i] ?? 0;
         if ((flags & FIGURE_FLAG.hidden) !== 0) continue;
@@ -379,6 +487,15 @@ export class PeopleRenderer {
         let w = b > 0 ? b : 1;
         w = s * (w < MIN_SCALE ? MIN_SCALE : w > MAX_SCALE ? MAX_SCALE : w);
         const heldItem = src.held[i] ?? 0;
+        // Body shape sliders (missing or <= 0 read as 1) and the outfit (0 = none), if its boxes still fit.
+        let sh = srcShoulders ? (srcShoulders[i] ?? 1) : 1;
+        sh = sh > 0 ? (sh < MIN_SCALE ? MIN_SCALE : sh > MAX_SCALE ? MAX_SCALE : sh) : 1;
+        let hp = srcHips ? (srcHips[i] ?? 1) : 1;
+        hp = hp > 0 ? (hp < MIN_SCALE ? MIN_SCALE : hp > MAX_SCALE ? MAX_SCALE : hp) : 1;
+        const outfit = srcOutfit ? (srcOutfit[i] ?? 0) : 0;
+        const dressed = outfit > 0 && outfit < outfitTotal.length;
+        const gearOn = dressed && (counters[0] ?? 0) + (outfitTotal[outfit] ?? 0) <= gearCap;
+        const ob = outfit * ATTACH_COUNT;
         const lp = limbPoseAt(pose, src.gait, src.speed, i, near, scratchPose);
         if (pose === POSE.aim && (heldItem === HELD.handgun || heldItem === HELD.sidearm)) lp.leftArm = lp.rightArm;
         reg[SX] = w;
@@ -400,8 +517,25 @@ export class PeopleRenderer {
         reg[TX] = pelX;
         reg[TX + 1] = pelY;
         reg[TX + 2] = pelZ;
+        reg[SX] = w * sh;
         putMatrix(torsoA, k, upperR);
         putColor(torsoC, k * 3, src.top[i] ?? 0, highlight);
+        reg[SX] = w;
+        if (gearOn) {
+          reg[GP] = pelX;
+          reg[GP + 1] = pelY;
+          reg[GP + 2] = pelZ;
+          reg[GS] = w * sh;
+          reg[GS + 1] = s;
+          reg[GS + 2] = w;
+          emitGear(outfitBoxes[ob + ATTACH.torso] ?? EMPTY_BOXES, upperR, gearA, gearC, highlight);
+          // The pelvis frame is the body frame at the pelvis; it does not bend with the torso.
+          reg[GS] = w * hp;
+          emitGear(outfitBoxes[ob + ATTACH.pelvis] ?? EMPTY_BOXES, bodyR, gearA, gearC, highlight);
+          reg[SX] = w;
+          reg[SX + 1] = s;
+          reg[SX + 2] = w;
+        }
 
         const rise = TORSO_HEIGHT * s;
         const neckX = pelX + (upperR[1] ?? 0) * rise;
@@ -412,14 +546,29 @@ export class PeopleRenderer {
         reg[TX + 2] = neckZ;
         putMatrix(headA, k, headR);
         putColor(headC, k * 3, src.skin[i] ?? 0, false);
-        const bald = (src.hair[i] ?? 0) === NO_HAIR;
+        if (gearOn) {
+          reg[GP] = neckX;
+          reg[GP + 1] = neckY;
+          reg[GP + 2] = neckZ;
+          reg[GS] = w;
+          reg[GS + 1] = s;
+          reg[GS + 2] = w;
+          emitGear(outfitBoxes[ob + ATTACH.head] ?? EMPTY_BOXES, headR, gearA, gearC, highlight);
+          reg[SX] = w;
+          reg[SX + 1] = s;
+          reg[SX + 2] = w;
+          reg[TX] = neckX;
+          reg[TX + 1] = neckY;
+          reg[TX + 2] = neckZ;
+        }
+        const bald = (src.hair[i] ?? 0) === NO_HAIR || (dressed && this.outfitHideHair[outfit] === 1);
         if (bald) {
           reg[SX] = 0;
           reg[SX + 1] = 0;
           reg[SX + 2] = 0;
         }
         putMatrix(hairA, k, headR);
-        putColor(hairC, k * 3, bald ? 0 : (src.hair[i] ?? 0), false);
+        putColor(hairC, k * 3, (src.hair[i] ?? 0) === NO_HAIR ? 0 : (src.hair[i] ?? 0), false);
         reg[SX] = w;
         reg[SX + 1] = s;
         reg[SX + 2] = w;
@@ -429,7 +578,7 @@ export class PeopleRenderer {
         for (let side = 0; side < 2; side++) {
           const sign = side === 0 ? -1 : 1;
           const out = side === 0 ? lp.leftArmOut : lp.rightArmOut;
-          const across = sign * SHOULDER_X * w;
+          const across = sign * SHOULDER_X * w * sh;
           const shX = pelX + (upperR[0] ?? 0) * across + (upperR[1] ?? 0) * shoulderUp;
           const shY = pelY + (upperR[3] ?? 0) * across + (upperR[4] ?? 0) * shoulderUp;
           const shZ = pelZ + (upperR[6] ?? 0) * across + (upperR[7] ?? 0) * shoulderUp;
@@ -441,8 +590,22 @@ export class PeopleRenderer {
           reg[TX] = shX;
           reg[TX + 1] = shY;
           reg[TX + 2] = shZ;
+          reg[SX] = w * sh;
           putMatrix(armsA, ai, armR);
           putColor(armsC, ai * 3, src.top[i] ?? 0, false);
+          reg[SX] = w;
+          if (gearOn) {
+            reg[GP] = shX;
+            reg[GP + 1] = shY;
+            reg[GP + 2] = shZ;
+            reg[GS] = w * sh;
+            reg[GS + 1] = s;
+            reg[GS + 2] = w;
+            emitGear(outfitBoxes[ob + (side === 0 ? ATTACH.leftArm : ATTACH.rightArm)] ?? EMPTY_BOXES, armR, gearA, gearC, highlight);
+            reg[SX] = w;
+            reg[SX + 1] = s;
+            reg[SX + 2] = w;
+          }
           if (side === 1 && heldItem !== HELD.none && heldItem <= HELD.sidearm) {
             // The held item sits in the right hand, its grip at the end of the arm and its length beyond it.
             const o = heldItem * 3;
@@ -465,8 +628,17 @@ export class PeopleRenderer {
 
         // Legs: thigh from the hip, shin from the knee (hips follow the body pitch only).
         const thigh = -LEG_SEGMENT * s;
+        // Shin colour: the trouser colour, or with an outfit its shin colour (bare skin for shorts, boots).
+        let shinHex = src.bottom[i] ?? 0;
+        if (dressed) {
+          let mode = srcShins ? (srcShins[i] ?? 0) : 0;
+          if (mode === 0) mode = this.outfitShins[outfit] ?? SHINS_BOTTOM;
+          if (mode === SKIN_SHINS) shinHex = src.skin[i] ?? 0;
+          else if (mode >= 0) shinHex = mode;
+        }
+        reg[SX] = w * hp;
         for (let side = 0; side < 2; side++) {
-          const apart = (side === 0 ? -1 : 1) * HIP_X * w;
+          const apart = (side === 0 ? -1 : 1) * HIP_X * w * hp;
           const hipX = pelX + (bodyR[0] ?? 0) * apart;
           const hipY = pelY + (bodyR[3] ?? 0) * apart;
           const hipZ = pelZ + (bodyR[6] ?? 0) * apart;
@@ -479,14 +651,38 @@ export class PeopleRenderer {
           reg[TX + 1] = hipY;
           reg[TX + 2] = hipZ;
           putMatrix(legsA, li, limbA);
+          const kneeX = hipX + (limbA[1] ?? 0) * thigh;
+          const kneeY = hipY + (limbA[4] ?? 0) * thigh;
+          const kneeZ = hipZ + (limbA[7] ?? 0) * thigh;
+          if (gearOn) {
+            reg[GP] = hipX;
+            reg[GP + 1] = hipY;
+            reg[GP + 2] = hipZ;
+            reg[GS] = w * hp;
+            reg[GS + 1] = s;
+            reg[GS + 2] = w;
+            emitGear(outfitBoxes[ob + (side === 0 ? ATTACH.leftThigh : ATTACH.rightThigh)] ?? EMPTY_BOXES, limbA, gearA, gearC, highlight);
+          }
           reg[ANGLE] = -leg - knee;
           mulRx(limbB, bodyR);
-          reg[TX] = hipX + (limbA[1] ?? 0) * thigh;
-          reg[TX + 1] = hipY + (limbA[4] ?? 0) * thigh;
-          reg[TX + 2] = hipZ + (limbA[7] ?? 0) * thigh;
+          reg[TX] = kneeX;
+          reg[TX + 1] = kneeY;
+          reg[TX + 2] = kneeZ;
+          reg[SX] = w * hp;
+          reg[SX + 1] = s;
+          reg[SX + 2] = w;
           putMatrix(legsA, li + 1, limbB);
           putColor(legsC, li * 3, src.bottom[i] ?? 0, false);
-          putColor(legsC, (li + 1) * 3, src.bottom[i] ?? 0, false);
+          putColor(legsC, (li + 1) * 3, shinHex, false);
+          if (gearOn) {
+            reg[GP] = kneeX;
+            reg[GP + 1] = kneeY;
+            reg[GP + 2] = kneeZ;
+            emitGear(outfitBoxes[ob + (side === 0 ? ATTACH.leftShin : ATTACH.rightShin)] ?? EMPTY_BOXES, limbB, gearA, gearC, highlight);
+            reg[SX] = w * hp;
+            reg[SX + 1] = s;
+            reg[SX + 2] = w;
+          }
         }
       }
     }
@@ -494,6 +690,9 @@ export class PeopleRenderer {
     let drawCalls = this.finish(this.head, people, 1) + this.finish(this.hair, people, 1) + this.finish(this.torso, people, 1);
     drawCalls += this.finish(this.arms, people, 2) + this.finish(this.legs, people, 4);
     drawCalls += this.finish(this.dogs, dogs, 1) + this.finish(this.held, helds, 1);
+    const gearBoxes = counters[0] ?? 0;
+    drawCalls += this.finish(this.gear, gearBoxes, 1);
+    this.stats.gearBoxes = gearBoxes;
     this.stats.figures = people + dogs;
     this.stats.drawCalls = drawCalls;
   }

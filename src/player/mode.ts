@@ -1,12 +1,13 @@
-/** On-foot <-> driving state and the door/exit geometry used to switch between them. */
+/** On-foot / driving / remote-piloting state and the door/exit geometry used to switch between them. */
 import type { EventMap } from '../core/event-map';
 import type { EventBus } from '../core/events';
 import type { PlayerModeName } from './events';
 
-export const PLAYER_MODE = { onFoot: 0, driving: 1 } as const;
+/** `remote`: the officer stands still and flies a drone (the drone's eid is `PlayerModeMachine.vehicle`). */
+export const PLAYER_MODE = { onFoot: 0, driving: 1, remote: 2 } as const;
 export type PlayerModeId = (typeof PLAYER_MODE)[keyof typeof PLAYER_MODE];
 /** Event/save name of each mode, indexed by id. */
-export const PLAYER_MODE_NAMES: readonly PlayerModeName[] = ['onFoot', 'driving'];
+export const PLAYER_MODE_NAMES: readonly PlayerModeName[] = ['onFoot', 'driving', 'remote'];
 
 /** Max distance (m) from the player to a driver door for `interact` to get in. */
 export const ENTER_DISTANCE = 2.2;
@@ -17,7 +18,7 @@ export const ENTER_MAX_SPEED = 1;
 /** Gap between the body side and the door point used for entering. */
 const DOOR_OFFSET = 0.4;
 /** Gap between the body side and where the officer is placed on exit. */
-const EXIT_OFFSET = 1;
+export const EXIT_OFFSET = 1;
 
 export interface EnterCandidate {
   readonly eid: number;
@@ -52,9 +53,12 @@ export function driverDoorPoint(c: EnterCandidate, out: PointXZ): PointXZ {
   return localToWorld(c, -(c.halfWidth + DOOR_OFFSET), seatZ(c), out);
 }
 
-/** Where the officer stands after getting out: `side` -1 = driver (left), 1 = passenger, 1 m clear. */
-export function exitPoint(c: EnterCandidate, side: -1 | 1, out: PointXZ): PointXZ {
-  return localToWorld(c, side * (c.halfWidth + EXIT_OFFSET), seatZ(c), out);
+/**
+ * Where the officer stands after getting out: `side` -1 = driver (left), 1 = passenger, `offset` m clear of the body
+ * side (default `EXIT_OFFSET`, 1 m; boats use a wider gap).
+ */
+export function exitPoint(c: EnterCandidate, side: -1 | 1, out: PointXZ, offset: number = EXIT_OFFSET): PointXZ {
+  return localToWorld(c, side * (c.halfWidth + offset), seatZ(c), out);
 }
 
 const door: PointXZ = { x: 0, z: 0 };
@@ -79,7 +83,7 @@ export function findEnterable(px: number, pz: number, candidates: readonly Enter
 }
 
 /**
- * Tracks whether the officer is on foot or driving (and which vehicle). Emits `player:mode` on every
+ * Tracks whether the officer is on foot, driving or piloting a drone remotely (and which vehicle). Emits `player:mode` on every
  * change when given a bus; the integrator moves bodies, meshes and input in response.
  */
 export class PlayerModeMachine {
@@ -95,15 +99,29 @@ export class PlayerModeMachine {
     return this.modeValue;
   }
 
-  /** Eid of the vehicle being driven, 0 on foot. */
+  /** Eid of the vehicle being driven (or the drone being piloted), 0 on foot. */
   get vehicle(): number {
     return this.vehicleValue;
   }
 
-  /** Gets into vehicle `eid`; refused unless on foot. */
+  /** Gets into vehicle `eid`; refused unless on foot (also while piloting a drone). */
   enter(eid: number): boolean {
     if (this.modeValue !== PLAYER_MODE.onFoot || eid <= 0) return false;
     this.set(PLAYER_MODE.driving, eid);
+    return true;
+  }
+
+  /** Starts piloting drone `eid` from where the officer stands; only from on foot. */
+  remote(eid: number): boolean {
+    if (this.modeValue !== PLAYER_MODE.onFoot || eid <= 0) return false;
+    this.set(PLAYER_MODE.remote, eid);
+    return true;
+  }
+
+  /** Stops piloting and goes back on foot; refused unless remote. */
+  endRemote(): boolean {
+    if (this.modeValue !== PLAYER_MODE.remote) return false;
+    this.set(PLAYER_MODE.onFoot, 0);
     return true;
   }
 
@@ -116,7 +134,7 @@ export class PlayerModeMachine {
 
   /** Forces a state (session start, save load); emits only if it changed. */
   reset(mode: PlayerModeId, vehicle: number): void {
-    this.set(mode, mode === PLAYER_MODE.driving ? vehicle : 0);
+    this.set(mode, mode === PLAYER_MODE.onFoot ? 0 : vehicle);
   }
 
   private set(mode: PlayerModeId, vehicle: number): void {

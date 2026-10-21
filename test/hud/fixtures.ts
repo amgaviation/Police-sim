@@ -26,6 +26,11 @@ export function telemetry(overrides: Partial<VehicleTelemetry> = {}): VehicleTel
     damage: [0, 0, 0, 0],
     wheelSurface: [0, 0, 0, 0],
     airborne: false,
+    oilFraction: 1,
+    treadMin: 1,
+    odometerKm: 0,
+    altitudeM: 0,
+    lean: 0,
     ...overrides,
   };
 }

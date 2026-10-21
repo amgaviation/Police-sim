@@ -15,7 +15,19 @@ describe('readDriverInput', () => {
     const out: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
     const r = readDriverInput(stub({ 'vehicle.accelerate': 0.7, 'vehicle.brake': 0.2, 'vehicle.steer': -0.5 }, ['vehicle.handbrake']), out);
     expect(r).toBe(out);
-    expect(out).toEqual({ accelerate: 0.7, brake: 0.2, steer: -0.5, handbrake: true });
+    expect(out).toEqual({ accelerate: 0.7, brake: 0.2, steer: -0.5, handbrake: true, lift: 0 });
+  });
+
+  it('reads the aircraft lift axis (Space +1, Shift -1 by default)', () => {
+    const out: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
+    expect(readDriverInput(stub({ 'vehicle.lift': 1 }), out).lift).toBe(1);
+    expect(readDriverInput(stub({ 'vehicle.lift': -0.4 }), out).lift).toBe(-0.4);
+    expect(readDriverInput(stub({}), out).lift).toBe(0);
+    expect(actionKind('vehicle.lift')).toBe('axis');
+    expect(DEFAULT_BINDINGS['vehicle.lift']).toEqual([
+      { device: 'keyboard', code: 'Space' },
+      { device: 'keyboard', code: 'ShiftLeft', scale: -1 },
+    ]);
   });
 
   it('clamps negative pedal values to 0', () => {
@@ -25,7 +37,7 @@ describe('readDriverInput', () => {
       steer: 0,
       handbrake: true,
     });
-    expect(out).toEqual({ accelerate: 0, brake: 0, steer: 1, handbrake: false });
+    expect(out).toEqual({ accelerate: 0, brake: 0, steer: 1, handbrake: false, lift: 0 });
   });
 });
 
@@ -51,8 +63,9 @@ describe('player input actions', () => {
     for (const [id] of added) {
       for (const b of DEFAULT_BINDINGS[id]) {
         for (const other of ACTION_IDS) {
-          // The on-foot officer actions deliberately share Space / G / pad buttons with driving (design §12.5).
-          if (other === id || other.startsWith('officer.')) continue;
+          // The on-foot officer actions deliberately share Space / G / pad buttons with driving (design §12.5), and
+          // the aircraft lift shares Space with the handbrake (aircraft have no handbrake, design §5.8).
+          if (other === id || other.startsWith('officer.') || other === 'vehicle.lift') continue;
           expect(DEFAULT_BINDINGS[other].some((o) => o.device === b.device && o.code === b.code), `${id} ${b.code} vs ${other}`).toBe(false);
         }
       }

@@ -25,6 +25,16 @@ export type CalloutKind = (typeof CALLOUT_KINDS)[number];
 /** The three mistake kinds of `src/units` (`MISTAKE_KINDS`), re-declared as a tuple of booleans in saves. */
 export type MistakeFlags = readonly [boolean, boolean, boolean];
 
+/** Phase 7: the outfit of an AI officer as the uniform module builds it (`outfit` = index into the renderer's outfit table). */
+export interface BackupAppearance {
+  outfit: number;
+  top: number;
+  bottom: number;
+}
+
+/** Which uniform family an officer wears (`BackupDeps.appearanceOf`). */
+export type BackupAppearanceRole = 'patrol' | 'supervisor' | 'swat';
+
 export interface SwatPlan {
   entry: 'front' | 'rear';
   tempo: 'deliberate' | 'dynamic';

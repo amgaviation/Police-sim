@@ -83,6 +83,10 @@ export const ACTIONS = {
   'command.menu': { kind: 'button', label: 'Incident command / triage' },
   'pursuit.menu': { kind: 'button', label: 'Pursuit tactics' },
   'air.flir': { kind: 'button', label: 'Air unit camera (FLIR)' },
+  // Phase 7: aircraft climb / descend (Space / Shift by context), fleet panel and drone (design §5.8).
+  'vehicle.lift': { kind: 'axis', label: 'Climb / descend (aircraft)', bipolar: true },
+  'fleet.menu': { kind: 'button', label: 'Fleet / garage panel' },
+  'drone.toggle': { kind: 'button', label: 'Deploy / recall drone' },
 } as const satisfies Record<string, ActionMeta>;
 
 export type ActionId = keyof typeof ACTIONS;

@@ -14,7 +14,7 @@ import type { ActorInfo } from '../npc/types';
 import { FIGURE_FLAG, HELD, POSE, type HumanoidSource } from '../render/people/pose';
 import type { InteriorQuery } from '../tactical/types';
 import { yawToward } from './geometry';
-import type { SwatConfig, SwatCommand, SwatPhase, SwatPlan } from './types';
+import type { BackupAppearance, BackupAppearanceRole, SwatConfig, SwatCommand, SwatPhase, SwatPlan } from './types';
 
 export type { SwatCommand, SwatPhase, SwatPlan } from './types';
 
@@ -129,6 +129,8 @@ export interface SwatDeps {
   doorRequest(buildingId: number, door: number, action: 'open' | 'ram' | 'kick'): void;
   building(id: number): { minX: number; minZ: number; maxX: number; maxZ: number; door: { x: number; z: number; yaw: number } } | null;
   negotiationTrust(callId: number): number;
+  /** Phase 7: outfit and colours of an operator (`TAC-op<k>`, role `swat`); null / absent = the Phase 6 colours. */
+  appearanceOf?(callsign: string, role: BackupAppearanceRole): BackupAppearance | null;
   readonly config: SwatConfig;
 }
 
@@ -218,6 +220,8 @@ export class SwatTeam {
     armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0,
   };
   private readonly spot = { x: 0, z: 0, yaw: 0 };
+  /** Appearance cache per operator (null = asked, none). */
+  private readonly looks: (BackupAppearance | null)[] = [];
 
   constructor(deps: SwatDeps, callId: number, building: number, truck: { x: number; z: number } | null) {
     this.deps = deps;
@@ -739,7 +743,7 @@ export class SwatTeam {
   // --- View, save ------------------------------------------------------------------------------------------
 
   /** Writes the operators into `v` slots `base .. base + count - 1`. */
-  writeView(v: HumanoidSource & { count: number }, base: number): void {
+  writeView(v: HumanoidSource & { count: number; outfit: Uint16Array }, base: number): void {
     const aiming = this.phase === 'clearing' || this.phase === 'breaching';
     for (let i = 0; i < this.count; i++) {
       const s = base + i;
@@ -761,14 +765,25 @@ export class SwatTeam {
       v.held[s] = HELD.handgun;
       v.skin[s] = SKIN[i % SKIN.length] as number;
       v.hair[s] = HAIR[i % HAIR.length] as number;
-      v.top[s] = this.cfg.colors.top;
-      v.bottom[s] = this.cfg.colors.bottom;
+      const look = this.lookOf(i);
+      v.outfit[s] = look?.outfit ?? 0;
+      v.top[s] = look?.top ?? this.cfg.colors.top;
+      v.bottom[s] = look?.bottom ?? this.cfg.colors.bottom;
       v.height[s] = 1.78;
       v.build[s] = 1.05;
       v.anchor[s] = 0;
       v.body[s] = 0;
       v.flags[s] = 0;
     }
+  }
+
+  /** The cached appearance of operator `i` (asked once per operator; null = Phase 6 colours). */
+  private lookOf(i: number): BackupAppearance | null {
+    const cached = this.looks[i];
+    if (cached !== undefined) return cached;
+    const look = this.deps.appearanceOf?.(`TAC-op${i}`, 'swat') ?? null;
+    this.looks[i] = look;
+    return look;
   }
 
   /** Hides the operator slots. */

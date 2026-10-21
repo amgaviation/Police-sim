@@ -3,6 +3,9 @@ import { CadState } from '../../src/cad/cadState';
 import { emptyCommandSave } from '../../src/command/save';
 import { newConductSave } from '../../src/conduct/save';
 import { emptyCourtSave } from '../../src/court/save';
+import { migratedFleetSave } from '../../src/fleet/save';
+import { defaultGearSave } from '../../src/gear';
+import { characterFromLegacy } from '../../src/uniform';
 import { defaultForceSave } from '../../src/force/save';
 import { emptyIncidentsSave } from '../../src/incidents/save';
 import { emptyPursuitSave } from '../../src/pursuit/save';
@@ -23,7 +26,7 @@ import { migratedStationSave, newShiftStationSave } from '../../src/station/stat
 import { defaultTacticalSave } from '../../src/tactical/save';
 import { Population } from '../../src/people/population';
 import { emptySceneSave } from '../../src/scene/save';
-import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SaveGameV7, SavedVehicle } from '../../src/save/schema';
+import type { SaveGame, SaveGameV1, SaveGameV2, SaveGameV3, SaveGameV4, SaveGameV5, SaveGameV6, SaveGameV7, SaveGameV8, SavedVehicle } from '../../src/save/schema';
 import type { TrafficSnapshot } from '../../src/traffic/trafficSystem';
 import { vehicleModel } from '../../src/vehicles/model';
 
@@ -277,8 +280,8 @@ export function makeSaveGameV7(overrides: Partial<SaveGameV7> = {}): SaveGameV7 
   };
 }
 
-/** A complete current-version (v8) payload: the v7 fixture plus the roster, resources, backup, pursuit and command blocks. */
-export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+/** A complete v8 (Phase 6) payload: the v7 fixture plus the roster, resources, backup, pursuit and command blocks. */
+export function makeSaveGameV8(overrides: Partial<SaveGameV8> = {}): SaveGameV8 {
   return {
     ...makeSaveGameV7(),
     roster: emptyRosterSave(),
@@ -286,6 +289,21 @@ export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
     backup: emptyBackupSave(createRng(42).stream('backup').state()),
     pursuit: emptyPursuitSave(createRng(42).stream('pursuit').state()),
     command: emptyCommandSave(createRng(42).stream('command').state()),
+    ...overrides,
+  };
+}
+
+/** A complete current-version (v9) payload: the v8 fixture plus the character, gear and fleet blocks. */
+export function makeSaveGame(overrides: Partial<SaveGame> = {}): SaveGame {
+  const v8 = makeSaveGameV8();
+  return {
+    ...v8,
+    character: { version: 1, profile: characterFromLegacy(v8.officer.name, v8.officer.badge) },
+    gear: defaultGearSave(),
+    fleet: migratedFleetSave(
+      createRng(42).stream('fleet').state(),
+      v8.vehicles.map((v) => v.modelId),
+    ),
     ...overrides,
   };
 }

@@ -46,9 +46,26 @@ export interface EquipmentSave {
   racked: Record<string, boolean>;
   /** Trunk item id -> count. */
   trunk: Record<string, number>;
-  /** Person id in the cage, -1 empty. */
+  /** Person id in cage seat 1, -1 empty. */
   prisoner: number;
+  /** Person ids in cage seats 2..n (-1 empty); absent for single-seat cages and in older saves. */
+  extraPrisoners?: number[];
 }
+
+/** Spawn-time options of a `PatrolEquipment` (Phase 7: fleet loadouts and multi-seat cages). */
+export interface PatrolEquipmentOptions {
+  /** Cage seats (default 1; 0 forces no cage even with a partition; ignored without a partition). */
+  readonly cageSeats?: number;
+  /** Trunk item id -> count; replaces the model's trunk loadout. */
+  readonly trunk?: Readonly<Record<string, number>>;
+  /** Racked long gun ids; default every rack item except `lessLethal` when the model has a rack. */
+  readonly rack?: readonly string[];
+}
+
+/** The rack item that is not racked unless a vehicle loadout asks for it. */
+const OPTIONAL_RACK_ITEM = 'lessLethal';
+/** Most cage seats (a sanity bound for saves). */
+const MAX_CAGE_SEATS = 16;
 
 function isRecordOf(x: unknown, check: (v: unknown) => boolean): boolean {
   return typeof x === 'object' && x !== null && !Array.isArray(x) && Object.values(x).every(check);
@@ -73,7 +90,9 @@ export function isEquipmentSave(x: unknown): x is EquipmentSave {
     isRecordOf(s.trunk, isCount) &&
     typeof s.prisoner === 'number' &&
     Number.isInteger(s.prisoner) &&
-    s.prisoner >= -1
+    s.prisoner >= -1 &&
+    (s.extraPrisoners === undefined ||
+      (Array.isArray(s.extraPrisoners) && s.extraPrisoners.every((v) => typeof v === 'number' && Number.isInteger(v) && v >= -1)))
   );
 }
 
@@ -107,17 +126,25 @@ export class PatrolEquipment {
   private readonly racked = new Uint8Array(RACK_ITEMS.length);
   /** Count per `TRUNK_ITEMS` index. */
   private readonly trunk = new Uint16Array(TRUNK_ITEMS.length);
-  private cage = -1;
+  /** Person id per cage seat, -1 empty. */
+  private readonly cage: Int32Array;
   private lastLightbar = false;
 
-  constructor(spec: VehicleEquipmentSpec) {
+  constructor(spec: VehicleEquipmentSpec, opts: PatrolEquipmentOptions = {}) {
     this.spec = spec;
     this.toneIndex = Math.max(0, SIREN_TONES.indexOf(DEFAULT_SIREN_TONE));
-    if (spec.rack) this.racked.fill(1);
-    const lo = loadout(spec);
+    if (spec.rack) {
+      RACK_ITEMS.forEach((r, i) => {
+        this.racked[i] = (opts.rack === undefined ? r.id !== OPTIONAL_RACK_ITEM : opts.rack.includes(r.id)) ? 1 : 0;
+      });
+    }
+    const lo = opts.trunk ?? loadout(spec);
     TRUNK_ITEMS.forEach((it, i) => {
-      this.trunk[i] = lo[it.id] ?? 0;
+      const c = lo[it.id];
+      this.trunk[i] = typeof c === 'number' && Number.isInteger(c) && c > 0 ? Math.min(c, 0xffff) : 0;
     });
+    const seats = spec.partition ? clamp(Math.trunc(opts.cageSeats ?? 1) || 0, 0, MAX_CAGE_SEATS) : 0;
+    this.cage = new Int32Array(seats).fill(-1);
   }
 
   // --- siren ---------------------------------------------------------------------
@@ -261,23 +288,57 @@ export class PatrolEquipment {
 
   // --- cage ----------------------------------------------------------------------
 
-  /** Person id in the rear cage, -1 when empty. */
-  get prisoner(): number {
-    return this.cage;
+  /** Number of cage seats (0 without a partition). */
+  get cageSeats(): number {
+    return this.cage.length;
   }
 
-  /** Needs a partition and an empty seat. */
+  /** Person id in the first occupied cage seat, -1 when the cage is empty. */
+  get prisoner(): number {
+    for (const id of this.cage) if (id !== -1) return id;
+    return -1;
+  }
+
+  /** Everybody in the cage, in seat order. */
+  prisoners(): number[] {
+    const out: number[] = [];
+    for (const id of this.cage) if (id !== -1) out.push(id);
+    return out;
+  }
+
+  /** Empty seats. */
+  cageFree(): number {
+    let n = 0;
+    for (const id of this.cage) if (id === -1) n++;
+    return n;
+  }
+
+  /** Needs a partition, a free seat and a person who is not already in the cage; fills the first free seat. */
   seatPrisoner(personId: number): boolean {
-    if (!this.spec.partition || this.cage !== -1 || !Number.isInteger(personId) || personId < 0) return false;
-    this.cage = personId;
+    if (!Number.isInteger(personId) || personId < 0 || this.cage.includes(personId)) return false;
+    const seat = this.cage.indexOf(-1);
+    if (seat < 0) return false;
+    this.cage[seat] = personId;
     return true;
   }
 
-  /** Empties the seat; returns who was in it (-1 when empty). */
+  /** Empties the last occupied seat; returns who was in it (-1 when the cage is empty). */
   releasePrisoner(): number {
-    const id = this.cage;
-    this.cage = -1;
-    return id;
+    for (let i = this.cage.length - 1; i >= 0; i--) {
+      const id = this.cage[i] ?? -1;
+      if (id !== -1) {
+        this.cage[i] = -1;
+        return id;
+      }
+    }
+    return -1;
+  }
+
+  /** Empties every seat; returns who was in the cage, in seat order. */
+  releaseAll(): number[] {
+    const out = this.prisoners();
+    this.cage.fill(-1);
+    return out;
   }
 
   // --- publish / persist ---------------------------------------------------------
@@ -302,7 +363,7 @@ export class PatrolEquipment {
     TRUNK_ITEMS.forEach((it, i) => {
       trunk[it.id] = this.trunk[i] ?? 0;
     });
-    return {
+    const save: EquipmentSave = {
       version: 1,
       sirenOn: this.siren,
       tone: this.tone,
@@ -313,16 +374,18 @@ export class PatrolEquipment {
       rackLocked: this.locked,
       racked,
       trunk,
-      prisoner: this.cage,
+      prisoner: this.cage[0] ?? -1,
     };
+    if (this.cage.length > 1) save.extraPrisoners = Array.from(this.cage.subarray(1));
+    return save;
   }
 
   /**
    * Rebuilds the equipment from a save. Unknown ids (pattern, tone, items) fall back to the defaults
    * of a new car; values are clamped to the limits and to what `spec` supports.
    */
-  static restore(spec: VehicleEquipmentSpec, save: EquipmentSave): PatrolEquipment {
-    const eq = new PatrolEquipment(spec);
+  static restore(spec: VehicleEquipmentSpec, save: EquipmentSave, opts?: PatrolEquipmentOptions): PatrolEquipment {
+    const eq = new PatrolEquipment(spec, opts);
     eq.siren = save.sirenOn;
     eq.setTone(save.tone);
     eq.patternIdx = Math.max(0, patternIndex(save.pattern));
@@ -340,7 +403,11 @@ export class PatrolEquipment {
       const c = save.trunk[it.id];
       if (typeof c === 'number' && Number.isInteger(c) && c >= 0) eq.trunk[i] = Math.min(c, 0xffff);
     });
-    if (spec.partition && Number.isInteger(save.prisoner) && save.prisoner >= 0) eq.cage = save.prisoner;
+    const seated = [save.prisoner, ...(save.extraPrisoners ?? [])];
+    for (let i = 0; i < eq.cage.length; i++) {
+      const id = seated[i];
+      if (typeof id === 'number' && Number.isInteger(id) && id >= 0 && !eq.cage.includes(id)) eq.cage[i] = id;
+    }
     return eq;
   }
 }

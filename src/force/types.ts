@@ -76,6 +76,12 @@ export interface ForceConfig {
     readonly pregnancyRate: number;
     readonly pregnancyAge: Range2;
   };
+  /** Holster retention (Phase 7): draw delay and weapon-grab chance per retention level (index = level - 1). */
+  readonly retention: {
+    readonly drawS: readonly [number, number, number];
+    readonly grabChance: readonly [number, number, number];
+    readonly grabRangeM: number;
+  };
   readonly fellow: {
     readonly chance: number;
     readonly delayS: Range2;
@@ -149,6 +155,8 @@ export interface ForceDeps {
   temperatureC(): number;
   elevatedAt(building: number, x: number, z: number): boolean;
   fellows(): readonly FellowOfficer[];
+  /** Phase 7: retention level of the officer's holster, 1..3 (absent = 1). */
+  holsterLevel?(): number;
   readonly config?: ForceConfig;
 }
 

@@ -4,7 +4,7 @@ import { createRng } from '../../src/core/rng';
 import type { RigidBody } from '@dimforge/rapier3d-compat';
 import { PhysicsWorld } from '../../src/physics/physics';
 import type { DriverControls } from '../../src/vehicles/controls';
-import { DrivableVehicle, type SerializedVehicle, type VehicleEnvironment } from '../../src/vehicles/drivableVehicle';
+import { DrivableVehicle, type SerializedVehicle, type VehicleBuild, type VehicleEnvironment } from '../../src/vehicles/drivableVehicle';
 import { restHeight, vehicleModel, type VehicleModel } from '../../src/vehicles/model';
 
 export const DT = 1 / 60;
@@ -32,6 +32,15 @@ export function makeEnv(surface = 0, wetness = 0, snowCover = 0): VehicleEnviron
   return { surfaceAt: () => surface, wetness, snowCover, ambientC: 20 };
 }
 
+/** Spawn options of `makeRig`: pose on the ground (`y` defaults to the rest height) and the spawn build. */
+export interface RigOptions {
+  x?: number;
+  y?: number;
+  z?: number;
+  yaw?: number;
+  build?: VehicleBuild;
+}
+
 /** The vehicle RNG stream every rig uses. */
 export function vehicleRng(): ReturnType<typeof createRng> {
   return createRng(42).stream('vehicle:0');
@@ -46,6 +55,7 @@ export async function makeRig(
   env = makeEnv(),
   eid = 1,
   restoreFrom?: SerializedVehicle,
+  options: RigOptions = {},
 ): Promise<Rig> {
   const physics = await PhysicsWorld.create();
   physics.addGround(500);
@@ -53,8 +63,15 @@ export async function makeRig(
   // Rapier ray casts see the broad-phase of the last step: let the ground in before restoring a moving car.
   if (restoreFrom) physics.step();
   const vehicle = restoreFrom
-    ? DrivableVehicle.restore(physics, eid, restoreFrom, vehicleRng())
-    : DrivableVehicle.create(physics, eid, m, { x: 0, y: restHeight(m), z: 0, yaw: 0 }, vehicleRng());
+    ? DrivableVehicle.restore(physics, eid, restoreFrom, vehicleRng(), options.build)
+    : DrivableVehicle.create(
+        physics,
+        eid,
+        m,
+        { x: options.x ?? 0, y: options.y ?? restHeight(m), z: options.z ?? 0, yaw: options.yaw ?? 0 },
+        vehicleRng(),
+        options.build,
+      );
   const controls: DriverControls = { throttle: 0, brake: 0, steer: 0, handbrake: false, reverse: false };
   const bus = new EventBus<EventMap>();
   let odometer = 0;

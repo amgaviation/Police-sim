@@ -74,7 +74,7 @@ function readTool(value: unknown, file: string, path: string): ToolDef {
 export function parseForceConfig(raw: unknown, file = 'force.json'): ForceConfig {
   const root = readObject(raw, file, '');
   readVersion(root, file);
-  onlyKeys(root, ['version', 'tools', 'taser', 'firearm', 'lessLethal', 'modifiers', 'risk', 'fellow'], file, '');
+  onlyKeys(root, ['version', 'tools', 'taser', 'firearm', 'lessLethal', 'modifiers', 'risk', 'retention', 'fellow'], file, '');
 
   const rows = readArray(root.tools, file, 'tools', 1);
   const tools: ToolDef[] = [];
@@ -156,6 +156,18 @@ export function parseForceConfig(raw: unknown, file = 'force.json'): ForceConfig
     pregnancyAge: readRange(riskO.pregnancyAge, file, 'risk.pregnancyAge', 0, 120),
   };
 
+  const retO = section(root, 'retention', file, ['drawS', 'grabChance', 'grabRangeM']);
+  const triple = (v: unknown, path: string, min: number, max: number): readonly [number, number, number] => {
+    const arr = readArray(v, file, path, 3);
+    if (arr.length !== 3) fail(file, path, `must have 3 items (retention levels 1..3), got ${arr.length}`);
+    return [readNumber(arr[0], file, `${path}[0]`, min, max), readNumber(arr[1], file, `${path}[1]`, min, max), readNumber(arr[2], file, `${path}[2]`, min, max)];
+  };
+  const retention: ForceConfig['retention'] = {
+    drawS: triple(retO.drawS, 'retention.drawS', 0, 10),
+    grabChance: triple(retO.grabChance, 'retention.grabChance', 0, 1),
+    grabRangeM: readNumber(retO.grabRangeM, file, 'retention.grabRangeM', 0, 50),
+  };
+
   const fellO = section(root, 'fellow', file, ['chance', 'delayS', 'repeatS', 'maxStrikes', 'injury', 'interveneRadiusM']);
   const fellow: ForceConfig['fellow'] = {
     chance: readNumber(fellO.chance, file, 'fellow.chance', 0, 1),
@@ -166,7 +178,7 @@ export function parseForceConfig(raw: unknown, file = 'force.json'): ForceConfig
     interveneRadiusM: readNumber(fellO.interveneRadiusM, file, 'fellow.interveneRadiusM', 0, 1000),
   };
 
-  return { tools, taser, firearm, lessLethal, modifiers, risk, fellow };
+  return { tools, taser, firearm, lessLethal, modifiers, risk, retention, fellow };
 }
 
 /** The shipped configuration (`src/data/force/force.json`), validated at import. */

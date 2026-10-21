@@ -1,5 +1,5 @@
 /** Static station staff figures (design §11.1). Pure: takes plain layout data, imports no interior module. */
-import { POSE, type HumanoidSource } from '../render/people/pose';
+import { POSE, createHumanoidSource, type HumanoidSource } from '../render/people/pose';
 import { defaultLoadout, uniformColors } from './locker';
 
 /** Staff roles by point kind, in figure order (one figure per kind: the first point of that kind). */
@@ -13,6 +13,30 @@ const LATERAL = [1.1, 1.5, 2] as const;
 const SKIN = [0xc68e6b, 0x8d5a3c, 0xe0b48f, 0x6f4430, 0xd2a47c] as const;
 const HAIR = [0x2a1d14, 0x1a1410, 0x5a3a22, 0x3a3a3c, 0x7a5a30] as const;
 const HEIGHTS = [1.78, 1.7, 1.82, 1.66, 1.75] as const;
+
+/**
+ * The figure view `stationStaff` writes: a `HumanoidSource` plus the outfit table index of the station staff.
+ * `outfit` entries all equal the value last passed to `setOutfit` (default 0: no accessories).
+ */
+export interface StaffFigures extends HumanoidSource {
+  count: number;
+  outfit: Uint16Array;
+  /** Outfit table index (`PeopleRenderer.setOutfits`) for every staff figure; clamped to 0..65535. */
+  setOutfit(index: number): void;
+}
+
+/** A staff figure view with room for `capacity` figures. */
+export function createStaffFigures(capacity: number): StaffFigures {
+  const base = createHumanoidSource(capacity);
+  const outfit = new Uint16Array(base.x.length);
+  const view: StaffFigures = Object.assign(base, {
+    outfit,
+    setOutfit(index: number): void {
+      outfit.fill(Number.isFinite(index) ? Math.min(0xffff, Math.max(0, Math.trunc(index))) : 0);
+    },
+  });
+  return view;
+}
 
 interface Box { readonly minX: number; readonly minZ: number; readonly maxX: number; readonly maxZ: number }
 

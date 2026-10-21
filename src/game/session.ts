@@ -9,6 +9,8 @@ import type { RadioMode } from '../cad/types';
 import type { EventMap } from '../core/event-map';
 import { EventBus } from '../core/events';
 import { createRng, normalizeSeed, rngFromState, type Rng } from '../core/rng';
+import { FLEET_DATA, fleetYard, type FleetUnitDef, type YardLayout } from '../fleet';
+import { OfficerGear, type GearSave, type VehicleLoadout } from '../gear';
 import { GameClock } from '../core/time';
 import { Dispatcher, type PlayerUnitState } from '../dispatch/dispatcher';
 import type { ConductState } from '../conduct';
@@ -16,6 +18,9 @@ import type { CourtState } from '../court';
 import type { ForceOfficer, ForceSystem } from '../force';
 import type { IncidentSystem, DashProbe, OfficerProbe, PursuitProbe } from '../incidents';
 import { RECORDING } from '../recording';
+import { characterFromLegacy, type CharacterProfile } from '../uniform';
+import type { LiveryDoc } from '../livery';
+import { Phase7, equipmentOptions, equipmentSpecFor } from './phase7';
 import { Phase5 } from './phase5';
 import { Phase6, type Phase6Host, type Phase6Player } from './phase6';
 import { EntityKind, KIND, PhysicsBody, Player, PrevTransform, Transform, copyTransformSlot } from '../ecs/components';
@@ -46,7 +51,8 @@ import { CAMERA_MODE, type VehicleCameraModeId } from '../player/cameraRig';
 import type { DriverInput } from '../player/driverInput';
 import { EXIT_MAX_SPEED, PLAYER_MODE, PLAYER_MODE_NAMES, PlayerModeMachine, driverDoorPoint, exitPoint, findEnterable } from '../player/mode';
 import { attachPoliceLights } from '../police/components';
-import { PatrolEquipment, type EquipmentSave } from '../police/equipment';
+import { PatrolEquipment, type EquipmentSave, type VehicleEquipmentSpec } from '../police/equipment';
+import { patternIndex } from '../police/lightbar';
 import { OfficerKit, type OfficerKitSave } from '../police/inventory';
 import { RadioSystem } from '../radio/radioSystem';
 import { epochDayOfGameSeconds } from '../records/calendar';
@@ -68,11 +74,11 @@ import {
   type TrafficFocus,
   type TrafficParked,
 } from '../traffic/trafficSystem';
-import { VehicleLook, attachDrivable, attachVehicleLook } from '../vehicles/components';
+import { VehicleLook, attachDrivable, attachVehicleLook, trimBits } from '../vehicles/components';
 import { mapDriverInput, type DriverControls } from '../vehicles/controls';
-import { DrivableVehicle, type VehicleEnvironment, type VehiclePose } from '../vehicles/drivableVehicle';
+import { DrivableVehicle, type SerializedVehicle, type VehicleBuild, type VehicleEnvironment, type VehiclePose } from '../vehicles/drivableVehicle';
 import { VEHICLE_MODELS, pickModelColor, restHeight, vehicleModel, type VehicleModel } from '../vehicles/model';
-import type { City } from '../world/city';
+import { BLOCK_KIND, type City } from '../world/city';
 import { WorldColliders } from '../world/colliders';
 import { MPH, WORLD_HALF_SIZE, WORLD_WALL } from '../world/constants';
 import { LANDMARKS } from '../world/data';
@@ -137,7 +143,8 @@ export type InteractResult =
   | 'evidence'
   | 'reportDesk'
   | 'interview'
-  | 'cell';
+  | 'cell'
+  | 'fleet';
 /** What `interact` would do right now (HUD prompt). */
 export type InteractHint =
   | 'enter'
@@ -161,6 +168,7 @@ export type InteractHint =
   | 'interview'
   | 'cell'
   | 'collect'
+  | 'fleet'
   | null;
 
 /** The door `interact` / the door panel acts on (an exterior door from outside, or an interior door). */
@@ -178,6 +186,8 @@ export interface NewGameOptions {
   inStation?: boolean;
   /** Ruleset id of the legal engine (main menu / console), `generic` by default (Phase 5). */
   jurisdiction?: string;
+  /** Phase 7: the officer made in the character creator (profile and loadout); the default officer without it. */
+  character?: { profile: CharacterProfile; gear: GearSave };
 }
 
 /** One ambient traffic car for the `traffic list` command. */
@@ -199,6 +209,19 @@ interface Quat {
   y: number;
   z: number;
   w: number;
+}
+
+/** A vehicle that is a fleet unit: its livery document and vehicle loadout (Phase 7). */
+interface UnitSetup {
+  unitId: string;
+  doc: LiveryDoc;
+  loadout: VehicleLoadout;
+}
+
+/** Result of a fleet check-out / check-in / drone request: `message` is the HUD line. */
+export interface FleetResult {
+  ok: boolean;
+  message: string;
 }
 
 interface MutableCandidate {
@@ -272,6 +295,8 @@ export const STOPPED_SPEED = 0.5;
 /** Officer placeholder until a later phase has a character setup screen. */
 const DEFAULT_OFFICER = { name: 'Officer Doe', badge: '4071' };
 
+/** The officer's movement input while piloting the drone. */
+const REMOTE_STILL: MoveInput = { forward: 0, strafe: 0, sprint: false };
 const scratchVel: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchVec: Vec3 = { x: 0, y: 0, z: 0 };
 const scratchQuat: Quat = { x: 0, y: 0, z: 0, w: 1 };
@@ -317,8 +342,21 @@ const CANVASS_CALL_REACH = 150;
 /** The prisoner stands this far beyond the interview point (m). */
 /** Distance (m) the interviewee stands beyond the far edge of the interview table. */
 const INTERVIEW_BEYOND = 0.5;
-/** What a new shift's officer carries at the start (item, count). */
-const FIELD_KIT: readonly (readonly [string, number])[] = [['evidenceMarkers', 8], ['evidenceBags', 8], ['camera', 1], ['fingerprintKit', 1], ['sceneTape', 1]];
+/** The camera drone is picked up or launched within this distance (m) of a vehicle's body edge. */
+const DRONE_REACH = 4;
+/** The drone starts this far ahead of the officer (m), at this height (m). */
+const DRONE_AHEAD = 2;
+const DRONE_HEIGHT = 1.2;
+/** At the end of its leash for this long (sim s) the drone is recalled. */
+const DRONE_LINK_LOST_S = 20;
+/** The harbor slip and helipad count as home within this distance (m). */
+const HOME_REACH = 40;
+/** A parked vehicle this close (m) to the garage exit blocks a check-out. */
+const GARAGE_CLEARANCE = 3;
+/** Water height the boat floats at (m) and the ground height under crafts. */
+const WATER_Y = -0.05;
+/** A helicopter lets the officer out only below this altitude (m). */
+const HELI_EXIT_ALTITUDE = 0.5;
 /** The officer counts as moving for the force hit model above this speed (m/s). */
 const FORCE_MOVING_SPEED = 0.5;
 /** Pursuit policy: the road under the car is the nearest centreline within this distance (m). */
@@ -403,6 +441,8 @@ export class GameSession {
   readonly roster: RosterState;
   /** Phase 6 (backup, tactical, multi-agency): resources, pursuit, backup, command and their bridges. */
   readonly phase6: Phase6;
+  /** Phase 7 (fleet, uniforms, customization): the officer's character and gear, the fleet system and the outfit table. */
+  readonly phase7: Phase7;
   /** Driver input captured each frame; applied to the driven vehicle every fixed step. */
   readonly driverInput: DriverInput = { accelerate: 0, brake: 0, steer: 0, handbrake: false };
   /** Air horn / manual wind-up held this frame (police input); applied to the driven patrol car every fixed step. */
@@ -437,6 +477,13 @@ export class GameSession {
   /** The station's block, grown by `STATION_MARGIN` (booking); null without a station. */
   private readonly stationRect: readonly [number, number, number, number] | null;
   private lastVehicleEid: EntityId = 0;
+  /** Vehicle entity of each checked-out fleet unit. */
+  private readonly unitEids = new Map<string, EntityId>();
+  private yardCache: YardLayout | null = null;
+  /** Seconds the remote drone has been at the end of its leash. */
+  private droneOutS = 0;
+  private lastWaterBlock = -1;
+  private readonly blockScratch: number[] = [];
   private readonly roadHit: RoadHit = { edge: 0, s: 0, t: 0, x: 0, z: 0, distance: 0, side: 1 };
   /** H toggle; null follows the automatic headlights until they switch. */
   private headlightOverride: boolean | null = null;
@@ -649,8 +696,20 @@ export class GameSession {
     this.dispatcher.setCrimeFactor((d) => this.phase5.conduct.effects(d).crimeFactor);
     // Phase 6: resources, pursuit, backup and command over the same objects (design 20).
     this.phase6 = new Phase6(this.phase6Host());
+    // Phase 7: the officer's character and gear and the fleet (design §20).
+    this.phase7 = new Phase7(this.phase7Host(), characterFromLegacy(DEFAULT_OFFICER.name, DEFAULT_OFFICER.badge), null, null);
     this.stationRect = stationRectOf(city);
-    this.vehicleEnv = { surfaceAt: (x, z) => city.surfaceAt(x, z), wetness: 0, snowCover: 0, ambientC: 20 };
+    this.vehicleEnv = {
+      surfaceAt: (x, z) => city.surfaceAt(x, z),
+      wetness: 0,
+      snowCover: 0,
+      ambientC: 20,
+      isWater: (x, z) => this.isWaterAt(x, z),
+      waterY: WATER_Y,
+      groundY: 0,
+      anchorX: 0,
+      anchorZ: 0,
+    };
     const pumps = fuelPumps(city);
     this.pumps = pumps.xz;
     this.stationPumps = pumps.station;
@@ -704,6 +763,7 @@ export class GameSession {
       { order: -660, system: { name: 'incidents', run: (_world, dt) => this.phase5.stepIncidents(dt, this.syncCadTime()) } },
       { order: -658, system: { name: 'conduct', run: (_world, dt) => this.phase5.stepConduct(dt, this.syncCadTime()) } },
       { order: -656, system: { name: 'court', run: (_world, dt) => this.phase5.stepCourt(dt, this.syncCadTime()) } },
+      { order: -655, system: { name: 'fleet', run: (_world, dt) => this.phase7.step(dt, this.syncCadTime()) } },
       { order: -650, system: { name: 'radio', run: (_world, dt) => this.stepRadio(dt) } },
       // Phase 1-3 compatibility mode (`indoorScenes: false`, older tests) leaves the tactical awareness off: it draws on the npc streams.
       { order: -640, system: { name: 'tactical', run: (_world, dt) => { if (ctx.indoorScenes !== false) this.tactical.step(dt, this.syncCadTime()); } } },
@@ -762,9 +822,46 @@ export class GameSession {
     return this.modes.mode === PLAYER_MODE.driving;
   }
 
-  /** The vehicle the officer is in, null on foot. */
+  /** The vehicle the officer is in, null on foot (and while piloting the drone). */
   get drivenVehicle(): DrivableVehicle | null {
-    return this.vehicleOf(this.modes.vehicle);
+    return this.modes.mode === PLAYER_MODE.driving ? this.vehicleOf(this.modes.vehicle) : null;
+  }
+
+  /** Piloting the camera drone: the officer stands still and the driver input flies the drone. */
+  get remote(): boolean {
+    return this.modes.mode === PLAYER_MODE.remote;
+  }
+
+  /** The vehicle the driver input controls: the driven vehicle or the drone; null on foot. */
+  get controlledVehicle(): DrivableVehicle | null {
+    return this.modes.mode === PLAYER_MODE.onFoot ? null : this.vehicleOf(this.modes.vehicle);
+  }
+
+  /** The officer's character (name, badge, pronouns, body, uniform). */
+  get character(): CharacterProfile {
+    return this.phase7.profile;
+  }
+
+  /** The officer's loadout (validation, presets, retention). */
+  get gear(): OfficerGear {
+    return this.phase7.gear;
+  }
+
+  /** The fleet: units, liveries, loadouts, service, incidents. */
+  get fleet(): Phase7['fleet'] {
+    return this.phase7.fleet;
+  }
+
+  /** The station yard: slots, garage exit, helipad, boat slip and the service point (cached). */
+  get yard(): YardLayout {
+    this.yardCache ??= fleetYard(this.city);
+    return this.yardCache;
+  }
+
+  /** Applies a new character: the session's `officer` record follows (name and badge). */
+  setCharacter(profile: CharacterProfile): void {
+    this.phase7.setProfile(profile);
+    this.officer = this.phase7.officerRecord();
   }
 
   /** The vehicle the officer drove last (or is driving); refuelling and the headlight spots use it. */
@@ -922,14 +1019,390 @@ export class GameSession {
     return this.spawnVehicle(model, { x, y: restHeight(model), z, yaw });
   }
 
-  /** The station's patrol cars (every police model, in id order) in the first parking slots. */
-  parkPatrolCars(): void {
-    const police = VEHICLE_MODELS.filter((m) => m.role === 'police');
-    const slots = this.city.parking;
-    for (let i = 0; i < police.length && i < slots.length; i++) {
-      const model = police[i] as VehicleModel;
-      const slot = slots[i] as (typeof slots)[number];
-      this.spawnVehicle(model, { x: slot.x, y: restHeight(model), z: slot.z, yaw: slot.yaw });
+  /**
+   * The fleet at the start of a shift (design §20): `startParked` units in the first yard slots (P-101 and P-102 as in
+   * Phase 1-6), `startHome` units at the harbor slip and the helipad when the city has them.
+   */
+  parkFleet(): void {
+    const yard = this.yard;
+    FLEET_DATA.startParked.forEach((id, i) => {
+      const slot = yard.slots[i];
+      if (slot) this.spawnUnit(id, { x: slot.x, y: spawnY(vehicleModel(this.unitDef(id).model)), z: slot.z, yaw: slot.yaw });
+    });
+    for (const id of FLEET_DATA.startHome) {
+      const def = this.unitDef(id);
+      const pose = this.homePose(def);
+      if (pose) this.spawnUnit(id, { x: pose.x, y: spawnY(vehicleModel(def.model)), z: pose.z, yaw: pose.yaw });
+    }
+  }
+
+  // --- Phase 7: fleet units (design §20) --------------------------------------------------
+
+  private unitDef(unitId: string): FleetUnitDef {
+    const def = FLEET_DATA.units.find((u) => u.id === unitId);
+    if (!def) throw new Error(`Unknown fleet unit "${unitId}"`);
+    return def;
+  }
+
+  /** Where a unit is kept: the garage exit, the harbor slip or the helipad; null when the city has no such place. */
+  private homePose(def: FleetUnitDef): { x: number; z: number; yaw: number } | null {
+    switch (def.home) {
+      case 'lot':
+        return this.yard.garage;
+      case 'boatSlip':
+        return this.yard.boatSlip;
+      case 'helipad':
+        return this.yard.helipad;
+      default:
+        return null;
+    }
+  }
+
+  /** The checked-out vehicle of a unit, null while it is in the yard. */
+  unitVehicle(unitId: string): DrivableVehicle | null {
+    const eid = this.unitEids.get(unitId);
+    return eid === undefined ? null : this.vehicleOf(eid);
+  }
+
+  /** The fleet unit id of `vehicle`, null for a vehicle that is not a unit (console cars). */
+  unitOf(vehicle: DrivableVehicle | null): string | null {
+    return vehicle ? this.phase7.fleet.unitOfEid(vehicle.eid) : null;
+  }
+
+  /** Fleet class (`patrol`, `motor`, ...) of the unit of `vehicle`, null for a non-unit. */
+  fleetClassOf(vehicle: DrivableVehicle | null): string | null {
+    const id = this.unitOf(vehicle);
+    return id === null ? null : this.unitDef(id).cls;
+  }
+
+  private setupOf(unitId: string): UnitSetup {
+    return { unitId, doc: this.phase7.fleet.livery(unitId), loadout: this.phase7.fleet.loadout(unitId) };
+  }
+
+  /**
+   * Spawns the vehicle of fleet unit `unitId` at `pose` and binds it: livery colour, trim and light tone / pattern, push bar,
+   * equipment with the unit's loadout. A unit that was checked in comes back with its stored condition (wear, damage, fuel).
+   */
+  spawnUnit(unitId: string, pose: VehiclePose): DrivableVehicle {
+    this.assertLive();
+    const def = this.unitDef(unitId);
+    const model = vehicleModel(def.model);
+    const setup = this.setupOf(unitId);
+    const stored = this.phase7.fleet.storedVehicle(unitId);
+    const rng = this.rng.stream(`vehicle:${unitId}`);
+    const build: VehicleBuild = { pushBar: setup.doc.equipment.pushBar };
+    const color = liveryColor(setup.doc);
+    const vehicle = this.addVehicle(
+      model,
+      color,
+      rng,
+      null,
+      (eid) => (stored ? DrivableVehicle.restore(this.ctx.physics, eid, atPose(stored, pose), rng, build) : DrivableVehicle.create(this.ctx.physics, eid, model, pose, rng, build)),
+      setup,
+    );
+    // A carried unit (the drone) gets a fresh battery and a service between flights.
+    if (stored && def.home === 'carried') {
+      vehicle.repair();
+      vehicle.refuel();
+    }
+    this.bindUnit(unitId, vehicle);
+    return vehicle;
+  }
+
+  private bindUnit(unitId: string, vehicle: DrivableVehicle): void {
+    this.unitEids.set(unitId, vehicle.eid);
+    this.phase7.fleet.bindVehicle(unitId, vehicle.eid);
+  }
+
+  /** Sets the look of a unit's vehicle from its livery: body colour, trim bits, light tone and pattern. */
+  private applyLook(vehicle: DrivableVehicle, doc: LiveryDoc, tune: boolean): void {
+    const eid = vehicle.eid;
+    VehicleLook.color[eid] = liveryColor(doc);
+    VehicleLook.trim[eid] = trimBits(vehicle.model, doc.equipment.pushBar, doc.equipment.spotlight, doc.lights.style);
+    const eq = this.equipmentOf(vehicle);
+    if (eq && tune) {
+      eq.setTone(doc.lights.siren);
+      eq.setPattern(Math.max(0, patternIndex(doc.lights.pattern)));
+    }
+  }
+
+  /**
+   * The livery editor's preview: paints the draft on the unit's live vehicle (colour, trim, light tone and pattern). Nothing
+   * of the simulation changes; `applyUnitLivery` makes a saved livery permanent.
+   */
+  previewLivery(unitId: string, doc: LiveryDoc): void {
+    const v = this.unitVehicle(unitId);
+    if (v) this.applyLook(v, doc, true);
+  }
+
+  /**
+   * After the fleet's livery or loadout of `unitId` changed: the live vehicle takes the colour, trim, tone and pattern, and is
+   * rebuilt in place (same entity) when the push bar, spotlight or partition changed. The trunk contents stay.
+   */
+  applyUnitLivery(unitId: string): void {
+    const v = this.unitVehicle(unitId);
+    if (!v) return;
+    const doc = this.phase7.fleet.livery(unitId);
+    const index = this.vehicleList.indexOf(v);
+    const eq = this.equipmentList[index] ?? null;
+    const wantSpec = equipmentSpecFor(v.model, doc);
+    const wantBar = doc.equipment.pushBar && v.model.equipment?.pushBumper != null;
+    if (eq && wantSpec && (eq.spec.spotlight !== wantSpec.spotlight || eq.spec.partition !== wantSpec.partition || v.pushBar !== wantBar)) {
+      this.rebuildVehicle(index, wantSpec, { pushBar: doc.equipment.pushBar }, this.setupOf(unitId));
+    } else if (!eq && v.pushBar !== wantBar) {
+      this.rebuildVehicle(index, null, { pushBar: doc.equipment.pushBar }, this.setupOf(unitId));
+    }
+    this.applyLook(v, doc, true);
+  }
+
+  /** Rebuilds the chassis and equipment of vehicle `index` on the same entity (a build option changed); state is kept. */
+  private rebuildVehicle(
+    index: number,
+    spec: VehicleEquipmentSpec | null,
+    build: VehicleBuild,
+    setup: UnitSetup | null,
+    edit?: (data: SerializedVehicle) => void,
+  ): void {
+    const old = this.vehicleList[index] as DrivableVehicle;
+    const data = old.serialize();
+    edit?.(data);
+    const eqSave = this.equipmentList[index]?.serialize() ?? null;
+    const rng = this.vehicleRngs[index] as Rng;
+    const engineOn = old.engineOn;
+    old.dispose();
+    const fresh = DrivableVehicle.restore(this.ctx.physics, old.eid, data, rng, build);
+    fresh.engineOn = engineOn;
+    this.vehicleList[index] = fresh;
+    this.equipmentList[index] =
+      spec && eqSave ? PatrolEquipment.restore(spec, eqSave, equipmentOptions(fresh.model, setup?.loadout ?? null)) : (this.equipmentList[index] ?? null);
+    this.writeInitialTransform(fresh.eid);
+  }
+
+  /** Console / tests: sets the oil level (0..1 of the capacity) and the tread of every tyre (0..1) of `vehicle`. */
+  setVehicleWear(vehicle: DrivableVehicle, wear: { oil?: number; tread?: number }): void {
+    const index = this.vehicleList.indexOf(vehicle);
+    if (index < 0) return;
+    this.rebuildVehicle(index, null, { pushBar: vehicle.pushBar }, null, (data) => {
+      const w = data.wear ?? { oilL: vehicle.model.wear.oilL, tread: [1, 1, 1, 1], odometerM: 0 };
+      if (wear.oil !== undefined) w.oilL = Math.min(1, Math.max(0, wear.oil)) * vehicle.model.wear.oilL;
+      if (wear.tread !== undefined) {
+        const t = Math.min(1, Math.max(0, wear.tread));
+        w.tread = [t, t, t, t];
+      }
+      data.wear = w;
+    });
+  }
+
+  /**
+   * The inspection checklist's facts about `unitId`'s vehicle: lamp faults, missing trunk items against its loadout, the rack
+   * and the cage. The fleet adds the condition and the unreported incidents. Null while the unit is in the yard.
+   */
+  inspectionInput(unitId: string): { faults: number; loadoutMissing: string[]; hasRack: boolean; rackSecured: boolean; hasCage: boolean; cageEmpty: boolean } | null {
+    const v = this.unitVehicle(unitId);
+    if (!v) return null;
+    const eq = this.equipmentOf(v);
+    const bits = VehicleLook.faults[v.eid] ?? 0;
+    let faults = 0;
+    for (let b = bits; b > 0; b >>= 1) faults += b & 1;
+    const missing: string[] = [];
+    if (eq) {
+      const want = this.phase7.fleet.loadout(unitId);
+      for (const [item, n] of Object.entries(want.trunk)) {
+        const have = eq.trunkCount(item);
+        if (have < n) missing.push(`${item} x${String(n - have)}`);
+      }
+      for (const gun of want.rack) if (!eq.rackHas(gun)) missing.push(gun);
+    }
+    return {
+      faults,
+      loadoutMissing: missing,
+      hasRack: eq?.spec.rack === true,
+      rackSecured: eq?.spec.rack !== true || (eq.rackLocked && !missing.some((m) => !m.includes(' x'))),
+      hasCage: (eq?.cageSeats ?? 0) > 0,
+      cageEmpty: eq === null || eq.prisoner < 0,
+    };
+  }
+
+  /** Removes vehicle `index` (not the one being driven or piloted); a bound fleet unit is unbound without a stored condition. */
+  removeVehicle(index: number): boolean {
+    this.assertLive();
+    const v = this.vehicleList[index];
+    if (!v || (this.modes.mode !== PLAYER_MODE.onFoot && this.modes.vehicle === v.eid)) return false;
+    const unitId = this.phase7.fleet.unitOfEid(v.eid);
+    if (unitId !== null) {
+      this.phase7.fleet.unbindVehicle(unitId, null);
+      this.unitEids.delete(unitId);
+    }
+    if (this.lastVehicleEid === v.eid) this.lastVehicleEid = 0;
+    v.dispose();
+    despawn(this.ctx.world, v.eid);
+    this.vehicleList.splice(index, 1);
+    this.vehicleRngs.splice(index, 1);
+    this.equipmentList.splice(index, 1);
+    return true;
+  }
+
+  /** Is `vehicle` standing within `reach` of (x, z)? */
+  private vehicleNear(vehicle: DrivableVehicle, x: number, z: number, reach: number): boolean {
+    return Math.hypot((Transform.x[vehicle.eid] ?? 0) - x, (Transform.z[vehicle.eid] ?? 0) - z) <= reach;
+  }
+
+  /**
+   * Checks fleet unit `unitId` out: spawned at its home (the garage exit, the harbor slip, the helipad). A vehicle parked at
+   * the exit is checked in first; a driven one, a vehicle with prisoners or a non-unit car blocks it.
+   */
+  checkOut(unitId: string): FleetResult {
+    this.assertLive();
+    const def = FLEET_DATA.units.find((u) => u.id === unitId);
+    if (!def) return { ok: false, message: `No such unit: ${unitId}` };
+    if (this.unitVehicle(unitId)) return { ok: false, message: `${unitId} is already out` };
+    if (def.home === 'carried') return { ok: false, message: `${unitId} is launched with the drone key (=)` };
+    const pose = this.homePose(def);
+    if (!pose) return { ok: false, message: `${unitId} has no ${def.home === 'boatSlip' ? 'harbor slip' : 'helipad'} in this city` };
+    for (let i = this.vehicleList.length - 1; i >= 0; i--) {
+      const blocker = this.vehicleList[i] as DrivableVehicle;
+      if (!this.vehicleNear(blocker, pose.x, pose.z, GARAGE_CLEARANCE)) continue;
+      const unit = this.phase7.fleet.unitOfEid(blocker.eid);
+      const eq = this.equipmentList[i];
+      if (blocker === this.controlledVehicle || unit === null || (eq && eq.prisoner >= 0)) {
+        return { ok: false, message: 'The exit is occupied: move the vehicle first' };
+      }
+      this.storeUnit(unit, i);
+    }
+    this.spawnUnit(unitId, { x: pose.x, y: spawnY(vehicleModel(def.model)), z: pose.z, yaw: pose.yaw });
+    return { ok: true, message: `${unitId} checked out` };
+  }
+
+  /** Stores unit `unitId`'s vehicle `index` in the yard with its condition. */
+  private storeUnit(unitId: string, index: number): void {
+    const v = this.vehicleList[index] as DrivableVehicle;
+    this.phase7.fleet.unbindVehicle(unitId, v.serialize());
+    this.unitEids.delete(unitId);
+    this.removeVehicle(index);
+  }
+
+  /** Checks `unitId` in: its vehicle parked at the yard (the harbor slip / helipad for those units), empty, is stored with its condition. */
+  checkIn(unitId: string): FleetResult {
+    this.assertLive();
+    const def = FLEET_DATA.units.find((u) => u.id === unitId);
+    if (!def) return { ok: false, message: `No such unit: ${unitId}` };
+    const v = this.unitVehicle(unitId);
+    if (!v) return { ok: false, message: `${unitId} is in the yard` };
+    if (v === this.controlledVehicle) return { ok: false, message: 'Get out first' };
+    const index = this.vehicleList.indexOf(v);
+    const eq = this.equipmentList[index];
+    if (eq && eq.prisoner >= 0) return { ok: false, message: 'Book the prisoner first' };
+    const x = Transform.x[v.eid] ?? 0;
+    const z = Transform.z[v.eid] ?? 0;
+    const home = def.home === 'lot' ? null : this.homePose(def);
+    const inYard = def.home === 'lot' ? this.inStationRect(x, z) : home !== null && Math.hypot(x - home.x, z - home.z) <= HOME_REACH;
+    if (!inYard) return { ok: false, message: `Park ${unitId} ${def.home === 'lot' ? 'in the station yard' : 'at its pad'} to check it in` };
+    this.storeUnit(unitId, index);
+    return { ok: true, message: `${unitId} checked in` };
+  }
+
+  private inStationRect(x: number, z: number): boolean {
+    const r = this.stationRect;
+    return r !== null && x >= r[0] && x <= r[2] && z >= r[1] && z <= r[3];
+  }
+
+  /** On foot outdoors within `REFUEL_PUMP_DISTANCE` of the fleet service point (the station pump). */
+  nearServicePoint(): boolean {
+    if (this.driving || this.remote || this.playerEid === 0 || this.interiors.officerBuilding >= 0) return false;
+    const at = this.playerPosition(scratchPoint);
+    const y = this.yard.service;
+    return Math.hypot(at.x - y.x, at.z - y.z) <= REFUEL_PUMP_DISTANCE;
+  }
+
+  /** Is (x, z) water? A cached lookup of the last water block, else one block query. */
+  private isWaterAt(x: number, z: number): boolean {
+    const blocks = this.city.blocks;
+    const last = this.lastWaterBlock >= 0 ? blocks[this.lastWaterBlock] : undefined;
+    if (last && x >= last.minX && x <= last.maxX && z >= last.minZ && z <= last.maxZ) return true;
+    const ids = this.city.blocksIn(x, z, x, z, this.blockScratch);
+    for (const id of ids) {
+      const b = blocks[id];
+      if (b && b.kind === BLOCK_KIND.water && x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ) {
+        this.lastWaterBlock = id;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // --- Phase 7: the camera drone (design §20) ---------------------------------------------
+
+  /** The drone being piloted, null otherwise. */
+  get droneVehicle(): DrivableVehicle | null {
+    return this.remote ? this.vehicleOf(this.modes.vehicle) : null;
+  }
+
+  /**
+   * `=`: deploys the camera drone (from the officer's kit or the nearest vehicle with one in its trunk) 2 m ahead at
+   * 1.2 m and starts piloting it, or recalls it when it is up.
+   */
+  toggleDrone(): FleetResult {
+    this.assertLive();
+    if (this.remote) return this.recallDrone('Drone recalled');
+    if (this.driving || this.playerEid === 0 || this.interiors.officerBuilding >= 0) return { ok: false, message: 'Step out of the vehicle to launch the drone' };
+    if (this.unitVehicle('D-1')) return { ok: false, message: 'The drone is already up' };
+    if (this.kit.carried('drone') < 1) {
+      const at = this.playerPosition(scratchPoint);
+      let from = -1;
+      for (let i = 0; i < this.vehicleList.length && from < 0; i++) {
+        const v = this.vehicleList[i] as DrivableVehicle;
+        const eq = this.equipmentList[i];
+        if (eq && eq.trunkCount('drone') > 0 && this.vehicleNear(v, at.x, at.z, v.model.body.length / 2 + DRONE_REACH)) from = i;
+      }
+      const eq = from >= 0 ? this.equipmentList[from] : null;
+      if (!eq || !eq.take('drone', this.kit)) return { ok: false, message: 'No drone: stand near a vehicle with one in the trunk' };
+    }
+    this.kit.consume('drone', 1);
+    const yaw = this.controller.yaw;
+    const at = this.playerPosition(scratchPoint);
+    const drone = this.spawnUnit('D-1', { x: at.x - Math.sin(yaw) * DRONE_AHEAD, y: DRONE_HEIGHT, z: at.z - Math.cos(yaw) * DRONE_AHEAD, yaw });
+    drone.engineOn = true;
+    this.clearDriverInput();
+    this.droneOutS = 0;
+    this.modes.remote(drone.eid);
+    return { ok: true, message: 'Drone launched: = recalls it' };
+  }
+
+  /** Recalls the drone: it is stored in the fleet with its condition, the item goes back in the officer's kit. */
+  private recallDrone(message: string): FleetResult {
+    const drone = this.droneVehicle;
+    if (!drone) return { ok: false, message: 'No drone is up' };
+    const unitId = this.unitOf(drone) ?? 'D-1';
+    this.modes.endRemote();
+    this.clearDriverInput();
+    this.storeUnit(unitId, this.vehicleList.indexOf(drone));
+    this.kit.adjust('drone', 1);
+    this.droneOutS = 0;
+    return { ok: true, message };
+  }
+
+  /** @internal After a load: the officer was piloting `drone`. */
+  resumeDrone(drone: DrivableVehicle): void {
+    drone.engineOn = true;
+    this.modes.remote(drone.eid);
+  }
+
+  /** Each fixed step while piloting: an empty battery, or 20 s at the end of the leash, recalls the drone. */
+  private stepDrone(dt: number): void {
+    const drone = this.droneVehicle;
+    if (!drone) return;
+    if (drone.telemetry.fuelFraction <= 0.001) {
+      this.phase5.flash('Drone battery empty: recalled', 'warn');
+      this.recallDrone('Battery empty');
+      return;
+    }
+    const range = drone.model.craft?.rangeM ?? 0;
+    const at = this.playerPosition(scratchPoint);
+    const d = Math.hypot((Transform.x[drone.eid] ?? 0) - at.x, (Transform.z[drone.eid] ?? 0) - at.z);
+    this.droneOutS = range > 0 && d >= range - 1 ? this.droneOutS + dt : 0;
+    if (this.droneOutS >= DRONE_LINK_LOST_S) {
+      this.phase5.flash('Drone link lost: recalled', 'warn');
+      this.recallDrone('Link lost');
     }
   }
 
@@ -942,6 +1415,12 @@ export class GameSession {
     const dt = this.ctx.physics.fixedDt;
     advanceTime(this.ctx.world, dt);
     this.clock.addSimTime(dt);
+    // Rounds fired at the officer since the last step, then the drone's leash and battery.
+    this.phase7.resolveHits();
+    if (this.remote) {
+      this.stepDrone(dt);
+      input = REMOTE_STILL;
+    }
     const body = this.ctx.physics.getBody(this.playerEid);
     const collider = this.officerCollider;
     if (!body || !collider) return;
@@ -978,6 +1457,7 @@ export class GameSession {
 
   /** What `interact` would do now; cheap enough for the HUD. */
   interactHint(): InteractHint {
+    if (this.remote) return null;
     const driven = this.drivenVehicle;
     if (driven) return driven.telemetry.groundSpeed <= EXIT_MAX_SPEED ? 'exit' : null;
     // Indoors the level is a copy of the footprint below the street: nothing outdoors is within reach.
@@ -989,6 +1469,7 @@ export class GameSession {
       if (service) return service;
       if (this.enterableVehicle()) return 'enter';
       if (this.atStoppedDriver()) return 'driver';
+      if (this.nearServicePoint()) return 'fleet';
     }
     if (this.talkTarget() !== null) return 'talk';
     if (this.collectTarget() !== null) return 'collect';
@@ -1005,6 +1486,7 @@ export class GameSession {
    */
   interact(): InteractResult {
     this.assertLive();
+    if (this.remote) return 'none';
     if (this.driving) return this.exitVehicle();
     const indoors = this.interiors.officerBuilding >= 0;
     if (!indoors) {
@@ -1022,6 +1504,7 @@ export class GameSession {
       }
       const vehicle = this.enterableVehicle();
       if (vehicle) return this.enterVehicle(vehicle) ? 'entered' : 'none';
+      if (this.nearServicePoint()) return 'fleet';
       const stop = this.cad.trafficStop;
       if (stop && this.atStoppedDriver()) {
         // The driver (seat 0) of the stopped car; the dialogue opens when the contact module's next step applies this.
@@ -1255,6 +1738,9 @@ export class GameSession {
     this.clearDriverInput();
     this.syncSeat();
     copyTransformSlot(Transform, PrevTransform, this.playerEid);
+    // A uniform the unit's class rules out is a policy flash, not a block.
+    const cls = this.fleetClassOf(vehicle);
+    if (cls !== null) this.phase7.checkUniformPolicy(cls);
     return true;
   }
 
@@ -1267,8 +1753,16 @@ export class GameSession {
     if (!(speed <= EXIT_MAX_SPEED)) return 'tooFast';
     const c = this.candidateOf(vehicle, this.candidate);
     const body = this.ctx.physics.getBody(vehicle.eid);
+    const kind = vehicle.model.control;
+    // A helicopter lets the officer out on the ground only; a boat only onto the quay ("Dock first").
+    if (kind === 'helicopter' && vehicle.telemetry.altitudeM >= HELI_EXIT_ALTITUDE) {
+      this.phase5.flash('Land first', 'warn');
+      return 'exitBlocked';
+    }
+    const offset = kind === 'boat' ? vehicle.model.body.width / 2 + 2 : undefined;
     for (const side of [-1, 1] as const) {
-      const p = exitPoint(c, side, scratchPoint);
+      const p = exitPoint(c, side, scratchPoint, offset);
+      if (kind === 'boat' && this.isWaterAt(p.x, p.z)) continue;
       if (!this.isClear(p.x, p.z, c.yaw, body)) continue;
       // Body and mesh first: if that throws, the officer is still in the car (mode unchanged).
       this.addOfficerBody(this.playerEid, { x: p.x, y: PLAYER_SIZE.y / 2, z: p.z });
@@ -1282,6 +1776,7 @@ export class GameSession {
       this.writeInitialTransform(this.playerEid);
       return 'exited';
     }
+    if (kind === 'boat') this.phase5.flash('Dock first', 'warn');
     return 'exitBlocked';
   }
 
@@ -1376,7 +1871,7 @@ export class GameSession {
     const entities: SerializedEntity[] = [];
     if (this.playerEid !== 0) entities.push(this.serializeOfficer());
     for (const eid of this.boxEids) entities.push(serializeEntity(this.ctx.physics, eid));
-    const driven = this.vehicleList.indexOf(this.drivenVehicle as DrivableVehicle);
+    const driven = this.vehicleList.indexOf(this.controlledVehicle as DrivableVehicle);
     return {
       seed: this.seed,
       rngState: this.rng.state(),
@@ -1386,7 +1881,7 @@ export class GameSession {
       world: { entities },
       player: {
         mode: PLAYER_MODE_NAMES[this.modes.mode] ?? 'onFoot',
-        vehicle: this.driving ? driven : -1,
+        vehicle: this.modes.mode !== PLAYER_MODE.onFoot ? driven : -1,
         lastVehicle: this.vehicleList.indexOf(this.lastVehicle as DrivableVehicle),
       },
       vehicles: this.vehicleList.map((v, i) => ({
@@ -1414,6 +1909,9 @@ export class GameSession {
       station: this.station.serialize(),
       ...this.phase5.serialize(),
       ...this.phase6.serialize(),
+      character: { version: 1, profile: structuredClone(this.phase7.profile) },
+      gear: this.phase7.gear.serialize(),
+      fleet: this.phase7.fleet.serialize((eid) => this.vehicleList.findIndex((v) => v.eid === eid)),
     };
   }
 
@@ -1422,6 +1920,7 @@ export class GameSession {
     if (this.disposed) return;
     this.disposed = true;
     this.unsubscribe();
+    this.phase7.dispose();
     this.phase6.dispose();
     this.phase5.dispose();
     this.investigation.dispose();
@@ -1441,6 +1940,7 @@ export class GameSession {
     this.vehicleList.length = 0;
     this.vehicleRngs.length = 0;
     this.equipmentList.length = 0;
+    this.unitEids.clear();
     if (!this.ctx.physics.isDisposed) this.colliders.dispose();
     const all = this.playerEid === 0 ? this.boxEids : [this.playerEid, ...this.boxEids];
     for (const eid of all) this.removeEntity(eid);
@@ -1452,11 +1952,14 @@ export class GameSession {
   // --- loading (module functions below) ----------------------------------------------
 
   /** @internal Restores a saved vehicle with its colour, RNG stream and patrol equipment (new-car equipment when null). */
-  restoreVehicle(saved: SavedVehicle, equipment: EquipmentSave | null = null): DrivableVehicle {
+  restoreVehicle(saved: SavedVehicle, equipment: EquipmentSave | null = null, unitId: string | null = null): DrivableVehicle {
     this.assertLive();
     const model = vehicleModel(saved.modelId);
     const rng = rngFromState(saved.rng);
-    return this.addVehicle(model, saved.color, rng, equipment, (eid) => DrivableVehicle.restore(this.ctx.physics, eid, saved, rng));
+    const setup = unitId === null ? null : this.setupOf(unitId);
+    const vehicle = this.addVehicle(model, saved.color, rng, equipment, (eid) => DrivableVehicle.restore(this.ctx.physics, eid, saved, rng), setup);
+    if (unitId !== null) this.bindUnit(unitId, vehicle);
+    return vehicle;
   }
 
   /**
@@ -1510,6 +2013,44 @@ export class GameSession {
       districtAt: (x, z) => DISTRICT_NAMES[this.city.districtAt(x, z)] ?? '',
       dashProbe: (out) => this.fillDashProbe(out),
       pursuitProbe: (out) => this.fillPursuitProbe(out),
+      holsterLevel: () => this.phase7.gear.retention(),
+    };
+  }
+
+  /** The reads and effects Phase 7 makes of this session. */
+  private phase7Host(): import('./phase7').Phase7Host {
+    const callsign = this.dispatcher.playerCallsign;
+    return {
+      seed: this.seed,
+      rng: this.rng,
+      bus: this.bus,
+      callsign,
+      unitVehicle: (unitId) => this.unitVehicle(unitId),
+      damageContext: (eid) => {
+        const v = this.vehicleOf(eid);
+        const eq = this.equipmentOf(v);
+        return {
+          pursuit: this.phase6.pursuit.active() && eid === this.modes.vehicle,
+          emergency: v !== null && v.lightbar && (eq?.sirenOn ?? false),
+          callId: this.cad.unit(callsign)?.callId ?? 0,
+        };
+      },
+      temperatureC: () => this.env.weather.temperatureC,
+      flash: (text, severity) => this.phase5.flash(text, severity),
+      say: (text) => this.radio.say('dispatch', text, callsign),
+      emergency: () => this.dispatcher.request(callsign, { kind: 'emergency' }, 'auto'),
+      careerPoints: (delta, reason, key) => this.phase5.conduct.request({ kind: 'points', delta, reason, key }),
+      attackerDistance: (actorId) => {
+        if (this.driving || this.playerEid === 0) return -1;
+        const a = this.npc.actor(actorId, scratchActor);
+        if (!a) return -1;
+        const at = this.playerPosition(scratchPoint);
+        return Math.hypot(a.x - at.x, a.z - at.z);
+      },
+      officerNear: () => {
+        const at = this.playerPosition(scratchPoint);
+        return this.dispatcher.locate(at.x, at.z).near;
+      },
     };
   }
 
@@ -1542,6 +2083,7 @@ export class GameSession {
       },
       takeStrip: () => this.kit.consume('spikeStrip', 1),
       flash: (text, severity) => this.phase5.flash(text, severity),
+      appearanceOf: (callsign, role) => this.phase7.appearanceOf(callsign, role),
     };
   }
 
@@ -1768,6 +2310,7 @@ export class GameSession {
         use: (item, n) => this.kit.consume(item, n),
         give: (item, n) => this.kit.adjust(item, n),
       }),
+      k9Treat: () => this.kit.consume('k9Treats', 1),
       bodycamWorn: () => this.station.loadout.bodycamMount !== 'none',
       nightFactor: () => this.env.lighting.nightFactor,
       lineOfSight: (building, ax, ay, az, bx, by, bz, ignore) => {
@@ -2049,8 +2592,10 @@ export class GameSession {
     if (this.interiors.officerBuilding !== st.id) return false;
     this.station.restore(newShiftStationSave());
     this.phase6.startShift();
-    // The field kit: markers, bags, camera, dust kit and tape; the ram stays in the trunk.
-    for (const [item, n] of FIELD_KIT) this.kit.adjust(item, n);
+    // What the officer's gear carries (med kit, naloxone, evidence kit, K9 treats...); the ram stays in the trunk.
+    for (const [item, n] of Object.entries(this.phase7.gear.kitGrants())) this.kit.adjust(item, n);
+    this.phase7.fleet.startShift(this.syncCadTime());
+    this.phase7.flashGearErrors();
     this.dispatcher.request(this.dispatcher.playerCallsign, { kind: 'status', status: 'outOfService' }, 'auto');
     return true;
   }
@@ -2268,6 +2813,10 @@ export class GameSession {
     env.wetness = w.wetness;
     env.snowCover = w.snowCover;
     env.ambientC = w.temperatureC;
+    // The drone's leash is anchored at the officer.
+    const anchor = this.playerPosition(scratchPoint);
+    env.anchorX = anchor.x;
+    env.anchorZ = anchor.z;
     const auto = this.env.lighting.headlightsOn;
     if (auto !== this.autoHeadlights) {
       this.autoHeadlights = auto;
@@ -2278,7 +2827,7 @@ export class GameSession {
     for (let i = 0; i < list.length; i++) {
       const vehicle = list[i] as DrivableVehicle;
       const isDriven = vehicle.eid === driven;
-      if (isDriven) vehicle.headlights = this.headlightOverride ?? auto;
+      if (isDriven && !this.remote) vehicle.headlights = this.headlightOverride ?? auto;
       // A parked car drops reverse (no reverse lamps or gear -1 for a car left in reverse).
       const t = vehicle.telemetry;
       mapDriverInput(isDriven ? this.driverInput : PARKED, t.speed, t.groundSpeed, isDriven && vehicle.reversing, this.controls);
@@ -2550,6 +3099,7 @@ export class GameSession {
     rng: Rng,
     equipment: EquipmentSave | null,
     create: (eid: EntityId) => DrivableVehicle,
+    setup: UnitSetup | null = null,
   ): DrivableVehicle {
     const world = this.ctx.world;
     const slot = this.vehicleList.length;
@@ -2560,13 +3110,19 @@ export class GameSession {
       EntityKind.kind[eid] = KIND.Vehicle;
       attachVehicleLook(world, eid, model.index, color);
       attachDrivable(world, eid);
-      const spec = model.equipment;
+      const spec = equipmentSpecFor(model, setup?.doc ?? null);
       if (spec) {
-        eq = equipment ? PatrolEquipment.restore(spec, equipment) : new PatrolEquipment(spec);
-        // Light-bar clock offset from a named stream: the same for this slot in every run and after a load.
-        attachPoliceLights(world, eid, this.rng.stream(`lights:${String(slot)}`).next());
+        const opts = equipmentOptions(model, setup?.loadout ?? null);
+        eq = equipment ? PatrolEquipment.restore(spec, equipment, opts) : new PatrolEquipment(spec, opts);
+        if (setup && !equipment) {
+          eq.setTone(setup.doc.lights.siren);
+          eq.setPattern(Math.max(0, patternIndex(setup.doc.lights.pattern)));
+        }
+        // Light-bar clock offset from a named stream: the same for this unit (or slot) in every run and after a load.
+        attachPoliceLights(world, eid, this.rng.stream(`lights:${setup?.unitId ?? String(slot)}`).next());
         eq.writeLook(eid, false);
       }
+      if (setup) VehicleLook.trim[eid] = trimBits(model, setup.doc.equipment.pushBar, setup.doc.equipment.spotlight, setup.doc.lights.style);
       vehicle = create(eid);
     } catch (error) {
       this.ctx.physics.removeBody(eid);
@@ -2636,6 +3192,43 @@ export class GameSession {
   private assertLive(): void {
     if (this.disposed) throw new Error('GameSession has been disposed');
   }
+}
+
+/** Rest height of a model at its home: boats float `WATER_Y` below the ground plane. */
+function spawnY(model: VehicleModel): number {
+  return restHeight(model) + (model.control === 'boat' ? WATER_Y : 0);
+}
+
+/** The body colour of a livery: its first wrap colour, else the base. */
+function liveryColor(doc: LiveryDoc): number {
+  return Number.parseInt((doc.wrap?.colors[0] ?? doc.base.color).slice(1), 16);
+}
+
+/** A stored vehicle moved to `pose` at rest (condition, wear and damage kept; a craft level and still). */
+function atPose(stored: SerializedVehicle, pose: VehiclePose): SerializedVehicle {
+  const half = pose.yaw / 2;
+  const { sim: _sim, craft, ...rest } = stored;
+  const out: SerializedVehicle = {
+    ...rest,
+    x: pose.x,
+    y: pose.y,
+    z: pose.z,
+    qx: 0,
+    qy: Math.sin(half),
+    qz: 0,
+    qw: Math.cos(half),
+    vx: 0,
+    vy: 0,
+    vz: 0,
+    wx: 0,
+    wy: 0,
+    wz: 0,
+    headlights: false,
+    lightbar: false,
+    reversing: false,
+  };
+  if (craft) out.craft = { speed: 0, vy: 0, yaw: pose.yaw, pitch: 0, roll: 0 };
+  return out;
 }
 
 /** The contact target of a `nearestPerson` pick. */
@@ -2758,7 +3351,11 @@ export function startNewGame(ctx: GameContext, seed: number | string, options: N
   try {
     const spawnAt = session.city.spawn;
     session.spawnPlayer({ x: spawnAt.x, y: PLAYER_SIZE.y / 2, z: spawnAt.z }, spawnAt.yaw);
-    session.parkPatrolCars();
+    if (options.character) {
+      session.setCharacter(options.character.profile);
+      session.phase7.restoreGear(options.character.gear);
+    }
+    session.parkFleet();
     session.primeColliders();
     // Fleet cars take their lanes before ambient traffic fills the rest (design §21).
     session.startDispatch();
@@ -2791,6 +3388,10 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
   const session = new GameSession(ctx, normalizeSeed(data.seed), rngFromState(data.rngState), clock);
   try {
     session.officer = { ...data.officer };
+    // Phase 7: the officer and the fleet first (the vehicles below are built from the units' liveries and loadouts).
+    session.phase7.restoreProfile(data.character.profile);
+    session.phase7.restoreGear(data.gear);
+    session.phase7.restoreFleet(data.fleet);
     session.controller.pitch = data.camera.pitch;
     if (data.camera.mode === CAMERA_MODE.chase || data.camera.mode === CAMERA_MODE.hood || data.camera.mode === CAMERA_MODE.cockpit) {
       session.cameraMode = data.camera.mode;
@@ -2810,11 +3411,16 @@ export function loadGame(ctx: GameContext, envelope: SaveEnvelope<SaveGame>): Ga
       const spawnAt = session.city.spawn;
       session.spawnPlayer({ x: spawnAt.x, y: PLAYER_SIZE.y / 2, z: spawnAt.z }, spawnAt.yaw);
     }
-    if (data.vehicles.length === 0) session.parkPatrolCars();
-    data.vehicles.forEach((saved, i) => session.restoreVehicle(saved, data.equipment[i] ?? null));
+    if (data.vehicles.length === 0) session.parkFleet();
+    data.vehicles.forEach((saved, i) => {
+      const unit = data.fleet.units.find((u) => u.vehicleIndex === i);
+      session.restoreVehicle(saved, data.equipment[i] ?? null, unit?.id ?? null);
+    });
     const driven = data.player.mode === 'driving' ? session.vehicles[data.player.vehicle] : undefined;
+    const piloted = data.player.mode === 'remote' ? session.vehicles[data.player.vehicle] : undefined;
     session.restoreLastVehicle(data.player.lastVehicle ?? -1);
     if (driven) session.enterVehicle(driven);
+    if (piloted) session.resumeDrone(piloted);
     session.restoreViolations(data.violations ?? []);
     session.restoreSpeeding(data.speeding ?? []);
     session.restoreOfficerKit(data.officerKit);

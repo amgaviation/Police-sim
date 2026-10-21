@@ -8,7 +8,7 @@ function map(input: Partial<DriverInput>, speed: number, reversing: boolean, gro
 
 describe('mapDriverInput', () => {
   it('drives forward and brakes while moving', () => {
-    expect(map({ accelerate: 0.7, steer: 0.4 }, 0, false)).toEqual({ throttle: 0.7, brake: 0, steer: 0.4, handbrake: false, reverse: false });
+    expect(map({ accelerate: 0.7, steer: 0.4 }, 0, false)).toEqual({ throttle: 0.7, brake: 0, steer: 0.4, handbrake: false, reverse: false, lift: 0 });
     expect(map({ brake: 1 }, 12, false)).toMatchObject({ throttle: 0, brake: 1, reverse: false });
   });
 
@@ -44,7 +44,16 @@ describe('mapDriverInput', () => {
       steer: -1,
       handbrake: true,
       reverse: false,
+      lift: 0,
     });
     expect(map({ steer: Number.NaN }, 0, false).steer).toBe(0);
+  });
+
+  it('copies the clamped aircraft lift (absent or NaN = 0)', () => {
+    expect(map({ lift: 0.4 }, 0, false).lift).toBe(0.4);
+    expect(map({ lift: -3 }, 0, false).lift).toBe(-1);
+    expect(map({ lift: 7 }, 0, false).lift).toBe(1);
+    expect(map({}, 0, false).lift).toBe(0);
+    expect(map({ lift: Number.NaN }, 0, false).lift).toBe(0);
   });
 });

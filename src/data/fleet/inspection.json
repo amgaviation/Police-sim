@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "items": [
+    { "id": "fuel", "label": "Fuel at least a quarter tank", "check": "fuelMin", "value": 0.25, "fix": "refuel" },
+    { "id": "oil", "label": "Oil level", "check": "oilMin", "value": 0.3, "fix": "oil" },
+    { "id": "tread", "label": "Tyre tread", "check": "treadMin", "value": 0.3, "fix": "tires" },
+    { "id": "flats", "label": "No flat tyres", "check": "noFlats", "fix": "tires" },
+    { "id": "engine", "label": "No engine warning", "check": "engineMin", "value": 0.6, "fix": "repair" },
+    { "id": "body", "label": "All damage reported", "check": "damageReported" },
+    { "id": "lamps", "label": "Lamps working", "check": "noFaults" },
+    { "id": "equipment", "label": "Equipment complete", "check": "loadoutComplete" },
+    { "id": "longGuns", "label": "Long guns racked, rack locked", "check": "rackSecured" },
+    { "id": "cage", "label": "Rear cage empty", "check": "cageEmpty" }
+  ]
+}

@@ -2,9 +2,28 @@
   "version": 1,
   "siren": { "tones": ["wail", "yelp", "phaser", "hilo"], "defaultTone": "wail" },
   "spotlight": { "yawMin": -1.0, "yawMax": 2.6, "pitchMin": -0.5, "pitchMax": 0.25, "defaultYaw": 0.25, "defaultPitch": -0.08, "aimRate": 0.0025 },
-  "rack": { "items": [{ "id": "shotgun", "label": "Patrol shotgun" }, { "id": "rifle", "label": "Patrol rifle" }], "unlockRequiresStop": true },
+  "rack": {
+    "items": [{ "id": "shotgun", "label": "Patrol shotgun" }, { "id": "rifle", "label": "Patrol rifle" }, { "id": "lessLethal", "label": "Less-lethal launcher" }],
+    "unlockRequiresStop": true
+  },
   "trunkLoadouts": {
     "patrol": { "cones": 6, "flares": 8, "firstAid": 1, "aed": 1, "spikeStrip": 1, "evidenceKit": 1, "fireExtinguisher": 1, "trafficVest": 1,
-      "ram": 1, "sceneTape": 1, "evidenceMarkers": 20, "evidenceBags": 20, "fingerprintKit": 1, "camera": 1 }
+      "ram": 1, "sceneTape": 1, "evidenceMarkers": 20, "evidenceBags": 20, "fingerprintKit": 1, "camera": 1,
+      "naloxone": 2, "tourniquet": 2, "halligan": 1 },
+    "supervisor": { "cones": 4, "flares": 6, "firstAid": 1, "aed": 1, "spikeStrip": 1, "evidenceKit": 1, "fireExtinguisher": 1, "trafficVest": 1,
+      "naloxone": 2, "tourniquet": 2, "drone": 1 },
+    "unmarked": { "firstAid": 1, "flares": 4, "evidenceKit": 1, "trafficVest": 1, "naloxone": 1, "tourniquet": 1 },
+    "traffic": { "cones": 8, "flares": 12, "firstAid": 1, "aed": 1, "spikeStrip": 1, "fireExtinguisher": 1, "trafficVest": 1, "naloxone": 1, "tourniquet": 1 },
+    "k9": { "firstAid": 1, "aed": 1, "flares": 4, "k9Treats": 5, "evidenceKit": 1, "trafficVest": 1, "naloxone": 1, "tourniquet": 1 },
+    "motor": { "flares": 4, "firstAid": 1, "tourniquet": 1 },
+    "bicycle": { "firstAid": 1, "naloxone": 1, "tourniquet": 1 },
+    "atv": { "firstAid": 1, "flares": 4, "tourniquet": 1 },
+    "swat": { "firstAid": 2, "aed": 1, "ram": 2, "halligan": 2, "tourniquet": 2, "naloxone": 2, "evidenceKit": 1, "drone": 1 },
+    "armored": { "firstAid": 2, "aed": 1, "ram": 1, "halligan": 1, "tourniquet": 2, "fireExtinguisher": 1 },
+    "transport": { "firstAid": 1, "aed": 1, "naloxone": 2, "tourniquet": 1 },
+    "command": { "cones": 12, "flares": 12, "firstAid": 2, "aed": 1, "sceneTape": 4, "evidenceKit": 1, "trafficVest": 4, "drone": 1 },
+    "lab": { "evidenceKit": 2, "evidenceMarkers": 20, "evidenceBags": 20, "fingerprintKit": 2, "camera": 2, "sceneTape": 4, "firstAid": 1 },
+    "marine": { "firstAid": 1, "aed": 1, "flares": 6, "naloxone": 1, "tourniquet": 1 },
+    "air": { "firstAid": 1, "tourniquet": 1 }
   }
 }

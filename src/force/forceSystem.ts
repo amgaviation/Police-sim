@@ -91,6 +91,11 @@ export class ForceSystem {
   private episode: Episode | null = null;
   private seenMask = 0;
   private rev = 0;
+  /** Seconds left of the sidearm draw (holster retention); `apply` is refused while positive. */
+  private drawingS = 0;
+  /** Actors that started a fight since the last step (weapon-grab rolls). */
+  private readonly attacks: number[] = [];
+  private readonly offAttack: () => void;
 
   constructor(deps: ForceDeps) {
     this.deps = deps;
@@ -107,6 +112,9 @@ export class ForceSystem {
     this.cartridges = fresh.cartridges;
     this.rounds = fresh.rounds;
     this.refreshHud();
+    this.offAttack = deps.bus.on('npc:attack', (e) => {
+      if (e.kind === 'fight' && this.attacks.length < MAX_QUEUE) this.attacks.push(e.actorId);
+    });
   }
 
   /** The selected tool. */
@@ -132,12 +140,14 @@ export class ForceSystem {
   /** Fixed step (order -685). */
   step(dt: number, t: CadTime, officer: ForceOfficer): void {
     this.refillAmmo();
+    if (this.drawingS > 0) this.drawingS = Math.max(0, this.drawingS - dt);
     for (let i = 0; i < this.queue.length; i++) {
       const r = this.queue[i];
       if (r) this.handle(r, t, officer);
     }
     this.queue.length = 0;
     this.checkHeld(officer);
+    this.stepGrabs(t, officer);
     if (this.attached !== null && t.sim - this.attached.sinceSim > this.cfg.taser.attachMaxS) {
       this.attached = null;
       this.refreshHud();
@@ -169,6 +179,7 @@ export class ForceSystem {
       episode: ep ? { ...ep } : null,
       armorySeen: seen,
       queue: this.queue.map((r) => ({ ...r })),
+      ...(this.drawingS > 0 ? { drawingS: this.drawingS } : {}),
     };
   }
 
@@ -193,10 +204,16 @@ export class ForceSystem {
     }
     this.queue.length = 0;
     for (const r of s.queue) this.queue.push({ ...r });
+    this.drawingS = this.toolId === 'firearm' ? Math.max(0, s.drawingS ?? 0) : 0;
+    this.attacks.length = 0;
     this.refreshHud();
   }
 
+  /** Unsubscribes from the bus and clears the state. */
   dispose(): void {
+    this.offAttack();
+    this.attacks.length = 0;
+    this.drawingS = 0;
     this.queue.length = 0;
     this.cycles.clear();
     this.violent.clear();
@@ -292,6 +309,7 @@ export class ForceSystem {
 
   private setTool(id: ForceToolId, t: CadTime, o: ForceOfficer): void {
     this.toolId = id;
+    this.drawingS = id === 'firearm' ? this.cfg.retention.drawS[this.holsterLevel() - 1] ?? 0 : 0;
     this.deps.scene.setWeapon(id === 'firearm' ? 'sidearm' : id === 'taser' || id === 'lessLethal' ? 'taser' : 'none');
     this.deps.bus.emit('force:tool', { tool: id });
     this.refreshHud();
@@ -321,10 +339,38 @@ export class ForceSystem {
     } else if (id !== 'hands' && !this.armoryHas(id)) reason = `${this.defs[id]?.label ?? id} returned to the armory`;
     if (reason === '') return;
     this.toolId = 'none';
+    this.drawingS = 0;
     this.deps.scene.setWeapon('none');
     this.deps.bus.emit('force:tool', { tool: 'none' });
     this.refreshHud();
     if (reason !== '-') this.flash(reason);
+  }
+
+  /** Holster retention level 1..3 (absent dependency = 1). */
+  private holsterLevel(): 1 | 2 | 3 {
+    const level = Math.round(this.deps.holsterLevel?.() ?? 1);
+    return level >= 3 ? 3 : level <= 1 ? 1 : 2;
+  }
+
+  /**
+   * Weapon-grab rolls for the fights started since the last step: only with the sidearm out and the attacker within
+   * `grabRangeM` is a draw taken (so runs without that situation consume nothing new). A success holsters the weapon.
+   */
+  private stepGrabs(t: CadTime, o: ForceOfficer): void {
+    const n = this.attacks.length;
+    if (n === 0) return;
+    const ret = this.cfg.retention;
+    for (let i = 0; i < n; i++) {
+      if (this.toolId !== 'firearm') break;
+      const info = this.deps.npc.actor(this.attacks[i] ?? 0, this.scan);
+      if (!info || (info.building ?? -1) !== o.building) continue;
+      if (Math.hypot(info.x - o.x, info.z - o.z) > ret.grabRangeM) continue;
+      if (this.deps.rng.next() < (ret.grabChance[this.holsterLevel() - 1] ?? 0)) {
+        this.setTool('hands', t, o);
+        this.flash('Weapon retention: the subject grabbed for your sidearm, you kept it holstered');
+      }
+    }
+    this.attacks.length = 0;
   }
 
   /** Ammo refills to full when an armory item goes from returned to signed out. */
@@ -406,6 +452,10 @@ export class ForceSystem {
     if (tool === 'none' || !o.onFoot) return;
     const def = this.defs[tool];
     if (!def) return;
+    if (tool === 'firearm' && this.drawingS > 0) {
+      this.flash('Drawing…');
+      return;
+    }
     const { npc, people, bus } = this.deps;
     const cfg = this.cfg;
     const usesAmmo = tool === 'taser' || tool === 'lessLethal' || tool === 'firearm';

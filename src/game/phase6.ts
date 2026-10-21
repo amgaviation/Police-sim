@@ -2,7 +2,7 @@ import '../backup/events';
 import '../command/events';
 import '../pursuit/events';
 import '../resources/events';
-import { BackupSystem, emptyBackupSave, type BackupContext, type BackupSave } from '../backup';
+import { BackupSystem, emptyBackupSave, type BackupAppearance, type BackupAppearanceRole, type BackupContext, type BackupSave } from '../backup';
 import type { CadState } from '../cad/cadState';
 import { callNumber } from '../cad/cadState';
 import { CommandSystem, emptyCommandSave, type CommandContext, type CommandSave } from '../command';
@@ -93,6 +93,8 @@ export interface Phase6Host {
   takeStrip(): boolean;
   /** Shows a line on the HUD legal line. */
   flash(text: string, severity?: 'ok' | 'warn' | 'bad'): void;
+  /** Phase 7: the outfit of an AI officer (table index and colours); null keeps the plain figure. */
+  appearanceOf?(callsign: string, role: BackupAppearanceRole): BackupAppearance | null;
 }
 
 const NIGHT_FACTOR = 0.5;
@@ -265,6 +267,7 @@ export class Phase6 {
       callBuilding: (callId) => scene.buildingOfCall(callId),
       swatOnScene: (callId) => this.resources.onScene(callId, 'swat'),
       negotiationTrust: (callId) => this.command.negotiationTrust(callId),
+      ...(host.appearanceOf ? { appearanceOf: (callsign: string, role: BackupAppearanceRole) => host.appearanceOf?.(callsign, role) ?? null } : {}),
     });
     this.command = new CommandSystem({
       seed,

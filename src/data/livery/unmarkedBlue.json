@@ -1,0 +1,30 @@
+{
+  "format": "patrol-livery",
+  "version": 1,
+  "id": "unmarkedBlue",
+  "name": "Unmarked blue",
+  "author": "Default",
+  "base": {
+    "color": "#1f2a3a",
+    "finish": "gloss"
+  },
+  "wrap": {
+    "kind": "solid",
+    "colors": [
+      "#1f2a3a"
+    ],
+    "split": 0.5
+  },
+  "layers": [],
+  "lights": {
+    "style": "hidden",
+    "pattern": "takedown",
+    "siren": "phaser"
+  },
+  "equipment": {
+    "pushBar": false,
+    "spotlight": true,
+    "partition": true
+  },
+  "loadout": null
+}

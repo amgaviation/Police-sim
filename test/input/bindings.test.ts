@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTION_IDS, isActionId } from '../../src/input/actions';
+import { ACTIONS, ACTION_IDS, isActionId, isBipolar } from '../../src/input/actions';
 import {
   BINDINGS_SCHEMA_VERSION,
   DEFAULT_BINDINGS,
@@ -84,6 +84,8 @@ describe('Phase 2 default bindings', () => {
       'KeyX', 'KeyQ', 'KeyR', 'KeyF', 'MouseButton2', 'GamepadButton6', 'GamepadButton11', 'GamepadButton12',
       // Phase 5: H (headlights / intervene) and J (spotlight / bodycam mute).
       'KeyH', 'KeyJ',
+      // Phase 7: ShiftLeft is also the aircraft descend key (sprint on foot); Space is the handbrake and the climb key.
+      'ShiftLeft',
     ]);
     const owners = new Map<string, string[]>();
     for (const id of ACTION_IDS) {
@@ -106,7 +108,10 @@ describe('Phase 2 default bindings', () => {
         k,
       ).toBe(true);
       // Never two actions of the same context on one input: at most one on-foot (move./officer.) pairing with vehicle ones.
-      expect(ids.filter((id) => id.startsWith('vehicle.')).length, k).toBeLessThanOrEqual(1);
+      // The one documented exception: Space is both the handbrake and the aircraft climb key (aircraft have no handbrake).
+      const vehicleIds = ids.filter((id) => id.startsWith('vehicle.'));
+      if (code === 'Space') expect(vehicleIds.sort(), k).toEqual(['vehicle.handbrake', 'vehicle.lift']);
+      else expect(vehicleIds.length, k).toBeLessThanOrEqual(1);
     }
   });
 });
@@ -333,6 +338,82 @@ describe('Phase 6 default bindings', () => {
       expect(r[id], id).toBe(1);
       expect(phase6.filter((o) => r[o] === 1)).toEqual([id]);
     }
+  });
+});
+
+describe('Phase 7 default bindings', () => {
+  const phase7 = ['vehicle.lift', 'fleet.menu', 'drone.toggle'] as const;
+  const raw = (keys: string[]): RawInputState => ({
+    keys: new Set(keys),
+    mouseButtons: new Set<number>(),
+    mouse: { x: 0, y: 0, wheel: 0 },
+    gamepadButtons: [],
+    gamepadAxes: [],
+  });
+
+  it('declares the actions with their kinds and labels', () => {
+    expect(ACTIONS['vehicle.lift']).toEqual({ kind: 'axis', label: 'Climb / descend (aircraft)', bipolar: true });
+    expect(ACTIONS['fleet.menu']).toEqual({ kind: 'button', label: 'Fleet / garage panel' });
+    expect(ACTIONS['drone.toggle']).toEqual({ kind: 'button', label: 'Deploy / recall drone' });
+    expect(isBipolar('vehicle.lift')).toBe(true);
+    for (const id of phase7) expect(isActionId(id)).toBe(true);
+  });
+
+  it('binds Space (+1) and ShiftLeft (-1) to the aircraft lift, Quote to the fleet panel and Equal to the drone', () => {
+    expect(DEFAULT_BINDINGS['vehicle.lift']).toEqual([
+      { device: 'keyboard', code: 'Space' },
+      { device: 'keyboard', code: 'ShiftLeft', scale: -1 },
+    ]);
+    expect(DEFAULT_BINDINGS['fleet.menu']).toEqual([{ device: 'keyboard', code: 'Quote' }]);
+    expect(DEFAULT_BINDINGS['drone.toggle']).toEqual([{ device: 'keyboard', code: 'Equal' }]);
+    for (const id of phase7) for (const b of DEFAULT_BINDINGS[id]) expect(isBinding(b), `${id}: ${b.code}`).toBe(true);
+  });
+
+  it('Quote and Equal collide with no other default binding', () => {
+    for (const [id, code] of [['fleet.menu', 'Quote'], ['drone.toggle', 'Equal']] as const) {
+      const owners = ACTION_IDS.filter((a) => DEFAULT_BINDINGS[a].some((b) => b.device === 'keyboard' && b.code === code));
+      expect(owners, code).toEqual([id]);
+    }
+  });
+
+  it('Space and ShiftLeft are shared only with the handbrake / tackle and the sprint', () => {
+    const owners = (code: string): string[] =>
+      ACTION_IDS.filter((a) => DEFAULT_BINDINGS[a].some((b) => b.device === 'keyboard' && b.code === code));
+    expect(owners('Space').sort()).toEqual(['officer.tackle', 'vehicle.handbrake', 'vehicle.lift']);
+    expect(owners('ShiftLeft').sort()).toEqual(['move.sprint', 'vehicle.lift']);
+  });
+
+  it('resolves the lift axis from Space and ShiftLeft', () => {
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['Space']))['vehicle.lift']).toBe(1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['ShiftLeft']))['vehicle.lift']).toBe(-1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['Space', 'ShiftLeft']))['vehicle.lift']).toBe(0);
+    expect(resolveActions(DEFAULT_BINDINGS, raw([]))['vehicle.lift']).toBe(0);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['Quote']))['fleet.menu']).toBe(1);
+    expect(resolveActions(DEFAULT_BINDINGS, raw(['Equal']))['drone.toggle']).toBe(1);
+    // Sprint and the handbrake still resolve from the shared keys.
+    const shift = resolveActions(DEFAULT_BINDINGS, raw(['ShiftLeft']));
+    expect([shift['move.sprint'], shift['vehicle.handbrake']]).toEqual([1, 0]);
+  });
+
+  it('survive a round trip and an old save without them gets the defaults', () => {
+    expect(parseBindings(JSON.parse(JSON.stringify(serializeBindings(DEFAULT_BINDINGS))))).toEqual(DEFAULT_BINDINGS);
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([id]) => !phase7.some((p) => p === id)));
+    expect(parseBindings({ version: BINDINGS_SCHEMA_VERSION, bindings: old })).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it('keeps the negative slot of the lift axis negative when rebound', () => {
+    const slot = DEFAULT_BINDINGS['vehicle.lift'][1];
+    expect(bindingSign(slot)).toBe(-1);
+    expect(withBindingSign({ device: 'keyboard', code: 'KeyZ' }, bindingSign(slot), 'vehicle.lift')).toEqual({
+      device: 'keyboard',
+      code: 'KeyZ',
+      scale: -1,
+    });
+    expect(withBindingSign({ device: 'gamepad', code: 'GamepadAxis3', scale: 1 }, -1, 'vehicle.lift')).toEqual({
+      device: 'gamepad',
+      code: 'GamepadAxis3',
+      scale: -1,
+    });
   });
 });
 

@@ -5,10 +5,14 @@ import {
   communityModel,
   districtLabel,
   dutyText,
+  fleetSection,
   formatUntil,
   trendArrow,
   type CareerSection,
+  type MdtFleetDeps,
+  type MdtFleetSummary,
 } from '../../src/ui/mdt';
+import type { LedgerEntry } from '../../src/fleet/types';
 import { formatStamp } from '../../src/records/calendar';
 import { at } from './helpers';
 import { careerView, courtCase, iaCase } from './phase5';
@@ -222,5 +226,64 @@ describe('communityModel', () => {
     expect(districtLabel('suburbs')).toBe('Suburbs');
     expect(districtLabel('industrialPark')).toBe('Industrial park');
     expect(districtLabel('')).toBe('Unknown');
+  });
+});
+
+describe('careerModel: Fleet block (Phase 7)', () => {
+  const entry = (seq: number, over: Partial<LedgerEntry> = {}): LedgerEntry => ({
+    seq, game: 50000 + seq * 60, unitId: 'P-101', kind: 'charge', cost: 1200, points: -3, note: 'front damage', ...over,
+  });
+  const feed = (charges: LedgerEntry[], over: Partial<MdtFleetSummary> = {}): MdtFleetDeps => ({
+    summary: () => ({ points: -7, departmentCost: 3126, incidents: 3, unreported: 1, ...over }),
+    charges: () => charges,
+  });
+
+  it('is absent without a fleet feed: the older section list is unchanged', () => {
+    const m = careerModel(careerView(), [], now);
+    expect(m.sections.map((s) => s.id)).not.toContain('fleet');
+    expect(m.sections.map((s) => s.id)).toEqual(['duty', 'calendar', 'cases', 'ia', 'commendations', 'discipline', 'reports', 'stats']);
+  });
+
+  it('sits before the record and shows points, cost, incidents and unreported damage', () => {
+    const m = careerModel(careerView(), [], now, { fleet: feed([entry(1)]) });
+    expect(m.sections.map((s) => s.id)).toEqual(['duty', 'calendar', 'cases', 'ia', 'commendations', 'discipline', 'reports', 'fleet', 'stats']);
+    const lines = section(m, 'fleet').lines;
+    expect(section(m, 'fleet').title).toBe('Fleet');
+    expect(lines.slice(0, 4).map((l) => [l.label, l.text, l.severity])).toEqual([
+      ['Points charged', '-7', 'caution'],
+      ['Department cost', '$ 3 126', 'none'],
+      ['Damage incidents', '3', 'none'],
+      ['Unreported damage', '1', 'alert'],
+    ]);
+    expect(lines[4]).toMatchObject({ label: formatStamp(50060), text: 'P-101 · front damage · $ 1 200 · -3 pts', severity: 'caution' });
+  });
+
+  it('lists the last 10 charges, newest first, ignoring other ledger entries', () => {
+    const charges = Array.from({ length: 14 }, (_, i) => entry(i + 1, { unitId: `U-${String(i + 1)}` }));
+    charges.push(entry(99, { kind: 'fuel', unitId: 'FUEL', points: 0 }));
+    const lines = section(careerModel(careerView(), [], now, { fleet: feed(charges) }), 'fleet').lines;
+    const rows = lines.slice(4);
+    expect(rows).toHaveLength(10);
+    expect(rows[0]?.text.startsWith('U-14')).toBe(true);
+    expect(rows[9]?.text.startsWith('U-5')).toBe(true);
+    expect(rows.some((l) => l.text.startsWith('FUEL'))).toBe(false);
+  });
+
+  it('handles no charges and a clean sheet', () => {
+    const lines = section(careerModel(careerView(), [], now, { fleet: feed([], { points: 0, departmentCost: 0, incidents: 0, unreported: 0 }) }), 'fleet').lines;
+    expect(lines.map((l) => [l.label, l.text, l.severity])).toEqual([
+      ['Points charged', '0', 'none'],
+      ['Department cost', '$ 0', 'none'],
+      ['Damage incidents', '0', 'none'],
+      ['Unreported damage', '0', 'none'],
+      ['Charges', 'None', 'none'],
+    ]);
+  });
+
+  it('does not reorder or mutate the feed', () => {
+    const charges = [entry(2), entry(1)];
+    const copy = charges.map((c) => ({ ...c }));
+    fleetSection(feed(charges));
+    expect(charges).toEqual(copy);
   });
 });

@@ -57,11 +57,13 @@ import {
   visibilityText,
 } from './tactical';
 import { BACKUP_HUD_LINES, PURSUIT_VERDICT_MS } from './phase6';
+import { altitudeText, batteryText, fleetChipText, gearWarningText, oilLowFlag, tyresWornFlag, type HudWear } from './phase7';
 import type { HudBodycam, HudLocation, HudTactical } from './types';
 
 /** Everything the HUD shows; the integrator may reuse one object per frame. */
 export interface HudSnapshot {
-  mode: 'onFoot' | 'driving';
+  /** `remote`: the officer flies a drone (the telemetry is the drone's). */
+  mode: 'onFoot' | 'driving' | 'remote';
   telemetry: Readonly<VehicleTelemetry> | null;
   time: Readonly<GameTime>;
   weather: Readonly<WeatherState>;
@@ -134,6 +136,17 @@ export interface HudSnapshot {
   command?: string | null;
   /** FLIR overlay on (the app swaps the camera). */
   flir?: boolean;
+  // Phase 7 (design §12.4): optional as well; absent or null hides the element.
+  /** Oil level and lowest tyre tread of the driven vehicle: chips 'OIL LOW' / 'TYRES WORN' below 25 %. */
+  wear?: Readonly<HudWear> | null;
+  /** Aircraft altitude in metres (chip 'ALT 120 m'). */
+  altitude?: number | null;
+  /** Drone battery 0..1: the fuel gauge shows 'BATT 64 %' instead of the fuel percentage. */
+  battery?: number | null;
+  /** Fleet chip ('P-101 · damage report due'). */
+  fleet?: string | null;
+  /** Gear warning line in the legal-line style ('Loadout: overweight 15.2 / 14 kg'). */
+  gearWarning?: string | null;
 }
 
 export interface HudOptions {
@@ -252,6 +265,17 @@ export interface HudText {
   command: string;
   /** FLIR chip. */
   flir: boolean;
+  /** 'OIL LOW' / 'TYRES WORN' chips (driving only). */
+  oilLow: boolean;
+  tyresWorn: boolean;
+  /** 'ALT 120 m'; '' hides the chip. */
+  altitude: string;
+  /** 'BATT 64 %' replaces the fuel gauge label; '' keeps the fuel label. */
+  battery: string;
+  /** Fleet chip; '' hides it. */
+  fleet: string;
+  /** Gear warning line; '' hides it. */
+  gearWarning: string;
 }
 
 export function createHudText(): HudText {
@@ -320,6 +344,12 @@ export function createHudText(): HudText {
     resourceEta: '',
     command: '',
     flir: false,
+    oilLow: false,
+    tyresWorn: false,
+    altitude: '',
+    battery: '',
+    fleet: '',
+    gearWarning: '',
   };
 }
 
@@ -335,13 +365,17 @@ function weatherText(w: Readonly<WeatherState>): string {
 
 /** Fills `out` with the HUD text for `s` (pure; builds strings, so call it at the throttled rate). */
 export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText {
-  const t = s.mode === 'driving' ? s.telemetry : null;
+  const t = s.mode === 'driving' || s.mode === 'remote' ? s.telemetry : null;
   out.driving = t !== null;
   out.speed = t ? formatSpeedMph(t.speedMph) : '';
   out.gear = t ? formatGear(t.gear) : '';
   out.abs = t ? t.absActive : false;
-  out.fuel = t ? formatFuel(t.fuelFraction) : '';
-  out.fuelLow = t ? t.fuelFraction < FUEL_LOW_FRACTION : false;
+  // A drone's battery replaces the fuel gauge (same bar and low warning).
+  const battery = t && s.battery !== null && s.battery !== undefined && Number.isFinite(s.battery) ? s.battery : null;
+  const gauge = battery ?? (t ? t.fuelFraction : 0);
+  out.battery = battery === null ? '' : batteryText(battery);
+  out.fuel = t ? formatFuel(gauge) : '';
+  out.fuelLow = t ? gauge < FUEL_LOW_FRACTION : false;
   out.engineWarn = t ? !t.engineRunning || t.engineHealth < ENGINE_WARN_HEALTH : false;
   out.tyreWarn = t ? t.tireFlat[0] || t.tireFlat[1] || t.tireFlat[2] || t.tireFlat[3] : false;
   out.brakesWarn = t ? t.brakeTempC >= BRAKES_HOT_C || t.brakeEfficiency < 0.999 : false;
@@ -414,6 +448,11 @@ export function hudText(s: HudSnapshot, out: HudText = createHudText()): HudText
   out.resourceEta = s.resourceEta ?? '';
   out.command = s.command ?? '';
   out.flir = s.flir === true;
+  out.oilLow = t ? oilLowFlag(s.wear) : false;
+  out.tyresWorn = t ? tyresWornFlag(s.wear) : false;
+  out.altitude = t ? altitudeText(s.altitude) : '';
+  out.fleet = fleetChipText(s.fleet);
+  out.gearWarning = gearWarningText(s.gearWarning);
   return out;
 }
 
@@ -490,6 +529,7 @@ const STYLES = {
   pursuit6: `${PANEL};left:50%;top:${px(56)};transform:translateX(-50%);background:rgba(120,10,10,0.8);color:#ffd9d9;font-weight:700;font-size:${px(14)};letter-spacing:0.05em;white-space:nowrap`,
   pursuitVerdict: `${PANEL};left:50%;top:${px(92)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-weight:700;font-size:${px(14)};white-space:nowrap`,
   backupPanel: `${PANEL};position:relative;border-left:4px solid #6c9bff;font-size:${px(12)};font-weight:600`,
+  gearLine: `${PANEL};left:50%;bottom:${px(160)};transform:translateX(-50%);border-left:4px solid #f2c14e;font-size:${px(14)};font-weight:700;white-space:nowrap`,
   commandLine: `${PANEL};position:relative;border-left:4px solid #f2c14e;font-size:${px(12)};font-weight:700;letter-spacing:0.04em`,
 } as const;
 
@@ -572,6 +612,11 @@ interface HudView {
   resourceEta: HTMLSpanElement;
   command: HTMLDivElement;
   flirChip: HTMLSpanElement;
+  oilChip: HTMLSpanElement;
+  wornChip: HTMLSpanElement;
+  altChip: HTMLSpanElement;
+  fleetChip: HTMLSpanElement;
+  gearLine: HTMLDivElement;
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, style: string, parent: HTMLElement | null, text = ''): HTMLElementTagNameMap[K] {
@@ -603,6 +648,7 @@ function buildView(parent: HTMLElement): HudView {
   const episode = chip('', '#ff4d4d', chipRow);
   const resourceEta = chip('', '#9fd0ff', chipRow);
   const flirChip = chip('FLIR', '#e8f4ea', chipRow);
+  const fleetChip = chip('', '#f2c14e', chipRow);
   const tacticalRow = node('div', STYLES.tacticalRow, bottomRight);
   tacticalRow.style.display = 'none';
   const tactical = node('div', STYLES.tacticalChips, tacticalRow);
@@ -631,6 +677,9 @@ function buildView(parent: HTMLElement): HudView {
   const tyre = chip('TYRE', '#ff6b4a', warnings);
   const brakes = chip('BRAKES HOT', '#ffa34a', warnings);
   const fuelLow = chip('FUEL LOW', '#ffa34a', warnings);
+  const oilChip = chip('OIL LOW', '#ffa34a', warnings);
+  const wornChip = chip('TYRES WORN', '#ffa34a', warnings);
+  const altChip = chip('', '#9fd0ff', warnings);
   const damage = chip('', '#d9d9d9', warnings);
   const status = node('div', STYLES.status, speedPanel);
   const police = node('div', STYLES.police, speedPanel);
@@ -711,6 +760,8 @@ function buildView(parent: HTMLElement): HudView {
   prompt.style.display = 'none';
   const legal = node('div', STYLES.legalLine, root);
   legal.style.display = 'none';
+  const gearLine = node('div', STYLES.gearLine, root);
+  gearLine.style.display = 'none';
 
   parent.appendChild(root);
   return {
@@ -722,6 +773,7 @@ function buildView(parent: HTMLElement): HudView {
     tacticalRow, tactical, noise, visibility, bodycam, shift, caseLine, location,
     dash, forceChip, episode, legal, duty, court, trust,
     backupPanel, backupRows, pursuit6, pursuitVerdict, resourceEta, command, flirChip,
+    oilChip, wornChip, altChip, fleetChip, gearLine,
   };
 }
 
@@ -816,11 +868,13 @@ export class Hud {
       o.gear = n.gear;
       if (v) v.gear.textContent = n.gear;
     }
-    if (all || n.fuel !== o.fuel) {
+    if (all || n.fuel !== o.fuel || n.battery !== o.battery) {
       o.fuel = n.fuel;
+      o.battery = n.battery;
       if (v) {
-        v.fuel.textContent = n.fuel;
+        v.fuel.textContent = n.battery !== '' ? n.battery : n.fuel;
         v.fuelBar.style.width = n.fuel;
+        v.fuelLow.textContent = n.battery !== '' ? 'BATT LOW' : 'FUEL LOW';
       }
     }
     if (all || n.fuelLow !== o.fuelLow) {
@@ -903,6 +957,7 @@ export class Hud {
     this.applyTactical(all);
     this.applyLaw(all);
     this.applyPhase6(all);
+    this.applyPhase7(all);
   }
 
   /** Phase 2 fields (police line, unit chip, call strip, offer, target, carried). */
@@ -1212,6 +1267,42 @@ export class Hud {
     if (all || n.flir !== o.flir) {
       o.flir = n.flir;
       if (v) show(v.flirChip, n.flir, 'inline');
+    }
+  }
+
+  /** Phase 7 fields (wear and altitude chips, fleet chip, gear warning line). */
+  private applyPhase7(all: boolean): void {
+    const n = this.next;
+    const o = this.shown;
+    const v = this.view;
+    if (all || n.oilLow !== o.oilLow) {
+      o.oilLow = n.oilLow;
+      if (v) show(v.oilChip, n.oilLow, 'inline');
+    }
+    if (all || n.tyresWorn !== o.tyresWorn) {
+      o.tyresWorn = n.tyresWorn;
+      if (v) show(v.wornChip, n.tyresWorn, 'inline');
+    }
+    if (all || n.altitude !== o.altitude) {
+      o.altitude = n.altitude;
+      if (v) {
+        v.altChip.textContent = n.altitude;
+        show(v.altChip, n.altitude !== '', 'inline');
+      }
+    }
+    if (all || n.fleet !== o.fleet) {
+      o.fleet = n.fleet;
+      if (v) {
+        v.fleetChip.textContent = n.fleet;
+        show(v.fleetChip, n.fleet !== '', 'inline');
+      }
+    }
+    if (all || n.gearWarning !== o.gearWarning) {
+      o.gearWarning = n.gearWarning;
+      if (v) {
+        v.gearLine.textContent = n.gearWarning;
+        show(v.gearLine, n.gearWarning !== '');
+      }
     }
   }
 }

@@ -112,3 +112,13 @@ export {
   type LegalSeverity,
   type TrustBand,
 } from './law';
+export {
+  WEAR_LOW_FRACTION,
+  altitudeText,
+  batteryText,
+  fleetChipText,
+  gearWarningText,
+  oilLowFlag,
+  tyresWornFlag,
+  type HudWear,
+} from './phase7';

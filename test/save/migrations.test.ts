@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { migratedFleetSave } from '../../src/fleet/save';
+import { defaultGearSave } from '../../src/gear';
+import { characterFromLegacy } from '../../src/uniform';
 import { emptyBackupSave } from '../../src/backup/save';
 import { emptyCadSave } from '../../src/cad/cadState';
 import { emptyCommandSave } from '../../src/command/save';
@@ -32,6 +35,7 @@ import {
   migrateV5ToV6,
   migrateV6ToV7,
   migrateV7ToV8,
+  migrateV8ToV9,
   migrations,
   type MigrationTable,
 } from '../../src/save/migrations';
@@ -46,6 +50,7 @@ import {
   isSaveGameV6,
   isSaveGameV7,
   isSaveGameV8,
+  isSaveGameV9,
   isSavedVehicle,
   type SaveEnvelope,
   type SaveGame,
@@ -64,6 +69,7 @@ import {
   makeSaveGameV5,
   makeSaveGameV6,
   makeSaveGameV7,
+  makeSaveGameV8,
   makeLegacyEquipmentSave,
   migratedStationSave,
   PHASE4_TRUNK_ITEMS,
@@ -133,6 +139,15 @@ function v8Defaults(seed: number): Partial<SaveGame> {
   };
 }
 
+/** Defaults every migrated pre-v9 save gets (the fleet stream depends on the seed; the fleet binds the saved vehicles by model). */
+function v9Defaults(seed: number, officer: { name: string; badge: string }, models: readonly string[]): Partial<SaveGame> {
+  return {
+    character: { version: 1, profile: characterFromLegacy(officer.name, officer.badge) },
+    gear: defaultGearSave(),
+    fleet: migratedFleetSave(createRng(seed).stream('fleet').state(), models),
+  };
+}
+
 /** The saved patrol-car equipment of the fixtures after the v6 migration (trunks gain the Phase 4 items from the patrol loadout). */
 function migratedEquipment(): SaveGame['equipment'] {
   const eq = makeLegacyEquipmentSave();
@@ -169,13 +184,13 @@ function envelope<T>(version: number, data: T): SaveEnvelope<T> {
 
 describe('migrateEnvelope', () => {
   it('ships a step for every version below the current one', () => {
-    expect(CURRENT_SAVE_VERSION).toBe(8);
+    expect(CURRENT_SAVE_VERSION).toBe(9);
     for (let v = 1; v < CURRENT_SAVE_VERSION; v++) expect(migrations[v]).toBeTypeOf('function');
   });
 
-  it('migrates v1 saves to v8: bodies at rest and awake, default camera, v3 and v4 defaults', () => {
+  it('migrates v1 saves to v9: bodies at rest and awake, default camera, v3 and v4 defaults', () => {
     const out = migrateEnvelope(envelope<unknown>(1, makeSaveGameV1()));
-    expect(out.version).toBe(8);
+    expect(out.version).toBe(9);
     expect(out.data.camera).toEqual({ pitch: V1_DEFAULT_PITCH, mode: CAMERA_MODE.chase });
     expect(out.data.world.entities).toEqual([
       { kind: 1, x: 0, y: 1, z: 2, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, sleeping: false },
@@ -186,25 +201,26 @@ describe('migrateEnvelope', () => {
     expect(out.data).toMatchObject(v6Defaults(42, '4471'));
     expect(out.data).toMatchObject(v7Defaults(42));
     expect(out.data).toMatchObject(v8Defaults(42));
+    expect(out.data).toMatchObject(v9Defaults(42, { name: 'A. Vance', badge: '4471' }, []));
     expect(isSaveGame(out.data)).toBe(true);
   });
 
-  it('migrates v2 saves to v8: everything kept, on foot, chase camera, fresh traffic, environment and patrol state', () => {
+  it('migrates v2 saves to v9: everything kept, on foot, chase camera, fresh traffic, environment and patrol state', () => {
     const v2 = makeSaveGameV2();
     const out = migrateEnvelope(envelope<unknown>(2, v2));
-    expect(out.version).toBe(8);
-    expect(out.data).toEqual({ ...v2, camera: { pitch: 0.4, mode: CAMERA_MODE.chase }, ...V3_DEFAULTS, ...v4Defaults(42, 0), ...v5Defaults(42), ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42) });
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v2, camera: { pitch: 0.4, mode: CAMERA_MODE.chase }, ...V3_DEFAULTS, ...v4Defaults(42, 0), ...v5Defaults(42), ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42), ...v9Defaults(42, { name: 'A. Vance', badge: '4471' }, []) });
     expect(isSaveGame(out.data)).toBe(true);
     expect(isSaveGameV2(out.data)).toBe(true);
   });
 
-  it('migrates v3 saves to v8: everything kept, empty CAD and records, no dispatcher, default radio, null equipment, empty kit', () => {
+  it('migrates v3 saves to v9: everything kept, empty CAD and records, no dispatcher, default radio, null equipment, empty kit', () => {
     const v3 = makeSaveGameV3();
     expect(isSaveGameV3(v3)).toBe(true);
     expect(isSaveGameV4(v3)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(3, v3));
-    expect(out.version).toBe(8);
-    expect(out.data).toEqual({ ...v3, ...v4Defaults(42, 2), ...v5Defaults(42), ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42) });
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v3, ...v4Defaults(42, 2), ...v5Defaults(42), ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42), ...v9Defaults(42, { name: 'A. Vance', badge: '4471' }, ['patrol_sedan', 'patrol_suv']) });
     expect(out.data.equipment).toEqual([null, null]);
     // The radio continues from the seed's own 'radio' stream, as a new game would.
     expect(out.data.radio.rng).toEqual(createRng(42).stream('radio').state());
@@ -213,13 +229,13 @@ describe('migrateEnvelope', () => {
     expect(isSaveGameV4(out.data)).toBe(true);
   });
 
-  it('migrates v4 saves to v8: everything kept, no touched people, no saved pedestrians, empty contacts, empty scenes on the seed stream, Phase 4 blocks', () => {
+  it('migrates v4 saves to v9: everything kept, no touched people, no saved pedestrians, empty contacts, empty scenes on the seed stream, Phase 4 blocks', () => {
     const v4 = makeSaveGameV4();
     expect(isSaveGameV4(v4)).toBe(true);
     expect(isSaveGameV5(v4)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(4, v4));
-    expect(out.version).toBe(8);
-    expect(out.data).toEqual({ ...v4, ...v5Defaults(42), ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42), equipment: migratedEquipment() });
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v4, ...v5Defaults(42), ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42), ...v9Defaults(42, { name: 'A. Vance', badge: '4471' }, ['patrol_sedan', 'patrol_suv']), equipment: migratedEquipment() });
     expect(out.data.npc).toBeNull();
     expect(out.data.scenes.rng).toEqual(createRng(42).stream('scene').state());
     expect(out.data.scenes.scenarios).toEqual([]);
@@ -227,13 +243,13 @@ describe('migrateEnvelope', () => {
     expect(isSaveGameV4(out.data)).toBe(true);
   });
 
-  it('migrates v5 saves to v8: everything kept, outdoors, empty interior / tactical / investigation on the seed streams, patrol station state, trunks gain the Phase 4 items', () => {
+  it('migrates v5 saves to v9: everything kept, outdoors, empty interior / tactical / investigation on the seed streams, patrol station state, trunks gain the Phase 4 items', () => {
     const v5 = makeSaveGameV5();
     expect(isSaveGameV5(v5)).toBe(true);
     expect(isSaveGameV6(v5)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(5, v5));
-    expect(out.version).toBe(8);
-    expect(out.data).toEqual({ ...v5, ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42), equipment: migratedEquipment() });
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v5, ...v6Defaults(42, '4471'), ...v7Defaults(42), ...v8Defaults(42), ...v9Defaults(42, { name: 'A. Vance', badge: '4471' }, ['patrol_sedan', 'patrol_suv']), equipment: migratedEquipment() });
     expect(out.data.station.flow).toBe('onPatrol');
     expect(out.data.station.armory.map((e) => e.item)).toEqual(['sidearm', 'taser']);
     expect(out.data.interiors.rng).toEqual(createRng(42).stream('interior').state());
@@ -244,13 +260,13 @@ describe('migrateEnvelope', () => {
     expect(migrateV5ToV6(out.data)).toEqual(out.data);
   });
 
-  it('migrates v6 saves to v8: everything kept; force, incidents (generic), conduct (baselines, active) and court start fresh on the seed streams', () => {
+  it('migrates v6 saves to v9: everything kept; force, incidents (generic), conduct (baselines, active) and court start fresh on the seed streams', () => {
     const v6 = makeSaveGameV6();
     expect(isSaveGameV6(v6)).toBe(true);
     expect(isSaveGameV7(v6)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(6, v6));
-    expect(out.version).toBe(8);
-    expect(out.data).toEqual({ ...v6, ...v7Defaults(42), ...v8Defaults(42) });
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v6, ...v7Defaults(42), ...v8Defaults(42), ...v9Defaults(42, { name: 'A. Vance', badge: '4471' }, ['patrol_sedan', 'patrol_suv']) });
     expect(out.data.incidents.jurisdiction).toBe('generic');
     expect(out.data.incidents.logs).toEqual([]);
     expect(out.data.conduct.status).toBe('active');
@@ -261,13 +277,13 @@ describe('migrateEnvelope', () => {
     expect(migrateV6ToV7({ seed: 1 })).toEqual({ seed: 1 });
   });
 
-  it('migrates v7 saves to v8: everything kept; roster, resources, backup, pursuit and command start empty on the seed streams', () => {
+  it('migrates v7 saves to v9: everything kept; roster, resources, backup, pursuit and command start empty on the seed streams', () => {
     const v7 = makeSaveGameV7();
     expect(isSaveGameV7(v7)).toBe(true);
     expect(isSaveGameV8(v7)).toBe(false);
     const out = migrateEnvelope(envelope<unknown>(7, v7));
-    expect(out.version).toBe(8);
-    expect(out.data).toEqual({ ...v7, ...v8Defaults(42) });
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v7, ...v8Defaults(42), ...v9Defaults(42, { name: 'A. Vance', badge: '4471' }, ['patrol_sedan', 'patrol_suv']) });
     expect(out.data.roster.officers).toEqual([]);
     expect(out.data.resources.rng).toEqual(createRng(42).stream('resources').state());
     expect(out.data.backup.rng).toEqual(createRng(42).stream('backup').state());
@@ -276,6 +292,24 @@ describe('migrateEnvelope', () => {
     expect(isSaveGame(out.data)).toBe(true);
     expect(migrateV7ToV8(out.data)).toEqual(out.data);
     expect(migrateV7ToV8({ seed: 1 })).toEqual({ seed: 1 });
+  });
+
+  it('migrates v8 saves to v9: everything kept; the officer becomes a legacy character, default gear, a fleet bound to the saved vehicles', () => {
+    const v8 = makeSaveGameV8();
+    expect(isSaveGameV8(v8)).toBe(true);
+    expect(isSaveGameV9(v8)).toBe(false);
+    const out = migrateEnvelope(envelope<unknown>(8, v8));
+    expect(out.version).toBe(9);
+    expect(out.data).toEqual({ ...v8, ...v9Defaults(42, v8.officer, ['patrol_sedan', 'patrol_suv']) });
+    expect(out.data.character.profile.badge).toBe('4471');
+    expect(out.data.character.profile.lastName).toBe('Vance');
+    expect(out.data.fleet.rng).toEqual(createRng(42).stream('fleet').state());
+    expect(out.data.fleet.units.find((u) => u.id === 'P-101')?.vehicleIndex).toBe(0);
+    expect(out.data.fleet.units.find((u) => u.id === 'P-102')?.vehicleIndex).toBe(1);
+    expect(out.data.fleet.units.find((u) => u.id === 'M-601')?.vehicleIndex).toBe(-1);
+    expect(isSaveGame(out.data)).toBe(true);
+    expect(migrateV8ToV9(out.data)).toEqual(out.data);
+    expect(migrateV8ToV9({ seed: 1 })).toEqual({ seed: 1 });
   });
 
   it('migrateV2ToV3 and migrateV3ToV4 pass invalid data through for validation to reject', () => {
@@ -287,7 +321,7 @@ describe('migrateEnvelope', () => {
     expect(() => migrateEnvelope(envelope<unknown>(3, { ...makeSaveGameV3(), vehicles: undefined }))).toThrow(SaveMigrationError);
   });
 
-  it('round-trips a v8 save through structured clone and JSON unchanged', () => {
+  it('round-trips a v9 save through structured clone and JSON unchanged', () => {
     const v5 = makeSaveGame();
     expect(isSaveGame(v5)).toBe(true);
     const cloned = structuredClone(v5);
@@ -568,7 +602,7 @@ describe('v4 nested state', () => {
   it('rejects a future version even when the payload is a valid v8 save', () => {
     let caught: unknown;
     try {
-      migrateEnvelope(envelope<unknown>(9, makeSaveGame()));
+      migrateEnvelope(envelope<unknown>(10, makeSaveGame()));
     } catch (error) {
       caught = error;
     }
@@ -707,5 +741,58 @@ describe('v8 nested state', () => {
       expect(isSaveGame(data), label).toBe(false);
       expect(() => migrateEnvelope(envelope<unknown>(CURRENT_SAVE_VERSION, data)), label).toThrow(SaveMigrationError);
     }
+  });
+});
+
+describe('v9 nested state', () => {
+  it('accepts the Phase 7 blocks in their valid forms', () => {
+    expect(isSaveGame(makeSaveGame())).toBe(true);
+    expect(isSaveGameV9(makeSaveGame())).toBe(true);
+  });
+
+  it('rejects each malformed block', () => {
+    const good = makeSaveGame();
+    const bad: Array<[string, unknown]> = [
+      ['character missing', { ...good, character: undefined }],
+      ['character wrong version', { ...good, character: { ...good.character, version: 2 } }],
+      ['character bad badge', { ...good, character: { ...good.character, profile: { ...good.character.profile, badge: 'x' } } }],
+      ['character bad height', { ...good, character: { ...good.character, profile: { ...good.character.profile, body: { ...good.character.profile.body, heightM: 9 } } } }],
+      ['gear missing', { ...good, gear: undefined }],
+      ['gear wrong version', { ...good, gear: { ...good.gear, version: 9 } }],
+      ['gear loadout not a list', { ...good, gear: { ...good.gear, loadout: {} } }],
+      ['fleet missing', { ...good, fleet: undefined }],
+      ['fleet wrong version', { ...good, fleet: { ...good.fleet, version: 2 } }],
+      ['fleet bad rng', { ...good, fleet: { ...good.fleet, rng: { seed: 1, s: [1] } } }],
+      ['fleet units not a list', { ...good, fleet: { ...good.fleet, units: {} } }],
+      ['fleet livery malformed', { ...good, fleet: { ...good.fleet, liveries: [{ id: 'x' }] } }],
+      ['fleet ledger malformed', { ...good, fleet: { ...good.fleet, ledger: 5 } }],
+      ['fleet incident malformed', { ...good, fleet: { ...good.fleet, incidents: [{ id: 1 }] } }],
+    ];
+    for (const [label, data] of bad) {
+      expect(isSaveGame(data), label).toBe(false);
+      expect(() => migrateEnvelope(envelope<unknown>(CURRENT_SAVE_VERSION, data)), label).toThrow(SaveMigrationError);
+    }
+  });
+
+  it('accepts the optional vehicle wear / craft / pushBar blocks and rejects malformed ones', () => {
+    const wear = { oilL: 4.5, tread: [1, 0.9, 0.8, 0.7], odometerM: 1200 };
+    const craft = { speed: 3, vy: 0, yaw: 1, pitch: 0, roll: 0 };
+    expect(isSavedVehicle(makeSavedVehicle({ wear: wear as never, pushBar: true }))).toBe(true);
+    expect(isSavedVehicle(makeSavedVehicle({ craft }))).toBe(true);
+    expect(isSavedVehicle(makeSavedVehicle({ wear: { ...wear, tread: [1, 1, 1] } as never }))).toBe(false);
+    expect(isSavedVehicle(makeSavedVehicle({ wear: { ...wear, tread: [1, 1, 1, 2] } as never }))).toBe(false);
+    expect(isSavedVehicle(makeSavedVehicle({ wear: { ...wear, oilL: -1 } as never }))).toBe(false);
+    expect(isSavedVehicle(makeSavedVehicle({ craft: { ...craft, yaw: Number.NaN } }))).toBe(false);
+    expect(isSavedVehicle(makeSavedVehicle({ pushBar: 'yes' as never }))).toBe(false);
+  });
+
+  it('accepts the remote player mode only with a valid vehicle index, and equipment with extra prisoners', () => {
+    const good = makeSaveGame();
+    expect(isSaveGame({ ...good, player: { mode: 'remote', vehicle: 1, lastVehicle: 0 } })).toBe(true);
+    expect(isSaveGame({ ...good, player: { mode: 'remote', vehicle: 9, lastVehicle: 0 } })).toBe(false);
+    expect(isSaveGame({ ...good, player: { mode: 'remote', vehicle: -1 } })).toBe(false);
+    const eq = { ...(good.equipment[0] as NonNullable<SaveGame['equipment'][number]>), extraPrisoners: [12, -1] };
+    expect(isSaveGame({ ...good, equipment: [eq, null] })).toBe(true);
+    expect(isSaveGame({ ...good, equipment: [{ ...eq, extraPrisoners: ['x'] }, null] })).toBe(false);
   });
 });

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "officer": {
+    "patrolStandard": { "assignment": "patrol", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "ocSpray", "count": 1 }, { "id": "baton", "count": 1 }, { "id": "cuffs", "count": 2 },
+      { "id": "flashlight", "count": 1 }, { "id": "medKit", "count": 1 }, { "id": "naloxone", "count": 2 }, { "id": "tourniquet", "count": 1 },
+      { "id": "ballisticVest", "count": 1 } ] },
+    "trafficStandard": { "assignment": "traffic", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "ocSpray", "count": 1 }, { "id": "baton", "count": 1 }, { "id": "cuffs", "count": 2 },
+      { "id": "flashlight", "count": 1 }, { "id": "medKit", "count": 1 }, { "id": "naloxone", "count": 1 }, { "id": "tourniquet", "count": 1 },
+      { "id": "ballisticVest", "count": 1 } ] },
+    "k9Handler": { "assignment": "k9", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "ocSpray", "count": 1 }, { "id": "baton", "count": 1 }, { "id": "cuffs", "count": 1 },
+      { "id": "flashlight", "count": 1 }, { "id": "medKit", "count": 1 }, { "id": "naloxone", "count": 1 }, { "id": "tourniquet", "count": 1 },
+      { "id": "ballisticVest", "count": 1 }, { "id": "k9Treats", "count": 3 } ] },
+    "motorOfficer": { "assignment": "motor", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "ocSpray", "count": 1 }, { "id": "baton", "count": 1 }, { "id": "cuffs", "count": 1 },
+      { "id": "tourniquet", "count": 1 }, { "id": "ballisticVest", "count": 1 } ] },
+    "bikeOfficer": { "assignment": "bicycle", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "ocSpray", "count": 1 }, { "id": "baton", "count": 1 }, { "id": "cuffs", "count": 1 },
+      { "id": "flashlight", "count": 1 }, { "id": "naloxone", "count": 1 }, { "id": "tourniquet", "count": 1 }, { "id": "ballisticVest", "count": 1 } ] },
+    "swatOperator": { "assignment": "swat", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 3 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "cuffs", "count": 2 }, { "id": "flashlight", "count": 1 }, { "id": "medKit", "count": 1 },
+      { "id": "tourniquet", "count": 2 }, { "id": "ballisticVest", "count": 1 }, { "id": "rifle", "count": 1 }, { "id": "halligan", "count": 1 } ] },
+    "detective": { "assignment": "detective", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "cuffs", "count": 1 }, { "id": "flashlight", "count": 1 }, { "id": "tourniquet", "count": 1 } ] },
+    "supervisor": { "assignment": "supervisor", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "ocSpray", "count": 1 }, { "id": "cuffs", "count": 1 }, { "id": "flashlight", "count": 1 },
+      { "id": "medKit", "count": 1 }, { "id": "naloxone", "count": 2 }, { "id": "tourniquet", "count": 1 }, { "id": "ballisticVest", "count": 1 } ] },
+    "marineUnit": { "assignment": "marine", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "taser", "count": 1 }, { "id": "cuffs", "count": 1 }, { "id": "flashlight", "count": 1 }, { "id": "medKit", "count": 1 },
+      { "id": "naloxone", "count": 1 }, { "id": "tourniquet", "count": 1 }, { "id": "ballisticVest", "count": 1 } ] },
+    "airCrew": { "assignment": "air", "items": [
+      { "id": "radio", "count": 1 }, { "id": "dutyBelt", "count": 1 }, { "id": "holster", "count": 1, "retention": 2 }, { "id": "sidearm", "count": 1 },
+      { "id": "flashlight", "count": 1 }, { "id": "medKit", "count": 1 }, { "id": "tourniquet", "count": 1 } ] }
+  }
+}

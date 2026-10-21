@@ -14,10 +14,109 @@ import {
 
 export const VEHICLE_ROLES = ['police', 'civilian', 'commercial', 'service'] as const;
 export type VehicleRole = (typeof VEHICLE_ROLES)[number];
-export const BODY_STYLES = ['sedan', 'hatchback', 'suv', 'pickup', 'van', 'truck', 'bus'] as const;
+export const BODY_STYLES = [
+  'sedan',
+  'hatchback',
+  'suv',
+  'pickup',
+  'van',
+  'truck',
+  'bus',
+  'motorcycle',
+  'bicycle',
+  'atv',
+  'boat',
+  'helicopter',
+  'drone',
+] as const;
 export type BodyStyle = (typeof BODY_STYLES)[number];
+/** How a vehicle is driven: the ray-cast car, the ray-cast bike (upright assist), or a kinematic craft. */
+export const CONTROL_KINDS = ['car', 'bike', 'boat', 'helicopter', 'drone'] as const;
+export type ControlKind = (typeof CONTROL_KINDS)[number];
 export const DRIVE_TYPES = ['fwd', 'rwd', 'awd'] as const;
 export type DriveType = (typeof DRIVE_TYPES)[number];
+
+/** Kinematic craft handling (boat, helicopter, drone); integrated by `craft.ts`. */
+export interface CraftSpec {
+  readonly maxSpeedMps: number;
+  readonly reverseMps: number;
+  readonly accelMps2: number;
+  readonly brakeMps2: number;
+  readonly turnRateDegS: number;
+  readonly climbMps: number;
+  readonly maxAltitudeM: number;
+  /** Fraction of speed lost per second with no input. */
+  readonly dragPerS: number;
+  /** Visual pitch / roll at full speed / turn. */
+  readonly tiltDeg: number;
+  /** Leash from the anchor (drone); 0 = none. */
+  readonly rangeM: number;
+}
+
+/** Two-wheeler tuning: the upright assist torque and the visual lean. */
+export interface BikeSpec {
+  /** N·m per rad per kg. */
+  readonly uprightStiffness: number;
+  /** N·m·s per rad per kg. */
+  readonly uprightDamping: number;
+  readonly maxLeanDeg: number;
+  /** Bicycle: no fuel burn, the engine always runs. */
+  readonly pedal: boolean;
+}
+
+/** Oil and tyre wear tuning (`wear.ts`). */
+export interface WearSpec {
+  /** Oil capacity (L). */
+  readonly oilL: number;
+  /** Litres burnt per kWh of engine work. */
+  readonly oilPerKWh: number;
+  /** Engine health lost per second running with empty oil. */
+  readonly oilWearPerS: number;
+  /** Tread lost per km per wheel. */
+  readonly treadPerKm: number;
+  /** Tread lost per second of a slipping wheel. */
+  readonly treadSlipPerS: number;
+  /** Grip factor of a bald tyre on a dry road. */
+  readonly minTreadGrip: number;
+  /** Extra grip a bald tyre loses at full wetness. */
+  readonly wetTreadPenalty: number;
+}
+
+/** Cargo capacity of a vehicle (validated against loadouts by the gear module). */
+export interface CargoSpec {
+  readonly kg: number;
+  readonly slots: number;
+  readonly rackSlots: number;
+}
+
+/** Patrol extras: cage seats, drone bay, radar and kennel. */
+export interface PatrolExtras {
+  readonly cageSeats: number;
+  readonly droneBay: boolean;
+  readonly radar: boolean;
+  readonly kennel: boolean;
+}
+
+/** Where an open vehicle shows its rider (vehicle-local feet point). */
+export interface RiderSpec {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly pose: 'seated' | 'stand';
+}
+
+/** Defaults of a model without a `wear` section. */
+export const DEFAULT_WEAR: WearSpec = {
+  oilL: 6,
+  oilPerKWh: 0.004,
+  oilWearPerS: 0.002,
+  treadPerKm: 0.0015,
+  treadSlipPerS: 0.02,
+  minTreadGrip: 0.75,
+  wetTreadPenalty: 0.2,
+};
+
+const NO_CARGO: CargoSpec = { kg: 0, slots: 0, rackSlots: 0 };
 
 export interface VehicleColor {
   readonly hex: string;
@@ -94,6 +193,17 @@ export interface VehicleModel {
   readonly traffic: { readonly maxAccel: number; readonly comfortDecel: number; readonly maxDecel: number };
   /** Patrol-car equipment (optional `equipment` JSON section, design §4.4); null for every other model. */
   readonly equipment: VehicleEquipmentSpec | null;
+  /** JSON `control`, default 'car'. */
+  readonly control: ControlKind;
+  /** Required for boat / helicopter / drone, null otherwise. */
+  readonly craft: CraftSpec | null;
+  /** Required for `control: 'bike'`, null otherwise. */
+  readonly bike: BikeSpec | null;
+  readonly wear: WearSpec;
+  readonly cargo: CargoSpec;
+  readonly patrol: PatrolExtras;
+  /** An open vehicle shows its rider at this point; null for enclosed vehicles. */
+  readonly rider: RiderSpec | null;
 }
 
 export interface BrakeSpec {
@@ -183,6 +293,120 @@ function parseEquipment(value: unknown, source: string): VehicleEquipmentSpec | 
     mdt: readBoolean(eq.mdt, source, 'equipment.mdt'),
     trunk: eq.trunk === null ? null : readString(eq.trunk, source, 'equipment.trunk'),
   };
+}
+
+
+const CRAFT_CONTROLS: readonly ControlKind[] = ['boat', 'helicopter', 'drone'];
+
+function readInteger(value: unknown, source: string, path: string, min: number, max = Infinity): number {
+  const n = readNumber(value, source, path, min, max);
+  if (!Number.isInteger(n)) fail(source, path, `must be an integer, got ${n}`);
+  return n;
+}
+
+function parseCraft(value: unknown, source: string): CraftSpec {
+  return readNumbers(
+    readObject(value, source, 'craft'),
+    {
+      maxSpeedMps: POS,
+      reverseMps: NONNEG,
+      accelMps2: POS,
+      brakeMps2: POS,
+      turnRateDegS: POS,
+      climbMps: NONNEG,
+      maxAltitudeM: NONNEG,
+      dragPerS: [0, 5],
+      tiltDeg: [0, 45],
+      rangeM: NONNEG,
+    },
+    source,
+    'craft',
+  );
+}
+
+function parseBike(value: unknown, source: string): BikeSpec {
+  const obj = readObject(value, source, 'bike');
+  return {
+    ...readNumbers(obj, { uprightStiffness: POS, uprightDamping: NONNEG, maxLeanDeg: [0, 60] }, source, 'bike'),
+    pedal: readBoolean(obj.pedal, source, 'bike.pedal'),
+  };
+}
+
+/** Optional `wear`: any key left out keeps its `DEFAULT_WEAR` value. */
+function parseWear(value: unknown, source: string): WearSpec {
+  if (value === undefined) return DEFAULT_WEAR;
+  const obj = readObject(value, source, 'wear');
+  const merged: JsonObject = { ...DEFAULT_WEAR };
+  for (const key of Object.keys(DEFAULT_WEAR)) if (obj[key] !== undefined) merged[key] = obj[key];
+  return readNumbers(
+    merged,
+    {
+      oilL: POS,
+      oilPerKWh: NONNEG,
+      oilWearPerS: NONNEG,
+      treadPerKm: NONNEG,
+      treadSlipPerS: NONNEG,
+      minTreadGrip: UNIT,
+      wetTreadPenalty: UNIT,
+    },
+    source,
+    'wear',
+  );
+}
+
+function parseCargo(value: unknown, source: string): CargoSpec {
+  if (value === undefined) return NO_CARGO;
+  const obj = readObject(value, source, 'cargo');
+  return {
+    kg: readNumber(obj.kg, source, 'cargo.kg', 0),
+    slots: readInteger(obj.slots, source, 'cargo.slots', 0),
+    rackSlots: readInteger(obj.rackSlots, source, 'cargo.rackSlots', 0),
+  };
+}
+
+function parsePatrol(value: unknown, source: string, equipment: VehicleEquipmentSpec | null): PatrolExtras {
+  const obj = value === undefined ? {} : readObject(value, source, 'patrol');
+  return {
+    cageSeats: obj.cageSeats === undefined ? (equipment?.partition ? 1 : 0) : readInteger(obj.cageSeats, source, 'patrol.cageSeats', 0, 8),
+    droneBay: obj.droneBay === undefined ? false : readBoolean(obj.droneBay, source, 'patrol.droneBay'),
+    radar: obj.radar === undefined ? false : readBoolean(obj.radar, source, 'patrol.radar'),
+    kennel: obj.kennel === undefined ? false : readBoolean(obj.kennel, source, 'patrol.kennel'),
+  };
+}
+
+function parseRider(value: unknown, source: string): RiderSpec | null {
+  if (value === undefined) return null;
+  const obj = readObject(value, source, 'rider');
+  return {
+    ...readNumbers(obj, { x: [-100, 100], y: [-100, 100], z: [-100, 100] }, source, 'rider'),
+    pose: readOneOf(obj.pose, ['seated', 'stand'] as const, source, 'rider.pose'),
+  };
+}
+
+/** Damage spec with or without the model's push bumper (no front fields when `pushBar` is false or the model has none). */
+export function damageSpecFor(model: VehicleModel, pushBar: boolean): DamageSpec {
+  const d = model.damage;
+  if (pushBar || (d.frontZoneStrength === undefined && d.frontEngineShare === undefined)) return d;
+  return {
+    minImpactSpeed: d.minImpactSpeed,
+    zoneStrength: d.zoneStrength,
+    engineFrontShare: d.engineFrontShare,
+    tireBurstSpeed: d.tireBurstSpeed,
+    stallBelow: d.stallBelow,
+    stallChancePerS: d.stallChancePerS,
+    failBelow: d.failBelow,
+  };
+}
+
+/** True for boat / helicopter / drone (kinematic crafts). */
+export function isCraft(model: VehicleModel): boolean {
+  return model.craft !== null;
+}
+
+/** 'four' (cars, ATV), 'two' (motorcycle, bicycle), 'none' (crafts). */
+export function wheelLayout(model: VehicleModel): 'four' | 'two' | 'none' {
+  if (model.craft !== null) return 'none';
+  return model.body.style === 'motorcycle' || model.body.style === 'bicycle' ? 'two' : 'four';
 }
 
 /** Validates one model file; throws a readable error naming `source` and the field. */
@@ -284,6 +508,13 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
   );
   const bumper = equipment?.pushBumper ?? null;
 
+  const control = root.control === undefined ? 'car' : readOneOf(root.control, CONTROL_KINDS, source, 'control');
+  const needsCraft = CRAFT_CONTROLS.includes(control);
+  if (needsCraft && root.craft === undefined) fail(source, 'craft', `is required for control "${control}"`);
+  if (!needsCraft && root.craft !== undefined) fail(source, 'craft', `is only allowed for control boat, helicopter or drone, not "${control}"`);
+  if (control === 'bike' && root.bike === undefined) fail(source, 'bike', 'is required for control "bike"');
+  if (control !== 'bike' && root.bike !== undefined) fail(source, 'bike', `is only allowed for control "bike", not "${control}"`);
+
   return {
     index,
     id: readString(root.id, source, 'id'),
@@ -338,6 +569,13 @@ export function parseVehicleModel(json: unknown, source: string, index = 0): Veh
       'traffic',
     ),
     equipment,
+    control,
+    craft: needsCraft ? parseCraft(root.craft, source) : null,
+    bike: control === 'bike' ? parseBike(root.bike, source) : null,
+    wear: parseWear(root.wear, source),
+    cargo: parseCargo(root.cargo, source),
+    patrol: parsePatrol(root.patrol, source, equipment),
+    rider: parseRider(root.rider, source),
   };
 }
 

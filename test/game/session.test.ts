@@ -98,8 +98,9 @@ describe('GameSession (city)', () => {
     expect(Transform.z[session.player]).toBeCloseTo(city.spawn.z, 3);
     expect(session.controller.yaw).toBe(city.spawn.yaw);
 
-    expect(session.vehicles.map((v) => v.model.id)).toEqual(['patrol_sedan', 'patrol_suv']);
-    session.vehicles.forEach((v, i) => {
+    // The fleet: the two patrol cars in the lot, the patrol boat at the harbor slip and the helicopter on the pad.
+    expect(session.vehicles.map((v) => v.model.id)).toEqual(['patrol_sedan', 'patrol_suv', 'patrol_boat', 'police_helicopter']);
+    session.vehicles.slice(0, 2).forEach((v, i) => {
       const slot = city.parking[i];
       expect(Transform.x[v.eid]).toBeCloseTo(slot?.x ?? NaN, 3);
       expect(Transform.z[v.eid]).toBeCloseTo(slot?.z ?? NaN, 3);
@@ -109,7 +110,7 @@ describe('GameSession (city)', () => {
       expect(v.model.lightbar).toBe(true);
     });
     expect(session.traffic.activeCount).toBeGreaterThan(10);
-    expect(session.entityCount).toBe(1 + 2 + session.traffic.activeCount);
+    expect(session.entityCount).toBe(1 + 4 + session.traffic.activeCount);
     expect(entityCount(h.world)).toBe(session.entityCount);
     // Static colliders around the station are in the world on top of the ground slab.
     expect(h.physics.raw.colliders.len()).toBeGreaterThan(50);
@@ -136,6 +137,7 @@ describe('GameSession (city)', () => {
       'incidents',
       'conduct',
       'court',
+      'fleet',
       'radio',
       'tactical',
       'integrateVelocity',
@@ -445,7 +447,8 @@ describe('GameSession (city)', () => {
     expect(wrecked.telemetry.damage).toEqual([0, 0, 0, 0]);
     expect(wrecked.telemetry.tireFlat).toEqual([false, false, false, false]);
     expect(wrecked.telemetry.engineHealth).toBe(1);
-    expect(session.interactHint()).toBeNull();
+    // The station pump is also the fleet's service point.
+    expect(session.interactHint()).toBe('fleet');
   });
 
   it('stops the officer at the station building instead of walking through it', () => {
@@ -613,7 +616,7 @@ describe('GameSession (city)', () => {
     expect(isSaveGame(data)).toBe(true);
     expect(data.player).toEqual({ mode: 'driving', vehicle: 0, lastVehicle: 0 });
     expect(data.camera.mode).toBe(CAMERA_MODE.cockpit);
-    expect(data.vehicles).toHaveLength(2);
+    expect(data.vehicles).toHaveLength(4);
     expect(data.vehicles[0]?.lightbar).toBe(true);
     expect(data.traffic?.cars.length).toBe(session.traffic.activeCount);
     expect(data.environment.override).toEqual({ kind: 'rain', intensity: 0.7 });
@@ -675,7 +678,7 @@ describe('GameSession (city)', () => {
     expect(Transform.z[session.player]).toBeCloseTo(6, 3);
     expect(session.controller.pitch).toBe(0.4);
     expect(session.boxes).toHaveLength(1);
-    expect(session.vehicles.map((v) => v.model.id)).toEqual(['patrol_sedan', 'patrol_suv']);
+    expect(session.vehicles.map((v) => v.model.id)).toEqual(['patrol_sedan', 'patrol_suv', 'patrol_boat', 'police_helicopter']);
     expect(session.traffic.activeCount).toBeGreaterThan(0);
     expect(session.env.serialize()).toEqual({ timeOffset: 0, override: null });
     h.step(session, 30);
@@ -702,14 +705,14 @@ describe('GameSession (city)', () => {
     const session = h.start(SEED);
     const before = session.rng.state();
     const van = session.spawnVehicleNearPlayer(vehicleModel('van'));
-    expect(session.vehicles).toHaveLength(3);
+    expect(session.vehicles).toHaveLength(5);
     expect(session.rng.state()).toEqual(before);
     const yaw = session.controller.yaw;
     expect(Transform.x[van.eid]).toBeCloseTo((Transform.x[session.player] ?? 0) - Math.sin(yaw) * 6, 3);
     expect(Transform.z[van.eid]).toBeCloseTo((Transform.z[session.player] ?? 0) - Math.cos(yaw) * 6, 3);
     const data = serializeGame(session);
-    expect(data.vehicles[2]?.modelId).toBe('van');
-    expect(data.vehicles[2]?.rng.seed).toBe(createRng(SEED).stream('vehicle:2').seed);
+    expect(data.vehicles[4]?.modelId).toBe('van');
+    expect(data.vehicles[4]?.rng.seed).toBe(createRng(SEED).stream('vehicle:4').seed);
   });
 
   it('dispose removes every entity, body, collider and mesh so a new game starts clean', () => {

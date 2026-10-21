@@ -34,8 +34,12 @@ describe('PatrolEquipment', () => {
     expect(eq.spotYaw).toBe(SPOTLIGHT.defaultYaw);
     expect(eq.spotPitch).toBe(SPOTLIGHT.defaultPitch);
     expect(eq.rackLocked).toBe(true);
-    for (const r of RACK_ITEMS) expect(eq.rackHas(r.id)).toBe(true);
+    for (const r of RACK_ITEMS) expect(eq.rackHas(r.id)).toBe(r.id !== 'lessLethal');
+    expect(eq.rackHas('lessLethal')).toBe(false);
     expect(eq.trunkCount('cones')).toBe(6);
+    expect(eq.trunkCount('naloxone')).toBe(2);
+    expect(eq.trunkCount('tourniquet')).toBe(2);
+    expect(eq.trunkCount('halligan')).toBe(1);
     expect(eq.trunkCount('flares')).toBe(8);
     expect(eq.trunkCount('aed')).toBe(1);
     expect(eq.trunkCount('nothing')).toBe(0);
@@ -168,6 +172,102 @@ describe('PatrolEquipment', () => {
     expect(eq.prisoner).toBe(-1);
     expect(eq.releasePrisoner()).toBe(-1);
     expect(new PatrolEquipment(BARE).seatPrisoner(1)).toBe(false);
+  });
+
+  it('cage: a multi-seat cage fills the first free seat and releases the last occupied one', () => {
+    const eq = new PatrolEquipment(FULL, { cageSeats: 3 });
+    expect(eq.cageSeats).toBe(3);
+    expect(eq.cageFree()).toBe(3);
+    expect(eq.seatPrisoner(10)).toBe(true);
+    expect(eq.seatPrisoner(11)).toBe(true);
+    expect(eq.seatPrisoner(11)).toBe(false); // already in the cage
+    expect(eq.seatPrisoner(12)).toBe(true);
+    expect(eq.seatPrisoner(13)).toBe(false); // full
+    expect(eq.prisoner).toBe(10);
+    expect(eq.prisoners()).toEqual([10, 11, 12]);
+    expect(eq.cageFree()).toBe(0);
+    expect(eq.releasePrisoner()).toBe(12);
+    expect(eq.prisoners()).toEqual([10, 11]);
+    expect(eq.cageFree()).toBe(1);
+    expect(eq.seatPrisoner(14)).toBe(true); // refills the freed seat
+    expect(eq.prisoners()).toEqual([10, 11, 14]);
+    expect(eq.releaseAll()).toEqual([10, 11, 14]);
+    expect(eq.prisoner).toBe(-1);
+    expect(eq.cageFree()).toBe(3);
+    expect(eq.releaseAll()).toEqual([]);
+    expect(eq.releasePrisoner()).toBe(-1);
+
+    // A gap (seat 1 emptied by a restore) is filled first; "first occupied" skips it.
+    const gap = PatrolEquipment.restore(FULL, { ...new PatrolEquipment(FULL, { cageSeats: 3 }).serialize(), prisoner: -1, extraPrisoners: [-1, 9] }, { cageSeats: 3 });
+    expect(gap.prisoner).toBe(9);
+    expect(gap.cageFree()).toBe(2);
+    expect(gap.seatPrisoner(5)).toBe(true);
+    expect(gap.prisoners()).toEqual([5, 9]);
+  });
+
+  it('cage: cageSeats 0 forces no cage; no partition means no seats', () => {
+    const none = new PatrolEquipment(FULL, { cageSeats: 0 });
+    expect(none.cageSeats).toBe(0);
+    expect(none.seatPrisoner(1)).toBe(false);
+    expect(none.cageFree()).toBe(0);
+    expect(new PatrolEquipment(BARE, { cageSeats: 4 }).seatPrisoner(1)).toBe(false);
+    expect(new PatrolEquipment(FULL).cageSeats).toBe(1);
+  });
+
+  it('options: trunk and rack override the model loadout', () => {
+    const eq = new PatrolEquipment(FULL, { trunk: { cones: 2, naloxone: 3, ghost: 5 }, rack: ['lessLethal', 'rifle'] });
+    expect(eq.trunkCount('cones')).toBe(2);
+    expect(eq.trunkCount('naloxone')).toBe(3);
+    expect(eq.trunkCount('flares')).toBe(0);
+    expect(eq.rackHas('lessLethal')).toBe(true);
+    expect(eq.rackHas('rifle')).toBe(true);
+    expect(eq.rackHas('shotgun')).toBe(false);
+    expect(new PatrolEquipment(FULL, { rack: [] }).rackHas('rifle')).toBe(false);
+    expect(new PatrolEquipment(BARE, { rack: ['rifle'] }).rackHas('rifle')).toBe(false);
+    // restore passes the options through
+    const back = PatrolEquipment.restore(FULL, new PatrolEquipment(FULL).serialize(), { trunk: { cones: 1 } });
+    expect(back.trunkCount('cones')).toBe(6); // the save wins over the options for known counts
+  });
+
+  it('lessLethal is a rack item that is only racked on request', () => {
+    expect(RACK_ITEMS.map((r) => r.id)).toEqual(['shotgun', 'rifle', 'lessLethal']);
+    const eq = new PatrolEquipment(FULL);
+    const kit = new OfficerKit();
+    eq.toggleRackLock(true);
+    expect(eq.checkOut('lessLethal', kit)).toBe(false);
+    const withLl = new PatrolEquipment(FULL, { rack: ['lessLethal'] });
+    withLl.toggleRackLock(true);
+    expect(withLl.checkOut('lessLethal', kit)).toBe(true);
+    expect(kit.longGun).toBe('lessLethal');
+  });
+
+  it('save: extraPrisoners round-trips for multi-seat cages and is absent otherwise', () => {
+    const single = new PatrolEquipment(FULL);
+    single.seatPrisoner(321);
+    expect(single.serialize()).not.toHaveProperty('extraPrisoners');
+
+    const eq = new PatrolEquipment(FULL, { cageSeats: 4 });
+    eq.seatPrisoner(1);
+    eq.seatPrisoner(2);
+    eq.seatPrisoner(3);
+    const save = eq.serialize();
+    expect(save.prisoner).toBe(1);
+    expect(save.extraPrisoners).toEqual([2, 3, -1]);
+    const json: unknown = JSON.parse(JSON.stringify(save));
+    expect(isEquipmentSave(json)).toBe(true);
+    const back = PatrolEquipment.restore(FULL, json as EquipmentSave, { cageSeats: 4 });
+    expect(back.serialize()).toEqual(save);
+    expect(back.prisoners()).toEqual([1, 2, 3]);
+
+    // An old save (no extraPrisoners) loads into a multi-seat cage unchanged; fewer seats drop the extras.
+    const old = { ...save };
+    delete old.extraPrisoners;
+    expect(PatrolEquipment.restore(FULL, old, { cageSeats: 4 }).prisoners()).toEqual([1]);
+    expect(PatrolEquipment.restore(FULL, save, { cageSeats: 2 }).prisoners()).toEqual([1, 2]);
+    expect(PatrolEquipment.restore(FULL, save).prisoners()).toEqual([1]);
+    expect(isEquipmentSave({ ...save, extraPrisoners: [1.5] })).toBe(false);
+    expect(isEquipmentSave({ ...save, extraPrisoners: [-2] })).toBe(false);
+    expect(isEquipmentSave({ ...save, extraPrisoners: 'x' })).toBe(false);
   });
 
   it('writeLook writes the PoliceLights store', () => {

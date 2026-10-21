@@ -42,6 +42,8 @@ export interface StationSave {
 /** Requests waiting for the next step beyond this are dropped (oldest first). */
 const MAX_QUEUE = 64;
 const DONE_LABEL = 'Done';
+const CUSTOMIZE_LABEL = 'Uniform & gear…';
+const SIGN_OUT_LOADOUT_LABEL = 'Sign out my loadout';
 /** A prisoner is transferred to county after this long in a cell (sim seconds), so the cells never fill for good. */
 export const HOLD_LIMIT_S = 1800;
 
@@ -97,7 +99,10 @@ export class StationState {
 
   // --- Panels ----------------------------------------------------------------------------------
 
-  /** Locker rows: Uniform, Vest, Bodycam mount, Radio audio, Flashlight, Done (index 5 completes the locker step). */
+  /**
+   * Locker rows: Uniform, Vest, Bodycam mount, Radio audio, Flashlight, Done (index 5 completes the locker step), then
+   * 'Uniform & gear...' (index 6, detail 'Customize'; opens the uniform and gear editor).
+   */
   lockerModel(): ActionPanelModel {
     const l = this.current;
     return {
@@ -110,28 +115,40 @@ export class StationState {
         { label: 'Radio audio', detail: AUDIO_LABELS[l.radioAudio] },
         { label: 'Flashlight', detail: LIGHT_LABELS[l.flashlight] },
         { label: DONE_LABEL },
+        { label: CUSTOMIZE_LABEL, detail: 'Customize' },
       ],
       footer: 'Enter changes the option · Done finishes · Esc close',
     };
   }
 
-  lockerSelect(index: number): void {
+  /** Queues the row's request; returns 'customize' (nothing queued) for the 'Uniform & gear...' row, else null. */
+  lockerSelect(index: number): 'customize' | null {
     const field = LOADOUT_FIELDS[index];
     if (field !== undefined) this.request({ kind: 'loadout', field });
     else if (index === LOADOUT_FIELDS.length) this.request({ kind: 'complete', step: 'locker' });
+    else if (index === LOADOUT_FIELDS.length + 1) return 'customize';
+    return null;
   }
 
   /**
    * Armory rows: one per item ('Sign out Duty pistol (SA-1042)' or 'Return Duty pistol (SA-1042)'), then Done
-   * (index `ARMORY_ITEMS.length`, enabled once the sidearm is out).
+   * (index `ARMORY_ITEMS.length`, enabled once the sidearm is out), then 'Sign out my loadout' (index
+   * `ARMORY_ITEMS.length + 1`): enabled while at least one of `loadoutItems` (armory item ids of the officer's gear) is not
+   * out, disabled ('Nothing to sign out') otherwise or without `loadoutItems`.
    */
-  armoryModel(): ActionPanelModel {
+  armoryModel(loadoutItems?: readonly string[]): ActionPanelModel {
     const options: PanelOption[] = ARMORY_ITEMS.map((d) => {
       const out = this.armory.has(d.id);
       return { label: `${out ? 'Return' : 'Sign out'} ${d.label} (${this.armory.serial(d.id)})`, detail: out ? 'Out' : 'In' };
     });
     const sidearm = this.armory.has('sidearm');
     options.push(sidearm ? { label: DONE_LABEL } : { label: DONE_LABEL, detail: 'Sign out a duty pistol first', enabled: false });
+    const pending = this.pendingLoadout(loadoutItems);
+    options.push(
+      pending.length > 0
+        ? { label: SIGN_OUT_LOADOUT_LABEL, detail: `${String(pending.length)} items` }
+        : { label: SIGN_OUT_LOADOUT_LABEL, detail: 'Nothing to sign out', enabled: false },
+    );
     return {
       title: 'Armory',
       subtitle: this.armory.out().length === 0 ? 'Nothing signed out' : `${String(this.armory.out().length)} signed out`,
@@ -140,13 +157,22 @@ export class StationState {
     };
   }
 
-  armorySelect(index: number): void {
+  /** The loadout row queues a sign-out for every loadout item not yet out, in `ARMORY_ITEMS` order. */
+  armorySelect(index: number, loadoutItems?: readonly string[]): void {
     const def = ARMORY_ITEMS[index];
     if (def !== undefined) {
       this.request({ kind: 'armory', item: def.id, action: this.armory.has(def.id) ? 'in' : 'out' });
     } else if (index === ARMORY_ITEMS.length && this.armory.has('sidearm')) {
       this.request({ kind: 'complete', step: 'armory' });
+    } else if (index === ARMORY_ITEMS.length + 1) {
+      for (const item of this.pendingLoadout(loadoutItems)) this.request({ kind: 'armory', item, action: 'out' });
     }
+  }
+
+  /** Armory item ids of `loadoutItems` that are not signed out yet, in `ARMORY_ITEMS` order. */
+  private pendingLoadout(loadoutItems: readonly string[] | undefined): string[] {
+    if (loadoutItems === undefined) return [];
+    return ARMORY_ITEMS.filter((d) => loadoutItems.includes(d.id) && !this.armory.has(d.id)).map((d) => d.id);
   }
 
   /**
