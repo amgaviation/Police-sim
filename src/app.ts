@@ -58,7 +58,7 @@ import { createPeopleCommands } from './people/commands';
 import { createSceneCommands } from './scene/commands';
 import { PatrolPanels } from './game/panels';
 import { createPatrolCommands } from './game/patrolCommands';
-import { PauseMenu } from './game/pauseMenu';
+import { PauseMenu, type PausePanel } from './game/pauseMenu';
 import { createPhase3Commands } from './game/phase3Commands';
 import { createPhase4Commands } from './game/phase4Commands';
 import { Phase4Presenter } from './game/phase4Presenter';
@@ -585,6 +585,7 @@ export class App {
       tutorialActive: () => this.sessionValue?.phase9.active === true,
       skipTutorialStep: () => this.skipTutorialStep(),
       endTutorial: () => this.endTutorial(),
+      panels: this.pausePanels(),
     });
 
     this.systems.register(copyPrevTransform, -1000);
@@ -856,6 +857,40 @@ export class App {
         this.mainMenu.setStatus('Could not start the co-op game; see console');
       }
     });
+  }
+
+  /**
+   * Phase 9 review: the keyboard-only panel openers as pause-menu buttons, so a gamepad-only player can reach them. Each runs the
+   * same method as its key (the pause menu has already closed); on foot-only tools open the same panel the key opens.
+   */
+  private pausePanels(): readonly PausePanel[] {
+    const session = (): GameSession | null => this.sessionValue;
+    const ifSession = (open: (s: GameSession) => void) => (): void => {
+      const s = session();
+      if (s) open(s);
+    };
+    return [
+      {
+        label: 'MDT',
+        open: ifSession((s) => {
+          if (s.mdtReachable()) this.mdtValue?.open();
+          else this.flash('No MDT within reach (get in a patrol car)');
+        }),
+      },
+      { label: 'Scene actions', open: ifSession(() => void this.panels.openScene()) },
+      { label: 'Investigation tools', open: ifSession(() => this.panels.openTools()), available: () => session()?.driving === false },
+      { label: 'Partner commands', open: ifSession(() => this.panels.openPartner()), available: () => session()?.driving === false },
+      { label: 'Backup officers', open: ifSession(() => this.phase6.openBackup()) },
+      { label: 'Incident command', open: ifSession(() => this.phase6.openCommand()) },
+      { label: 'Pursuit tactics', open: ifSession(() => this.phase6.openPursuit()) },
+      { label: 'Fleet / garage', open: ifSession(() => this.phase7.openGarage()) },
+      { label: 'Co-op panel', open: ifSession(() => this.phase8.openCoopPanel()), available: () => this.phase8.coop !== null },
+      {
+        label: 'Dispatch console',
+        open: ifSession(() => this.phase8.toggleConsole()),
+        available: () => this.phase8.coop !== null || session()?.phase8.modeId === 'dispatchOnly',
+      },
+    ];
   }
 
   /** The career key (Minus): the apartment between shifts, the academy before graduation, else the career screen. */
@@ -1135,8 +1170,7 @@ export class App {
     const input = this.input;
     const scene = session.scene;
     const force = session.force;
-    // Gamepad Start is both menu.toggle and the default officer.weapon: a menu press never cycles the tool.
-    if (input.wasPressed('officer.weapon') && !input.wasPressed('menu.toggle')) force.request({ kind: 'cycleTool' });
+    if (input.wasPressed('officer.weapon')) force.request({ kind: 'cycleTool' });
     if (input.wasPressed('officer.fire') && force.tool !== 'none') {
       const dir = this.aimDirection(session);
       force.request({ kind: 'apply', dirX: dir.x, dirZ: dir.z });

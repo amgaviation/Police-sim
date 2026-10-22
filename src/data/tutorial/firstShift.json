@@ -51,7 +51,7 @@
     {
       "id": "takeCall",
       "title": "Take a call",
-      "text": "Dispatch offers you a call: accept it with the radio ({radio.menu}, then 7) or in the MDT ({mdt.toggle}).",
+      "text": "Dispatch offers you a call: accept it with the radio ({radio.menu}, then 7) or in the MDT ({mdt.toggle}; on a gamepad: Start > MDT).",
       "hint": "The call is an abandoned vehicle a few hundred metres away.",
       "enter": [{ "do": "createCall", "typeId": "abandonedVehicle", "minM": 250, "maxM": 600 }],
       "until": { "any": [{ "topic": "cad:unitAssigned", "where": { "callsign": "$player", "callId": "$call" } }] },
@@ -68,14 +68,14 @@
     {
       "id": "scene",
       "title": "Handle the scene",
-      "text": "Look around, talk to people ({interact}), open the scene panel {scene.menu} and clear the call.",
+      "text": "Look around, talk to people ({interact}), open the scene panel {scene.menu} (gamepad: Start > Scene actions) and clear the call.",
       "until": { "any": [{ "topic": "cad:callClosed", "where": { "callId": "$call" } }] },
       "skippable": true
     },
     {
       "id": "report",
       "title": "Write the report",
-      "text": "Write the incident report: MDT {mdt.toggle} > Reports > New report; tick the statements you can support and submit.",
+      "text": "Write the incident report: MDT {mdt.toggle} (gamepad: Start > MDT) > Reports > New report; tick the statements you can support and submit.",
       "hint": "Only write what you observed or were told.",
       "until": { "any": [{ "topic": "cad:documentSaved", "where": { "kind": "report" } }] },
       "skippable": true

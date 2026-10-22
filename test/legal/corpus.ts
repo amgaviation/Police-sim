@@ -486,6 +486,70 @@ add('recording-full', 'Everything is recorded', (b) => {
   b.consent(1, 'searchPerson').after(1).frisk(1, []).after(1).question(1, 'identity', true);
 });
 
+// --- Review round 1: gaps the first corpus left unpinned ------------------------------------
+
+add('exigency-person-vehicle', 'An active exigency is a basis for premises only: a person search and a vehicle search stay unlawful', (b) => {
+  b.exigency('screaming inside').after(1).search(1, 'person', [drugs('xp1')]).after(1).search(1, 'vehicle', [drugs('xv1')], { vehicleId: 4 });
+}, 'domestic', 'suspect');
+
+add('exigency-other-building', 'An exigency confirmed for one building does not justify a search of another', (b) => {
+  b.exigency('screaming inside', 3).after(1).entry(4, true, 1).after(1).search(1, 'room', [drugs('xo1')], { buildingId: 4 });
+}, 'domestic', 'suspect');
+
+add('premises-sita-edge', 'A room search claiming incident to arrest 400 s after a lawful arrest: inside the generic window (600 s), outside strict (300 s)', (b) => {
+  b.entry(10, true, 1).after(1).indicator(1, 'warrantHit').after(1).arrest(1).after(400)
+    .search(1, 'room', [drugs('pe1')], { claimedBasis: 'incidentToArrest', buildingId: 10 });
+}, 'wanted', 'suspect');
+
+add('premises-sita-outside', 'A room search claiming incident to arrest 1000 s after a lawful arrest is outside both windows', (b) => {
+  b.entry(10, true, 1).after(1).indicator(1, 'warrantHit').after(1).arrest(1).after(1000)
+    .search(1, 'room', [drugs('po1')], { claimedBasis: 'incidentToArrest', buildingId: 10 });
+}, 'wanted', 'suspect');
+
+add('arrest-booking-only-pc', 'A booking with no earlier cuffing arrest is itself the arrest: lawful with probable cause', (b) => {
+  b.indicator(1, 'contrabandPlainView').after(1).detain(1, 'command').after(1).arrest(1, 'booking');
+});
+
+add('arrest-booking-only-no-pc', 'A booking with no earlier cuffing arrest and no probable cause is an unlawful arrest', (b) => {
+  b.arrest(1, 'booking');
+});
+
+add('pre-arrest-late', 'A search 100 s before the arrest is outside the pre-arrest window (60 s)', (b) => {
+  b.indicator(1, 'contrabandPlainView').after(1).detain(1, 'command').after(1)
+    .search(1, 'person', [drugs('pl1')]).after(100).arrest(1);
+});
+
+add('pre-arrest-speeding', 'A search before an arrest that only speeding supports: lawful pre-arrest under generic, no window under strict', (b) => {
+  b.indicator(1, 'speeding').after(1).detain(1, 'trafficStop').after(1)
+    .search(1, 'person', [drugs('ps2')]).after(10).arrest(1);
+});
+
+add('consent-occupant-building', 'The occupant consents to a search of the room of the building: it covers the officer who searches it', (b) => {
+  b.person(2, 'witness', 'Olive Occupant').after(1)
+    .consent(2, 'searchRoom', true, true, { buildingId: 5 }).after(1).entry(5, false, 1).after(1)
+    .search(1, 'room', [drugs('co1')], { buildingId: 5 });
+}, 'domestic', 'suspect');
+
+add('consent-occupant-entry-only', "The occupant's consent to enter does not cover a search of the room", (b) => {
+  b.person(2, 'witness', 'Olive Occupant').after(1)
+    .consent(2, 'entry', true, true, { buildingId: 5 }).after(1).entry(5, false, 1).after(1)
+    .search(1, 'room', [drugs('ce1')], { buildingId: 5 });
+}, 'domestic', 'suspect');
+
+add('consent-building-revoked', "A second occupant's refusal revokes the first occupant's consent for the same building", (b) => {
+  b.person(2, 'witness', 'Olive Occupant').after(1).person(3, 'witness', 'Omar Occupant').after(1)
+    .consent(2, 'searchRoom', true, true, { buildingId: 5 }).after(1).entry(5, false, 1).after(1)
+    .consent(3, 'searchRoom', false, true, { buildingId: 5 }).after(1)
+    .search(1, 'room', [drugs('cb1')], { buildingId: 5 });
+}, 'domestic', 'suspect');
+
+add('consent-other-building-kept', 'A refusal for another building does not revoke the consent', (b) => {
+  b.person(2, 'witness', 'Olive Occupant').after(1).person(3, 'witness', 'Omar Occupant').after(1)
+    .consent(2, 'searchRoom', true, true, { buildingId: 5 }).after(1).entry(5, false, 1).after(1)
+    .consent(3, 'searchRoom', false, true, { buildingId: 6 }).after(1)
+    .search(1, 'room', [drugs('ck1')], { buildingId: 5 });
+}, 'domestic', 'suspect');
+
 // --- Event kinds that never judge ------------------------------------------------------------
 
 add('quiet-kinds', 'Commands, services, advisories, charges, releases and the close are recorded without a ruling', (b) => {

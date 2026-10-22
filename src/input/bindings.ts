@@ -89,7 +89,8 @@ export const DEFAULT_BINDINGS: Readonly<BindingMap> = {
   'radio.channelNext': [key('BracketRight')],
   'radio.scan': [key('Backslash')],
   // Phase 3: shares Space / G / GamepadButton1 / GamepadButton7 with driving (on foot vs in a car), see design §12.5.
-  'officer.weapon': [key('KeyC'), pad('GamepadButton9')],
+  // Y (GamepadButton3) is the siren in a car only; Start (GamepadButton9) is the pause menu alone.
+  'officer.weapon': [key('KeyC'), pad('GamepadButton3')],
   'officer.fire': [mouse('MouseButton0'), pad('GamepadButton7')],
   'officer.tackle': [key('Space'), pad('GamepadButton1')],
   'officer.shout': [key('KeyG')],

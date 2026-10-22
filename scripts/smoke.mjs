@@ -3753,6 +3753,40 @@ async function padTap(page, ids, frames = 3) {
 }
 
 /**
+ * Presses one pad button for exactly one menu-navigation step. The navigation reads the pad state of the previous frame, so
+ * on slow software-GL frames (about 400 ms, the auto-repeat delay) a button released after a fixed number of frames fires a
+ * second, repeated step. The button is therefore released from inside the synthesized key event the navigation sends, before
+ * the input manager samples the pad again.
+ */
+async function padStep(page, button) {
+  await page.evaluate(
+    (b) =>
+      new Promise((resolve) => {
+        const pad = window.__smokePad;
+        let fired = false;
+        const on = () => {
+          fired = true;
+          pad.buttons[b] = { pressed: false, value: 0 };
+        };
+        document.addEventListener('keydown', on, true);
+        pad.buttons[b] = { pressed: true, value: 1 };
+        let frames = 0;
+        const tick = () => {
+          if (fired || ++frames > 40) {
+            pad.buttons[b] = { pressed: false, value: 0 };
+            document.removeEventListener('keydown', on, true);
+            requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    button,
+  );
+}
+
+/**
  * Phase 9 checks: the guided first shift from the title button (the first five steps with the real keys, the rest skipped,
  * a mid-tutorial save and load), a night drive in rain with the light bar (glow, cones, splashes, wet streets), the TASER
  * and firearm particles and crash sparks, audio after a gesture, gamepad navigation of the pause menu and the radio menu,
@@ -4041,8 +4075,10 @@ async function phase9(page, hasRenderer) {
   await padTap(page, [9]);
   await waitFor(page, () => window.patrol.ui.top?.id === 'pause', null, 10000);
   check(await page.evaluate(() => window.patrol.ui.top?.id === 'pause'), 'the pad Start button opens the pause menu');
-  await padTap(page, [13]); // down: Quick save
-  await padTap(page, [13]); // down: Settings
+  // One navigation step per press: a direction held across slow software-GL frames auto-repeats (real behaviour, but it
+  // would make the focus count depend on the frame rate).
+  await padStep(page, 13); // down: Quick save
+  await padStep(page, 13); // down: Settings
   const focus = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');
   console.log('pad focus after two downs:', focus);
   check(focus === 'Settings', `D-pad down moves the focus (${focus})`);
@@ -4056,6 +4092,53 @@ async function phase9(page, hasRenderer) {
   await waitFrames(page, 6);
   const closed = await page.evaluate(() => ({ top: window.patrol.ui.top?.id ?? null, paused: window.patrol.loop.paused }));
   check(closed.top === null && !closed.paused, `B closes the pause menu and it stays closed (${JSON.stringify(closed)})`);
+
+  // Review fix: Start only pauses; the force tool cycles on Y (button 3). A pad-only player reaches the MDT and the other
+  // panels from the pause menu's Panels group.
+  // The earlier exit may have been refused while the car was still rolling: stop it and get out for the on-foot checks.
+  // (Brake alone would reverse the car once it stands: hold the handbrake instead. The controls are read once per frame, so
+  // the inputs, the fixed steps and the exit run in one call.)
+  const exitResult = await page.evaluate((src) => {
+    const step = new Function(`return ${src}`)();
+    const s = window.patrol.session;
+    if (!s.driving) return 'onFoot';
+    const d = s.driverInput;
+    d.accelerate = 0;
+    d.brake = 0;
+    d.handbrake = true;
+    step(600);
+    const result = s.exitVehicle();
+    d.handbrake = false;
+    return result;
+  }, stepSim.toString());
+  await waitFrames(page, 2);
+  const onFoot = await page.evaluate(() => {
+    const s = window.patrol.session;
+    window.__forceKinds = [];
+    const orig = s.force.request.bind(s.force);
+    s.force.request = (r) => {
+      window.__forceKinds.push(r.kind);
+      return orig(r);
+    };
+    return !s.driving;
+  });
+  check(onFoot, `the officer is on foot for the pad checks (exit: ${String(exitResult)})`);
+  await padTap(page, [3]); // Y
+  const afterY = await page.evaluate(() => [...window.__forceKinds]);
+  check(onFoot && afterY.includes('cycleTool'), `the pad Y button cycles the force tool on foot (${afterY.join(',') || 'nothing'})`);
+  await padTap(page, [9]); // Start
+  await waitFor(page, () => window.patrol.ui.top?.id === 'pause', null, 10000);
+  const panelButtons = await page.evaluate(() => [...document.querySelectorAll('.pause-panels button')].filter((b) => !b.hidden).map((b) => b.textContent));
+  const afterStart = await page.evaluate(() => window.__forceKinds.length);
+  check(afterStart === afterY.length, 'the pad Start button pauses without cycling the force tool');
+  check(['MDT', 'Scene actions', 'Investigation tools', 'Partner commands', 'Fleet / garage'].every((l) => panelButtons.includes(l)), `the pause menu lists the panels a pad cannot open by key (${panelButtons.join(', ')})`);
+  await page.getByRole('button', { name: 'Fleet / garage' }).click();
+  const garageOpened = await waitFor(page, () => window.patrol.phase7.panelKind === 'garage' && window.patrol.ui.top?.id !== 'pause', null, 10000);
+  check(Boolean(garageOpened), 'Pause menu > Fleet / garage closes the pause menu and opens the fleet panel');
+  await page.evaluate(() => {
+    window.patrol.ui.closeAll();
+  });
+  await waitFrames(page, 3);
 
   // The radio menu cursor: T opens it, A enters Status, D-pad down moves on, A sends the status.
   const requests = [];

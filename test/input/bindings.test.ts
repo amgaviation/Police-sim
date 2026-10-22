@@ -12,6 +12,8 @@ import {
   withBindingSign,
   type Binding,
 } from '../../src/input/bindings';
+import { isEligible, isModal, type InputContext } from '../../src/input/context';
+import type { ActionId } from '../../src/input/actions';
 import { resolveActions, type RawInputState } from '../../src/input/input';
 
 describe('DEFAULT_BINDINGS', () => {
@@ -75,13 +77,13 @@ describe('Phase 2 default bindings', () => {
   it('binds no keyboard code or gamepad button to two actions, except the intended shared ones', () => {
     // Driving and walking share keys (design §11.5, §12.5): W/A/S/D and the arrows move on foot and drive,
     // Space is the handbrake and the tackle, G the horn and the shout, GamepadButton1 and GamepadButton7 the
-    // handbrake / throttle and the tackle / fire. GamepadButton9 (Start) is both the menu and the weapon cycle
-    // as the design table says.
+    // handbrake / throttle and the tackle / fire. GamepadButton3 (Y) is the siren in a car and the weapon cycle on
+    // foot; GamepadButton9 (Start) is the pause menu alone.
     // Phase 4 adds on-foot X / Q / R / F, right mouse button and pads 6 / 11 / 12 (equipment, siren, siren tone, manual
     // siren, spotlight aim, brake, horn, headlights in a car).
     const shared = new Set([
       'KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyG', 'GamepadButton1', 'GamepadButton7',
-      'KeyX', 'KeyQ', 'KeyR', 'KeyF', 'MouseButton2', 'GamepadButton6', 'GamepadButton11', 'GamepadButton12',
+      'KeyX', 'KeyQ', 'KeyR', 'KeyF', 'MouseButton2', 'GamepadButton3', 'GamepadButton6', 'GamepadButton11', 'GamepadButton12',
       // Phase 5: H (headlights / intervene) and J (spotlight / bodycam mute).
       'KeyH', 'KeyJ',
       // Phase 7: ShiftLeft is also the aircraft descend key (sprint on foot); Space is the handbrake and the climb key.
@@ -101,10 +103,6 @@ describe('Phase 2 default bindings', () => {
     for (const [k, ids] of owners) {
       if (ids.length < 2) continue;
       const code = k.slice(k.indexOf(':') + 1);
-      if (code === 'GamepadButton9') {
-        expect(ids.sort(), k).toEqual(['menu.toggle', 'officer.weapon']);
-        continue;
-      }
       expect(shared.has(code), `${k} bound to ${ids.join(', ')}`).toBe(true);
       expect(
         ids.every((id) => id.startsWith('move.') || id.startsWith('vehicle.') || id.startsWith('officer.')),
@@ -115,6 +113,50 @@ describe('Phase 2 default bindings', () => {
       const vehicleIds = ids.filter((id) => id.startsWith('vehicle.'));
       if (code === 'Space') expect(vehicleIds.sort(), k).toEqual(['vehicle.handbrake', 'vehicle.lift']);
       else expect(vehicleIds.length, k).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('gamepad button collisions', () => {
+  const contexts: InputContext[] = [];
+  for (const driving of [false, true]) {
+    for (const aircraft of driving ? [false, true] : [false]) {
+      for (const radioMenu of [false, true]) {
+        for (const mode of ['solo', 'coop', 'dispatch'] as const) contexts.push({ driving, aircraft, radioMenu, mode });
+      }
+    }
+  }
+
+  it('never binds one pad button to two actions that can act in the same context', () => {
+    const owners = new Map<string, ActionId[]>();
+    for (const id of ACTION_IDS) {
+      for (const b of DEFAULT_BINDINGS[id]) {
+        // Axes are bipolar (one axis drives two opposite actions); only buttons can clash.
+        if (b.device !== 'gamepad' || !b.code.startsWith('GamepadButton')) continue;
+        owners.set(b.code, [...(owners.get(b.code) ?? []), id]);
+      }
+    }
+    for (const [code, ids] of owners) {
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const a = ids[i] as ActionId;
+          const b = ids[j] as ActionId;
+          // The radio menu cursor is modal: while the menu is open it takes the button from every other action.
+          if (isModal(a) || isModal(b)) continue;
+          const clash = contexts.find((ctx) => isEligible(a, ctx) && isEligible(b, ctx));
+          expect(clash, `${code}: ${a} and ${b}`).toBeUndefined();
+        }
+      }
+    }
+  });
+
+  it('keeps Start for the pause menu and gives the force tool cycle its own on-foot button', () => {
+    expect(DEFAULT_BINDINGS['menu.toggle']).toContainEqual({ device: 'gamepad', code: 'GamepadButton9' });
+    const weaponPad = DEFAULT_BINDINGS['officer.weapon'].filter((b) => b.device === 'gamepad');
+    expect(weaponPad).toEqual([{ device: 'gamepad', code: 'GamepadButton3' }]);
+    for (const id of ACTION_IDS) {
+      if (id === 'menu.toggle') continue;
+      expect(DEFAULT_BINDINGS[id].some((b) => b.device === 'gamepad' && b.code === 'GamepadButton9'), id).toBe(false);
     }
   });
 });
@@ -152,7 +194,7 @@ describe('Phase 3 default bindings', () => {
   it('match the design table (§12.5)', () => {
     expect(DEFAULT_BINDINGS['officer.weapon']).toEqual([
       { device: 'keyboard', code: 'KeyC' },
-      { device: 'gamepad', code: 'GamepadButton9' },
+      { device: 'gamepad', code: 'GamepadButton3' },
     ]);
     expect(DEFAULT_BINDINGS['officer.fire']).toEqual([
       { device: 'mouse', code: 'MouseButton0' },
@@ -275,7 +317,7 @@ describe('Phase 5 default bindings', () => {
     expect(DEFAULT_BINDINGS['officer.bodycamMute']).toEqual([{ device: 'keyboard', code: 'KeyJ' }]);
     expect(DEFAULT_BINDINGS['officer.weapon']).toEqual([
       { device: 'keyboard', code: 'KeyC' },
-      { device: 'gamepad', code: 'GamepadButton9' },
+      { device: 'gamepad', code: 'GamepadButton3' },
     ]);
     for (const id of phase5) for (const b of DEFAULT_BINDINGS[id]) expect(isBinding(b), `${id}: ${b.code}`).toBe(true);
   });

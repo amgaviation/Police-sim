@@ -1,5 +1,16 @@
 import { el, type Menu, type UIRoot } from '../ui/ui';
 
+/**
+ * A panel the pause menu can open (Phase 9 review): a pad has no key for the MDT, the scene panel and the other openers, so the
+ * pause menu offers them as buttons. `open` runs after the pause menu has closed.
+ */
+export interface PausePanel {
+  readonly label: string;
+  open(): void;
+  /** False hides the button (e.g. the co-op panel outside a co-op session); default: shown. */
+  available?(): boolean;
+}
+
 export interface PauseMenuCallbacks {
   resume(): void;
   quickSave(): void;
@@ -17,6 +28,8 @@ export interface PauseMenuCallbacks {
   skipTutorialStep?(): void;
   /** Phase 9: end the tutorial. */
   endTutorial?(): void;
+  /** Phase 9 review: the panels with keyboard-only openers (MDT, scene, investigation, ...), so a gamepad can reach them. */
+  panels?: readonly PausePanel[];
 }
 
 /** In-game pause screen. Escape is swallowed here; the app toggles it through the `menu.toggle` action. */
@@ -27,6 +40,7 @@ export class PauseMenu implements Menu {
   private readonly status: HTMLElement;
   private readonly editorButton: HTMLElement | null;
   private readonly tutorialButtons: HTMLElement[];
+  private readonly panelButtons: { readonly panel: PausePanel; readonly button: HTMLElement }[];
   private readonly callbacks: PauseMenuCallbacks;
 
   constructor(ui: UIRoot, callbacks: PauseMenuCallbacks) {
@@ -37,6 +51,19 @@ export class PauseMenu implements Menu {
       ...(callbacks.skipTutorialStep ? [el('button', { onclick: () => callbacks.skipTutorialStep?.() }, 'Skip tutorial step')] : []),
       ...(callbacks.endTutorial ? [el('button', { onclick: () => callbacks.endTutorial?.() }, 'End tutorial')] : []),
     ];
+    this.panelButtons = (callbacks.panels ?? []).map((panel) => ({
+      panel,
+      button: el(
+        'button',
+        {
+          onclick: () => {
+            this.close();
+            panel.open();
+          },
+        },
+        panel.label,
+      ),
+    }));
     this.status = el('p', { class: 'hint' });
     this.element = el(
       'div',
@@ -51,6 +78,12 @@ export class PauseMenu implements Menu {
         ...(callbacks.openCareer ? [el('button', { onclick: () => callbacks.openCareer?.() }, 'Career / schedule')] : []),
         ...(this.editorButton ? [this.editorButton] : []),
         ...this.tutorialButtons,
+        ...(this.panelButtons.length > 0
+          ? [
+              el('p', { class: 'hint' }, 'Panels (no key needed)'),
+              el('div', { class: 'pause-panels', role: 'group', 'aria-label': 'Panels' }, ...this.panelButtons.map((p) => p.button)),
+            ]
+          : []),
         el('button', { class: 'danger', onclick: () => callbacks.quitToTitle() }, 'Quit to title'),
       ),
       this.status,
@@ -72,6 +105,7 @@ export class PauseMenu implements Menu {
     if (this.editorButton) this.editorButton.hidden = this.callbacks.editorAvailable?.() === false;
     const tutorial = this.callbacks.tutorialActive?.() === true;
     for (const b of this.tutorialButtons) b.hidden = !tutorial;
+    for (const { panel, button } of this.panelButtons) button.hidden = panel.available?.() === false;
     this.ui.push(this);
   }
 

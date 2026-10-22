@@ -224,6 +224,7 @@ canvas#game {
 .row { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 .row.end { justify-content: flex-end; }
 .stack { display: flex; flex-direction: column; gap: var(--sp-1); }
+.pause-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-1); }
 
 button, .btn {
   font: inherit;

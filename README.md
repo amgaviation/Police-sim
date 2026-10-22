@@ -67,7 +67,7 @@ Query parameters of the page:
 | MDT (non-pausing; Esc closes) | Tab (in a patrol car or at its driver door) | |
 | Run the targeted (else the stopped) car's plate | P | D-pad right |
 | Trunk / talk to the stopped driver / talk to a person / put a prisoner in the rear seat | E at a patrol car's rear / at the driver window / facing them within 2 m / at a rear door | A |
-| Cycle the force tool (hands, OC spray, baton, TASER, less-lethal, sidearm, K9 - what the armory log and ammo allow) · apply it at the camera aim · shout a command (on foot) | C · left mouse · G | Start · RT · - |
+| Cycle the force tool (hands, OC spray, baton, TASER, less-lethal, sidearm, K9 - what the armory log and ammo allow) · apply it at the camera aim · shout a command (on foot) | C · left mouse · G | Y · RT · - |
 | Intervene when your partner abuses a restrained subject (on foot) · mute / unmute the bodycam (on foot) | H · J | - |
 | Enter / exit a building, open or close a door, switch lights, use a station point · door panel | E · hold E at a door | A |
 | Crouch · lean left / right (hold) · slice a doorway (hold) | X · Q / R · right mouse | R3 · - · LT |
@@ -89,7 +89,9 @@ Query parameters of the page:
 | Perf overlay / debug console | F3 / ` | |
 
 Every action can be rebound under *Settings > Controls*. Click the canvas to lock the pointer; **Esc** (gamepad Start)
-opens the pause menu.
+opens the pause menu. Panels whose openers are keyboard keys (MDT, scene actions, investigation tools, partner commands,
+backup, incident command, pursuit tactics, fleet / garage, co-op panel, dispatch console) are also buttons in the pause
+menu, so a gamepad-only player reaches every one of them; the career screen is there too.
 
 **Radio menu cursor (Phase 9).** While the radio menu is open a highlighted row follows **PageUp / PageDown** (gamepad
 D-pad up / down), **Enter** (gamepad A) sends the highlighted option exactly like pressing its digit, and a digit moves

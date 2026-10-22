@@ -12,9 +12,13 @@
  *      officer, hold W: the car accelerates and moves
  *   6. receive a dispatcher call and accept it with the real radio keys (T, 7)
  *   8. call priority backup with the real radio keys (T, 4, 2): an AI unit is sent to the player's call
- *   7. resolve a call end to end: a scripted traffic stop (speeding, ID, odor, consent PBT, arrest, rights, booking,
- *      call cleared), the MDT report form with the true statements ticked (graded), a contested court case heard with
- *      the real keys (attend from the MDT Career tab, Enter, digits, Enter) ending in a verdict
+ *   7. resolve calls end to end. The dispatched call (6) goes through its scene: the officer arrives on scene (the scene
+ *      director moves the unit onScene by itself), uses the scene panel's actions, writes the report on that very call in
+ *      the MDT (linked and graded) and clears the call through the scene panel. Then a scripted traffic stop (speeding, ID,
+ *      odor, consent PBT, arrest, rights, booking, call cleared), its MDT report form with the true statements ticked
+ *      (graded), and a contested court case heard with the real keys (attend from the MDT Career tab, Enter, digits,
+ *      Enter) ending in a verdict. The court case comes from the stop: whether an alarm scene ends in an arrest is a
+ *      seeded branch of the scenario, not something the flow can rely on
  *   9. pause menu > Quick save, Quit to title, Continue the quicksave: the officer, livery, closed calls, the graded
  *      report, the verdict and the career stats survive
  *  10. zero console errors, page errors and app warnings
@@ -338,6 +342,61 @@ function stopFlow([stepSrc, stage, ids]) {
   };
 }
 
+/**
+ * The dispatched call's scene (run in the page, `stepSrc` = stepSim): the officer drives to the call, the scene director
+ * brings the unit onScene by itself, the scene panel (opened like the Y key does) lists the family's actions, one of them
+ * runs to completion. The call is cleared later, once the report is written.
+ */
+function sceneFlow([stepSrc, callId]) {
+  const step = new Function(`return ${stepSrc}`)();
+  const app = window.patrol;
+  const s = app.session;
+  const call = s.cad.call(callId);
+  const me = s.dispatcher.playerCallsign;
+  const statusBefore = s.cad.playerUnit()?.status ?? '';
+  const mark = window.__e2e.status.length;
+  // The scenario's anchor (a door or a curb point near the call location) is where the officer has to be.
+  const anchor = s.scene.runtime(callId)?.scenario.anchor ?? call.location;
+  s.teleport(anchor.x, anchor.z);
+  for (let i = 0; i < 12 && s.cad.playerUnit()?.status !== 'onScene'; i++) step(60);
+  const arrivals = window.__e2e.status.slice(mark).filter((e) => e.callsign === me && e.status === 'onScene' && e.callId === callId);
+  // The Y key: the scene panel of the call within reach.
+  app.ui.closeAll();
+  const opened = app.panels.openScene();
+  const model = s.scene.panelModel(callId);
+  const labels = model ? model.options.map((o) => o.label) : [];
+  const open = (model?.options ?? []).findIndex((o) => o.enabled && /search the area/i.test(o.label));
+  if (open >= 0) {
+    s.scene.panelSelect(callId, open);
+    step(60 * 25);
+  }
+  // A repeatable action leaves no state behind once it is done: its flag on the scenario is the proof.
+  const searched = s.scene.flagsOf(callId)?.has('areaSearched') === true;
+  app.panels.close();
+  return {
+    callId,
+    statusBefore,
+    status: s.cad.playerUnit()?.status ?? '',
+    arrivedVia: arrivals.map((e) => e.via),
+    opened,
+    labels,
+    action: open >= 0 ? (labels[open] ?? '') : '',
+    searched,
+    clearIndex: labels.length - 2,
+  };
+}
+
+/** Clears the call through the scene panel's "Clear call (suggested)" row, as the officer would (run in the page). */
+function sceneClear([stepSrc, callId, index]) {
+  const step = new Function(`return ${stepSrc}`)();
+  const s = window.patrol.session;
+  const model = s.scene.panelModel(callId);
+  s.scene.panelSelect(callId, index);
+  step(60 * 10);
+  const call = s.cad.call(callId);
+  return { label: model?.options[index]?.label ?? '', status: call?.status ?? '', disposition: call?.disposition ?? '' };
+}
+
 /** What must survive the save / load round trip (read in the page). */
 function survivors(ids) {
   const s = window.patrol.session;
@@ -353,6 +412,30 @@ function survivors(ids) {
     verdict: s.court.case(ids.caseId)?.verdict ?? null,
     stats: { calls: stats.calls, arrests: stats.arrests, reports: stats.reports, reportSum: stats.reportSum },
   };
+}
+
+/** Opens the MDT report form for a call, ticks the statements that are true, submits and waits for the grade (in the page). */
+function submitReport(page, ids) {
+  return page.evaluate(async (ids) => {
+    const app = window.patrol;
+    const s = app.session;
+    const mdt = app.mdt;
+    mdt.open('reports');
+    const opened = mdt.openForm('report', { callId: ids.callId, title: ids.title, location: '95 S Park Avenue', narrative: ids.narrative });
+    await new Promise((r) => setTimeout(r, 300));
+    const key = ids.key || s.incidents.keyOfCall(ids.callId);
+    const choices = s.incidents.reportChoices(key);
+    const trueIds = choices.filter((c) => c.key === true).map((c) => c.id);
+    const boxes = [...document.querySelectorAll('.mdt-statements input')];
+    for (const b of boxes) if (trueIds.includes(b.value)) b.checked = true;
+    const result = mdt.submitForm(true);
+    const docId = result.doc?.id ?? '';
+    for (let i = 0; i < 50 && !s.conduct.reportGrade(docId); i++) await new Promise((r) => setTimeout(r, 200));
+    const grade = s.conduct.reportGrade(docId);
+    const linked = s.cad.call(ids.callId)?.documents.includes(docId) === true;
+    mdt.close();
+    return { opened, shown: boxes.length, ticked: trueIds.length, errors: result.errors, docId, linked, grade: grade ? { score: grade.score, letter: grade.letter } : null };
+  }, ids);
 }
 
 async function run() {
@@ -399,11 +482,13 @@ async function run() {
     await page.evaluate(() => {
       // Presentation events the checks read.
       const w = window;
-      w.__e2e = { saved: [], backup: [], assigned: [] };
+      w.__e2e = { saved: [], backup: [], assigned: [], status: [], closed: [] };
       const bus = w.patrol.bus;
       bus.on('save:completed', (e) => w.__e2e.saved.push(e.slot));
       bus.on('dispatch:backup', (e) => w.__e2e.backup.push({ requester: e.requester, units: [...e.units], code: e.code }));
       bus.on('cad:unitAssigned', (e) => w.__e2e.assigned.push({ ...e }));
+      bus.on('cad:unitStatus', (e) => w.__e2e.status.push({ callsign: e.callsign, status: e.status, callId: e.callId, via: e.via }));
+      bus.on('cad:callClosed', (e) => w.__e2e.closed.push({ callId: e.callId, disposition: e.disposition }));
     });
 
     // --- 3. Create an officer ---------------------------------------------------------------------------------------
@@ -604,14 +689,20 @@ async function run() {
     check(/^Request/.test(reqTitle), `T then 4 opens the Request menu (${reqTitle})`);
     check(backup.unit !== '' && realMs <= 20000, `Request > priority backup sends an AI unit to the player's call (${backup.unit} ${backup.status}${backup.event ? ', dispatch:backup' : ''}) within 20 s real time at timescale 4`);
     await page.evaluate(() => window.patrol.setTimeScale(1));
-    // The offered call is done: clear it so the traffic stop below is the officer's only call.
-    await page.evaluate((id) => {
-      const s = window.patrol.session;
-      s.dispatcher.request(s.dispatcher.playerCallsign, { kind: 'clearCall', callId: id, disposition: 'handled' }, 'key');
-    }, callId);
-    await advance(page, 10);
-    const cleared = await page.evaluate((id) => window.patrol.session.cad.call(id)?.status ?? '', callId);
-    check(cleared === 'closed', `the accepted call is cleared and closed in the CAD (${cleared})`);
+    // --- 6b. The accepted call goes through its scene, report and clear (not a dispatcher request) ---------------------------
+    const scene = await page.evaluate(sceneFlow, [stepSim.toString(), callId]);
+    note(`scene: ${JSON.stringify(scene)}`);
+    check(scene.status === 'onScene' && scene.arrivedVia.length > 0, `arriving at the call's scene puts the unit onScene by the scene director (${scene.statusBefore} -> ${scene.status}, via ${scene.arrivedVia.join(', ') || 'nothing'})`);
+    check(scene.opened && scene.labels.some((l) => /^Clear call/.test(l)), `the scene panel opens for the call with its actions and the clear rows (${scene.labels.length} rows)`);
+    check(scene.action !== '' && scene.searched, `a scene action runs to completion and sets its scenario flag (${scene.action}: areaSearched ${String(scene.searched)})`);
+    const callReport = await submitReport(page, { callId, key: '', title: 'Alarm call', narrative: 'Responded to the alarm, searched the area and cleared the call.' });
+    note(`call report: ${JSON.stringify(callReport)}`);
+    check(callReport.opened && callReport.errors.length === 0 && callReport.linked, `the MDT report is written on the dispatched call and linked to it in the CAD (${callReport.docId})`);
+    check(callReport.grade !== null, `the call's report was graded (${callReport.grade ? `${callReport.grade.letter} ${callReport.grade.score}` : 'no grade'})`);
+    const clearedByScene = await page.evaluate(sceneClear, [stepSim.toString(), callId, scene.clearIndex]);
+    note(`scene clear: ${JSON.stringify(clearedByScene)}`);
+    check(clearedByScene.status === 'closed' && clearedByScene.disposition !== '', `the scene panel clears the call: ${clearedByScene.label} -> closed as ${clearedByScene.disposition}`);
+    await page.evaluate(() => window.patrol.setTimeScale(1));
 
     // --- 7. Resolve a call end to end: CAD -> scene -> report -> court ---------------------------------------------------------
     await page.evaluate(() => {
@@ -628,24 +719,7 @@ async function run() {
     check(stopCall === 'closed', `the traffic stop's CAD call is closed (${stopCall})`);
 
     // The report with the statements checklist.
-    const report = await page.evaluate(async (ids) => {
-      const app = window.patrol;
-      const s = app.session;
-      const mdt = app.mdt;
-      mdt.open('reports');
-      const opened = mdt.openForm('report', { callId: ids.callId, title: 'Traffic stop with arrest', location: '95 S Park Avenue', narrative: 'Stopped a speeding car, smelled alcohol, then arrested the driver.' });
-      await new Promise((r) => setTimeout(r, 300));
-      const choices = s.incidents.reportChoices(ids.key);
-      const trueIds = choices.filter((c) => c.key === true).map((c) => c.id);
-      const boxes = [...document.querySelectorAll('.mdt-statements input')];
-      for (const b of boxes) if (trueIds.includes(b.value)) b.checked = true;
-      const result = mdt.submitForm(true);
-      const docId = result.doc?.id ?? '';
-      for (let i = 0; i < 50 && !s.conduct.reportGrade(docId); i++) await new Promise((r) => setTimeout(r, 200));
-      const grade = s.conduct.reportGrade(docId);
-      mdt.close();
-      return { opened, shown: boxes.length, ticked: trueIds.length, errors: result.errors, docId, grade: grade ? { score: grade.score, letter: grade.letter } : null };
-    }, s1);
+    const report = await submitReport(page, { callId: s1.callId, key: s1.key, title: 'Traffic stop with arrest', narrative: 'Stopped a speeding car, smelled alcohol, then arrested the driver.' });
     note(`report: ${JSON.stringify(report)}`);
     check(report.opened && report.shown > 0 && report.errors.length === 0, `the MDT report form lists ${report.shown} statements of fact and accepts the submission`);
     check(report.grade !== null && report.grade.score > 0, `the report was graded (${report.grade ? `${report.grade.letter} ${report.grade.score}` : 'no grade'})`);
