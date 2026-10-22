@@ -644,6 +644,7 @@ npm run build      # production bundle in dist/ (clean: no warnings)
 npm run preview    # serve dist/ on http://localhost:4173
 npm run smoke      # headless browser test (Phases 0-9) + docs/screenshots/phase1*.png ... phase9*.png   (SMOKE_ONLY=9 for this phase)
 npm run e2e        # the done-when flow against the production build (vite preview), headless Chromium
+bash scripts/demo.sh  # build and serve the newest completed phase from a separate worktree (see DEMO.md; Codespaces command there)
 npm run perf       # browser profile of the production build (heap checkpoints, per-phase times) -> docs/perf/browser-profile.json
 npm run perf:node  # 8 game hours in Node + the memory plateau (PATROL_LONG=1) -> docs/perf/node-long-shift.json
 ```
@@ -673,18 +674,19 @@ npm run perf:node  # 8 game hours in Node + the memory plateau (PATROL_LONG=1) -
 - Memory (Node, after GC): session churn +1.6 MB over six start / run / reset cycles with no leaked bus listeners; plateau +1.4 MB over 4 x 1 800 steps and +3.8 MB over 6 game hours (bounded caches filling, not a leak).
 - Browser (production build under `vite preview`, headless Chromium with SwiftShader, 1280x720, 4 minutes at timescale 8; `docs/perf/browser-profile.json`): sim 14.5 ms per frame for 40 fixed steps (was 28.5), update 2.2 ms, render hook 2.3 ms; draw calls mean 86, max 97 (cap 300); heap after GC +4.1 % (limit 25 %), DOM nodes +0.2 %, event listeners -2.5 %, zero console errors. Frames take about 1 s under software GL, so these are CPU-side numbers.
 - Phase 9 effects and audio: at most 6 draw calls for all effects (3 in the night-rain drive: 512 glow sprites, 11 headlight cones, the ground pools), 95 draw calls in the whole smoke scene with effects on; the audio graph stays at or below 120 nodes (4 siren voices, the engine, 2 traffic engines, 5 ambience layers in the smoke run) and the per-frame audio update costs about 0.02 ms.
-- Test suite: 557 test files, 7 817 tests in about 4 minutes (Phase 8: 506 files, 6 749 tests); the legal engine and CAD audit adds 460 tests.
+- Test suite: 560 test files, 8 045 tests in about 3 minutes (Phase 8: 506 files, 6 749 tests); the legal engine and CAD audit adds 460 tests.
 
 ### Release checklist
-- [x] `npm run check` — tsc (app, node, server), eslint, vitest — 557 test files, 7 817 tests passing
+- [x] `npm run check` — tsc (app, node, server), eslint, vitest — 560 test files, 8 045 tests passing
 - [x] `npm run build` — clean, no warnings
-- [x] `npm run smoke` — "SMOKE PASSED" (329 checks, Phases 0-9 including `SMOKE_ONLY=9`), zero console errors and zero app warnings, 95 draw calls in the Phase 9 scene (cap 300)
-- [x] `npm run e2e` — "E2E PASSED" (43 checks, about 160 s) against `vite preview` of the production build: officer, shift, customized patrol car driven, a call accepted with the radio keys, backup, a traffic stop to a court verdict, quick save, quit, continue; zero console errors and warnings
+- [x] `npm run smoke` — "SMOKE PASSED" (334 checks, Phases 0-9 including `SMOKE_ONLY=9`), zero console errors and zero app warnings, 95 draw calls in the Phase 9 scene (cap 300)
+- [x] `npm run e2e` — "E2E PASSED" (48 checks, about 150 s) against `vite preview` of the production build: officer, shift, customized patrol car driven, a call accepted with the radio keys, backup, a traffic stop to a court verdict, quick save, quit, continue; zero console errors and warnings
 - [x] `npm run perf:node` and `npm run perf` — "PERF PASSED" (heap +4.1 %, DOM nodes +0.2 %, listeners -2.5 %, draw calls max 97, zero console errors); `perf:node` passes (8 game hours, plateau +3.8 MB)
 - [x] `README.md` (overview, requirements, how to run, controls, architecture, modding, multiplayer, testing, performance, assets), `docs/ARCHITECTURE.md`, `docs/PERFORMANCE.md`, `docs/ASSETS.md` (no assets), `docs/MODDING.md`
 - [x] Saves: v1..v10 migrate to v11 (tested), a v11 mid-tutorial save round-trips
 
 ### Known limitations
+- The smoke test's Phase 2 traffic-stop step (a car pulling over for the light bar) depends on ambient traffic and real-time frame timing; it retries three times inside the step and, very rarely under heavy machine load, fails all three (seen once in the final release run; the rerun passed). It is a test timing sensitivity, not a game defect.
 - No full-screen bloom: glow sprites and ground light pools approximate it, and there are no shadowed headlight volumes.
 - Doppler uses detune on the synthesized siren and horn oscillators; panning stays `equalpower` (HRTF costs more). Engine voices are synthesized and read as a simple engine note, not a recording; there are no voices, crowds or music (the `audio.music` setting stays hidden). Radio chatter is unintelligible babble by design (text-to-speech speaks the real lines).
 - A gamepad cannot type free text: MDT forms keep their prefilled fields.

@@ -40,6 +40,11 @@ npm run server     # the optional co-op server on ws://127.0.0.1:8787 (see Multi
 ```
 
 Open the page, click the canvas to lock the pointer and press **Esc** for the pause menu (quick save, settings, quit).
+
+**Demo build.** `bash scripts/demo.sh` builds and serves the newest completed phase (the latest `Phase N: ...` commit on
+the branch) from a separate worktree, so work in progress never reaches it: `npm ci`, `vite build`, then `vite preview`
+on http://localhost:4173 (`PORT` changes the port). [DEMO.md](DEMO.md) has the short controls list and the GitHub
+Codespaces command that runs it in a browser tab.
 The title screen offers **Guided first shift**, **New career**, **New game** (free patrol, with an optional seed: the same
 seed generates the same city and the same shift), **Training**, **Multiplayer**, **Mods** and **Continue**.
 
@@ -326,5 +331,6 @@ project's own.
 - `docs/MODDING.md` - the mod bundle format, precedence rules and schemas (`docs/schemas/`); `examples/mods/` has working examples
 - `server/README.md` - the co-op server: protocol, limits and configuration
 - `docs/ASSETS.md` - asset licensing and the procedural content rules
+- `DEMO.md` - the demo build (`bash scripts/demo.sh`) and the Codespaces command
 - `docs/PHASES.md` - per-phase log with manual test checklists and known limitations
 - `docs/research/` - verified API notes for the pinned libraries
