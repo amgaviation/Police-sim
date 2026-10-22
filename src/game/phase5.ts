@@ -96,7 +96,7 @@ export class Phase5 {
   readonly legal: LegalLine = { text: '', severity: 'ok', untilSim: 0 };
   /** Bumps when the legal line changes. */
   legalRevision = 0;
-  /** Sim second of the last force verdict on the legal line (a TASER flash does not replace it at once). */
+  /** Sim second of the last force verdict on the legal line (a CED flash does not replace it at once). */
   private verdictSim = -Infinity;
   private readonly host: Phase5Host;
   private readonly offs: (() => void)[] = [];

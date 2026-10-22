@@ -371,7 +371,7 @@ describe('armed', () => {
     expect((m.events['npc:attack'] ?? []).filter((e) => e.kind === 'fire').length).toBe(0);
   });
 
-  it('a TASER hit drops the weapon and brings the actor down', async () => {
+  it('a CED hit drops the weapon and brings the actor down', async () => {
     const r = await rig();
     const id = r.npc.spawnActor(spec(person(1), P.x + 5, P.z, { profile: 'suspectArmedHostile', weapon: 'knife' }));
     r.npc.forceState(id, 'armed');
@@ -440,7 +440,7 @@ describe('fight', () => {
   });
 });
 
-describe('tackle and TASER range', () => {
+describe('tackle and CED range', () => {
   it('tackle takes down only an actor within range and inside the cone in front', async () => {
     const r = await rig();
     const front = r.npc.spawnActor(spec(person(1), P.x, P.z - 1.2));

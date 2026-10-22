@@ -59,19 +59,19 @@ describe('special force rules', () => {
     expect(verdict('firearm', 'lethal').verdict).toBe('justified');
   });
 
-  it('a TASER on an active subject: justified in generic, questionable in strict', () => {
+  it('a CED on an active subject: justified in generic, questionable in strict', () => {
     expect(verdict('taser', 'active').verdict).toBe('justified');
     expect(verdict('taser', 'active', {}, strict).verdict).toBe('questionable');
   });
 
-  it('the 4th TASER cycle is excessive in generic; the 3rd in strict', () => {
+  it('the 4th CED cycle is excessive in generic; the 3rd in strict', () => {
     expect(verdict('taser', 'assaultive', { cycle: 3 }).verdict).toBe('justified');
     expect(verdict('taser', 'assaultive', { cycle: 4 })).toMatchObject({ verdict: 'excessive', ruleIds: ['GS-8.3'], factors: ['cycles'] });
     expect(verdict('taser', 'assaultive', { cycle: 2 }, strict).verdict).toBe('justified');
     expect(verdict('taser', 'assaultive', { cycle: 3 }, strict)).toMatchObject({ verdict: 'excessive', ruleIds: ['SS-8.3'] });
   });
 
-  it('a TASER on a subject with a risk factor is excessive unless the threat is lethal', () => {
+  it('a CED on a subject with a risk factor is excessive unless the threat is lethal', () => {
     expect(verdict('taser', 'active', { riskFactors: ['elderly'] })).toMatchObject({ verdict: 'excessive', ruleIds: ['GS-8.4'], factors: ['elderly'] });
     expect(verdict('taser', 'assaultive', { riskFactors: ['pregnant', 'running', 'unrelated'] }).factors).toEqual(['pregnant', 'running']);
     expect(verdict('taser', 'lethal', { riskFactors: ['elderly'] }).verdict).toBe('justified');

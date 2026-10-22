@@ -145,8 +145,8 @@ describe('iaStatementOptions', () => {
     const c = caseOf([{ rule: 'excessiveForce', severity: 'major', eventIds: [forceId] }]);
     const opts = iaStatementOptions(c, log);
     expect(opts.map((o) => o.text)).toEqual([
-      'When I used the taser, Mr. Doe was active.',
-      'When I used the taser, Mr. Doe was assaultive.',
+      'When I used the CED, Mr. Doe was active.',
+      'When I used the CED, Mr. Doe was assaultive.',
       'I acknowledge the policy violation.',
       'I have nothing to add.',
     ]);

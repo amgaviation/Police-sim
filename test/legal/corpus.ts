@@ -319,12 +319,12 @@ add('force-restrained', 'Hard hands on a handcuffed subject', (b) => {
   b.force(1, 'hardHands', 'passive', { restrained: true });
 });
 
-add('force-taser-cycles', 'Three TASER cycles pass under generic; the third is one too many under strict', (b) => {
+add('force-taser-cycles', 'Three CED cycles pass under generic; the third is one too many under strict', (b) => {
   lawfulStop(b);
   b.force(1, 'taser', 'assaultive', { cycle: 1 }).after(5).force(1, 'taser', 'assaultive', { cycle: 3 }).after(5).force(1, 'taser', 'assaultive', { cycle: 4 });
 });
 
-add('force-taser-risk', 'A TASER on an elevated subject who is only an active resister', (b) => {
+add('force-taser-risk', 'A CED on an elevated subject who is only an active resister', (b) => {
   lawfulStop(b);
   b.force(1, 'taser', 'active', { riskFactors: ['elevated'] });
 });

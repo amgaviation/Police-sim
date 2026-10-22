@@ -238,6 +238,35 @@ describe('GamepadNav buttons', () => {
   });
 });
 
+describe('GamepadNav: the press that opened the menu', () => {
+  it('is not also read as A / B / LB / RB for the menu (the pad is polled after the nav, so the edge lasts into the next update)', () => {
+    const { pad, sent, state, frame } = setup({ open: false });
+    frame();
+    // The game saw A this frame and opened a menu; the nav still sees the same edge next frame.
+    pad.press(PAD_BUTTON.a);
+    pad.press(PAD_BUTTON.b);
+    state.open = true;
+    frame();
+    expect(sent).toEqual([]);
+    // Held A is not a new edge; a fresh press on a later frame works.
+    pad.release(PAD_BUTTON.a);
+    frame();
+    pad.press(PAD_BUTTON.a);
+    frame();
+    expect(keys(sent)).toEqual(['Enter']);
+  });
+
+  it('only the first open frame is skipped (a menu that stays open keeps its A)', () => {
+    const { pad, sent, state, frame } = setup({ open: false });
+    frame();
+    state.open = true;
+    frame();
+    pad.press(PAD_BUTTON.a);
+    frame();
+    expect(keys(sent)).toEqual(['Enter']);
+  });
+});
+
 describe('GamepadNav repeat and stick', () => {
   it('fires once on the press, waits 400 ms, then repeats every 120 ms while held', () => {
     const { pad, sent, frame, now } = setup();

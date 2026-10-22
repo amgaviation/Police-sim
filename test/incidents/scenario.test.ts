@@ -197,7 +197,7 @@ describe('judged conduct', () => {
         cycle: 1, riskFactors: [], distance: 4, restrained: false, sim: rig.sim,
       });
     send();
-    expect(rig.verdicts[0]?.text).toBe('TASER on active resistance: within policy (GS-8.1)');
+    expect(rig.verdicts[0]?.text).toBe('CED on active resistance: within policy (GS-8.1)');
     expect(rig.sys.assessment(K)?.force[0]?.verdict).toBe('justified');
     rig.sys.request({ kind: 'jurisdiction', id: 'strict' });
     rig.step();

@@ -35,7 +35,7 @@ export function withReport(f: Fixture, assertions: string[], game = 5000): Fixtu
 
 /**
  * A busy traffic stop: lawful stop on weaving + odor, an unlawful frisk, a consent vehicle search, a failed field test and
- * a lawful arrest (pc 2.0 for dui), an unwarned custodial question, TASER on an active subject (on camera) and a strike
+ * a lawful arrest (pc 2.0 for dui), an unwarned custodial question, CED on an active subject (on camera) and a strike
  * on a passive subject while the camera is muted.
  */
 export function richFixture(rulesetId = 'generic'): Fixture {

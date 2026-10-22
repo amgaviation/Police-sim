@@ -7,7 +7,7 @@ const ARC_OPACITY = 0.9;
 const ARC_OPACITY_REDUCED = 0.45;
 
 /**
- * TASER arc: one `Line` of `arc.segments` segments between two points. The interior points are jittered and the
+ * CED arc: one `Line` of `arc.segments` segments between two points. The interior points are jittered and the
  * jitter is redrawn at `rateHz` (render rng `vfx:arc`); with reduced flash the line is straight and dim and never
  * changes.
  */

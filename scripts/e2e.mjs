@@ -521,7 +521,7 @@ async function run() {
     check(first.inStation, 'the shift starts in the station locker room');
     await consoleRun(page, 'time 10:30');
     await consoleRun(page, 'weather clear');
-    // The station flow: the sidearm and TASER are signed out at the armory, then locker / briefing / armory / garage.
+    // The station flow: the sidearm and CED are signed out at the armory, then locker / briefing / armory / garage.
     const station = await page.evaluate(() => {
       const app = window.patrol;
       const st = app.session.station;
@@ -534,7 +534,7 @@ async function run() {
       return { flow: st.flow.step, out: st.armory.out(), unit: s.cad.playerUnit()?.status ?? '' };
     });
     note(`station: ${JSON.stringify(station)}`);
-    check(station.out.includes('sidearm') && station.out.includes('taser') && station.flow === 'onPatrol', `the station flow ends on patrol with the sidearm and TASER out (${station.flow}; ${station.out.join(', ')})`);
+    check(station.out.includes('sidearm') && station.out.includes('taser') && station.flow === 'onPatrol', `the station flow ends on patrol with the sidearm and CED out (${station.flow}; ${station.out.join(', ')})`);
     await waitSession(page);
     await sleep(500);
 

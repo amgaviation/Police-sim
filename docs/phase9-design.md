@@ -789,7 +789,7 @@ the player callsign and the call bound by `createCall`. Text tokens `{action.id}
 |---|---|---|---|
 | 1 | `welcome` | Your first shift. Prompts like this one guide you; Escape > Pause has *Skip step* / *End tutorial*. | ack |
 | 2 | `enterCar` | Walk to the patrol car in the lot and press {interact} to get in. | `player:mode` where `mode: "driving"` |
-| 3 | `drive` | Accelerate {vehicle.accelerate}, brake {vehicle.brake}, steer {vehicle.steer}. Reach 30 km/h. | probe `speedKmh` gte 30 |
+| 3 | `drive` | Accelerate {vehicle.accelerate}, brake {vehicle.brake}, steer {vehicle.steer}. Reach 20 mph. | probe `speedKmh` gte 32.19 (20 mph) |
 | 4 | `lights` | Emergency lights {vehicle.lights}, siren {vehicle.siren}. Switch the light bar on. | probe `lightbar` gte 1 |
 | 5 | `radioStatus` | Open the radio {radio.menu}, choose 1 Status, then In service. ({radio.cursorNext} / {radio.cursorSelect} with a gamepad.) | `unit:request` where `callsign: "$player"`, `request.kind: "status"`, `request.status: "available"` |
 | 6 | `takeCall` | enter: `createCall` `abandonedVehicle` 250-600 m. Dispatch offers you a call: accept it with radio 7 or in the MDT {mdt.toggle}. | `cad:unitAssigned` where `callsign: "$player"`, `callId: "$call"` |

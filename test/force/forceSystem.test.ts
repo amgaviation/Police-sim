@@ -86,7 +86,7 @@ describe('tool cycling', () => {
     const r0 = rig.sys.revision;
     rig.select('taser');
     expect(rig.sys.hud).toBe(hud);
-    expect(hud).toMatchObject({ tool: 'taser', label: 'TASER', ammo: '2/2', attached: false, cycle: 0, episode: null });
+    expect(hud).toMatchObject({ tool: 'taser', label: 'CED', ammo: '2/2', attached: false, cycle: 0, episode: null });
     expect(rig.sys.revision).toBeGreaterThan(r0);
     const r1 = rig.sys.revision;
     rig.run(10);
@@ -160,7 +160,7 @@ describe('targeting', () => {
   });
 });
 
-describe('TASER', () => {
+describe('CED', () => {
   it('a hit uses a cartridge, attaches probes and cycles', () => {
     const rig = new Rig(scriptedRng(TASER_NMI));
     rig.add(makeActor(1, { x: 0, z: -3 }), 'active');
@@ -171,7 +171,7 @@ describe('TASER', () => {
     expect(rig.applied).toHaveLength(1);
     expect(rig.applied[0]).toMatchObject({ tool: 'taser', level: 'taser', hit: true, cycle: 1, resistance: 'active', fatal: false });
     expect(rig.applied[0]?.injury).toBeGreaterThan(0);
-    expect(rig.flashes.at(-1)).toBe('TASER: probes hit (2/2), cycle 1');
+    expect(rig.flashes.at(-1)).toBe('CED: probes hit (2/2), cycle 1');
   });
 
   it('re-cycling the attached target does not use a cartridge and counts cycles', () => {
@@ -184,7 +184,7 @@ describe('TASER', () => {
     expect(rig.sys.hud.ammo).toBe('1/2');
     expect(rig.applied.map((e) => e.cycle)).toEqual([1, 2, 3]);
     expect(rig.calls.filter((c) => c.startsWith('taserCycle'))).toEqual(['taserCycle:1:5', 'taserCycle:1:5']);
-    expect(rig.flashes.at(-1)).toBe('TASER: cycle 3');
+    expect(rig.flashes.at(-1)).toBe('CED: cycle 3');
   });
 
   it('re-cycles from beyond the dart range up to the reattach range, not further', () => {
@@ -239,7 +239,7 @@ describe('TASER', () => {
     expect(rig.sys.hud.ammo).toBe('0/2');
     rig.runFor(31);
     rig.apply(0, -1);
-    expect(rig.flashes.at(-1)).toBe('TASER: no cartridges');
+    expect(rig.flashes.at(-1)).toBe('CED: no cartridges');
     expect(rig.applied).toHaveLength(3);
   });
 
@@ -265,7 +265,7 @@ describe('TASER', () => {
     expect(rig.applied[0]).toMatchObject({ hit: false, cycle: 0, injury: 0 });
     expect(rig.sys.hud.ammo).toBe('1/2');
     expect(rig.calls.some((c) => c.startsWith('incapacitate'))).toBe(false);
-    expect(rig.flashes.at(-1)).toBe('TASER: missed');
+    expect(rig.flashes.at(-1)).toBe('CED: missed');
   });
 
   it('cold weather is passed to the model', () => {
@@ -515,7 +515,7 @@ describe('armory ammo', () => {
     expect(rig.sys.hud.ammo).toBe('1/2');
   });
 
-  it('refills the TASER and drops the attachment', () => {
+  it('refills the CED and drops the attachment', () => {
     const rig = new Rig(scriptedRng(TASER_NMI));
     rig.add(makeActor(1, { x: 0, z: -3 }), 'active');
     rig.select('taser');

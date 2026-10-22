@@ -95,7 +95,7 @@ export interface HudSnapshot {
   /** Carried items, e.g. 'Flashlight · Cuffs ×2'. */
   carried?: string;
   // Phase 3 (design §12.4): optional as well.
-  /** The officer's drawn weapon (chip 'SIDEARM' / 'TASER'). */
+  /** The officer's drawn weapon (chip 'SIDEARM' / 'CED'). */
   officer?: Readonly<HudOfficer> | null;
   /** The person in contact (chip 'Name · state · 4 m'). */
   contact?: Readonly<HudContact> | null;
@@ -115,7 +115,7 @@ export interface HudSnapshot {
   /** Case line, e.g. 'Case C-00042 · 3 items · 1 photo'. */
   caseLine?: string | null;
   // Phase 5 (design §12.4): optional as well; the integrator's feed fills them.
-  /** Force tool chip ('TASER 2/2'); replaces the Phase 3 weapon chip when present. */
+  /** Force tool chip ('CED 2/2'); replaces the Phase 3 weapon chip when present. */
   force?: Readonly<HudForce> | null;
   /** Camera chips REC / MUTED / DASH; replaces the Phase 4 bodycam chip when present. */
   cam?: Readonly<HudCam> | null;
@@ -212,7 +212,7 @@ export interface HudText {
   targetSeverity: TargetSeverity;
   /** Carried items line; '' hides it. */
   carried: string;
-  /** Weapon chip ('SIDEARM' / 'TASER'); '' hides it. */
+  /** Weapon chip ('SIDEARM' / 'CED'); '' hides it. */
   weapon: string;
   /** Contact chip; '' hides it. */
   contact: string;
@@ -243,7 +243,7 @@ export interface HudText {
   bodycamMuted: boolean;
   /** 'DASH'; '' hides the chip. */
   dash: string;
-  /** Force tool chip ('TASER 2/2 · PROBES'); '' hides it. */
+  /** Force tool chip ('CED 2/2 · PROBES'); '' hides it. */
   force: string;
   /** Fellow-officer misconduct episode chip; '' hides it. */
   episode: string;
@@ -690,7 +690,7 @@ function buildView(parent: HTMLElement): HudView {
   const forceChip = chip('', 'var(--c-p2)', chipRow);
   const episode = chip('', 'var(--c-emergency)', chipRow);
   const resourceEta = chip('', 'var(--info)', chipRow);
-  const flirChip = chip('FLIR', 'var(--flir)', chipRow);
+  const flirChip = chip('IR', 'var(--flir)', chipRow);
   const fleetChip = chip('', 'var(--c-caution)', chipRow);
   const careerChip = chip('', 'var(--c-caution)', chipRow);
   const coopChip = chip('', 'var(--c-unit)', chipRow);

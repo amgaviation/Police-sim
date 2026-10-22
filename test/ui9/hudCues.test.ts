@@ -11,7 +11,7 @@
  *   - trust chip: TRUST_MARKS  low '▼ ', mid '◆ ', high '▲ ';
  *   - wellbeing chip: CHIP_MARKS  caution '▲ ', alert '! '.
  * Unchanged (already carry their meaning as text): 'FUEL LOW', 'OIL LOW', 'TYRES WORN', 'BRAKES HOT', '● REC' / 'MUTED' / 'CAM',
- * 'DASH', 'FLIR', 'ALT n m', the call strip ('P1'..'P4' in the title), the scene objectives (✓ / •), the duty and pursuit lines.
+ * 'DASH', 'IR', 'ALT n m', the call strip ('P1'..'P4' in the title), the scene objectives (✓ / •), the duty and pursuit lines.
  * DOM writes stay change-driven (see test/hud/phase5.test.ts).
  */
 import { afterEach, describe, expect, it } from 'vitest';

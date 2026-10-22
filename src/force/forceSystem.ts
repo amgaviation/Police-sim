@@ -11,7 +11,7 @@ import { FORCE_TOOLS, type FellowOfficer, type ForceConfig, type ForceDeps, type
 export const IMPAIRED_LEVEL = 0.25;
 /** Behaviour profiles that count as impaired / in crisis. */
 const IMPAIRED_PROFILES: readonly string[] = ['subjectCrisis', 'subjectSuicidal', 'subjectIntoxicated'];
-/** Seconds after the last TASER cycle on a person after which the cycle counter restarts. */
+/** Seconds after the last CED cycle on a person after which the cycle counter restarts. */
 const CYCLE_RESET_S = 120;
 /** Display radius for the firearm presence event. */
 const DISPLAY_RANGE_M = 15;
@@ -160,7 +160,7 @@ export class ForceSystem {
   }
 
   /**
-   * Phase 8: multiplies the aim error of firearm, TASER probe and less-lethal shots by `fn()` (>= 1: fatigue, stress),
+   * Phase 8: multiplies the aim error of firearm, CED probe and less-lethal shots by `fn()` (>= 1: fatigue, stress),
    * read once per shot. `null` restores the plain models. Not saved.
    */
   setAccuracyFactor(fn: (() => number) | null): void {
@@ -439,7 +439,7 @@ export class ForceSystem {
     return personId >= 0 && this.deps.people.state(personId).deceased;
   }
 
-  /** The actor the TASER probes are attached to, when it is still in reach and in the cone; fills `this.target`. */
+  /** The actor the CED probes are attached to, when it is still in reach and in the cone; fills `this.target`. */
   private reachAttached(o: ForceOfficer, hx: number, hz: number, coneCos: number): number {
     const att = this.attached;
     if (!att) return 0;
@@ -470,7 +470,7 @@ export class ForceSystem {
     const usesAmmo = tool === 'taser' || tool === 'lessLethal' || tool === 'firearm';
 
     if (tool === 'taser' && this.cartridges <= 0 && this.attached === null) {
-      this.flash('TASER: no cartridges');
+      this.flash('CED: no cartridges');
       return;
     }
     if ((tool === 'lessLethal' && this.rounds.lessLethal <= 0) || (tool === 'firearm' && this.rounds.firearm <= 0)) {
@@ -499,7 +499,7 @@ export class ForceSystem {
     }
     if (id === 0) id = this.findTarget(o, def.rangeM[0], def.rangeM[1], hx, hz, coneCos);
     if (tool === 'taser' && !recycle && this.cartridges <= 0) {
-      this.flash('TASER: no cartridges');
+      this.flash('CED: no cartridges');
       return;
     }
 
@@ -547,7 +547,7 @@ export class ForceSystem {
           cycle = this.bumpCycle(pid, t.sim);
           hit = true;
           injury = lerp(def.injury, rng.next());
-          text = `TASER: cycle ${cycle}`;
+          text = `CED: cycle ${cycle}`;
         } else {
           this.cartridges--;
           ctx.cold = this.deps.temperatureC() < tcfg.coldC;
@@ -560,11 +560,11 @@ export class ForceSystem {
           if (shot.nmi) {
             npc.incapacitate(id, tcfg.cycleS + 3, 'taser');
             this.attached = { personId: pid, actorId: id, sinceSim: t.sim };
-            text = `TASER: probes hit (2/2), cycle ${cycle}`;
+            text = `CED: probes hit (2/2), cycle ${cycle}`;
           } else if (shot.painOnly) {
             if (rng.next() < tcfg.painComply) npc.incapacitate(id, def.incapacitate.seconds, 'taser');
-            text = `TASER: ${shot.probes} probe hit, pain only`;
-          } else text = 'TASER: missed';
+            text = `CED: ${shot.probes} probe hit, pain only`;
+          } else text = 'CED: missed';
         }
         break;
       }
@@ -640,7 +640,7 @@ export class ForceSystem {
     return info.personId >= 0 && this.deps.people.intoxication(info.personId).level >= IMPAIRED_LEVEL;
   }
 
-  /** Next TASER cycle number of person `pid`; the counter restarts 120 s after the last cycle. */
+  /** Next CED cycle number of person `pid`; the counter restarts 120 s after the last cycle. */
   private bumpCycle(pid: number, sim: number): number {
     for (const [p, c] of this.cycles) if (p !== pid && sim - c.last > CYCLE_RESET_S) this.cycles.delete(p);
     const c = this.cycles.get(pid);

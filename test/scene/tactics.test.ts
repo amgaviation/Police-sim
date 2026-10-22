@@ -85,8 +85,8 @@ describe('officer weapon', () => {
   });
 });
 
-describe('TASER, tackle and shout', () => {
-  it('the TASER marks force used on the target and fires the hook', async () => {
+describe('CED, tackle and shout', () => {
+  it('the CED marks force used on the target and fires the hook', async () => {
     const r = await makeRig();
     const { id, actor } = subjectScene(r);
     expect(actor).toBeGreaterThan(0);

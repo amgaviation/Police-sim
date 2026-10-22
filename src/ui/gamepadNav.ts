@@ -89,6 +89,8 @@ export class GamepadNav {
   private readonly heldSince = [0, 0, 0, 0];
   private readonly lastFire = [-1, -1, -1, -1];
   private readonly held = [false, false, false, false];
+  /** Whether a menu was open at the last update; null before the first one. */
+  private wasOpen: boolean | null = null;
 
   constructor(pad: PadSource, target: GamepadNavTarget, dispatch: KeyDispatch = defaultKeyDispatch) {
     this.pad = pad;
@@ -98,6 +100,10 @@ export class GamepadNav {
 
   update(nowMs: number): void {
     const open = this.target.isMenuOpen();
+    // A press that opened the menu (A on an interact, Start on the pause menu) is still an edge on this frame, because the
+    // pad is polled after this update. It belongs to the game, not to the menu, so it must not also activate the focused control.
+    const justOpened = open && this.wasOpen === false;
+    this.wasOpen = open;
     for (let i = 0; i < DIRECTIONS.length; i++) {
       const d = DIRECTIONS[i] as (typeof DIRECTIONS)[number];
       const down = this.pad.padButton(d.button) >= BUTTON_HELD || this.pad.padAxis(d.axis) * d.sign > STICK_THRESHOLD;
@@ -116,7 +122,7 @@ export class GamepadNav {
         this.arrow(d.key);
       }
     }
-    if (!open) return;
+    if (!open || justOpened) return;
     if (this.pad.padPressed(PAD_BUTTON.a)) this.activate();
     if (this.pad.padPressed(PAD_BUTTON.b)) this.press('Escape', false);
     if (this.pad.padPressed(PAD_BUTTON.lb)) this.press('Tab', true);

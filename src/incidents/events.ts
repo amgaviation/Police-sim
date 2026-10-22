@@ -16,7 +16,7 @@ export interface IncidentClosedEvent {
   excessiveForce: number;
 }
 
-/** The live verdict of one use of force, e.g. "TASER on active resistance: within policy (GS-8.1)". */
+/** The live verdict of one use of force, e.g. "CED on active resistance: within policy (GS-8.1)". */
 export interface IncidentForceVerdictEvent {
   key: string;
   eventId: number;

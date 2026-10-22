@@ -37,7 +37,7 @@ export interface VfxPoint {
 
 /**
  * Phase 9 effects (design §6): glow sprites and ground light pools on lit lamps, headlight cones, a GPU particle
- * pool, the TASER arc and a pooled muzzle light. Presentation only; render-only randomness (`vfx:*` streams).
+ * pool, the CED arc and a pooled muzzle light. Presentation only; render-only randomness (`vfx:*` streams).
  * `CarRenderer.setGlowSink(vfx.glowSink)` feeds the lamps; `update` runs once per frame after the car renderer.
  * Everything is created once (the muzzle light stays in the scene at intensity 0) so no shader recompiles at runtime.
  * With `scene === null` the objects exist but are not attached anywhere.
@@ -101,7 +101,7 @@ export class VfxSystem {
     if (q === 'off') this.hideAll();
   }
 
-  /** Reduced flash: no muzzle light and the muzzle sprites at 40 %, and a static dim TASER arc. */
+  /** Reduced flash: no muzzle light and the muzzle sprites at 40 %, and a static dim CED arc. */
   setReducedFlash(on: boolean): void {
     this.reducedFlash = on;
     if (on) {
@@ -175,7 +175,7 @@ export class VfxSystem {
   }
 
   /**
-   * TASER arc between two points for this frame (call every frame while the probes are attached); `null` hides it.
+   * CED arc between two points for this frame (call every frame while the probes are attached); `null` hides it.
    * Jagged polyline of `arc.segments`; with reduced flash a static dim line.
    */
   arc(from: VfxPoint | null, to?: VfxPoint): void {

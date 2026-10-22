@@ -81,7 +81,7 @@ interface PState {
 }
 
 const TOOL_LABELS: Readonly<Record<string, string>> = {
-  none: 'Presence', hands: 'Hands', ocSpray: 'OC spray', baton: 'Baton', taser: 'TASER', lessLethal: 'Less-lethal launcher',
+  none: 'Presence', hands: 'Hands', ocSpray: 'OC spray', baton: 'Baton', taser: 'CED', lessLethal: 'Less-lethal launcher',
   firearm: 'Firearm', k9: 'K9', firearmDisplay: 'Firearm display', tackle: 'Tackle', struggle: 'Struggle', cuffResisted: 'Cuffing struggle',
 };
 

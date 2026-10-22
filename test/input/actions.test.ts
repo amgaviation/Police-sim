@@ -110,7 +110,7 @@ describe('actions', () => {
       'backup.menu': 'Backup officers',
       'command.menu': 'Incident command / triage',
       'pursuit.menu': 'Pursuit tactics',
-      'air.flir': 'Air unit camera (FLIR)',
+      'air.flir': 'Air unit camera (thermal)',
     };
     for (const [id, label] of Object.entries(expected)) {
       expect(isActionId(id), id).toBe(true);

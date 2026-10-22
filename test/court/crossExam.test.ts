@@ -41,7 +41,7 @@ describe('generateCrossExam', () => {
       expect(q.reportSays).toBeNull();
     }
     expect(res.find((q) => q.eventId === f.ids.taser)?.text).toBe(
-      "Isn't it true that my client was actively resisting when you used the TASER?",
+      "Isn't it true that my client was actively resisting when you used the CED?",
     );
     expect(res.find((q) => q.eventId === f.ids.strike)?.text).toContain('passively resisting');
   });

@@ -29,11 +29,11 @@ export interface HudScene {
 /** Objective lines the HUD shows (the first ones, in order). */
 export const SCENE_LINES = 4;
 
-/** 'SIDEARM' / 'TASER', '' when holstered or unknown. */
+/** 'SIDEARM' / 'CED', '' when holstered or unknown. */
 export function weaponChipText(o: Readonly<HudOfficer> | null | undefined): string {
   if (!o) return '';
   if (o.weapon === 'sidearm') return 'SIDEARM';
-  if (o.weapon === 'taser') return 'TASER';
+  if (o.weapon === 'taser') return 'CED';
   return '';
 }
 

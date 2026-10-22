@@ -108,8 +108,8 @@ describe('FlirOverlay', () => {
     expect(flirHeadingText(0)).toBe('HDG 000° N');
     expect(flirHeadingText(Math.PI / 2)).toBe('HDG 270° W');
     expect(flirHeadingText(-Math.PI / 4)).toBe('HDG 045° NE');
-    expect(flirModeText(false)).toBe('FLIR WHT');
-    expect(flirModeText(true)).toBe('FLIR BHOT');
+    expect(flirModeText(false)).toBe('IR WHT');
+    expect(flirModeText(true)).toBe('IR BHOT');
   });
 
   it('toggles the canvas classes and writes the overlay only when a rounded value changed', () => {
@@ -123,10 +123,10 @@ describe('FlirOverlay', () => {
     o.show(true);
     expect([...classes]).toEqual(['flir-on']);
     expect(root?.hidden).toBe(false);
-    expect(parent.all('air-mode')[0]?.textContent).toBe('FLIR WHT');
+    expect(parent.all('air-mode')[0]?.textContent).toBe('IR WHT');
     o.setBlackHot(true);
     expect([...classes].sort()).toEqual(['flir-black-hot', 'flir-on']);
-    expect(parent.all('air-mode')[0]?.textContent).toBe('FLIR BHOT');
+    expect(parent.all('air-mode')[0]?.textContent).toBe('IR BHOT');
     o.update({ sx: 300.2, sy: 200.4, visible: true }, 150, Math.PI / 2);
     const target = parent.all('air-target')[0];
     expect(target?.hidden).toBe(false);

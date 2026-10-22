@@ -182,7 +182,7 @@ describe('officer loadout issue codes', () => {
     ]);
   });
 
-  it('warns when a patrol, traffic or supervisor loadout has no TASER', () => {
+  it('warns when a patrol, traffic or supervisor loadout has no CED', () => {
     for (const [id, taser] of [['patrolStandard', true], ['trafficStandard', true], ['supervisor', true], ['detective', false], ['swatOperator', false]] as const) {
       const l = officerPreset(id);
       if (taser) without(l, 'taser');

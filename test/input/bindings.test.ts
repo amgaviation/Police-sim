@@ -665,3 +665,24 @@ describe('withBindingSign / bindingSign', () => {
   });
 });
 
+
+describe('round-1 migration of officer.weapon', () => {
+  const start: Binding = { device: 'gamepad', code: 'GamepadButton9' };
+  const y: Binding = { device: 'gamepad', code: 'GamepadButton3' };
+  const c: Binding = { device: 'keyboard', code: 'KeyC' };
+
+  it('moves a stored Start binding of the weapon to Y while Start is still the pause menu', () => {
+    const stored = serializeBindings({ ...cloneBindings(DEFAULT_BINDINGS), 'officer.weapon': [c, start] });
+    const parsed = parseBindings(JSON.parse(JSON.stringify(stored)));
+    expect(parsed['officer.weapon']).toEqual([c, y]);
+    expect(parsed['menu.toggle']).toEqual(DEFAULT_BINDINGS['menu.toggle']);
+    expect(parseBindings({ 'officer.weapon': [start] })['officer.weapon']).toEqual([y]);
+  });
+
+  it('does not duplicate Y and leaves current and deliberately rebound lists alone', () => {
+    expect(parseBindings({ 'officer.weapon': [start, y] })['officer.weapon']).toEqual([y]);
+    expect(parseBindings(serializeBindings(DEFAULT_BINDINGS))['officer.weapon']).toEqual(DEFAULT_BINDINGS['officer.weapon']);
+    const custom = parseBindings({ 'officer.weapon': [start], 'menu.toggle': [{ device: 'keyboard', code: 'Escape' }] });
+    expect(custom['officer.weapon']).toEqual([start]);
+  });
+});

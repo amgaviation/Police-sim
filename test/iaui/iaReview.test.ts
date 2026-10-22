@@ -69,7 +69,7 @@ function everyKind(): { log: IncidentLog; ids: Record<string, number> } {
 
 describe('toolLabel', () => {
   it('names every force tool and the firearm display', () => {
-    expect(toolLabel('taser')).toBe('TASER');
+    expect(toolLabel('taser')).toBe('CED');
     expect(toolLabel('ocSpray')).toBe('OC spray');
     expect(toolLabel('firearmDisplay')).toBe('Firearm drawn');
     expect(toolLabel('lessLethal')).toBe('Less-lethal launcher');
@@ -147,14 +147,14 @@ describe('reviewEventsOf labels', () => {
   });
 
   it('labels force with tool, resistance and verdict only when scored', () => {
-    expect(byKind(events, 'force')).toEqual(['TASER — active resistance']);
+    expect(byKind(events, 'force')).toEqual(['CED — active resistance']);
     expect(byKind(events, 'otherForce')).toEqual(['Partner: hard hands on passive resistance']);
     expect(byKind(events, 'intervene')).toEqual(['Intervened']);
     const id = log.events.find((e) => e.kind === 'force')?.id ?? -1;
     const scored = reviewEventsOf(log, assess('C-00001', { force: [ruling(id, 'justified')] }));
-    expect(byKind(scored, 'force')).toEqual(['TASER — active resistance (justified)']);
+    expect(byKind(scored, 'force')).toEqual(['CED — active resistance (justified)']);
     const excessive = reviewEventsOf(log, assess('C-00001', { force: [ruling(id, 'excessive')] }));
-    expect(byKind(excessive, 'force')).toEqual(['TASER — active resistance (excessive)']);
+    expect(byKind(excessive, 'force')).toEqual(['CED — active resistance (excessive)']);
   });
 
   it('labels a missed shot, a drawn firearm and fellow-officer force with its verdict', () => {
@@ -163,7 +163,7 @@ describe('reviewEventsOf labels', () => {
     const log = b.build();
     const taser = log.events.find((e) => e.kind === 'force' && e.tool === 'taser');
     if (taser?.kind === 'force') taser.hit = false;
-    expect(byKind(reviewEventsOf(log, null), 'force')).toEqual(['Firearm drawn — assaultive resistance', 'TASER — active resistance, missed']);
+    expect(byKind(reviewEventsOf(log, null), 'force')).toEqual(['Firearm drawn — assaultive resistance', 'CED — active resistance, missed']);
   });
 
   it('labels the remaining kinds', () => {
@@ -255,7 +255,7 @@ describe('reviewEventsOf severities', () => {
     // The unlawful frisk and the strike on a passive subject are flagged.
     expect(events.find((e) => e.id === f.ids['frisk'])?.severity).toBe('bad');
     expect(events.find((e) => e.id === f.ids['strike'])?.severity).toBe('bad');
-    expect(byKind(events, 'force')).toEqual(['TASER — active resistance (justified)', 'Hands — passive resistance (questionable)']);
+    expect(byKind(events, 'force')).toEqual(['CED — active resistance (justified)', 'Hands — passive resistance (questionable)']);
     // Every flagged event traces back to the assessment.
     const flagged = new Set<number>();
     for (const d of f.assessment.determinations) if (d.outcome !== 'lawful') for (const id of d.eventIds) flagged.add(id);

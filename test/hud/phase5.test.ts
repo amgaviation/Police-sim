@@ -18,13 +18,13 @@ import {
 import { snapshot } from './fixtures';
 
 const parent = null as unknown as HTMLElement;
-const force = (over: Partial<HudForce> = {}): HudForce => ({ tool: 'taser', ammo: '2/2', attached: false, episode: null, ...over });
+const force = (over: Partial<HudForce> = {}): HudForce => ({ tool: 'CED', ammo: '2/2', attached: false, episode: null, ...over });
 const cam = (over: Partial<HudCam> = {}): HudCam => ({ body: false, muted: false, dash: false, worn: true, ...over });
 
 describe('force chip text', () => {
   it('shows the tool and ammo, probes when attached, nothing when holstered', () => {
-    expect(forceChipText(force())).toBe('TASER 2/2');
-    expect(forceChipText(force({ attached: true }))).toBe('TASER 2/2 · PROBES');
+    expect(forceChipText(force())).toBe('CED 2/2');
+    expect(forceChipText(force({ attached: true }))).toBe('CED 2/2 · PROBES');
     expect(forceChipText(force({ tool: 'Sidearm', ammo: '' }))).toBe('SIDEARM');
     expect(forceChipText(force({ tool: 'none' }))).toBe('');
     expect(forceChipText(force({ tool: '' }))).toBe('');
@@ -63,7 +63,7 @@ describe('camera chips', () => {
 
 describe('legal line and trust chip', () => {
   it('passes the legal text through and has a colour per severity', () => {
-    expect(legalLineText({ text: 'TASER on active resistance: within policy (GS-8.1)', severity: 'ok' })).toBe('TASER on active resistance: within policy (GS-8.1)');
+    expect(legalLineText({ text: 'CED on active resistance: within policy (GS-8.1)', severity: 'ok' })).toBe('CED on active resistance: within policy (GS-8.1)');
     expect(legalLineText(null)).toBe('');
     expect(Object.keys(LEGAL_COLORS)).toEqual(['ok', 'warn', 'bad']);
   });
@@ -99,7 +99,7 @@ describe('hudText Phase 5 fields', () => {
 
   it('keeps the Phase 3 weapon chip and the Phase 4 bodycam chip without the new feeds', () => {
     const t = hudText(snapshot({ officer: { weapon: 'taser' }, bodycam: { recording: true } }));
-    expect(t.weapon).toBe('TASER');
+    expect(t.weapon).toBe('CED');
     expect(t.bodycam).toBe('● REC');
     expect(t.bodycamRecording).toBe(true);
     expect(t.bodycamMuted).toBe(false);
@@ -115,7 +115,7 @@ describe('hudText Phase 5 fields', () => {
       }),
     );
     expect(t.weapon).toBe('');
-    expect(t.force).toBe('TASER 2/2 · PROBES');
+    expect(t.force).toBe('CED 2/2 · PROBES');
     expect(t.bodycam).toBe('MUTED');
     expect(t.bodycamRecording).toBe(false);
     expect(t.bodycamMuted).toBe(true);
@@ -229,7 +229,7 @@ describe('Hud DOM writes (fake document)', () => {
       return e;
     };
     // Phase 9: the severity-coded legal line and the trust chip carry a shape cue in front (never colour alone).
-    const chips = ['TASER 2/2', '● REC', 'DASH', '\u2713 within policy', 'SUSPENDED', 'COURT 14:00', '\u25B2 Trust · Suburbs 62 %'].map(find);
+    const chips = ['CED 2/2', '● REC', 'DASH', '\u2713 within policy', 'SUSPENDED', 'COURT 14:00', '\u25B2 Trust · Suburbs 62 %'].map(find);
     const written = chips.map((c) => c.writes);
     expect(written.every((w) => w === 1)).toBe(true);
 
@@ -241,7 +241,7 @@ describe('Hud DOM writes (fake document)', () => {
     // Only the changed chip is written.
     s.force = force({ ammo: '1/2' });
     hud.update(s, 600);
-    const taser = find('TASER 1/2');
+    const taser = find('CED 1/2');
     expect(taser).toBe(chips[0]);
     expect(taser.writes).toBe(2);
     expect(chips.slice(1).map((c) => c.writes)).toEqual(written.slice(1));

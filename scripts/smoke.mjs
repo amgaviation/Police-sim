@@ -20,10 +20,10 @@
  * interior meshes and lights, flashlight / crouch / lean, a door kick, a domestic call bound to the house with its
  * people inside, evidence markers, the camera (thumbnail), the case file, the deposit at the station's evidence room,
  * a prisoner in a holding cell and the interview room, a v6 save/load and the Phase 4 console commands. Phase 5: the force
- * tool keys (C, mouse 0) and HUD chip, a scripted stop (bodycam, speeding, odor, consent PBT) with a TASER application and
+ * tool keys (C, mouse 0) and HUD chip, a scripted stop (bodycam, speeding, odor, consent PBT) with a CED application and
  * its force verdict, arrest, rights, booking and the case in court, `law explain` with citations, the MDT report statements
  * checklist and grade, the Career and Community tabs, the courtroom answered with the real keys, an unlawful frisk and an
- * excessive TASER that open an IA case reviewed with bodycam snapshots from the live canvas, a v7 save/load and the Phase 5
+ * excessive CED that open an IA case reviewed with bodycam snapshots from the live canvas, a v7 save/load and the Phase 5
  * console commands. Phase 6: the radio menu's paged Request list (T, 4, 2 and 5), an AI backup officer getting out to cover
  * (HUD line, radio callout, the Backup panel on `,`), a pursuit with the tactics panel (`;`), the supervisor's termination
  * order, the air unit and its FLIR camera (`/`), a mass-casualty incident with the command post, triage, the command
@@ -34,7 +34,7 @@
  * damage report, the station service, the inspection and End shift charging career points, a v9 save/load and the Phase 7
  * console commands. Phase 9: the guided first shift from the title button (the first five steps with the real keys, a mid-tutorial
  * v11 save, the pause menu's Skip tutorial step, the console's tutorial skip), a night drive in rain with the light bar (glow,
- * headlight cones, splashes, wet streets), TASER / firearm / crash particles, audio after a key press, gamepad navigation of the
+ * headlight cones, splashes, wet streets), CED / firearm / crash particles, audio after a key press, gamepad navigation of the
  * pause menu and the radio menu with a fake navigator.getGamepads, text scale 1.6 without horizontal overflow, every colour-vision
  * palette and the profiler (SMOKE_ONLY=9).
  * Writes docs/screenshots/phase1.png, phase1-night.png, phase2.png (cockpit with the
@@ -1177,19 +1177,19 @@ async function phase3(page, hasRenderer) {
   const knocked = await page.evaluate((id) => ({ flags: [...window.patrol.session.scene.runtime(id).flags] }), setup.id);
   check(knocked.flags.includes('knocked'), `the scene panel's first action knocked (${knocked.flags.filter((f) => /knocked|revealed/.test(f)).join(', ')})`);
 
-  // --- Force tool keys (Phase 5: C cycles the force tools; the migrated shift has the pistol and the TASER signed out) --------------
+  // --- Force tool keys (Phase 5: C cycles the force tools; the migrated shift has the pistol and the CED signed out) --------------
   const tool = () => page.evaluate(() => window.patrol.session.force.tool);
   await press(page, 'KeyC');
   const w1 = await tool();
   await press(page, 'KeyC');
   const w2 = await tool();
-  await waitFor(page, () => /TASER/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
-  const chip = await page.evaluate(() => /TASER \d+\/\d+/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
+  await waitFor(page, () => /CED/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
+  const chip = await page.evaluate(() => /CED \d+\/\d+/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
   await press(page, 'KeyC');
   const w3 = await tool();
   await press(page, 'KeyC');
   const w4 = await tool();
-  check(w1 === 'hands' && w2 === 'taser' && w3 === 'firearm' && w4 === 'none' && /^TASER \d+\/\d+$/.test(chip), `C cycles holstered -> hands -> TASER -> sidearm -> holstered (${w1}, ${w2}, ${w3}, ${w4}; chip ${chip})`);
+  check(w1 === 'hands' && w2 === 'taser' && w3 === 'firearm' && w4 === 'none' && /^CED \d+\/\d+$/.test(chip), `C cycles holstered -> hands -> CED -> sidearm -> holstered (${w1}, ${w2}, ${w3}, ${w4}; chip ${chip})`);
 
   // --- Dialogue panel with the real keys -----------------------------------------------------------
   await page.evaluate(() => {
@@ -1951,7 +1951,7 @@ async function phase4(page, hasRenderer) {
 /**
  * The scripted Phase 5 incident, run in the page with fast-forwarded sim time (`stepSrc` = stepSim). `stage` 1: the
  * bodycam on, a speeding car pulled over (the violation seen before the lights), ID, drinking question (odor), a
- * consent PBT, the driver steps out and fights, the officer faces them from 3 m with the TASER selected. Stage 2:
+ * consent PBT, the driver steps out and fights, the officer faces them from 3 m with the CED selected. Stage 2:
  * kneel, cuff, rights, a question in custody, the booking(s) (court cases, one of them scheduled), the call cleared.
  * Stage 3: a bystander is frisked without suspicion and tased while compliant (an unlawful frisk, excessive force:
  * an IA case) while the real loop records a few snapshots (the incident is closed from the console afterwards).
@@ -2065,7 +2065,7 @@ function phase5Flow([stepSrc, stage, ids]) {
     say(dc, 'cmdStepOut');
     let actorId = s.npc.actorOfPerson(driver);
     if (actorId === 0) actorId = s.npc.stepOut(stopped, 0);
-    // The driver attacks: the fight state, the officer 3 m away facing them with the TASER selected.
+    // The driver attacks: the fight state, the officer 3 m away facing them with the CED selected.
     s.npc.forceState(actorId, 'fight');
     step(30);
     const a = actor(actorId);
@@ -2129,7 +2129,7 @@ function phase5Flow([stepSrc, stage, ids]) {
   step(10);
   act(cid, 'frisk', 120);
   const key = s.incidents.current;
-  // A TASER on a compliant bystander: excessive.
+  // A CED on a compliant bystander: excessive.
   const b = actor(actorId);
   place(b.x - 3, b.z);
   faceTo(b.x, b.z);
@@ -2143,7 +2143,7 @@ function phase5Flow([stepSrc, stage, ids]) {
 }
 
 /**
- * Phase 5 checks on a fresh outdoor shift: the force tool keys and HUD chip, a scripted stop with a TASER application
+ * Phase 5 checks on a fresh outdoor shift: the force tool keys and HUD chip, a scripted stop with a CED application
  * (real mouse click), the legal line, `law explain`, the MDT report checklist and grade, the Career and Community tabs, a
  * court case through the courtroom with the real keys, an IA case with the evidence review (snapshots from the live
  * canvas), a v7 save / load and the Phase 5 console commands.
@@ -2160,7 +2160,7 @@ async function phase5(page, hasRenderer) {
   await page.evaluate(async () => {
     await window.patrol.console.execute('time 10:30');
     await window.patrol.console.execute('weather clear');
-    // The shift starts in the station: the duty pistol and the TASER are signed out at the armory (Phase 4 keys).
+    // The shift starts in the station: the duty pistol and the CED are signed out at the armory (Phase 4 keys).
     const st = window.patrol.session.station;
     st.request({ kind: 'armory', item: 'sidearm', action: 'out' });
     st.request({ kind: 'armory', item: 'taser', action: 'out' });
@@ -2168,7 +2168,7 @@ async function phase5(page, hasRenderer) {
   });
   await sleep(1500);
 
-  // --- C cycles the force tools (the TASER is available: the armory log has it signed out) -----------------
+  // --- C cycles the force tools (the CED is available: the armory log has it signed out) -----------------
   const tools = [];
   for (let k = 0; k < 8; k++) {
     await press(page, 'KeyC');
@@ -2176,12 +2176,12 @@ async function phase5(page, hasRenderer) {
     tools.push(t);
     if (t === 'taser') break;
   }
-  await waitFor(page, () => /TASER/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
-  const chip = await page.evaluate(() => /TASER \d+\/\d+/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
+  await waitFor(page, () => /CED/.test(document.querySelector('#hud')?.textContent ?? ''), null, 3000);
+  const chip = await page.evaluate(() => /CED \d+\/\d+/.exec(document.querySelector('#hud')?.textContent ?? '')?.[0] ?? '');
   console.log(`phase 5 tools: ${tools.join(' > ')}; chip "${chip}"`);
-  check(tools.at(-1) === 'taser' && /TASER/.test(chip), `C cycles the force tools to the TASER with a HUD chip (${tools.join(', ')}; "${chip}")`);
+  check(tools.at(-1) === 'taser' && /CED/.test(chip), `C cycles the force tools to the CED with a HUD chip (${tools.join(', ')}; "${chip}")`);
 
-  // --- The scripted stop up to the TASER ---------------------------------------------------------------
+  // --- The scripted stop up to the CED ---------------------------------------------------------------
   const s1 = await page.evaluate(phase5Flow, [stepSim.toString(), 1, null]);
   console.log('phase 5 stage 1:', JSON.stringify(s1));
   check(s1.ok, `stop: speeding car pulled over, ID, odor and a consent PBT (${s1.detail})`);
@@ -2193,7 +2193,7 @@ async function phase5(page, hasRenderer) {
   await page.mouse.click(640, 360);
   const clicked = await waitFor(page, () => window.patrol.session.force.hud.attached, null, 4000);
   if (!clicked) {
-    console.log('note: the mouse click did not fire the TASER; applying through the force system');
+    console.log('note: the mouse click did not fire the CED; applying through the force system');
     await page.evaluate((ids) => {
       const s = window.patrol.session;
       const a = s.npc.actor(ids.actorId, { id: 0, personId: 0, role: '', callId: 0, state: 0, x: 0, z: 0, yaw: 0, stress: 0, cuffed: false, following: false, hidden: false, armed: false, weaponDrawn: false, vehicleId: -1, seat: -1, profile: '', body: 0 });
@@ -2204,9 +2204,9 @@ async function phase5(page, hasRenderer) {
     await waitFor(page, () => window.patrol.session.force.hud.attached, null, 4000);
   }
   const legalLine = await waitFor(page, () => /within policy|questionable|excessive/.test(document.querySelector('#hud')?.textContent ?? ''), null, 4000);
-  const afterFire = await page.evaluate(() => ({ ammo: window.patrol.session.force.hud.ammo, attached: window.patrol.session.force.hud.attached, text: /TASER on[^\n]*/.exec(document.body.innerText)?.[0] ?? '' }));
+  const afterFire = await page.evaluate(() => ({ ammo: window.patrol.session.force.hud.ammo, attached: window.patrol.session.force.hud.attached, text: /CED on[^\n]*/.exec(document.body.innerText)?.[0] ?? '' }));
   console.log('phase 5 fire:', JSON.stringify({ beforeFire, ...afterFire, clicked, legalLine }));
-  check(afterFire.attached, `the TASER fired at the fighting driver, probes attached (${clicked ? 'mouse 0' : 'force request'})`);
+  check(afterFire.attached, `the CED fired at the fighting driver, probes attached (${clicked ? 'mouse 0' : 'force request'})`);
   check(legalLine && /within policy/.test(afterFire.text), `the HUD shows the force verdict (${afterFire.text})`);
 
   // --- Arrest and booking, the call cleared ---------------------------------------------------------------
@@ -2221,7 +2221,7 @@ async function phase5(page, hasRenderer) {
     return c.lines.slice(before).map((l) => l.text).join('\n');
   }, s1.key);
   console.log('law explain:\n  ' + explained.split('\n').join('\n  '));
-  check(/GS-\d/.test(explained) && /detention/.test(explained) && /force #\d+ taser vs assaultive: justified/.test(explained), 'law explain lists the determinations with citations and the justified TASER');
+  check(/GS-\d/.test(explained) && /detention/.test(explained) && /force #\d+ taser vs assaultive: justified/.test(explained), 'law explain lists the determinations with citations and the justified CED');
 
   // --- The report with the statements checklist --------------------------------------------------------------
   const report = await page.evaluate(async (ids) => {
@@ -2297,7 +2297,7 @@ async function phase5(page, hasRenderer) {
 
   await page.evaluate(() => window.patrol.mdt.close());
 
-  // --- An unlawful frisk and an excessive TASER: IA, with snapshots from the live canvas ---------------------------
+  // --- An unlawful frisk and an excessive CED: IA, with snapshots from the live canvas ---------------------------
   const s3 = await page.evaluate(phase5Flow, [stepSim.toString(), 3, null]);
   console.log('phase 5 stage 3:', JSON.stringify(s3));
   check(s3.ok, `field contact: a bystander frisked and tased without cause (${s3.detail})`);
@@ -2325,7 +2325,7 @@ async function phase5(page, hasRenderer) {
     return { legal: legal.join('\n'), cases: cases.map((x) => `${x.id}:${x.key}:${x.status}`), id: cases.find((x) => x.key === key)?.id ?? cases[0]?.id ?? '' };
   }, s3.key);
   console.log('phase 5 frisk:\n  ' + ia.legal.split('\n').join('\n  '));
-  check(/\[unlawful\] frisk/.test(ia.legal) && /vs compliant: excessive/.test(ia.legal), 'law explain shows the unlawful frisk and the excessive TASER of the field contact');
+  check(/\[unlawful\] frisk/.test(ia.legal) && /vs compliant: excessive/.test(ia.legal), 'law explain shows the unlawful frisk and the excessive CED of the field contact');
   check(ia.cases.length > 0, `an internal-affairs case was opened (${ia.cases.join(', ')})`);
   if (ia.id !== '') {
     const review = await page.evaluate(async (id) => {
@@ -2683,7 +2683,7 @@ async function phase6(page, hasRenderer) {
     on: window.patrol.phase6.flirOn,
     cls: window.patrol.renderer?.canvas.classList.contains('flir-on') ?? false,
     fov: window.patrol.renderer?.camera.fov ?? 0,
-    hud: /FLIR/.test(document.querySelector('#hud')?.textContent ?? ''),
+    hud: /IR/.test(document.querySelector('#hud')?.textContent ?? ''),
   }));
   console.log('phase 6 FLIR:', JSON.stringify(flir));
   check(flir.on && (!hasRenderer || flir.cls), `/ puts the camera on the air unit (FLIR on, canvas filter ${flir.cls}, fov ${flir.fov})`);
@@ -3788,7 +3788,7 @@ async function padStep(page, button) {
 
 /**
  * Phase 9 checks: the guided first shift from the title button (the first five steps with the real keys, the rest skipped,
- * a mid-tutorial save and load), a night drive in rain with the light bar (glow, cones, splashes, wet streets), the TASER
+ * a mid-tutorial save and load), a night drive in rain with the light bar (glow, cones, splashes, wet streets), the CED
  * and firearm particles and crash sparks, audio after a gesture, gamepad navigation of the pause menu and the radio menu,
  * text scale 1.6 without horizontal overflow, every colour-vision palette, the profiler and a v11 save.
  */
@@ -4008,12 +4008,12 @@ async function phase9(page, hasRenderer) {
   });
   if (hasRenderer) check(quality.off.glows === 0 && quality.off.cones === 0 && quality.on.glows > 0, 'the Effects setting turns glow and cones off and on');
 
-  // --- TASER, firearm, crash: particles ----------------------------------------------------------------------------------------
+  // --- CED, firearm, crash: particles ----------------------------------------------------------------------------------------
   const bursts = await page.evaluate(() => {
     const app = window.patrol;
     const s = app.session;
     const camera = app.renderer?.activeCamera;
-    // Muzzle flashes and TASER sparks live a fraction of a second, and a software-GL frame takes longer: a 2 ms update
+    // Muzzle flashes and CED sparks live a fraction of a second, and a software-GL frame takes longer: a 2 ms update
     // uploads the new particles and counts them while they are still alive (a birth time is stored as a float32, so an
     // update of exactly zero seconds can see a particle born a rounding error in the future).
     const live = () => {
@@ -4039,7 +4039,7 @@ async function phase9(page, hasRenderer) {
   });
   console.log('particles:', JSON.stringify(bursts));
   if (hasRenderer) {
-    check(bursts.taser > bursts.base, `a TASER shot throws particles (${bursts.base} -> ${bursts.taser})`);
+    check(bursts.taser > bursts.base, `a CED shot throws particles (${bursts.base} -> ${bursts.taser})`);
     check(bursts.firearm > bursts.taser, `a firearm shot flashes (${bursts.taser} -> ${bursts.firearm})`);
     check(bursts.crash > bursts.firearm, `a crash throws sparks and dust (${bursts.firearm} -> ${bursts.crash})`);
     check(bursts.collision > bursts.crash, `a traffic collision throws sparks (${bursts.crash} -> ${bursts.collision})`);

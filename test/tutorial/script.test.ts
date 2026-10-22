@@ -42,7 +42,7 @@ describe('the shipped firstShift script', () => {
     expect(until).toEqual({
       welcome: { ack: true },
       enterCar: { any: [{ topic: 'player:mode', where: { mode: 'driving' } }] },
-      drive: { probe: 'speedKmh', gte: 30 },
+      drive: { probe: 'speedKmh', gte: 32.19 },
       lights: { probe: 'lightbar', gte: 1 },
       radioStatus: { any: [{ topic: 'unit:request', where: { callsign: '$player', 'request.kind': 'status', 'request.status': 'available' } }] },
       takeCall: { any: [{ topic: 'cad:unitAssigned', where: { callsign: '$player', callId: '$call' } }] },

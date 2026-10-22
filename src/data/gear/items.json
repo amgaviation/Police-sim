@@ -5,7 +5,7 @@
     { "id": "dutyBelt", "label": "Duty belt", "slot": "body", "size": 1, "weightKg": 0.7, "provides": { "belt": 12 } },
     { "id": "holster", "label": "Duty holster", "slot": "belt", "size": 1, "weightKg": 0.4, "retention": true },
     { "id": "sidearm", "label": "Duty pistol", "slot": "belt", "size": 0, "weightKg": 1.0, "armory": "sidearm", "requires": ["holster"] },
-    { "id": "taser", "label": "TASER", "slot": "belt", "size": 1, "weightKg": 0.45, "armory": "taser" },
+    { "id": "taser", "label": "CED", "slot": "belt", "size": 1, "weightKg": 0.45, "armory": "taser" },
     { "id": "ocSpray", "label": "OC spray", "slot": "belt", "size": 1, "weightKg": 0.2, "armory": "ocSpray" },
     { "id": "baton", "label": "Expandable baton", "slot": "belt", "size": 1, "weightKg": 0.6, "armory": "baton" },
     { "id": "cuffs", "label": "Handcuffs", "slot": "belt", "size": 1, "weightKg": 0.3, "max": 2 },

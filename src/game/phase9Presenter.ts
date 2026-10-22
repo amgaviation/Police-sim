@@ -42,7 +42,7 @@ const SPARK_MIN_SPEED = 3;
 const SPARK_FULL_SPEED = 15;
 const MUZZLE_Y = 1.4;
 const CHEST_Y = 1.2;
-/** Where the TASER probes leave the officer (m ahead of the officer along the aim). */
+/** Where the CED probes leave the officer (m ahead of the officer along the aim). */
 const HAND_REACH = 0.4;
 
 const LOOSE_SURFACES: readonly number[] = [SURFACE.gravel, SURFACE.dirt, SURFACE.sand, SURFACE.grass];
@@ -101,7 +101,7 @@ export class Phase9Presenter {
   private readonly world: GameWorld;
   private readonly audio: AudioEngine;
   private readonly labelOf: (actionId: string) => string;
-  /** The actor the last TASER shot hit (the arc ends on it while the probes are attached). */
+  /** The actor the last CED shot hit (the arc ends on it while the probes are attached). */
   private arcActor = -1;
   private nextDustS = 0;
   private dustRight = false;
@@ -173,7 +173,7 @@ export class Phase9Presenter {
 
   // --- effects -----------------------------------------------------------------
 
-  /** Per frame after the car renderer: TASER arc, off-road dust and the effects update. */
+  /** Per frame after the car renderer: CED arc, off-road dust and the effects update. */
   updateVfx(session: GameSession, camera: THREE.Camera, dt: number, weather: Readonly<WeatherState>, night: number): void {
     this.clockS += dt;
     this.updateArc(session);

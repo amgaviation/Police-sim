@@ -182,7 +182,7 @@ export interface SaveGameV6 extends SaveGameV5 {
 }
 
 /**
- * v7 (Phase 5): law, procedure and consequences. `force` holds the selected tool, ammo, TASER attachment and cycles and
+ * v7 (Phase 5): law, procedure and consequences. `force` holds the selected tool, ammo, CED attachment and cycles and
  * the fellow-officer episode, `incidents` the jurisdiction, the open and retained closed incident logs (capped), the
  * camera state and the pursuit sampler, `conduct` the community trust per district and the career (duty status, points,
  * credibility, commendations, discipline, IA cases, report grades) and `court` the cases (capped) and the calendar. Each

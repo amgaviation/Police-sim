@@ -194,7 +194,22 @@ export function parseBindings(input: unknown): BindingMap {
     if (!isActionId(id) || !Array.isArray(value)) continue;
     result[id] = value.filter(isBinding).map((b) => ({ ...b }));
   }
+  migrateWeaponPad(result);
   return result;
+}
+
+/**
+ * Round-1 migration: `officer.weapon` used to default to Start (GamepadButton9), which is also the pause menu, so saves
+ * from before the rebind still have both actions on Start. When the two share Start the weapon moves to Y
+ * (GamepadButton3); a weapon list that was rebound by hand to anything else is left alone.
+ */
+function migrateWeaponPad(map: BindingMap): void {
+  const start = (b: Binding): boolean => b.device === 'gamepad' && b.code === 'GamepadButton9';
+  if (!map['officer.weapon'].some(start) || !map['menu.toggle'].some(start)) return;
+  const kept = map['officer.weapon'].filter((b) => !start(b));
+  const y = DEFAULT_BINDINGS['officer.weapon'].filter((b) => b.device === 'gamepad');
+  for (const b of y) if (!kept.some((k) => bindingsEqual(k, b))) kept.push({ ...b });
+  map['officer.weapon'] = kept;
 }
 
 function unwrap(input: unknown): Record<string, unknown> | undefined {

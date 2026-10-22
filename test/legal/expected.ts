@@ -298,12 +298,12 @@ export const EXPECTED: Readonly<Record<string, { readonly generic: readonly stri
     generic: ["det detention lawful - GS-1.1", "det arrest lawful probableCause GS-3.1", "det force unlawful - GS-8.2", "force excessive GS-8.2"],
     strict: ["det detention lawful - SS-1.1", "det arrest lawful probableCause SS-3.1", "det force unlawful - SS-8.2", "force excessive SS-8.2"],
   },
-  // Three TASER cycles pass under generic; the third is one too many under strict
+  // Three CED cycles pass under generic; the third is one too many under strict
   'force-taser-cycles': {
     generic: ["det detention lawful - GS-1.1", "det force unlawful - GS-8.3", "force justified GS-8.1", "force justified GS-8.1", "force excessive GS-8.3"],
     strict: ["det detention lawful - SS-1.1", "det force unlawful - SS-8.3", "det force unlawful - SS-8.3", "force justified SS-8.1", "force excessive SS-8.3", "force excessive SS-8.3"],
   },
-  // A TASER on an elevated subject who is only an active resister
+  // A CED on an elevated subject who is only an active resister
   'force-taser-risk': {
     generic: ["det detention lawful - GS-1.1", "det force unlawful - GS-8.4", "force excessive GS-8.4"],
     strict: ["det detention lawful - SS-1.1", "det force unlawful - SS-8.4", "force excessive SS-8.4"],

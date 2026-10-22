@@ -164,7 +164,7 @@ export function createPhase5Commands(deps: Phase5CommandDeps): Command[] {
           return `Tool ${id} requested`;
         }
         const h = s.force.hud;
-        return `Tool ${h.tool} (${h.label}) ${h.ammo}${h.attached ? ' probes attached' : ''}; TASER cycles ${String(h.cycle)}${h.episode ? `; ${h.episode}` : ''}`;
+        return `Tool ${h.tool} (${h.label}) ${h.ammo}${h.attached ? ' probes attached' : ''}; CED cycles ${String(h.cycle)}${h.episode ? `; ${h.episode}` : ''}`;
       },
     },
     {

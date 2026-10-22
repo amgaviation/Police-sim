@@ -17,7 +17,7 @@ import {
 export const BASE_SLOT_CAPACITY: Readonly<Record<GearSlot, number>> = { belt: 0, vest: 0, body: 2, longGun: 1, carry: 2 };
 /** Warn when the carried weight passes this share of the assignment limit. */
 export const WEIGHT_WARNING_SHARE = 0.85;
-/** Assignments that should carry a TASER (warning only). */
+/** Assignments that should carry a CED (warning only). */
 const TASER_EXPECTED: ReadonlySet<string> = new Set(['patrol', 'traffic', 'supervisor']);
 /** Most of one trunk item a vehicle loadout may hold. */
 const MAX_TRUNK_COUNT = 99;
@@ -110,7 +110,7 @@ export function validateOfficerLoadout(l: OfficerLoadout, opts: { extraVestSlots
     }
   }
 
-  if (TASER_EXPECTED.has(policy.id) && !present.has('taser')) warnings.push(issue('missingRequired', 'taser', `${policy.label} normally carries a TASER`));
+  if (TASER_EXPECTED.has(policy.id) && !present.has('taser')) warnings.push(issue('missingRequired', 'taser', `${policy.label} normally carries a CED`));
   return { ok: errors.length === 0, errors, warnings, weightKg, capacityKg: policy.maxKg, slots };
 }
 

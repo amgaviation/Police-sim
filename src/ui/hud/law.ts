@@ -2,11 +2,11 @@
 
 /** The force tool and its ammunition (fed from `ForceSystem.hud`). */
 export interface HudForce {
-  /** Tool label, e.g. 'TASER'; '' or 'none' = holstered. */
+  /** Tool label, e.g. 'CED'; '' or 'none' = holstered. */
   tool: string;
   /** 'n/max' or ''. */
   ammo: string;
-  /** TASER probes are attached to a subject. */
+  /** CED probes are attached to a subject. */
   attached: boolean;
   /** Fellow-officer misconduct episode text (the H key intervenes); null when none. */
   episode: string | null;
@@ -44,7 +44,7 @@ export const TRUST_LOW = 0.3;
 /** Trust below this (and not low) is amber, else green. */
 export const TRUST_MID = 0.5;
 
-/** 'TASER 2/2 · PROBES' / 'SIDEARM'; '' when holstered, unknown or without force state. */
+/** 'CED 2/2 · PROBES' / 'SIDEARM'; '' when holstered, unknown or without force state. */
 export function forceChipText(f: Readonly<HudForce> | null | undefined): string {
   if (!f || f.tool === '' || f.tool === 'none') return '';
   let out = f.tool.toUpperCase();

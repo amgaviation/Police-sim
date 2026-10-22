@@ -1420,7 +1420,7 @@ export class NpcSystem {
   }
 
   /**
-   * TASER shot at actor `id` from `distance`: within `taserRangeM` it hits with `taserHit` and brings the actor down.
+   * CED shot at actor `id` from `distance`: within `taserRangeM` it hits with `taserHit` and brings the actor down.
    * With `building` given the actor must be on that level.
    */
   taser(id: number, distance: number, building?: number): boolean {
@@ -1469,7 +1469,7 @@ export class NpcSystem {
     this.incapacitate(id, WOUND_STAGGER_S, 'shot');
   }
 
-  /** One TASER cycle on actor `id`: a downed actor stays down at least `seconds`, any other is put down for `seconds`. */
+  /** One CED cycle on actor `id`: a downed actor stays down at least `seconds`, any other is put down for `seconds`. */
   taserCycle(id: number, seconds: number): void {
     const a = this.byId.get(id);
     if (!a) return;

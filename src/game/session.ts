@@ -822,7 +822,7 @@ export class GameSession {
     return this.playerEid;
   }
 
-  /** Use of force: tools, TASER, fellow-officer episodes (fixed step -685). */
+  /** Use of force: tools, CED, fellow-officer episodes (fixed step -685). */
   get force(): ForceSystem {
     return this.phase5.force;
   }

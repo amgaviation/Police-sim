@@ -112,7 +112,7 @@ interface Ids {
 
 /**
  * Part 1: bodycam on, a speeding car pulled over, the driver's ID, the drinking question (odor), a consent PBT, the driver
- * steps out and fights, a TASER application on them (the force system's hit model).
+ * steps out and fights, a CED application on them (the force system's hit model).
  */
 function stopAndTaser(h: Harness, session: GameSession): Ids {
   h.step(session, 60);
@@ -132,7 +132,7 @@ function stopAndTaser(h: Harness, session: GameSession): Ids {
   say(session, h, contact, 'cmdStepOut');
   const actor = session.npc.actorOfPerson(driver);
   if (actor <= 0) throw new Error('the driver did not step out');
-  // The driver attacks: the scene's fight state, then the TASER from 3 m.
+  // The driver attacks: the scene's fight state, then the CED from 3 m.
   session.npc.forceState(actor, 'fight');
   h.step(session, 30);
   const a = actorOf(session, actor);
@@ -195,7 +195,7 @@ describe('Phase 5 session', () => {
       const ids = stopAndTaser(h, session);
       const duringForce = { legal: { ...session.phase5.legal }, hud: { ...session.force.hud } };
       expect(duringForce.hud.tool).toBe('taser');
-      expect(duringForce.legal.text).toMatch(/^TASER on assaultive resistance: within policy/);
+      expect(duringForce.legal.text).toMatch(/^CED on assaultive resistance: within policy/);
       arrestAndBook(h, session, ids);
       const data = serializeGame(session);
       // The incident: a complete event log with camera bits, closed and judged.

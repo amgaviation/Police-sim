@@ -338,7 +338,7 @@ describe('VfxSystem', () => {
     expect((child(scene, 'vfx-muzzle-light') as THREE.PointLight).intensity).toBe(0);
   });
 
-  it('draws the TASER arc for the frame it is set, jittered and then static under reduced flash', () => {
+  it('draws the CED arc for the frame it is set, jittered and then static under reduced flash', () => {
     const { vfx, camera, scene } = setup();
     const line = child(scene, 'vfx-arc') as THREE.Line;
     const pos = (): number[] => Array.from(line.geometry.getAttribute('position').array as Float32Array);

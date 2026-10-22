@@ -690,9 +690,9 @@ class Pass {
   private forceReason(level: string, resistance: string, v: ReturnType<typeof forceVerdict>): string {
     if (v.factors.includes('restrained')) return `Force beyond control holds used on a restrained subject (${level})`;
     if (v.factors.includes('lethal')) return 'Firearm used against a subject who was not a lethal threat';
-    if (v.factors.includes('cycles')) return 'TASER cycled more times than policy allows';
+    if (v.factors.includes('cycles')) return 'CED cycled more times than policy allows';
     if (v.factors.includes('display')) return `Firearm pointed at a ${resistance} subject`;
-    if (v.ruleIds[0] === this.rs.force.taser.riskRuleId) return `TASER used on a subject with a risk factor (${v.factors.join(', ')})`;
+    if (v.ruleIds[0] === this.rs.force.taser.riskRuleId) return `CED used on a subject with a risk factor (${v.factors.join(', ')})`;
     return `${level} used on a ${resistance} subject; policy allows up to ${v.maxAllowed}`;
   }
 

@@ -61,7 +61,7 @@ export function forceEvent(log: IncidentLog, id: number): ForceEvent {
   return e;
 }
 
-/** A log with a restrained suspect hit by the TASER: the standard excessive-force incident. */
+/** A log with a restrained suspect hit by the CED: the standard excessive-force incident. */
 export function forceLog(key = 'C-00001', opts: { cam?: boolean; level?: ForceEvent['level']; injury?: number } = {}): { log: IncidentLog; forceId: number } {
   const b = new LogBuilder(key, 'disturbance');
   if (opts.cam === false) b.cam(false);

@@ -55,7 +55,7 @@ describe('accuracy factor', () => {
     expect(plain - tired).toBeGreaterThan(30);
   });
 
-  it('factor 3 lowers the less-lethal and TASER hit rates too', () => {
+  it('factor 3 lowers the less-lethal and CED hit rates too', () => {
     for (const tool of ['lessLethal', 'taser'] as const) {
       const plain = hits(tool, 6, undefined);
       const tired = hits(tool, 6, () => 3);

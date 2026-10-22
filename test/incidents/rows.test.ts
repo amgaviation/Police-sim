@@ -454,14 +454,14 @@ describe('row force:applied', () => {
     applied(rig, { riskFactors: [] });
     const f = rig.of(K, 'force')[0];
     expect(f).toMatchObject({ forceId: 3, tool: 'taser', level: 'taser', resistance: 'active', hit: true, injury: 0.1, cycle: 1, distance: 4.5, restrained: false });
-    expect(rig.verdicts).toEqual([{ key: K, eventId: f?.id, verdict: 'justified', text: 'TASER on active resistance: within policy (GS-8.1)' }]);
+    expect(rig.verdicts).toEqual([{ key: K, eventId: f?.id, verdict: 'justified', text: 'CED on active resistance: within policy (GS-8.1)' }]);
   });
 
   it('judges risk factors, restrained subjects and displays under the active ruleset', () => {
     const rig = rigWithCall();
     applied(rig);
     expect(rig.verdicts[0]?.verdict).not.toBe('justified');
-    expect(rig.verdicts[0]?.text).toBe('TASER on active resistance: excessive (GS-8.4)');
+    expect(rig.verdicts[0]?.text).toBe('CED on active resistance: excessive (GS-8.4)');
     applied(rig, { tool: 'baton', level: 'baton', riskFactors: [], restrained: true });
     expect(rig.verdicts[1]?.text).toBe('Baton on active resistance: excessive (GS-8.2)');
     applied(rig, { tool: 'firearmDisplay', level: 'presence', resistance: 'compliant', riskFactors: [] });

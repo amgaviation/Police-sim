@@ -343,7 +343,7 @@ export function createPhase6Commands(deps: Phase6CommandDeps): Command[] {
       run: () => {
         session();
         deps.flir();
-        return deps.flirOn() ? 'FLIR on' : 'FLIR off';
+        return deps.flirOn() ? 'IR on' : 'IR off';
       },
     },
   ];

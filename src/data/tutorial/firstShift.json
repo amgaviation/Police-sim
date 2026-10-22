@@ -20,9 +20,9 @@
     {
       "id": "drive",
       "title": "Drive",
-      "text": "Accelerate {vehicle.accelerate}, brake {vehicle.brake}, steer {vehicle.steer}. Reach 30 km/h.",
+      "text": "Accelerate {vehicle.accelerate}, brake {vehicle.brake}, steer {vehicle.steer}. Reach 20 mph.",
       "hint": "The handbrake is {vehicle.handbrake}. The camera changes with {camera.toggle}.",
-      "until": { "probe": "speedKmh", "gte": 30 },
+      "until": { "probe": "speedKmh", "gte": 32.19 },
       "skippable": true
     },
     {

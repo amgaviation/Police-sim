@@ -19,9 +19,9 @@ export function flirHeadingText(yaw: number): string {
   return `HDG ${String(deg).padStart(3, '0')}° ${compassLabel(yaw)}`;
 }
 
-/** Mode label: 'FLIR WHT' (white hot) or 'FLIR BHOT' (black hot). */
+/** Mode label: 'IR WHT' (white hot) or 'IR BHOT' (black hot). */
 export function flirModeText(blackHot: boolean): string {
-  return blackHot ? 'FLIR BHOT' : 'FLIR WHT';
+  return blackHot ? 'IR BHOT' : 'IR WHT';
 }
 
 interface FlirDom {

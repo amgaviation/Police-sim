@@ -88,7 +88,9 @@ export function iaTriggers(
 
 function words(tool: string): string {
   if (tool === 'none' || tool === 'hands') return 'hands';
-  return (QUESTIONS.labels.tool[tool] ?? tool.replace(/([a-z0-9])([A-Z])/g, '$1 $2')).toLowerCase();
+  const label = QUESTIONS.labels.tool[tool] ?? tool.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+  // A label that is only an acronym ('CED') keeps its capitals mid-sentence.
+  return /^[A-Z]{2,}$/.test(label) ? label : label.toLowerCase();
 }
 
 /**

@@ -10,7 +10,7 @@ const parent = null as unknown as HTMLElement;
 describe('weaponChipText', () => {
   it('names the drawn weapon and hides the chip when holstered', () => {
     expect(weaponChipText({ weapon: 'sidearm' })).toBe('SIDEARM');
-    expect(weaponChipText({ weapon: 'taser' })).toBe('TASER');
+    expect(weaponChipText({ weapon: 'taser' })).toBe('CED');
     expect(weaponChipText({ weapon: 'none' })).toBe('');
     expect(weaponChipText(null)).toBe('');
     expect(weaponChipText(undefined)).toBe('');
@@ -86,7 +86,7 @@ describe('hudText Phase 3 fields', () => {
         pursuit: 'PURSUIT  Foot  suspect fleeing north',
       }),
     );
-    expect(t.weapon).toBe('TASER');
+    expect(t.weapon).toBe('CED');
     expect(t.contact).toBe('Jane Doe · hands up · 6 m');
     expect(t.sceneTitle).toBe('Wanted person');
     expect(t.sceneLines).toEqual(['Locate the subject', 'Make the arrest', '', '']);
